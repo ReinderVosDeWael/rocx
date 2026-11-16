@@ -1,0 +1,15 @@
+[package]
+name = "cmi-docx"
+version = "0.1.0"
+edition = "2024"
+description = "Declarative Word document generation inspired by CMI Docx"
+license = "LGPL-2.1-or-later"
+readme = "README.md"
+
+[dependencies]
+zip = { version = "2.4", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+roxmltree = "0.20"
+futures = { version = "0.3", default-features = false, features = ["std", "executor"] }

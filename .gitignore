@@ -1,0 +1,3 @@
+/target/
+/examples/*.docx
+__pycache__/
