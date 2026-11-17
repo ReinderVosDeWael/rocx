@@ -8,6 +8,9 @@ future design constraint. The intended direction is a declarative API, domain
 driven design, a functional core, direct OOXML generation, and few runtime
 dependencies.
 
+The follow-up [reorganization plan](REORGANIZATION.md) turns these findings into
+ordered implementation milestones and acceptance criteria.
+
 ## Assessment
 
 The current implementation is a reasonable small generator for its implemented

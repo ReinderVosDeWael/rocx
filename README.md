@@ -11,6 +11,8 @@ around DOCX domain concepts, functional transformations, and explicit effects.
 The current tests retain a reference baseline of CMI Docx 0.6.16 at revision
 [`3449b942034129ad74a28aeb253361035806e385`](https://github.com/childmindresearch/cmi-docx/tree/3449b942034129ad74a28aeb253361035806e385).
 
+- [Reorganization implementation plan](docs/REORGANIZATION.md): ordered milestones,
+  migration ownership, and acceptance criteria.
 - [Architecture review and proposed modularization](docs/ARCHITECTURE.md): concrete
   findings, domain boundaries, a functional pipeline, and staged improvements.
 - [OOXML specification map and coverage](docs/OOXML.md): edition-pinned ECMA
