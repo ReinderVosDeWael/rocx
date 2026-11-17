@@ -6,3 +6,4 @@ __pycache__/
 /python/rv_docx/*.so
 /python/rv_docx/*.pyd
 /.pytest_cache/
+/dist/

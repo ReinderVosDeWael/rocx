@@ -2,8 +2,10 @@
 
 Target: Child Mind Institute `cmi-docx` 0.6.16, revision
 `3449b942034129ad74a28aeb253361035806e385`. The goal is the declarative interface;
-Python objects, Python's imperative wrappers, and byte-identical ZIP archives
-are outside this target.
+Python's separate imperative wrappers and byte-identical ZIP archives are
+outside this target. The optional Python bindings additionally preserve the
+declarative constructor/dataclass interface and return editable `python-docx`
+objects; their contract and tests are in [PYTHON_BINDINGS.md](PYTHON_BINDINGS.md).
 
 ## Inventory
 

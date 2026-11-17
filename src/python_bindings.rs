@@ -315,12 +315,12 @@ fn paragraph(o: &Bound<'_, PyAny>) -> PyResult<Paragraph> {
         }
     };
     let heading = field!(o, "heading", Option<i64>);
-    if let Some(level) = heading {
-        if !(0..=9).contains(&level) {
-            return Err(PyKeyError::new_err(format!(
-                "no style with name 'Heading {level}'"
-            )));
-        }
+    if let Some(level) = heading
+        && !(0..=9).contains(&level)
+    {
+        return Err(PyKeyError::new_err(format!(
+            "no style with name 'Heading {level}'"
+        )));
     }
     result.heading = heading.map(|n| n as u8);
     result.style = field!(o, "style", Option<String>);
