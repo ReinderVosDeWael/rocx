@@ -1,135 +1,199 @@
 # cmi-docx (Rust)
 
-A first milestone toward a Rust implementation of CMI Docx's declarative API.
-It creates plain-text Word documents directly as Office Open XML, using the
-`Document → Section → Paragraph` tree.
+A declarative Rust DOCX generator implementing the CMI Docx document model, with
+async and conditional components inside the tree. It generates OOXML directly;
+Python and `python-docx` are not runtime dependencies.
+
+The compatibility target is CMI Docx 0.6.16 at revision
+[`3449b942034129ad74a28aeb253361035806e385`](https://github.com/childmindresearch/cmi-docx/tree/3449b942034129ad74a28aeb253361035806e385).
+See [COMPATIBILITY.md](COMPATIBILITY.md) for the complete inventory, units,
+verification, and deliberate differences.
+
+## Documents, paragraphs, and runs
 
 ```rust
-use cmi_docx::{Document, Paragraph, Section};
+use cmi_docx::{Document, Paragraph, Section, TextRun};
 
 async fn example() -> cmi_docx::Result<()> {
-let declaration = Document::new(vec![
-    Section::new(vec![
-        Paragraph::new("Hello, world!").into(),
-        Paragraph::new("A second paragraph.").into(),
-    ]).into(),
-]);
-
-let resolved = declaration.resolve().await?;
-resolved.save("hello.docx")?;
-let bytes = resolved.to_docx()?; // Render again without running producers again.
-Ok(())
+    let mut heading = Paragraph::new("Report");
+    heading.heading = Some(1);
+    let document = Document::new(vec![Section::new(vec![
+        heading.into(),
+        Paragraph::from_children(vec![
+            TextRun { bold: Some(true), ..TextRun::new("Hello, ") }.into(),
+            TextRun::new("world!").into(),
+        ]).into(),
+    ]).into()]);
+    let resolved = document.resolve().await?;
+    resolved.save("report.docx")?;
+    let bytes = resolved.to_docx()?; // Reuses resolved content and timestamps.
+    Ok(())
 }
 ```
 
-Resolution needs an executor; the library does not depend on a runtime. Saving
-uses synchronous filesystem I/O. The runnable examples use the development-only
-`futures` executor:
+Public structs preserve CMI's component and field names, using Rust enums for
+mixed block/inline children. Struct literals, constructors, and content setters
+are available. Paragraphs accept exactly one of `text` or `children`.
+`Paragraph::new(text)` and `Paragraph::from_children(runs)` establish that choice;
+`.with_text(...)` and `.with_children(...)` switch modes. An empty shorthand
+paragraph has no runs; an explicit empty `TextRun` remains a separate Word run.
 
-```sh
-cargo run --example plain -- /tmp/plain.docx
-cargo run --example async_text -- /tmp/async_text.docx
-cargo run --example conditional -- /tmp/conditional.docx
-```
+`TextRun` supports bold, italic, underline, font, size, RGB color, superscript,
+subscript, strike, all caps, small caps, and comments. Paragraphs support styles,
+headings, alignment, spacing, indentation, pagination controls, and comments.
+Use `Tab`, `Break`, and `ImageRun` as additional inline children.
 
-## Deferred and conditional content
-
-Public structs support struct literals as well as constructors and fluent setters:
+## Deferred and conditional components
 
 ```rust
-use cmi_docx::{Condition, Document, Paragraph, Section, Value};
+use cmi_docx::{Condition, Paragraph, TextRun, Value};
 
-let paragraph = Paragraph {
-    text: Value::future(async { "Fetched asynchronously".to_owned() }),
-    condition: Condition::lazy(|| true),
-};
-
-let document = Document::new(vec![
-    Section::default().with_children(Value::lazy(|| vec![
-        paragraph.into(),
-        Paragraph::new(Value::lazy(|| "Only computed if visible".into()))
-            .when(false).into(),
-    ])).into(),
-]);
+let paragraph = Paragraph::default().with_children(Value::lazy(|| vec![
+    TextRun::new(Value::future(async { "Fetched text".to_owned() })).into(),
+    TextRun::new(Value::lazy(|| "Only computed when visible".to_owned()))
+        .when(Condition::lazy(|| false)).into(),
+]));
 ```
 
-`Value<T>` supports immediate values, lazy producers, and futures. Its `lazy` and
-`future` constructors accept infallible producers; `try_lazy` and `try_future`
-preserve application errors. The enum variants can return another `Value<T>`
-for multi-stage resolution. Entire sections, a section's child list, individual
-blocks, and paragraph text can be deferred. Use `Value::future(async {
-Block::from(paragraph) })` for an asynchronous paragraph block.
+`Value<T>` has immediate, lazy, and async variants. `lazy` and `future` accept
+infallible producers; `try_lazy` and `try_future` retain application errors.
+Variants may yield another `Value<T>` for multi-stage resolution. Deferred
+captures must be `Send + 'static`; use owned captures or `Arc` for shared data.
+No particular async runtime is required. Rust 1.88 or newer is supported.
 
-Conditions are `true` by default. `.when(false)` or
-`.when(Condition::lazy(|| predicate()))` skips the component and its descendants
-before their deferred fields run. A deferred component must first be produced
-to inspect its condition; put the condition on its ancestor to skip producing
-the component itself.
+All components have a synchronous condition, true by default. A false condition
+skips deferred fields and descendants. A deferred component must first be
+produced to inspect its own condition; put a condition on its ancestor to skip
+producing the component itself. Independent text, comment, child, header, and
+footer futures resolve concurrently, preserving declaration order. Errors retain
+field paths, such as `sections[0].children[2].children[1].text`, and error sources.
 
-Resolution consumes the tree: producers and predicates are `FnOnce`, and futures
-are single-use. Each condition is evaluated once. Sibling branches resolve
-concurrently and their results retain declaration order. The first observed
-failure drops remaining futures. Deferred captures must be `Send + 'static`;
-capture owned values or an `Arc` rather than stack references. Resolved documents
-are immutable, `Clone`, `Send`, and `Sync`.
+Resolution consumes declarations: futures and `FnOnce` producers run once. The
+resolved tree is immutable, `Clone`, `Send`, and `Sync`, and can render repeatedly.
+With `use cmi_docx::Component`, components can resolve individually; conditional
+components return `Option<Resolved…>`. Components and documents also implement
+`IntoFuture`, allowing `TextRun::new("text").await` and `document.await`.
 
-Errors identify the failing field, for example
-`sections[0].children[2].text`, and retain producer errors as sources. Invalid XML
-1.0 characters are rejected during resolution, with their UTF-8 byte offset.
-No output file is opened before resolution and packaging succeed. The final
-filesystem write can still fail after creating or truncating a file.
+## Tables, images, and sections
 
-## Current compatibility
+```rust
+use cmi_docx::{Paragraph, Table, TableCell, TableRow};
 
-Reference: [`childmindresearch/cmi-docx` revision
-`3449b942034129ad74a28aeb253361035806e385`](https://github.com/childmindresearch/cmi-docx/tree/3449b942034129ad74a28aeb253361035806e385),
-package version 0.6.16. This is a tested subset, not full parity yet.
+let mut table = Table::new(vec![TableRow::new(vec![
+    TableCell::new(vec![Paragraph::new("Name").into()]).into(),
+    TableCell::new(vec![Paragraph::new("Value").into()]).into(),
+]).into()]);
+table.column_widths = Some(vec![2400, 4800]); // Twips; implies fixed layout.
+table.style = Some("Table Grid".into());
+```
 
-Supported: empty documents and paragraphs, ordered paragraphs and sections,
-Unicode, preserved spaces, tabs, line breaks, lazy and async content, and
-conditional sections and paragraphs. Each CR and LF produces a line break, as
-in `python-docx`, so CRLF becomes two line breaks. Sections use default next-page
-boundaries, with no boundary after the final included section.
+Tables support conditional/deferred rows and cells, nested blocks, fixed/autofit
+layouts, widths, horizontal and vertical merges, borders, cell shading, and
+vertical alignment. Short rows are padded to the maximum grid width. Entirely
+excluded/empty tables are omitted. Named paragraph and table styles support
+inheritance and all twelve conditional table regions, plus whole-table formatting.
 
-Formatting, `Paragraph.children`/inline components, metadata, templates,
-images, tables, headers/footers, and configurable section properties are deferred.
-The milestone emits no font, style, or page-layout settings; appearance uses the
-reader's defaults. The pinned Python package's default template supplies styles
-and page settings, so visual parity is not claimed in this milestone.
+`ImageRun::new(bytes)` embeds PNG, JPEG, GIF, BMP, or TIFF data.
+`ImageRun::from_path(path)` defers reading a file until resolution;
+`ImageRun::deferred(Value<ImageData>)` accepts lazy/async sources. Optional
+`ImageTransformation` dimensions are in points, preserve aspect ratio when only
+one is supplied, and otherwise respect embedded DPI. Images are deduplicated and
+carry accessibility metadata. No image codec or pixel decoder is used.
 
-Two deliberate resolution differences follow the agreed Rust contract: predicates
-run once, while the Python implementation can re-evaluate them; and excluded
-sections are removed before placing section breaks. The pinned implementation can
-leave a trailing section break when its final declared section is excluded. That
-artifact is not reproduced. Strict feature parity remains the overall target;
-these differences are recorded for the later compatibility review.
+`SectionProperties` configures page size, orientation, margins, numbering,
+columns, vertical alignment, first-page layout, and section break type.
+`Header` and `Footer` support the same block tree, including tables and images,
+with default, first-page, and even-page variants. Core metadata and comment-author
+defaults are fields on `Document`.
 
-## Packaging and verification
+## Templates
 
-The renderer writes three OPC parts: `[Content_Types].xml`, `_rels/.rels`, and
-`word/document.xml`. ZIP entries are stored without compression, keeping the
-dependency graph small. Fixed timestamps make repeated renders deterministic.
-The two direct runtime dependencies are `zip` (all optional features disabled)
-and `futures-util` (standard-library support only). XML parsing and a test/example
-executor are development dependencies; serialization and image libraries are
-not needed.
+```rust
+use cmi_docx::{DocumentTemplate, ResolvedDocument};
+
+fn apply_template(resolved: &ResolvedDocument) -> cmi_docx::Result<()> {
+    let mut template = DocumentTemplate::new("template.docx");
+    template.replacements = vec![("{{NAME}}".into(), "Alice".into())];
+    template.paragraph_index = Some(1);
+    resolved.save_with_template("result.docx", &template)
+}
+```
+
+Replacements apply in the supplied order to existing paragraph run text,
+including nested tables, headers, and footers. They can span runs and preserve
+surrounding formatting. New content is inserted after replacements; omit
+`paragraph_index` to append. Existing images, comments, styles, relationships,
+metadata, and unrelated ZIP parts are retained. Optional Word parts missing from
+minimal OPC templates are initialized as needed.
+
+## Verification and dependencies
 
 ```sh
 cargo test --all-targets
 cargo test --doc
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
+cargo run --example feature_parity -- /tmp/feature_parity.docx
 ```
 
-Tests parse the DOCX package and compare paragraph text, section counts, and break
-positions with checked-in XML generated by the pinned CMI source. Normal Rust
-tests run without Python or network access after dependencies are downloaded.
-To regenerate the reference fixtures, use Python 3.12+, `python-docx==1.2.0`,
-`lxml`, and an existing checkout at the exact reference revision:
+Automated file readback tests use the optional `python-tests` feature. Each test
+creates a real DOCX file through Rust's public API, then launches Python to open
+and verify it with `python-docx`. Install uv, then run:
 
 ```sh
-python tests/fixtures/generate_reference.py /path/to/cmi-docx
+uv sync --locked --group test
+cargo test --features python-tests --test python_docx
 ```
 
-Licensed under LGPL-2.1-or-later; see [LICENSE](LICENSE). This crate is an
-independent Rust implementation, inspired by the Child Mind Institute's package.
+Python is managed by uv using `.python-version`, `pyproject.toml`, and `uv.lock`.
+The Rust tests invoke `uv run --locked --group test` against this project, so they
+use its managed environment regardless of the current directory. Enabled tests
+fail with diagnostics when prerequisites are missing; they never silently skip.
+The normal Rust test suite does not require Python. No CMI checkout is needed
+for these tests, and Python only reads files generated by Rust.
+
+The readback cases cover empty documents, Unicode/whitespace/run boundaries,
+async and conditional content, formatting and styles, nested/merged tables,
+comments, metadata, headers/footers, all supported image formats and sizing,
+section layout, numbering, and template replacement/insertion. Python compares
+these with explicit expected strings and property values, rather than merely
+checking that a file opens. It also verifies the image payload attached to each
+shape and the text covered by each comment, plus cell shading, borders, and
+conditional table style formatting.
+
+Four mutation tests exercise 24 targeted changes to otherwise readable files:
+lost Unicode/whitespace/run boundaries, changed formatting/styles/table values,
+incorrect image references, misplaced comment anchors, altered metadata/layout,
+and broken template replacement/preservation. Each must open successfully and
+then fail on its specific expected-value assertion; parser/setup failures do not
+count as successful rejection. The verifier uses `unittest` assertions, which
+remain active under Python's optimization mode.
+
+Other examples: `plain`, `async_text`, `conditional`, and `text_runs`.
+`feature_parity` combines formatting, comments, styles, images, nested/merged
+tables, metadata, headers, footers, and multiple page orientations.
+
+Rust tests compare OOXML and run boundaries with fixtures from the pinned Python
+implementation, check all generated relationships, and cover async resolution,
+conditional exclusion, images, style regions, layout, and templates. An optional
+live readback comparison uses the same uv environment and an existing CMI
+checkout at the pinned revision:
+
+```sh
+uv run --locked --group test python tests/fixtures/generate_features.py /path/to/cmi-docx /tmp/feature_parity.docx
+```
+
+The library uses four direct dependencies: `zip`, `flate2` (the ZIP backend),
+`roxmltree` (template/part parsing), and `futures-util`. Optional ZIP codecs and
+unrelated features are disabled. XML writing, timestamps, and image header
+parsing use internal code and the standard library. There is no serialization,
+async runtime, date-time, or image-decoding dependency. ZIP output is compressed
+and uses fixed entry timestamps; document timestamps are captured at resolution.
+
+Saving builds the package before opening the destination, so resolution and
+rendering failures do not overwrite files. Filesystem failures during the final
+synchronous write may still leave a partial file.
+
+The default styles, theme, and page settings come from a bundled blank
+python-docx 1.2.0 template, with its [MIT notice](assets/PYTHON-DOCX-LICENSE).
+Library code is LGPL-2.1-or-later; see [LICENSE](LICENSE).

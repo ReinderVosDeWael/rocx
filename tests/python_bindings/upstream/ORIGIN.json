@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/childmindresearch/cmi-docx",
+  "revision": "3449b942034129ad74a28aeb253361035806e385",
+  "changes": "Only cmi_docx imports are replaced with rv_docx imports.",
+  "sha256": {
+    "test_async.py": "28ff5f37223e656ea644ff2f735978178ec115726937fcc2a7091fd7432e6854",
+    "test_condition.py": "d8d8260bd2b712921f4ddcee4ffe5e56db57169e3c61180caa107582fe8ba8ed",
+    "test_declarative_basic.py": "c5223c96c0cbe5e5fa5d7a7a96de57268efb476127201b001a87e641f94a3954",
+    "test_declarative_styles.py": "0c89829a74de33bf0970ba3fea49477fb9c75bfe5b42d0ead8b4684209cf5329",
+    "test_declarative_table.py": "1b751616850e1bab1fe1e31d460127d3d0b5b6dbf464c7220e4a47c0c2ee639b",
+    "test_section_margins.py": "3dced7073199cd26a281c50ff5de2abaaf87b728d6c543154a81b95956448b20",
+    "test_section_properties.py": "7fa24bfe3200878cddb666b7c609d9a6ce9a4b752588a35acb753b293ce2781c",
+    "test_template_replacement.py": "939412a7a674287c2e608936865ab4cab4848eab9c89b6cc9b8819c28a0b2067"
+  }
+}

@@ -1,3 +1,8 @@
 /target/
 /examples/*.docx
 __pycache__/
+/.venv/
+
+/python/rv_docx/*.so
+/python/rv_docx/*.pyd
+/.pytest_cache/

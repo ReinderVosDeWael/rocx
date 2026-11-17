@@ -1,0 +1,144 @@
+use crate::xml::{Node, val};
+use crate::*;
+pub(crate) fn color(c: [u8; 3]) -> String {
+    format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2])
+}
+fn number(value: f64, factor: f64) -> Result<i64> {
+    if !value.is_finite() || value.abs() > 1e9 {
+        return Err(Error::Validation(
+            "formatting lengths must be finite and within OOXML limits".into(),
+        ));
+    }
+    Ok((value * factor).round() as i64)
+}
+pub(crate) fn run(f: &RunFormat) -> Result<Node> {
+    let mut n = Node::new("w:rPr");
+    if let Some(font) = &f.font {
+        n.push(
+            Node::new("w:rFonts")
+                .attr("w:ascii", font)
+                .attr("w:hAnsi", font),
+        );
+    }
+    for (k, v) in [
+        ("b", f.bold),
+        ("i", f.italic),
+        ("caps", f.all_caps),
+        ("smallCaps", f.small_caps),
+        ("strike", f.strike),
+    ] {
+        if let Some(v) = v {
+            if matches!(k, "caps" | "smallCaps" | "strike") && !v {
+                continue;
+            }
+            n.push(val(k, if v { "1" } else { "0" }));
+        }
+    }
+    if let Some(c) = f.color {
+        n.push(val("color", color(c)));
+    }
+    if let Some(size) = f.size {
+        if size < 0. {
+            return Err(Error::Validation("font size cannot be negative".into()));
+        }
+        n.push(val("sz", number(size, 2.)?));
+    }
+    if let Some(u) = f.underline {
+        n.push(val("u", if u { "single" } else { "none" }));
+    }
+    if f.subscript == Some(true) {
+        n.push(val("vertAlign", "subscript"));
+    } else if f.superscript == Some(true) {
+        n.push(val("vertAlign", "superscript"));
+    }
+    Ok(n)
+}
+pub(crate) fn paragraph(f: &ParagraphFormat, indent_factor: f64) -> Result<Node> {
+    let mut n = Node::new("w:pPr");
+    if let Some(style) = &f.style {
+        n.push(val("pStyle", style));
+    }
+    if let Some(heading) = f.heading {
+        if heading > 9 {
+            return Err(Error::Validation("heading must be in 0..=9".into()));
+        }
+        if heading > 0 {
+            n.replace(val("pStyle", format!("Heading{heading}")));
+        }
+    }
+    for (k, v) in [
+        ("keepNext", f.keep_with_next),
+        ("keepLines", f.keep_together),
+        ("pageBreakBefore", f.page_break_before),
+        ("widowControl", f.widow_control),
+    ] {
+        if let Some(v) = v {
+            n.push(val(k, if v { "1" } else { "0" }));
+        }
+    }
+    let mut spacing = Node::new("w:spacing");
+    for (k, v) in [("before", f.spacing_before), ("after", f.spacing_after)] {
+        if let Some(v) = v {
+            if v < 0. {
+                return Err(Error::Validation(
+                    "paragraph spacing cannot be negative".into(),
+                ));
+            }
+            spacing.set(format!("w:{k}"), number(v, 20.)?);
+        }
+    }
+    if let Some(line) = f.line_spacing {
+        spacing.set("w:line", number(line, 240.)?);
+        spacing.set("w:lineRule", "auto");
+    }
+    if !spacing.attrs.is_empty() {
+        n.push(spacing);
+    }
+    let mut ind = Node::new("w:ind");
+    for (k, v) in [("left", f.left_indent), ("right", f.right_indent)] {
+        if let Some(v) = v {
+            ind.set(format!("w:{k}"), number(v, indent_factor)?);
+        }
+    }
+    if let Some(first) = f.first_line_indent {
+        ind.set(
+            if first < 0. {
+                "w:hanging"
+            } else {
+                "w:firstLine"
+            },
+            number(first.abs(), indent_factor)?,
+        );
+    }
+    if !ind.attrs.is_empty() {
+        n.push(ind);
+    }
+    if let Some(a) = f.alignment {
+        n.push(val("jc", a.xml()));
+    }
+    Ok(n)
+}
+pub(crate) fn shading(c: [u8; 3]) -> Node {
+    Node::new("w:shd")
+        .attr("w:val", "clear")
+        .attr("w:color", "auto")
+        .attr("w:fill", color(c))
+}
+pub(crate) fn merge_properties(target: &mut Node, source: Node) {
+    for item in source.children {
+        if let crate::xml::Content::Element(n) = item {
+            let name = n.name.clone();
+            if let Some(existing) = target.child_mut(&name) {
+                if n.children.is_empty() {
+                    for (k, v) in n.attrs {
+                        existing.set(k, v);
+                    }
+                } else {
+                    target.replace(n);
+                }
+            } else {
+                target.push(n);
+            }
+        }
+    }
+}

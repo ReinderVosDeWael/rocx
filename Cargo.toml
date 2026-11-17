@@ -2,14 +2,26 @@
 name = "cmi-docx"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Declarative Word document generation inspired by CMI Docx"
 license = "LGPL-2.1-or-later"
 readme = "README.md"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+# Enables integration tests requiring an external Python + python-docx install.
+python-tests = []
+python-bindings = ["dep:pyo3", "dep:futures-executor"]
+
 [dependencies]
-zip = { version = "2.4", default-features = false }
+pyo3 = { version = "0.27", optional = true, features = ["abi3-py312"] }
+futures-executor = { version = "0.3", optional = true }
+zip = { version = "2.4", default-features = false, features = ["deflate-flate2", "flate2"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+roxmltree = "0.20"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-roxmltree = "0.20"
 futures = { version = "0.3", default-features = false, features = ["std", "executor"] }

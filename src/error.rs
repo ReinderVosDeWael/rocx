@@ -7,6 +7,8 @@ pub enum Error {
     Producer(Box<dyn error::Error + Send + Sync>),
     At { path: String, source: Box<Error> },
     InvalidXmlCharacter { character: char, byte_offset: usize },
+    InvalidParagraphContent,
+    Validation(String),
     Io(io::Error),
     Zip(zip::result::ZipError),
 }
@@ -38,6 +40,7 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Validation(message) => f.write_str(message),
             Self::Producer(source) => write!(f, "content producer failed: {source}"),
             Self::At { path, source } => write!(f, "{path}: {source}"),
             Self::InvalidXmlCharacter {
@@ -50,6 +53,9 @@ impl fmt::Display for Error {
             ),
             Self::Io(source) => write!(f, "document I/O failed: {source}"),
             Self::Zip(source) => write!(f, "DOCX packaging failed: {source}"),
+            Self::InvalidParagraphContent => {
+                write!(f, "paragraph requires exactly one of text or children")
+            }
         }
     }
 }
@@ -61,7 +67,9 @@ impl error::Error for Error {
             Self::At { source, .. } => source.as_ref(),
             Self::Io(source) => source,
             Self::Zip(source) => source,
-            Self::InvalidXmlCharacter { .. } => return None,
+            Self::InvalidXmlCharacter { .. }
+            | Self::InvalidParagraphContent
+            | Self::Validation(_) => return None,
         })
     }
 }

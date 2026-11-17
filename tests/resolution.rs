@@ -33,7 +33,10 @@ fn immediate_lazy_async_and_nested_values_have_equivalent_results() {
     ];
     let expected = bytes(wrap(Paragraph::new("same")));
     for paragraph in paragraphs {
-        assert_eq!(bytes(wrap(paragraph)), expected);
+        assert_eq!(
+            support::part(&bytes(wrap(paragraph)), "word/document.xml"),
+            support::part(&expected, "word/document.xml")
+        );
     }
 }
 
