@@ -1,3 +1,10 @@
+//! Package parts, relationships, content types, and ZIP I/O.
+//!
+//! References: ECMA-376 Part 2 (2021), §§6.2 (parts), 6.4 (relative
+//! references), 6.5 (relationships), and 7.3 (ZIP mapping).
+//! [Official Part 2](https://ecma-international.org/wp-content/uploads/ECMA-376-2_5th_edition_december_2021.zip).
+//! Word-specific default seeding is a current implementation concern here;
+//! it is not an OPC requirement.
 use crate::xml::{NS, Node};
 use crate::*;
 use std::{

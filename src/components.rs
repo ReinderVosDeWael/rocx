@@ -1,3 +1,8 @@
+//! Inline, image, comment, header, and footer declarations and resolved values.
+//!
+//! References: ECMA-376 Part 1 (2016), §§17.10 (headers/footers), 17.13.4
+//! (comments), 20.2 (pictures), and 20.4 (WordprocessingML drawings).
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 use crate::model::{ResolvedInlineKind, ResolvedTextRun};
 use crate::*;
 

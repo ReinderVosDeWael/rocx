@@ -14,6 +14,14 @@
 //! ```
 //! Resolution consumes producers once. Resolved documents can be rendered repeatedly.
 //! No runtime is required by this crate; poll resolution with your chosen executor.
+//!
+//! CMI inspired the initial interface; API identity is not a future requirement.
+//! OOXML vocabulary and packaging are specified in
+//! [ECMA-376](https://ecma-international.org/publications-and-standards/standards/ecma-376/).
+//! The repository's `docs/OOXML.md` maps implemented features to edition-specific
+//! clauses; `docs/ARCHITECTURE.md` records the proposed domain-driven direction.
+//! Implemented features and reference comparisons do not establish full OOXML
+//! conformance.
 
 mod error;
 mod model;

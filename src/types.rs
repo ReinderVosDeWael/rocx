@@ -1,4 +1,9 @@
-//! Formatting, style, section and numbering definitions. Lengths follow CMI units.
+//! Formatting, style, section and numbering values in the current authoring API.
+//!
+//! Current public lengths follow the initial CMI-inspired units. Wire units and
+//! lexical values are defined by ECMA-376 Part 1 (2016), including §§17.18.42
+//! (half-points), 22.9.2.14 (twips), and 22.9.2.15 (universal measurements).
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Alignment {

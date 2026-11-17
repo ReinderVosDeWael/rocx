@@ -1,4 +1,11 @@
-//! Small owned XML tree used for package parts and lossless retention of unrelated parts.
+//! Owned XML tree for edited package parts; imported XML is normalized.
+//!
+//! Untouched part payloads are retained by the package layer. Parsing and
+//! rewriting XML does not guarantee lossless preservation of unknown markup.
+//! XML character/name rules: [XML 1.0](https://www.w3.org/TR/REC-xml/).
+//! Namespace identity/scoping: [Namespaces in XML](https://www.w3.org/TR/REC-xml-names/).
+//! Compatibility markup: ECMA-376 Part 3 (2015), §§7–9.
+//! [Official Part 3](https://ecma-international.org/wp-content/uploads/ECMA-376-3_5th_edition_december_2015.zip).
 use crate::{Error, Result};
 
 pub(crate) const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";

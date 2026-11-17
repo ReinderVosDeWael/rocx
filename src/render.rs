@@ -1,3 +1,10 @@
+//! WordprocessingML serialization and package assembly.
+//!
+//! References: ECMA-376 Part 1 (2016), §§17.3 (paragraphs/runs), 17.4
+//! (tables), 17.6 (sections), 17.10 (headers/footers), 17.13.4 (comments),
+//! and 20.4 (WordprocessingML drawings).
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
+//! These citations identify the relevant vocabulary, not full conformance.
 use crate::model::ResolvedInlineKind;
 use crate::package::Package;
 use crate::xml::{Content, Node, val};

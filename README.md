@@ -1,14 +1,25 @@
-# cmi-docx (Rust)
+# rv-docx-rs
 
-A declarative Rust DOCX generator implementing the CMI Docx document model, with
-async and conditional components inside the tree. It generates OOXML directly;
-Python and `python-docx` are not runtime dependencies of the Rust crate. Optional
-Python bindings expose the CMI declarative interface and use the Rust renderer.
+A declarative Rust DOCX generator with async and conditional components inside
+its document tree. It generates OOXML directly; Python and `python-docx` are not
+runtime dependencies of the Rust crate. Optional Python bindings use the Rust
+renderer.
 
-The compatibility target is CMI Docx 0.6.16 at revision
+CMI Docx guided the initial interface. Its API and incidental behavior are not
+requirements for future development: the direction is a declarative API built
+around DOCX domain concepts, functional transformations, and explicit effects.
+The current tests retain a reference baseline of CMI Docx 0.6.16 at revision
 [`3449b942034129ad74a28aeb253361035806e385`](https://github.com/childmindresearch/cmi-docx/tree/3449b942034129ad74a28aeb253361035806e385).
-See [COMPATIBILITY.md](COMPATIBILITY.md) for the complete inventory, units,
-verification, and deliberate differences.
+
+- [Architecture review and proposed modularization](docs/ARCHITECTURE.md): concrete
+  findings, domain boundaries, a functional pipeline, and staged improvements.
+- [OOXML specification map and coverage](docs/OOXML.md): edition-pinned ECMA
+  references, clause mappings, current limitations, and contribution guidance.
+- [Current compatibility inventory](COMPATIBILITY.md): implemented behavior,
+  units, verification, and differences from the original CMI reference.
+
+The architecture document describes proposals; this documentation update does
+not implement a new module layout or change the public API.
 
 ## Python bindings
 

@@ -1,11 +1,18 @@
 # Declarative compatibility
 
-Target: Child Mind Institute `cmi-docx` 0.6.16, revision
-`3449b942034129ad74a28aeb253361035806e385`. The goal is the declarative interface;
+Historical reference: Child Mind Institute `cmi-docx` 0.6.16, revision
+`3449b942034129ad74a28aeb253361035806e385`. This page records the current
+implemented surface and existing reference tests. CMI compatibility is not a
+future API constraint or a claim of full DOCX support. The direction is a
+pleasant declarative interface grounded in the DOCX domain; see the
+[architecture review](docs/ARCHITECTURE.md) and
+[OOXML specification map](docs/OOXML.md).
+
 Python's separate imperative wrappers and byte-identical ZIP archives are
-outside this target. The optional Python bindings additionally preserve the
-declarative constructor/dataclass interface and return editable `python-docx`
-objects; their contract and tests are in [PYTHON_BINDINGS.md](PYTHON_BINDINGS.md).
+outside the original comparison. Current optional Python bindings preserve the
+initial declarative constructor/dataclass interface and return editable
+`python-docx` objects; their contract and tests are in
+[PYTHON_BINDINGS.md](PYTHON_BINDINGS.md). No behavior is changed by this review.
 
 ## Inventory
 
@@ -138,6 +145,6 @@ DPI handling, fixed/autofit widths, the additional declared section properties,
 async field concurrency and exclusions, numbering, cross-run template
 replacement, nested stories, insertion positions, existing comments/media,
 unrelated ZIP parts, minimal templates, UTF-8/UTF-16 XML, invalid inputs, and failure-safe output.
-These tests establish parity for the declared feature surface and the recorded
-Rust contracts; visual pagination across different Word applications is not
-asserted byte-for-byte.
+These tests establish the recorded Rust contracts and selected comparisons
+with the historical reference. They do not establish full OOXML conformance or
+identical visual pagination across different Word applications.

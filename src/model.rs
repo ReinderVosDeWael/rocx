@@ -1,3 +1,9 @@
+//! Current declarative document model and resolved snapshots.
+//!
+//! Relevant domain vocabulary: ECMA-376 Part 1 (2016), §§17.2 (main story),
+//! 17.3 (paragraphs/runs), and 17.6 (sections).
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
+//! The API is a selected authoring model, not a complete schema representation.
 use std::path::Path;
 
 use futures_util::future::try_join_all;

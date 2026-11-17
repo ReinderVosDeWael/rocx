@@ -1,3 +1,9 @@
+//! Template text edits; replacement boundaries are library policy.
+//!
+//! Underlying text vocabulary: ECMA-376 Part 1 (2016), §§17.3.3.31 (`t`)
+//! and 17.3 (paragraph/run content). Fields and hyperlinks have additional
+//! structure in §17.16; a paragraph-wide text edit is not a general field editor.
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 use crate::xml::{Content, Node};
 use crate::*;
 /// Replace spans in paragraph run text without flattening unrelated formatting.

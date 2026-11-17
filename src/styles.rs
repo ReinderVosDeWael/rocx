@@ -1,3 +1,8 @@
+//! Serialize style definitions and numbering resources.
+//!
+//! References: ECMA-376 Part 1 (2016), §§17.7 (styles), 17.9 (numbering),
+//! 11.3.12 (Style Definitions Part), and 11.3.11 (Numbering Definitions Part).
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 use crate::package::Package;
 use crate::xml::{Node, val};
 use crate::*;

@@ -1,9 +1,15 @@
-# Python bindings and CMI parity
+# Python bindings and the current reference interface
 
 The `rv-docx-rs` Python distribution exposes `rv_docx.declarative`. Its optional
 PyO3 extension calls the existing Rust renderer. There is no runtime dependency
 on CMI's package or renderer. `python-docx==1.2.0` supplies the enum types and
 editable document returned by `to_docx()`, and reads the native output.
+
+The CMI signature comparisons below document the current release baseline, not
+a requirement to preserve that API indefinitely. Future development follows the
+[domain-driven architecture direction](docs/ARCHITECTURE.md); OOXML mappings and
+current format limits are tracked in the [standards map](docs/OOXML.md). This
+review changes documentation only; current constructors and behavior still apply.
 
 ## Supported interface
 

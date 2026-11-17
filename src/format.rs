@@ -1,3 +1,10 @@
+//! Encode the implemented run and paragraph formatting properties.
+//!
+//! References: ECMA-376 Part 1 (2016), §§17.3.1.26 (`pPr`), 17.3.2.28
+//! (`rPr`), 17.3.1.33 (paragraph spacing), and 17.3.2.38 (font size).
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
+//! Public units are converted to wire units here; implementation limits and
+//! historical compatibility behavior are not necessarily specification rules.
 use crate::xml::{Node, val};
 use crate::*;
 pub(crate) fn color(c: [u8; 3]) -> String {

@@ -1,3 +1,8 @@
+//! Table declarations, resolution, and resolved grid content.
+//!
+//! References: ECMA-376 Part 1 (2016), §17.4 (tables), §17.4.17
+//! (`gridSpan`), and §17.4.84 (`vMerge`).
+//! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 use crate::*;
 use futures_util::future::{BoxFuture, try_join_all};
 #[derive(Debug, Default)]
