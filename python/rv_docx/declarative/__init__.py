@@ -1,6 +1,6 @@
 """Declarative API for creating Word documents."""
 
-from rv_docx.declarative.base import Component
+from rv_docx.declarative.base import Component, DeferredProperty
 from rv_docx.declarative.document import Document, DocumentTemplate
 from rv_docx.declarative.image import ImageRun
 from rv_docx.declarative.paragraph import Break, Paragraph, Tab, TextRun
@@ -29,6 +29,7 @@ __all__ = [
     "Break",
     "CellBorder",
     "Component",
+    "DeferredProperty",
     "Document",
     "DocumentTemplate",
     "Footer",

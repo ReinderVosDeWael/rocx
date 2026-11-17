@@ -1,5 +1,14 @@
 use crate::{Error, Result};
-use std::{fmt, future::Future, pin::Pin};
+use futures_util::{
+    FutureExt,
+    future::{BoxFuture, Shared},
+};
+use std::{
+    fmt,
+    future::{Future, IntoFuture},
+    pin::Pin,
+    sync::Arc,
+};
 
 /// A value stored directly in the tree, produced lazily, or fetched asynchronously.
 ///
@@ -56,6 +65,83 @@ impl<T> Value<T> {
                 Self::Async(future) => future.await?,
             };
         }
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> Value<T> {
+    /// Share this property's producer with other fields without starting it.
+    /// Every consumer receives a clone of the same result.
+    pub fn deferred(self) -> Deferred<T> {
+        Deferred::new(self)
+    }
+}
+
+/// A reusable, lazy dependency on a property value.
+///
+/// Put a clone into the source field, and await another clone from dependent
+/// producers. The producer runs once, regardless of declaration order. No
+/// executor or background task is created; consumers poll the shared future.
+/// Values must be cloneable because the Rust tree owns each resolved field.
+/// A handle refers to its producer, independently of component conditions.
+///
+/// ```
+/// use cmi_docx::{Error, Value};
+/// # futures::executor::block_on(async {
+/// let count = Value::future(async { 42_u64 }).deferred();
+/// let dependency = count.clone();
+/// let summary = Value::try_future(async move {
+///     Ok::<_, Error>(format!("Count: {}", dependency.await?))
+/// });
+/// assert_eq!(summary.resolve().await?, "Count: 42");
+/// assert_eq!(count.await?, 42);
+/// # Ok::<(), Error>(())
+/// # }).unwrap();
+/// ```
+pub struct Deferred<T> {
+    future: Shared<BoxFuture<'static, std::result::Result<T, Arc<Error>>>>,
+}
+
+impl<T> Clone for Deferred<T> {
+    fn clone(&self) -> Self {
+        Self {
+            future: self.future.clone(),
+        }
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> Deferred<T> {
+    pub fn new(value: Value<T>) -> Self {
+        Self {
+            future: async move { value.resolve().await.map_err(Arc::new) }
+                .boxed()
+                .shared(),
+        }
+    }
+
+    /// Await the cached property result, preserving shared producer errors.
+    pub async fn resolve(&self) -> Result<T> {
+        self.future.clone().await.map_err(Error::Shared)
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoFuture for Deferred<T> {
+    type Output = Result<T>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        async move { self.resolve().await }.boxed()
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> From<Deferred<T>> for Value<T> {
+    fn from(value: Deferred<T>) -> Self {
+        Self::Async(async move { value.await.map(Self::Ready) }.boxed())
+    }
+}
+
+impl<T> fmt::Debug for Deferred<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Deferred(..)")
     }
 }
 

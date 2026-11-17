@@ -131,6 +131,38 @@ fn python_reads_rust_text_runs_whitespace_and_async_conditions() {
 }
 
 #[test]
+fn python_reads_rust_shared_property_dependencies() {
+    let temp = Temp::new();
+    let path = temp.path("dependencies.docx");
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let result = Value::future(async move {
+        count.fetch_add(1, Ordering::SeqCst);
+        "42 λ".to_owned()
+    })
+    .deferred();
+    let text = result.clone();
+    let comment = result.clone();
+    let summary = Paragraph {
+        comment_text: Some(Value::try_future(async move {
+            Ok::<_, Error>(format!("Source: {}", comment.await?))
+        })),
+        comment_author: Some(Value::future(async { "Ada".to_owned() }).deferred().into()),
+        ..Paragraph::new(Value::try_future(async move {
+            Ok::<_, Error>(format!("The result is {}", text.await?))
+        }))
+    };
+    save(
+        Document::new(vec![
+            Section::new(vec![summary.into(), Paragraph::new(result).into()]).into(),
+        ]),
+        &path,
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    verify("dependencies", &path, None);
+}
+
+#[test]
 fn python_reads_rust_formatting_styles_tables_comments_and_sections() {
     let temp = Temp::new();
     let path = temp.path("rich.docx");

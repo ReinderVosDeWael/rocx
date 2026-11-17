@@ -4,7 +4,7 @@ import io
 import os
 import zipfile
 
-from .base import Component
+from .base import Component, DeferredProperty, _gather, _resolve_property
 
 @dataclasses.dataclass
 class DocumentTemplate:
@@ -13,6 +13,14 @@ class DocumentTemplate:
     paragraph_index: int | None = None
 
 class Document:
+    _deferred_fields = (
+        "sections", "creator", "title", "subject", "description", "keywords",
+        "category", "comments", "version", "comment_author", "styles", "numbering",
+    )
+
+    def deferred(self, name: str) -> DeferredProperty:
+        return DeferredProperty(self, name)
+
     def __init__(self, sections, creator=None, title=None, subject=None,
                  description=None, keywords=None, category=None, comments=None,
                  version=None, comment_author=None, styles=None, numbering=None):
@@ -36,10 +44,8 @@ class Document:
         return await Component.resolve(self)
 
     async def _resolve_fields(self):
-        from .base import _gather, resolve_value
         self._active = True
-        values = await _gather(resolve_value(value) for value in [self.sections, self.styles, self.numbering])
-        self.sections, self.styles, self.numbering = values
+        await _gather(_resolve_property(self, name) for name in self._deferred_fields)
         return self
 
     async def to_bytes(self, template=None):

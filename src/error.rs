@@ -5,8 +5,16 @@ use std::{error, fmt, io};
 #[non_exhaustive]
 pub enum Error {
     Producer(Box<dyn error::Error + Send + Sync>),
-    At { path: String, source: Box<Error> },
-    InvalidXmlCharacter { character: char, byte_offset: usize },
+    /// A cached producer error shared by deferred property consumers.
+    Shared(std::sync::Arc<Error>),
+    At {
+        path: String,
+        source: Box<Error>,
+    },
+    InvalidXmlCharacter {
+        character: char,
+        byte_offset: usize,
+    },
     InvalidParagraphContent,
     Validation(String),
     Io(io::Error),
@@ -32,6 +40,7 @@ impl Error {
     pub fn path(&self) -> Option<&str> {
         match self {
             Self::At { path, .. } => Some(path),
+            Self::Shared(source) => source.path(),
             _ => None,
         }
     }
@@ -40,6 +49,7 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Shared(source) => source.fmt(f),
             Self::Validation(message) => f.write_str(message),
             Self::Producer(source) => write!(f, "content producer failed: {source}"),
             Self::At { path, source } => write!(f, "{path}: {source}"),
@@ -63,6 +73,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         Some(match self {
+            Self::Shared(source) => source.as_ref(),
             Self::Producer(source) => source.as_ref(),
             Self::At { source, .. } => source.as_ref(),
             Self::Io(source) => source,

@@ -25,15 +25,15 @@ pub use model::{
     Block, BlockChildren, Document, Inline, InlineChildren, Paragraph, ResolvedDocument,
     ResolvedParagraph, ResolvedSection, ResolvedTextRun, Section, TextRun,
 };
-pub use value::{Condition, Value};
+pub use value::{Condition, Deferred, Value};
 
 /// Component imports corresponding to Python's `cmi_docx.declarative` module.
 pub mod declarative {
     pub use crate::types::*;
     pub use crate::{
-        Block, BlockChildren, Break, Component, Condition, Document, Footer, Header, ImageData,
-        ImageRun, Inline, InlineChildren, Paragraph, Section, Tab, Table, TableCell, TableRow,
-        TextRun, Value,
+        Block, BlockChildren, Break, Component, Condition, Deferred, Document, Footer, Header,
+        ImageData, ImageRun, Inline, InlineChildren, Paragraph, Section, Tab, Table, TableCell,
+        TableRow, TextRun, Value,
     };
 }
 

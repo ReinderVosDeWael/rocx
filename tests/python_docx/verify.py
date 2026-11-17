@@ -92,6 +92,13 @@ class Readback(unittest.TestCase):
         )
         self.assertIs(paragraph.runs[0].bold, True)
 
+    def test_dependencies(self):
+        self.assertEqual([p.text for p in self.document.paragraphs],
+                         ["The result is 42 λ", "42 λ"], "dependencies.paragraphs.text")
+        self.assertEqual([(c.text, c.author) for c in self.document.comments],
+                         [("Source: 42 λ", "Ada")], "dependencies.comment.content")
+        self.assert_comment_spans({"0": "The result is 42 λ"})
+
     def test_rich(self):
         document = self.document
         self.assertEqual(
@@ -281,7 +288,7 @@ class Readback(unittest.TestCase):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("case", choices=["empty", "text", "rich", "images", "layout", "template"])
+    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template"])
     parser.add_argument("document", type=Path)
     parser.add_argument("--source", type=Path)
     arguments = parser.parse_args()

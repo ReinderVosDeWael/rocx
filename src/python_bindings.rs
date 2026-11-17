@@ -521,6 +521,7 @@ fn rust_error(error: Error) -> PyErr {
         match error {
             Error::Io(e) => Some(e.kind()),
             Error::At { source, .. } => io(source),
+            Error::Shared(source) => io(source),
             _ => None,
         }
     }

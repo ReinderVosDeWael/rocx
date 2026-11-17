@@ -66,6 +66,15 @@ types; deferred text, comments, child lists, and components use `Value<T>`.
 Python's incidental ability to assign arbitrary dynamic types to any dataclass
 field is not a Rust API guarantee.
 
+Dependency references extend the pinned interface. Rust's `Value<T>::deferred()`
+shares a cloneable value producer across fields and async consumers, without
+adding dependencies. Python's `component.deferred("field_name")` and
+`DeferredProperty(owner, "field_name")` reference any resolvable declaration
+field, share work within a resolution pass, and reject cyclic waits. These
+references resolve the selected field without waiting for the whole component;
+Python also resolves document metadata asynchronously. See the examples and
+condition/ownership rules in [README.md](README.md#dependencies-between-properties).
+
 Invalid paragraph content, illegal XML characters, invalid image headers,
 width/grid mismatches, unknown styles, duplicate table styles, non-finite
 formatting, and invalid package parts return errors. Text errors identify the

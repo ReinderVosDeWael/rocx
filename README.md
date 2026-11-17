@@ -58,6 +58,62 @@ enables optional `python-bindings` and PyO3 extension features. Default Cargo
 builds do not pull in PyO3 or require Python. uv watches Rust, Python, and asset
 files so source changes rebuild the editable extension.
 
+## Dependencies between properties
+
+In Python, `component.deferred("field_name")` returns an awaitable reference to
+the resolved field. Assign it to another field, or await it inside an async
+producer. This works for every resolvable declaration field, including text,
+comments, formatting, image data, children, section properties, and document
+metadata. `DeferredProperty(owner, "field_name")` also supports plain declaration
+dataclasses such as `SectionProperties` and style definitions.
+
+```python
+source = Paragraph(text=asyncio.sleep(0, result="42"))
+
+async def summarize():
+    result = await source.deferred("text")
+    return f"The result is {result}"
+
+summary = Paragraph(text=summarize())
+document = Document([Section(children=[summary, source])])
+await document.save("report.docx")
+```
+
+References wait for the selected field, rather than the entire component.
+Declaration order does not affect dependency resolution, and consumers in a
+resolution pass share the producer's result. Conditions still guard source
+fields: referencing an excluded source raises `ValueError`. Hidden consumers
+do not request their dependencies. Python dependency cycles raise `ValueError`
+instead of waiting indefinitely. Conditions themselves remain synchronous.
+
+Rust uses an owned, typed handle: `Value<T>::deferred()` returns a cloneable
+`Deferred<T>`. Put a clone into the source field and await another clone in any
+dependent producer. This supports `T: Clone + Send + Sync + 'static`, because
+each Rust field owns its result, and adds no dependencies or executor tasks.
+
+```rust
+use cmi_docx::{Document, Error, Paragraph, Section, Value};
+
+async fn build() -> Result<Vec<u8>, Error> {
+    let result = Value::future(async { "42".to_owned() }).deferred();
+    let dependency = result.clone();
+    let summary = Paragraph::new(Value::try_future(async move {
+        Ok::<_, Error>(format!("The result is {}", dependency.await?))
+    }));
+    let source = Paragraph::new(result);
+    Document::new(vec![
+        Section::new(vec![summary.into(), source.into()]).into(),
+    ])
+    .resolve().await?.to_docx()
+}
+```
+
+Runnable examples: [Python](examples/property_dependencies.py) and
+[Rust](examples/property_dependencies.rs). Resolved values are cached; changing a
+source afterwards does not recompute already resolved consumers.
+Rust handles refer to the producer itself: an active consumer can request the
+shared value even if the paragraph displaying that value is excluded.
+
 ## Documents, paragraphs, and runs
 
 ```rust

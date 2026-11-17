@@ -21,6 +21,37 @@ functions are resolved recursively. Independent fields and siblings run
 concurrently; shared components resolve once in a pass, and exceptions cancel
 pending sibling work while retaining the original exception.
 
+### Deferred property references
+
+`source.deferred("text")` returns a `DeferredProperty` without starting work.
+It can be used directly as another field's value or awaited inside an async
+producer. It resolves that field alone; unrelated source properties are not
+evaluated unless the source is itself in the document tree. The source does not
+have to precede the consumer or be included in the rendered tree.
+
+Every resolvable component field is supported, including non-text fields such
+as `bold`, `comment_author`, `data`, and `children`. Documents expose the same
+method, including for metadata. `DeferredProperty(owner, "field_name")` works
+for plain dataclasses such as section properties, styles, and borders. Fields
+retain their normal types when resolved; a reference does not coerce values.
+Unknown properties and the synchronous `condition` field raise `AttributeError`
+when the reference is created.
+
+During one document/component resolution pass, field tasks are shared between
+their owner and all consumers. A source condition is checked once before any
+of its fields run. Referencing an excluded source raises `ValueError` without
+running that property's producer. Excluded consumers do not request dependencies.
+References explicitly request their source property, including when the source
+is outside the rendered tree; only its own condition guards that request.
+
+The resolver tracks waits between individual fields, so acyclic cross references
+between two components (or independent fields on one component) work. Direct or
+indirect dependency cycles raise `ValueError`, including cycles between siblings
+that have already started concurrently. Errors preserve the original producer
+exception, and failed passes cancel and drain sibling work. Successful values
+replace their original producers in place; references are not reactive updates
+after a successful render. Standalone awaits create their own resolution pass.
+
 `await component` and `await component.resolve()` mutate resolved fields in place
 and return the same object. Document rendering implicitly resolves the tree.
 Successful resolved fields can be reused for another render. Coroutine values
@@ -60,6 +91,11 @@ requires only python-docx, not CMI, pytest, or an installed Rust toolchain.
 - Independent tests verify lazy/async resolution, recursion, shared components,
   cancellation, subclasses, file/stream output, and that the actual native Rust
   function is required and called.
+- Property dependency tests verify reversed declaration order, chains/fanout,
+  property-only resolution, cross-property references, conditions, cycles,
+  cancellation, images, children, formatting, comments, metadata, and saved
+  file contents through python-docx. Runnable examples are in
+  `examples/property_dependencies.py` and `examples/property_dependencies.rs`.
 
 These checks cover the declarative API, not CMI's separate imperative
 `ExtendDocument`/`ExtendParagraph`/`ExtendTable` wrapper classes. The returned
