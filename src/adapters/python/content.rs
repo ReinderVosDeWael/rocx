@@ -38,7 +38,7 @@ pub(super) fn paragraph(o: &Bound<'_, PyAny>) -> PyResult<ResolvedParagraph> {
         ));
     }
     Ok(ResolvedParagraph {
-        text: runs.iter().map(ResolvedInline::text).collect(),
+        text: crate::inline_text(&runs),
         runs,
         comment: comment(o)?,
         numbering: optional_record(o, "numbering", numbering_reference)?,
@@ -80,6 +80,37 @@ pub(super) fn textrun(o: &Bound<'_, PyAny>) -> PyResult<ResolvedInline> {
 }
 pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
     let value = match kind(o)?.as_str() {
+        "Hyperlink" => {
+            let target = crate::HyperlinkTarget::external(field!(o, "target", String))
+                .map_err(|e| rust_error(e.into()))?;
+            let mut children = Vec::new();
+            for (index, child) in o.getattr("children")?.try_iter()?.enumerate() {
+                let child = child?;
+                // Check the parent model before native recursion; an unsupported
+                // nested container must not cause unbounded native descent.
+                if kind(&child)? == "Hyperlink" {
+                    return Err(rust_error(
+                        crate::Diagnostic::new(
+                            crate::Rule::InvalidContent,
+                            "nested hyperlinks are not supported",
+                        )
+                        .at(format!("children[{index}]"))
+                        .into(),
+                    ));
+                }
+                if let Some(child) = inline(&child)? {
+                    children.push(child);
+                }
+            }
+            let properties = crate::HyperlinkProperties {
+                tooltip: field!(o, "tooltip", Option<String>),
+                history: field!(o, "history", Option<bool>),
+            };
+            ResolvedInline::Hyperlink(
+                crate::ResolvedHyperlink::new(target, children, properties)
+                    .map_err(|e| rust_error(e.into()))?,
+            )
+        }
         "TextRun" => textrun(o)?,
         "Tab" => ResolvedInline::Tab {
             format: RunFormat::default(),

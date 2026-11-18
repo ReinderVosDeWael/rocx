@@ -70,3 +70,29 @@ async def test_numbering_uses_the_shared_native_domain(validator):
         assert root.find(f".//{{{validation.W}}}numId").get(f"{{{validation.W}}}val") == "42"
         root = etree.fromstring(package.read("word/numbering.xml"))
         assert root.find(f"{{{validation.W}}}num[@{{{validation.W}}}numId='42']") is not None
+
+
+async def test_external_hyperlinks_and_display_runs_pass_official_content_models(validator):
+    def paragraph(with_comment=False):
+        return d.Paragraph(children=[d.Hyperlink("https://example.invalid/λ?q=a%20b&x=2#frag", [
+            d.TextRun("link", bold=True, comment_text="link note" if with_comment else None), d.Tab(), d.Break(),
+            d.ImageRun(data=ROOT / "tests/fixtures/images/sample.png")], tooltip="A <&> λ", history=True)])
+    data = await d.Document([d.Section(children=[paragraph(True), d.Table(rows=[d.TableRow(children=[
+        d.TableCell(children=[paragraph()])])])], headers={"default": d.Header(children=[paragraph()])},
+        footers={"default": d.Footer(children=[paragraph()])})]).to_bytes()
+    covered = validator.validate(data)
+    assert "word/document.xml" in covered
+    assert "word/header1.xml" in covered
+    assert "word/footer1.xml" in covered
+    output = io.BytesIO()
+    with ZipFile(io.BytesIO(data)) as source, ZipFile(output, "w", ZIP_DEFLATED) as target:
+        for name in source.namelist():
+            payload = source.read(name)
+            if name == "word/document.xml":
+                root = etree.fromstring(payload)
+                link = root.find(f".//{{{validation.W}}}hyperlink")
+                link.append(etree.Element(f"{{{validation.W}}}p"))
+                payload = etree.tostring(root)
+            target.writestr(name, payload)
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(output.getvalue())

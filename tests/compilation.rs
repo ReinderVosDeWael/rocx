@@ -79,9 +79,9 @@ fn formatting_can_depend_on_another_named_async_property() {
     let snapshot = block_on(document.resolve()).unwrap();
     assert_eq!(snapshot.sections()[0].paragraphs()[0].text(), "Size: 18");
     let run = &snapshot.sections()[0].paragraphs()[1].runs()[0];
-    assert_eq!(run.format().underline, Some(Underline::Double));
+    assert_eq!(run.format().unwrap().underline, Some(Underline::Double));
     assert!(matches!(
-        run.format().color,
+        run.format().unwrap().color,
         Some(Color::Theme {
             name: ThemeColor::Accent1,
             ..

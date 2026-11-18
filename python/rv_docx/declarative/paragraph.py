@@ -13,16 +13,17 @@ if TYPE_CHECKING:
 
     from docx.enum import text as docx_text
 
-    from rv_docx.declarative import image
+    from rv_docx.declarative import image, hyperlink
 
-InlineElement = "TextRun | image.ImageRun | Tab | Break"
+type InlineElement = TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink
 
 type InlineChildren = MutableSequence[
     TextRun
     | image.ImageRun
     | Tab
     | Break
-    | Coroutine[None, None, TextRun | image.ImageRun | Tab | Break]
+    | hyperlink.Hyperlink
+    | Coroutine[None, None, TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink]
 ]
 
 
@@ -92,7 +93,7 @@ class Paragraph(base.Component):
         comment_text: Text content for a Word comment attached to this paragraph.
         comment_author: Author name for the comment. Overrides the
             document-level default.
-        children: List of TextRun, ImageRun, Tab, Break, or coroutines
+        children: List of TextRun, ImageRun, Tab, Break, Hyperlink, or coroutines
             that resolve to these types. May be a zero-argument callable for
             lazy evaluation (useful with ``condition``).
         heading: Heading level.

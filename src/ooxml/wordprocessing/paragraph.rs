@@ -30,24 +30,55 @@ impl Compiler<'_> {
         }
         let mut runs = Vec::new();
         for run in &p.runs {
-            let mut n = match run {
-                ResolvedInline::Text { text, .. } => text_run(text),
-                ResolvedInline::Tab { .. } => Node::new("w:r").with(Node::new("w:tab")),
-                ResolvedInline::Break { kind, .. } => {
-                    Node::new("w:r").with(Node::new("w:br").attr("w:type", kind.xml()))
-                }
-                ResolvedInline::Image { image, .. } => self.image(image, context)?,
-            };
-            let rpr = crate::ooxml::wordprocessing::format::run(run.format())?;
-            if !rpr.children.is_empty() {
-                n.children.insert(0, Content::Element(rpr));
-            }
-            runs.extend(self.comment(vec![n], &run.comment().cloned(), context)?);
+            runs.extend(self.inline(run, context)?);
         }
         for n in self.comment(runs, &p.comment, context)? {
             node.push(n);
         }
         Ok(node)
+    }
+    /// P1 §17.16.22: hyperlink owns runs, not a run's child element.
+    fn inline(
+        &mut self,
+        run: &ResolvedInline,
+        context: &crate::ooxml::PartContext,
+    ) -> Result<Vec<Node>> {
+        if let ResolvedInline::Hyperlink(link) = run {
+            let id = self.package.add_relationship(
+                context.source.as_str(),
+                &crate::opc::RelationshipType::new(
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+                )?,
+                crate::opc::Target::External(link.target().as_str().into()),
+            )?;
+            let mut node = Node::new("w:hyperlink").attr("r:id", id);
+            if let Some(tooltip) = &link.properties().tooltip {
+                node.set("w:tooltip", tooltip);
+            }
+            if let Some(history) = link.properties().history {
+                node.set("w:history", if history { "1" } else { "0" });
+            }
+            for child in link.children() {
+                for node_child in self.inline(child, context)? {
+                    node.push(node_child);
+                }
+            }
+            return Ok(vec![node]);
+        }
+        let mut n = match run {
+            ResolvedInline::Text { text, .. } => text_run(text),
+            ResolvedInline::Tab { .. } => Node::new("w:r").with(Node::new("w:tab")),
+            ResolvedInline::Break { kind, .. } => {
+                Node::new("w:r").with(Node::new("w:br").attr("w:type", kind.xml()))
+            }
+            ResolvedInline::Image { image, .. } => self.image(image, context)?,
+            ResolvedInline::Hyperlink(_) => unreachable!("handled container above"),
+        };
+        let rpr = crate::ooxml::wordprocessing::format::run(run.format().expect("leaf run"))?;
+        if !rpr.children.is_empty() {
+            n.children.insert(0, Content::Element(rpr));
+        }
+        self.comment(vec![n], &run.comment().cloned(), context)
     }
 }
 

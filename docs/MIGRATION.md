@@ -5,6 +5,23 @@ historical source of fixtures, not a signature-compatibility requirement.
 
 ## Rust package and authoring changes
 
+R2 adds `Hyperlink::new(target, children)`, `HyperlinkTarget::external(...)`,
+`HyperlinkProperties`, and `ResolvedInline::Hyperlink(ResolvedHyperlink)`.
+Targets, children and properties use the existing `Value`/`PropertyRef` machinery.
+Child formatting remains on runs. `ResolvedInline::format()` now returns
+`Option<&RunFormat>`: containers have no run formatting. `ResolvedInline::text()`
+now returns `Cow<'_, str>`: leaf text is borrowed, link display text is projected.
+Use `.as_ref()` where an `&str` is needed, or `inline_text(&children)` for a whole
+sequence. `ResolvedParagraph::text()` remains `&str`, including link display text.
+The private snapshot projection cannot become stale because children are immutable.
+
+Python adds `d.Hyperlink(target, children, tooltip=None, history=None)`; all fields
+accept ready/lazy/async/reference inputs. Target strings convert directly to the
+same typed Rust domain value at the native boundary. Relative/bookmark targets,
+nested links and block children are rejected. No link is fetched and no default
+blue/underline styling is imposed. See [hyperlink examples](../examples/hyperlinks.rs)
+and the [Python counterpart](../examples/hyperlinks.py).
+
 The Cargo package is now `rv-docx-rs`, imported as `rv_docx_rs`:
 
 ```rust

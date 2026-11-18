@@ -90,6 +90,34 @@ fn section_content_headers_and_footers_resolve_concurrently() {
         "body"
     );
 }
+
+#[test]
+fn hyperlink_target_children_and_properties_resolve_concurrently() {
+    let started = Arc::new(AtomicUsize::new(0));
+    let mut senders = Vec::new();
+    let target = pending(&started, &mut senders, "https://example.invalid/async")
+        .map(|value| HyperlinkTarget::external(value).unwrap());
+    let children =
+        pending(&started, &mut senders, "async link").map(|value| vec![TextRun::new(value).into()]);
+    let properties = pending(&started, &mut senders, "tooltip").map(|value| HyperlinkProperties {
+        tooltip: Some(value),
+        history: Some(true),
+    });
+    let mut resolution = Box::pin(
+        Hyperlink::new(target, children)
+            .with_properties(properties)
+            .resolve(),
+    );
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert!(resolution.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(started.load(Ordering::SeqCst), 3);
+    for sender in senders {
+        sender.send(()).unwrap();
+    }
+    let link = block_on(resolution).unwrap().unwrap();
+    assert_eq!(link.text(), "async link");
+}
 #[test]
 fn standalone_components_and_documents_can_be_awaited() {
     block_on(async {

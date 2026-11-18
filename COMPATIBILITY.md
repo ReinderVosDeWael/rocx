@@ -13,6 +13,7 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Declarations | Documents, sections, paragraphs, runs, tables, headers/footers; ready/lazy/async fields and synchronous conditions; deferred Rust metadata/format/property aggregates and immutable resolved-child reuse |
 | Dependencies | Rust typed named properties and shared computations; Python per-field references and shared computations; typed graph cycles and cancellation handling |
 | Text | Unicode, whitespace, explicit empty runs, tabs, line/page/column breaks |
+| Hyperlinks | Rich external absolute URI/IRI links in body/table/header/footer paragraphs, with deferred targets/children/tooltip/history; text/image/tab/break children; owner-local external relationships, never fetched |
 | Formatting | Selected paragraph/run properties, RGB/theme/automatic run colors, underline styles, explicit false overrides |
 | Styles | Paragraph/table definitions and selected conditional table regions, style references and per-compilation catalog |
 | Tables | Nested tables, fixed/autofit widths, spans/vertical merges, borders, shading and vertical alignment |
@@ -25,11 +26,20 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Templates | Relationship-driven part discovery, namespace-safe rewriting, opaque payload retention, structural text replacement and insertion |
 | Packaging | Typed names/targets/IDs, defaults/overrides, read budgets, internal relationship/reference graph checks and inspectable package plan |
 
-Typed generation for hyperlinks, general fields, footnotes/endnotes, revisions,
+Typed generation for internal bookmark links, general fields, footnotes/endnotes, revisions,
 content controls, floating drawings, charts, diagrams, equations and broader
 Word extensions remains future work. Retaining imported data is not a claim of
 typed support. Strict output is explicitly unsupported; the writer uses the
 Transitional vocabulary. No Word layout or field-calculation engine is included.
+
+Hyperlinks do not imply blue/underlined styling; format their display runs
+explicitly. Nested hyperlinks are a deliberate authoring limitation, although
+the Transitional `CT_Hyperlink` schema permits them. Targets retain percent
+escapes, Unicode, queries and fragments verbatim. They must have an absolute
+scheme, no whitespace/control/forbidden URI characters, and valid percent escapes;
+this lexical check is not a full URL parser, scheme allowlist or safety check for
+opening links. Callers must apply their own policy to untrusted targets. Relative
+and bookmark-only targets are unsupported, not dummy external relationships.
 
 ## Units and defaults
 

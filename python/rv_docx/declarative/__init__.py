@@ -3,6 +3,7 @@
 from rv_docx.declarative.base import Component, Deferred, DeferredProperty, PropertyRef
 from rv_docx.declarative.document import Document, DocumentTemplate
 from rv_docx.declarative.image import ImageRun
+from rv_docx.declarative.hyperlink import Hyperlink
 from rv_docx.declarative.numbering import NumberingDefinition, NumberingLevel, NumberingReference
 from rv_docx.declarative.paragraph import Break, Paragraph, Tab, TextRun
 from rv_docx.declarative.section import (
@@ -38,6 +39,7 @@ __all__ = [
     "Footer",
     "Header",
     "ImageRun",
+    "Hyperlink",
     "NumberingDefinition",
     "NumberingLevel",
     "NumberingReference",

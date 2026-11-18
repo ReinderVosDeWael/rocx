@@ -86,6 +86,60 @@ fn python_opens_an_empty_rust_document() {
 }
 
 #[test]
+fn python_reads_rich_hyperlinks_and_rejects_a_changed_external_target() {
+    let temp = Temp::new();
+    let path = temp.path("hyperlinks.docx");
+    let link = || {
+        Hyperlink::new(
+            HyperlinkTarget::external("https://example.invalid/λ?q=a%20b&lang=日本#résumé")
+                .unwrap(),
+            vec![
+                TextRun::new("Read ")
+                    .with_format(RunFormat {
+                        bold: Some(true),
+                        ..Default::default()
+                    })
+                    .into(),
+                TextRun::new("more λ")
+                    .with_format(RunFormat {
+                        italic: Some(true),
+                        ..Default::default()
+                    })
+                    .into(),
+            ],
+        )
+    };
+    let mut section = Section::new(vec![
+        Paragraph::from_children(vec![link().into()]).into(),
+        Table::new(vec![
+            TableRow::new(vec![
+                TableCell::new(vec![Paragraph::from_children(vec![link().into()]).into()]).into(),
+            ])
+            .into(),
+        ])
+        .into(),
+    ]);
+    section.headers.insert(
+        HeaderFooterType::Default,
+        Header::new(vec![Paragraph::from_children(vec![link().into()]).into()]).into(),
+    );
+    section.footers.insert(
+        HeaderFooterType::Default,
+        Footer::new(vec![Paragraph::from_children(vec![link().into()]).into()]).into(),
+    );
+    save(Document::new(vec![section.into()]), &path);
+    verify("hyperlinks", &path, None);
+    let changed = temp.path("hyperlinks-wrong-target.docx");
+    rewrite_part(&path, &changed, "word/_rels/document.xml.rels", |xml| {
+        replace_once(xml, "example.invalid", "changed.invalid")
+    });
+    let output = python("hyperlinks", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
 fn python_reads_deferred_metadata_properties_and_shared_resolved_children() {
     let temp = Temp::new();
     let path = temp.path("r1.docx");

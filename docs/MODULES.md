@@ -52,7 +52,12 @@ flowchart LR
   helpers. Current point-valued authoring convenience fields still accept numeric
   values; codecs validate and convert them centrally.
 - Rich run color/underline values are shared by both frontends. Table/border RGB
-  conveniences remain the narrower existing surface, recorded in the coverage map.
+   conveniences remain the narrower existing surface, recorded in the coverage map.
+- Hyperlinks extend the inline algebra with immutable display children and a
+  typed external target. Both interpreters use their generic field machinery;
+  the Word codec delegates owner-local relationship registration to OPC.
+  Display-text projection is shared; template traversal remains on supported XML
+  and retains the hyperlink boundary rather than reconstructing domain imports.
 - The native Python adapter converts immutable snapshots directly into the same
   resolved domain. It does not construct ready Rust declarations or invoke a
   second resolver. Typed diagnostics replace display-text classification.
@@ -83,8 +88,8 @@ The next independent crate would most plausibly be the Python extension when its
 release/build lifecycle warrants it. Nothing requires that split now.
 
 New DOCX features should extend domain content/stories/ranges, their typed
-codecs, and resource/relationship registration together. Hyperlinks, general
-fields, notes, revisions and charts remain future typed authoring work; neither
+codecs, and resource/relationship registration together. Internal bookmark links,
+general fields, notes, revisions and charts remain future typed authoring work; neither
 an opaque imported part nor an available `StoryKind` variant proves support.
 The writer has a selected property vocabulary and validation surface, not a full
 runtime XSD validator. Independent schema tooling complements runtime graph and

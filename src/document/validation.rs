@@ -116,7 +116,10 @@ fn at<T>(result: Result<T, Diagnostic>, path: impl std::fmt::Display) -> Result<
 }
 impl ResolvedInline {
     pub fn validate(&self) -> Result<(), Diagnostic> {
-        self.format().validate()
+        if let Some(format) = self.format() {
+            format.validate()?;
+        }
+        Ok(())
     }
 }
 impl ResolvedParagraph {

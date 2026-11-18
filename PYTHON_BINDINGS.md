@@ -20,6 +20,14 @@ numbering definitions/references. Python uses familiar dictionaries, tuples and
 keyword arguments. Constructors are guided by domain ergonomics rather than
 exact CMI signature equality.
 
+`Hyperlink(target, children, tooltip=None, history=None)` separates an external
+absolute URI/IRI from its display runs. All four fields support the same deferred
+inputs as other declarations. TextRun/ImageRun/Tab/Break children are legal;
+nested links and block children are unsupported. Formatting is explicit on the
+child runs, not inherited from an implicit hyperlink style. Targets are preserved
+verbatim, not fetched or normalized; internal bookmark targets are not yet
+supported. See [`examples/hyperlinks.py`](examples/hyperlinks.py).
+
 Fields may hold ready values, lazy zero-argument factories or awaitables.
 Resolution recursively handles components, declaration dataclasses, dictionaries,
 tuples/lists/generators, and components returned by producers. Independent fields

@@ -108,11 +108,23 @@ fn relocated_main_headers_and_media_are_discovered_by_relationships() {
         relocated.insert(target, data);
     }
     let fixture = Fixture::new(relocated);
-    let mut added = Section::new(vec![Paragraph::new("after").into()]);
+    let hyperlink = |text: &str| {
+        Hyperlink::new(
+            HyperlinkTarget::external("https://example.invalid/relocated?q=1&x=2#frag").unwrap(),
+            vec![TextRun::new(text).into()],
+        )
+    };
+    let mut added = Section::new(vec![
+        Paragraph::from_children(vec![hyperlink("after").into()]).into(),
+    ]);
     added.headers.insert(
         HeaderFooterType::Default,
         Header::new(vec![
-            Paragraph::from_children(vec![ImageRun::new(image.clone()).into()]).into(),
+            Paragraph::from_children(vec![
+                ImageRun::new(image.clone()).into(),
+                hyperlink("header link").into(),
+            ])
+            .into(),
         ])
         .into(),
     );
@@ -139,6 +151,34 @@ fn relocated_main_headers_and_media_are_discovered_by_relationships() {
     assert_eq!(parts(&output)["assets/picture.png"], image);
     assert!(support::part(&output, "stories/_rels/top.xml.rels").contains("../"));
     assert!(!parts(&output).contains_key("word/document.xml"));
+    for (owner, rels) in [
+        ("content/body.xml", "content/_rels/body.xml.rels"),
+        ("stories/top.xml", "stories/_rels/top.xml.rels"),
+    ] {
+        let xml = support::part(&output, owner);
+        let tree = roxmltree::Document::parse(&xml).unwrap();
+        let link = tree
+            .descendants()
+            .find(|n| n.has_tag_name((support::W, "hyperlink")))
+            .unwrap();
+        let id = link
+            .attribute((
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                "id",
+            ))
+            .unwrap();
+        let xml = support::part(&output, rels);
+        let tree = roxmltree::Document::parse(&xml).unwrap();
+        let rel = tree
+            .descendants()
+            .find(|n| n.attribute("Id") == Some(id))
+            .unwrap();
+        assert_eq!(rel.attribute("TargetMode"), Some("External"));
+        assert_eq!(
+            rel.attribute("Target"),
+            Some("https://example.invalid/relocated?q=1&x=2#frag")
+        );
+    }
 }
 #[test]
 fn shadowed_namespaces_and_opaque_properties_survive_template_rendering() {

@@ -94,10 +94,11 @@ impl ResolvedParagraph {
     }
 }
 
-/// A resolved inline value. Every variant has its own content, without spare tags.
+/// A resolved leaf run or inline container, without spare content tags.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ResolvedInline {
+    Hyperlink(ResolvedHyperlink),
     Text {
         text: String,
         format: RunFormat,
@@ -119,12 +120,14 @@ pub enum ResolvedInline {
     },
 }
 impl ResolvedInline {
-    pub fn format(&self) -> &RunFormat {
+    /// Containers have no run format; format their display children instead.
+    pub fn format(&self) -> Option<&RunFormat> {
         match self {
             Self::Text { format, .. }
             | Self::Tab { format, .. }
             | Self::Break { format, .. }
-            | Self::Image { format, .. } => format,
+            | Self::Image { format, .. } => Some(format),
+            Self::Hyperlink(_) => None,
         }
     }
     pub fn comment(&self) -> Option<&ResolvedComment> {
@@ -133,6 +136,7 @@ impl ResolvedInline {
             | Self::Tab { comment, .. }
             | Self::Break { comment, .. }
             | Self::Image { comment, .. } => comment.as_ref(),
+            Self::Hyperlink(_) => None,
         }
     }
     pub fn image(&self) -> Option<&ResolvedImage> {
@@ -142,8 +146,10 @@ impl ResolvedInline {
             None
         }
     }
-    pub fn text(&self) -> &str {
+    /// Display text only: borrowed for leaves, projected for containers.
+    pub fn text(&self) -> std::borrow::Cow<'_, str> {
         match self {
+            Self::Hyperlink(link) => return link.text().into(),
             Self::Text { text, .. } => text,
             Self::Tab { .. } => "\t",
             Self::Break {
@@ -152,6 +158,7 @@ impl ResolvedInline {
             } => "\n",
             _ => "",
         }
+        .into()
     }
 }
 

@@ -79,6 +79,19 @@ async def verify_install() -> None:
         assert "rv-docx-rs[interop]" in str(error)
     else:
         raise AssertionError("to_docx() unexpectedly worked without interop")
+    target = "https://example.invalid/λ?q=a%20b&lang=日本#résumé"
+    linked = await d.Document([d.Section(children=[d.Paragraph(children=[
+        d.Hyperlink(lambda: target, [d.TextRun("Link λ", bold=True)])])])]).to_bytes()
+    with zipfile.ZipFile(io.BytesIO(linked)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+        link = root.find(f".//{W}hyperlink")
+        assert link is not None
+        assert "".join(link.itertext()) == "Link λ"
+        identifier = link.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        relations = ET.fromstring(package.read("word/_rels/document.xml.rels"))
+        relation = next(node for node in relations if node.get("Id") == identifier)
+        assert relation.get("Target") == target
+        assert relation.get("TargetMode") == "External"
     print("Installed wheel: native imports, metadata, Unicode, formatting and snapshots verified")
 
 

@@ -32,20 +32,21 @@ pub mod resolution;
 
 pub use application::DocumentTemplate;
 pub use authoring::{
-    Block, BlockChildren, Break, Document, Footer, Header, ImageData, ImageRun, Inline,
+    Block, BlockChildren, Break, Document, Footer, Header, Hyperlink, ImageData, ImageRun, Inline,
     InlineChildren, Paragraph, ParagraphContent, Section, Tab, Table, TableCell, TableRow, TextRun,
 };
 pub use document::{
     Alignment, AltText, AssetId, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide,
     Color, Columns, CommentId, DeclarationPath, Diagnostic, DrawingId, Emu, HalfPoints,
-    HeaderFooterType, ImageTransformation, Metadata, NumberingDefinition, NumberingLevel,
-    NumberingReference, Orientation, PageMargins, PageNumbering, PageSize, ParagraphFormat,
-    ParagraphStyleDefinition, Points, ResolvedBlock, ResolvedComment, ResolvedDocument,
-    ResolvedHeaderFooter, ResolvedImage, ResolvedInline, ResolvedParagraph, ResolvedSection,
-    ResolvedTable, ResolvedTableCell, ResolvedTableRow, Rule, RunFormat, SectionProperties,
-    SectionType, StoryId, StoryKind, StyleDefinition, StyleId, TableBorder, TableCellProperties,
-    TableLayout, TableProperties, TableSectionFormat, TableStyleDefinition, ThemeColor, Twips,
-    Underline, VerticalAlignment, VerticalMerge,
+    HeaderFooterType, HyperlinkProperties, HyperlinkTarget, ImageTransformation, Metadata,
+    NumberingDefinition, NumberingLevel, NumberingReference, Orientation, PageMargins,
+    PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, Points, ResolvedBlock,
+    ResolvedComment, ResolvedDocument, ResolvedHeaderFooter, ResolvedHyperlink, ResolvedImage,
+    ResolvedInline, ResolvedParagraph, ResolvedSection, ResolvedTable, ResolvedTableCell,
+    ResolvedTableRow, Rule, RunFormat, SectionProperties, SectionType, StoryId, StoryKind,
+    StyleDefinition, StyleId, TableBorder, TableCellProperties, TableLayout, TableProperties,
+    TableSectionFormat, TableStyleDefinition, ThemeColor, Twips, Underline, VerticalAlignment,
+    VerticalMerge, inline_text,
 };
 pub use error::{Error, Result};
 pub use resolution::{Component, Condition, Deferred, Property, PropertyId, PropertyRef, Value};
@@ -54,17 +55,18 @@ pub use resolution::{Component, Condition, Deferred, Property, PropertyId, Prope
 pub mod declarative {
     pub use crate::document::{
         Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Color,
-        Columns, Emu, HalfPoints, HeaderFooterType, ImageTransformation, Metadata,
-        NumberingDefinition, NumberingLevel, NumberingReference, Orientation, PageMargins,
-        PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, Points, RunFormat,
-        SectionProperties, SectionType, StyleDefinition, TableBorder, TableCellProperties,
-        TableLayout, TableProperties, TableSectionFormat, TableStyleDefinition, ThemeColor, Twips,
-        Underline, VerticalAlignment, VerticalMerge,
+        Columns, Emu, HalfPoints, HeaderFooterType, HyperlinkProperties, HyperlinkTarget,
+        ImageTransformation, Metadata, NumberingDefinition, NumberingLevel, NumberingReference,
+        Orientation, PageMargins, PageNumbering, PageSize, ParagraphFormat,
+        ParagraphStyleDefinition, Points, RunFormat, SectionProperties, SectionType,
+        StyleDefinition, TableBorder, TableCellProperties, TableLayout, TableProperties,
+        TableSectionFormat, TableStyleDefinition, ThemeColor, Twips, Underline, VerticalAlignment,
+        VerticalMerge,
     };
     pub use crate::{
         Block, BlockChildren, Break, Component, Condition, Deferred, Document, Footer, Header,
-        ImageData, ImageRun, Inline, InlineChildren, Paragraph, ParagraphContent, Property,
-        PropertyRef, Section, Tab, Table, TableCell, TableRow, TextRun, Value,
+        Hyperlink, ImageData, ImageRun, Inline, InlineChildren, Paragraph, ParagraphContent,
+        Property, PropertyRef, Section, Tab, Table, TableCell, TableRow, TextRun, Value,
     };
 }
 

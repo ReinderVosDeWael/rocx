@@ -1,6 +1,6 @@
 # Deferred fields and shared resolution scenarios
 
-Inventory after R1 (2026-11-18). This describes authoring and
+Inventory including R2 hyperlinks (2026-11-18). This describes authoring and
 resolution, not a promise that every resolved value is legal OOXML. Conversion
 and domain validation still apply after producers finish.
 
@@ -16,6 +16,7 @@ without the named reference graph. No field-specific dependency engine exists.
 | `Document` | metadata (`Metadata` aggregate); comment_author, timestamp, styles, numbering; each entry in `sections: Vec<Value<Section>>` | The structural sections vector itself |
 | `Section` | properties (`Option<SectionProperties>`); children; each header/footer map value | Header/footer maps and keys |
 | `Paragraph` | format (`ParagraphFormat` aggregate); numbering; content's text **or** inline children; comment_text/comment_author when present | None beyond condition |
+| `Hyperlink` | target (`HyperlinkTarget`); children; properties (`HyperlinkProperties`: tooltip/history) | None beyond condition; nested links intentionally unsupported |
 | `TextRun` | text; format (`RunFormat` aggregate); comment_text/comment_author when present | None beyond condition |
 | `ImageRun` | data; transformation (`Option<ImageTransformation>`); alt_text (`Option<AltText>`) | type hint (`r#type`, not used to override inspected image headers) |
 | `Header`, `Footer` | children | None beyond condition |
@@ -69,6 +70,7 @@ values and sequence entries are recursively resolved; mapping keys are not.
 | `Section` | children, properties, headers, footers |
 | `SectionProperties` | page_size, page_orientation, page_margins, page_numbering, columns, vertical_align, title_page, type |
 | `Paragraph` | text, children, comment_text, comment_author, numbering, heading, style, alignment, spacing_before, spacing_after, line_spacing, left_indent, right_indent, first_line_indent, keep_together, keep_with_next, page_break_before, widow_control |
+| `Hyperlink` | target, children, tooltip, history |
 | `TextRun` | text, comment_text, comment_author, bold, italic, underline, font, size, color, superscript, subscript, strike, all_caps, small_caps |
 | `ImageRun` | data, type, transformation, alt_text |
 | `Header`, `Footer` | children |

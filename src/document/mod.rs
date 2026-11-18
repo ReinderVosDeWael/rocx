@@ -1,5 +1,7 @@
 //! Pure document domain. This module depends only on the standard library.
 mod content;
+mod hyperlink;
+pub use hyperlink::{HyperlinkProperties, HyperlinkTarget, ResolvedHyperlink, inline_text};
 mod resources;
 mod table;
 mod validation;

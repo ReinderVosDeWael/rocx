@@ -121,6 +121,13 @@ The [Rust](examples/resolution_options.rs) and
 timestamp policy. Python exports `RenderOptions`/`ReadLimits`; native errors
 retain normal exception categories with `rule`, `location` and `cause` attributes.
 
+Rich external hyperlinks are supported in both languages, including deferred
+targets, formatted display runs, images, tabs and breaks. Links belong to their
+actual body/header/footer part and are never fetched. See
+[`examples/hyperlinks.rs`](examples/hyperlinks.rs) and
+[`examples/hyperlinks.py`](examples/hyperlinks.py). Internal bookmark links remain
+unsupported; nested links are intentionally rejected.
+
 Runnable examples: [Rust](examples/property_dependencies.rs),
 [Python](examples/property_dependencies.py), and the
 [feature document](examples/feature_parity.rs).

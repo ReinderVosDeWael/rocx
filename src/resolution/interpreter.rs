@@ -316,22 +316,7 @@ impl Paragraph {
                 ParagraphContent::Inlines(children) => {
                     let path = format!("{path}.children");
                     let children = children.resolve().await.map_err(|e| e.at(&path))?;
-                    try_join_all(children.into_iter().enumerate().map(|(index, child)| {
-                        let path = format!("{path}[{index}]");
-                        async move {
-                            match child.resolve().await.map_err(|e| e.at(&path))? {
-                                Inline::Resolved(run) => Ok(Some(run)),
-                                Inline::TextRun(run) => run.resolve_at(path).await,
-                                Inline::Tab(tab) => tab.resolve_at(path).await,
-                                Inline::Break(br) => br.resolve_at(path).await,
-                                Inline::ImageRun(image) => image.resolve_at(path).await,
-                            }
-                        }
-                    }))
-                    .await?
-                    .into_iter()
-                    .flatten()
-                    .collect()
+                    resolve_inlines(children, path, true).await?
                 }
             })
         };
@@ -351,7 +336,7 @@ impl Paragraph {
         format
             .validate()
             .map_err(|e| Error::from(e).at(format!("{path}.format")))?;
-        let text = runs.iter().map(ResolvedInline::text).collect();
+        let text = crate::inline_text(&runs);
         Ok(Some(ResolvedParagraph {
             text,
             runs,
@@ -360,6 +345,68 @@ impl Paragraph {
             format,
         }))
     }
+}
+impl crate::Hyperlink {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let children = async {
+            let children = field(self.children, format!("{path}.children")).await?;
+            resolve_inlines(children, format!("{path}.children"), false).await
+        };
+        let (target, children, properties) = futures_util::future::try_join3(
+            field(self.target, format!("{path}.target")),
+            children,
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
+        if let Some(tooltip) = &properties.tooltip {
+            crate::xml::validate_text(tooltip)
+                .map_err(|e| e.at(format!("{path}.properties.tooltip")))?;
+        }
+        let link = crate::ResolvedHyperlink::new(target, children, properties)
+            .map_err(|e| Error::from(e).at(path))?;
+        Ok(Some(ResolvedInline::Hyperlink(link)))
+    }
+}
+fn resolve_inlines(
+    children: crate::InlineChildren,
+    path: String,
+    allow_links: bool,
+) -> BoxFuture<'static, Result<Vec<ResolvedInline>>> {
+    Box::pin(async move {
+        Ok(
+            try_join_all(children.into_iter().enumerate().map(|(index, child)| {
+                let path = format!("{path}[{index}]");
+                async move {
+                    match child.resolve().await.map_err(|e| e.at(&path))? {
+                        Inline::Resolved(run) => Ok(Some(run)),
+                        Inline::Hyperlink(link) if !allow_links => {
+                            if !link.condition.evaluate() {
+                                return Ok(None);
+                            }
+                            Err(crate::Diagnostic::new(
+                                crate::Rule::InvalidContent,
+                                "nested hyperlinks are not supported",
+                            )
+                            .at(path)
+                            .into())
+                        }
+                        Inline::Hyperlink(link) => link.resolve_at(path).await,
+                        Inline::TextRun(run) => run.resolve_at(path).await,
+                        Inline::Tab(tab) => tab.resolve_at(path).await,
+                        Inline::Break(br) => br.resolve_at(path).await,
+                        Inline::ImageRun(image) => image.resolve_at(path).await,
+                    }
+                }
+            }))
+            .await?
+            .into_iter()
+            .flatten()
+            .collect(),
+        )
+    })
 }
 impl TextRun {
     pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {

@@ -1,8 +1,8 @@
 //! Common standalone resolution/await interface.
 use crate::Result;
 use crate::authoring::{
-    Break, Document, Footer, Header, ImageRun, Paragraph, Section, Tab, Table, TableCell, TableRow,
-    TextRun,
+    Break, Document, Footer, Header, Hyperlink, ImageRun, Paragraph, Section, Tab, Table,
+    TableCell, TableRow, TextRun,
 };
 use crate::document::{
     ResolvedDocument, ResolvedHeaderFooter, ResolvedInline, ResolvedParagraph, ResolvedSection,
@@ -36,6 +36,7 @@ macro_rules! component {
 component!(Section, ResolvedSection, "section");
 component!(Paragraph, ResolvedParagraph, "paragraph");
 component!(TextRun, ResolvedInline, "text_run");
+component!(Hyperlink, ResolvedInline, "hyperlink");
 component!(ImageRun, ResolvedInline, "image_run");
 component!(Tab, ResolvedInline, "tab");
 component!(Break, ResolvedInline, "break");

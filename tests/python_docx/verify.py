@@ -69,6 +69,24 @@ class Readback(unittest.TestCase):
         self.assertEqual(len(self.document.sections), 1)
         self.assertIsNotNone(self.document.core_properties.created)
 
+    def test_hyperlinks(self):
+        paragraphs = [self.document.paragraphs[0],
+                      self.document.tables[0].cell(0, 0).paragraphs[0],
+                      self.document.sections[0].header.paragraphs[-1],
+                      self.document.sections[0].footer.paragraphs[-1]]
+        for paragraph in paragraphs:
+            self.assertEqual(paragraph.text, "Read more λ")
+            self.assertEqual(len(paragraph.hyperlinks), 1)
+            link = paragraph.hyperlinks[0]
+            self.assertEqual(link.url, "https://example.invalid/λ?q=a%20b&lang=日本#résumé")
+            self.assertEqual([run.text for run in link.runs], ["Read ", "more λ"])
+            self.assertTrue(link.runs[0].bold)
+            self.assertTrue(link.runs[1].italic)
+            identifier = link._hyperlink.get(qn("r:id"))
+            relationship = paragraph.part.rels[identifier]
+            self.assertTrue(relationship.is_external)
+            self.assertEqual(relationship.reltype, RELATIONSHIP_TYPE.HYPERLINK)
+
     def test_r1(self):
         self.assertEqual(self.document.core_properties.title, "R1 λ")
         self.assertEqual(self.document.core_properties.author, "Ada")
@@ -301,7 +319,7 @@ class Readback(unittest.TestCase):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template", "r1"])
+    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template", "r1", "hyperlinks"])
     parser.add_argument("document", type=Path)
     parser.add_argument("--source", type=Path)
     arguments = parser.parse_args()

@@ -124,6 +124,7 @@ pub type InlineChildren = Vec<Value<Inline>>;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Inline {
+    Hyperlink(Hyperlink),
     /// Reuse immutable content without cloning authoring futures or guards.
     Resolved(ResolvedInline),
     TextRun(TextRun),
@@ -219,6 +220,8 @@ impl From<ResolvedInline> for Value<Inline> {
 }
 
 mod components;
+mod hyperlink;
+pub use hyperlink::Hyperlink;
 pub(crate) mod table;
 pub use components::{Break, Footer, Header, ImageData, ImageRun, Tab};
 pub use table::{Table, TableCell, TableRow};

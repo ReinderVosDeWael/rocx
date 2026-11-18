@@ -74,7 +74,7 @@ part of the project.
 ## What already exists
 
 The current surface includes documents/sections, paragraphs and explicit
-text/tab/break/image inlines, selected run/paragraph formatting, RGB/theme/auto
+text/tab/break/image inlines and rich external hyperlinks, selected run/paragraph formatting, RGB/theme/auto
 run colors, underline styles, styles, numbering, nested tables and merges,
 page geometry/columns, default/first/even headers and footers, body comments,
 inline images, core metadata, and structural template text replacement.
@@ -96,7 +96,7 @@ this does not mean arbitrary macro-enabled or signed packages are supported.
 
 | Location | Owns / extension points |
 | --- | --- |
-| `src/document/{content,table,resources,values,color,measure,identity,diagnostic}.rs` | Resolved content, domain values and invariants; standard library only |
+| `src/document/{content,hyperlink,table,resources,values,validation,color,measure,identity,diagnostic}.rs` | Resolved content, domain values and invariants; standard library only |
 | `src/authoring/{mod,components,table}.rs` | Constructors, unresolved values and conditions; no XML, filesystem or interpreter code |
 | `src/resolution/{mod,property,interpreter,components}.rs` | Value/shared computation/reference primitives, dependency graphs and native interpretation |
 | `src/ooxml/wordprocessing/` | Text, paragraphs, formatting, tables, sections, stories, styles and comments |
@@ -242,10 +242,11 @@ Final verification (stable Rust, CPython 3.12; Python commands used
 - `git diff --check` passed. Rust 1.88, other Python versions and hosted CI were
   not run locally. Existing untracked `docs/DEPENDENCY-AUDIT.md` remains untouched.
 
-**Next concrete slice: R2 external hyperlinks.** Start by reading the normative
+**Handoff at R1 completion: R2 external hyperlinks.** Start by reading the normative
 inline parent model and defining the smallest domain/authoring/codec contract in
 both languages. Do not start R3 ranges/bookmarks or change dependency ownership
-as part of hyperlinks. R2 has not been implemented in this checkpoint.
+as part of hyperlinks. R2 was not implemented in that checkpoint; completion is
+recorded below.
 
 **First slice implemented and verified (2026-11-18):** the complete field inventory,
 intentional lifetime differences, shared scenario matrix and remaining gaps are
@@ -328,6 +329,80 @@ both languages pass the scenario matrix, new failures expose structured context,
 and no new feature needs its own dependency or numeric-conversion machinery.
 
 ### R2 — Rich inline containers and hyperlinks (first new feature)
+
+**R2 complete (2026-11-18).** The engineer authorized committing the verified R2
+checkpoint and continuing with R3. Commit subject: `feat: add rich external hyperlinks`.
+Existing untracked `docs/DEPENDENCY-AUDIT.md` is untouched; no push is authorized.
+
+Implementation against the five R2 acceptance areas:
+
+1. `HyperlinkTarget` validates an external absolute URI/IRI's lexical envelope
+   (scheme, forbidden whitespace/control/URI characters, percent escapes), keeping
+   the original Unicode/query/fragment/escape spelling. This is not a full URL
+   parser, navigation-safety check or scheme allowlist. `ResolvedHyperlink` has
+   immutable target, display children and tooltip/history properties. Supported
+   children are explicit text/image/tab/break runs. The official Transitional
+   `CT_Hyperlink` uses `EG_PContent`, which permits recursive hyperlinks; this
+   library deliberately rejects nesting as an authoring limitation, not an XSD
+   restriction. Relative and bookmark-only targets remain unsupported for R3.
+2. Rust `Hyperlink` defers target, children and `HyperlinkProperties` through the
+   existing `Value`/`PropertyRef` machinery. Python `Hyperlink` resolves target,
+   children, tooltip and history through its unchanged generic interpreter and
+   converts snapshots directly into the shared Rust domain. Hidden links do not
+   execute fields. Concurrent fields and generic references have matched tests.
+   Rust resolution and Python native conversion reject nested containers before descending into them;
+   resolved-content reuse cannot bypass the domain constructor's nesting check.
+3. The inline codec emits `w:hyperlink` containing runs, with optional tooltip/
+   history attributes and an external relationship against `PartContext.source`.
+   Existing OPC code allocates/deduplicates owner-local IDs; no target is fetched.
+   Relocated main/header owners, existing media relationships and repeated link
+   targets are covered. No dummy relationship or internal-anchor implementation
+   was introduced. Display formatting stays explicit on children.
+4. Shared `inline_text` projection includes nested display text, not target,
+   tooltip or image alt text. Links do not cache another derived text field;
+   paragraphs retain their immutable private projection. `ResolvedInline::text`
+   now returns `Cow<str>` and `format` returns `Option<&RunFormat>` because a
+   container has no run format. Migration details/accessors are documented.
+   Compiler inline traversal reuses comment/story handling; existing structural
+   XML template traversal edits within links without crossing their boundaries
+   or rewriting target relationships. No opaque import traversal was added.
+5. `tests/hyperlinks.rs`, `tests/async_fields.rs`, and Python hyperlink/standards
+   tests cover all story/table contexts, rich/image children, Unicode and target
+   escaping, async/reference fields, skipped links, invalid targets/nesting,
+   comments and template edits. Independent Rust-to-python-docx readback checks
+   exact rich content and external relationships, and rejects a changed target
+   after successfully loading the document. Official-schema tests accept legal
+   content and reject a paragraph inserted under a hyperlink. Runnable examples
+   are `examples/hyperlinks.{rs,py}`; support maps and field inventory are updated.
+
+Verification on stable Rust/CPython 3.12 (Python commands used
+`UV_PROJECT_ENVIRONMENT=.venv-opencode`):
+
+- `uv sync --locked --group test` rebuilt the isolated native extension.
+- `cargo test --locked --all-targets` passed before the final native-only guard;
+  `cargo test --locked --all-features --all-targets` passed after it (106 tests,
+  including 14 independent Python readbacks/negative-control test cases).
+- `cargo test --locked --all-features --doc` passed (2 doctests).
+- `cargo fmt --check`, `cargo clippy --locked --all-features --all-targets --
+  -D warnings`, and rustdoc with `RUSTDOCFLAGS='-D warnings'` passed.
+- Required-schema full Python suite passed: 150 passed, 1 intentional upstream
+  skip, using `RV_DOCX_REQUIRE_SCHEMAS=1` and the existing official schema cache.
+- The clean installed-wheel probe passed without interop dependencies and now
+  asserts exact hyperlink display text and external target/mode. Both new
+  examples ran; official schemas validated each (8 covered parts/relationships).
+- `git diff --check` passed. The first feature tests failed against missing
+  interpreter/codec support and the old Python extension, then passed after
+  implementation/rebuild. The first full Python run found stale standards-test
+  count expectations (3 rather than 4); those were updated without weakening
+  required-schema failure checks. Additional review produced a failing Python
+  regression for native descent into illegal nested links; the parent-context
+  guard fixes it. A deferred-target diagnostic regression also passes.
+- Hosted CI, MSRV Rust 1.88 and other Python versions remain unverified locally.
+
+**Next concrete slice: R3 story identity/bookmarks/ranges.** Begin with its
+story/part identity and paired-marker contracts; do not equate general ranges
+with nested inline containers. R2's external-target representation is deliberately
+not a fabricated internal-anchor model. R3 continuation is now authorized.
 
 **Goal:** prove the new boundaries with a small feature requiring nested content
 and external relationships. Sources: P1 §17.16.22 (`hyperlink`), paragraph/run
@@ -641,8 +716,9 @@ visual rendering are different evidence and must not be substituted for each oth
 
 ## First assignment for the next agent
 
-R1 is complete; continue with **R2 external hyperlinks**, using the current
-deferred-field inventory and migration guide rather than the baseline API shapes.
+R2 is complete in the working tree; the next implementation is **R3 story identity,
+bookmarks and general ranges**, after continuation authorization. Use the current
+deferred-field inventory and migration guide rather than baseline API shapes.
 Confirm hosted CI/version-matrix results when available; no package publication
 was authorized. Do not reopen settled CMI compatibility or repository naming
 decisions. Preserve the existing untracked dependency-audit document.

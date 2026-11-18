@@ -77,7 +77,7 @@ payload bytes, but edited XML is not guaranteed to preserve every unknown featur
 | Domain / relevant elements | Specification | Current generation | Current implementation |
 | --- | --- | --- | --- |
 | Main story, `document`, `body` | P1 §17.2; §§17.2.2–17.2.3 | Body content through sections | [document content](../src/document/content.rs), [OOXML compiler](../src/ooxml/mod.rs) |
-| Paragraph and run content, `p`, `r`, `t` | P1 §§17.3.1.22, 17.3.2.25, 17.3.3.31 | Text, tabs, line/page/column breaks; explicit inline variants; nested rich inline authoring remains future work | `Paragraph`, `TextRun`, `ooxml::wordprocessing::text::text_run` |
+| Paragraph and run content, `p`, `r`, `t` | P1 §§17.3.1.22, 17.3.2.25, 17.3.3.31 | Text, tabs, line/page/column breaks and rich external hyperlinks; explicit inline variants | `Paragraph`, `TextRun`, `ooxml::wordprocessing::text::text_run` |
 | Paragraph/run properties, `pPr`, `rPr` | P1 §§17.3.1.26, 17.3.2.28 | Selected direct formatting; see units below | [format.rs](../src/ooxml/wordprocessing/format.rs) |
 | Tables and grid/merges | P1 §17.4; §§17.4.17 (`gridSpan`), 17.4.84 (`vMerge`) | Nested tables, widths, spans/merges, borders, shading; not the whole table vocabulary | [table.rs](../src/document/table.rs), `Compiler::table` |
 | Sections, final/non-final `sectPr` | P1 §17.6; §§17.6.17–17.6.18 | Page geometry, columns and selected section settings | `section_properties`, `ooxml::compile` |
@@ -91,7 +91,8 @@ payload bytes, but edited XML is not guaranteed to preserve every unknown featur
 | Bookmarks | P1 §17.13.6; §§17.13.6.1–17.13.6.2 | No typed generation yet | Future range model |
 | Tracked revisions | P1 §17.13.5 | No typed generation yet | Future revision/range model |
 | Content controls/custom markup | P1 §17.5; §§17.5.2.29–17.5.2.32 (`sdt` in different contexts) | No typed generation yet | Future context-aware block/inline/control model |
-| Fields and hyperlinks | P1 §17.16; §§17.16.18 (`fldChar`), 17.16.22 (`hyperlink`) | No typed generation yet | Future inline structure and external relationships |
+| Hyperlinks, `hyperlink`, `r:id`, `tooltip`, `history` | P1 §17.16.22; normative Annex A.1 `CT_Hyperlink`/`EG_PContent`; P2 §§6.4–6.5 | External absolute URI/IRI generation in body/tables/headers/footers; rich display runs; no internal anchors/nesting | [domain](../src/document/hyperlink.rs), [codec](../src/ooxml/wordprocessing/paragraph.rs); owner-local external relationships via OPC |
+| Fields, `fldChar` | P1 §17.16; §17.16.18 | No typed generation yet | Future field evaluation/preservation contract |
 | Mail merge | P1 §17.14 | No typed generation yet | Future fields/data-source integration |
 | Document settings | P1 §17.15; §11.3.3 | Defaults plus selected changes, including even/odd headers | `ooxml/defaults.rs`, section/story codecs |
 
@@ -99,6 +100,24 @@ Schema element names alone do not determine their context: for example, `sdt`
 and `sectPr` have multiple definitions. Reference the applicable parent/content
 model. Do not reuse one serializer solely because two elements have the same
 local name.
+
+`CT_Hyperlink` contains `EG_PContent`, so the schema permits nested hyperlinks.
+Rejecting nesting is an explicit library limitation, not an XSD assertion.
+Supported display children serialize as `w:r` containing text, tabs, breaks or
+drawings. Formatting belongs to those runs; no automatic Hyperlink style is
+applied. Comment conveniences retain their existing body-only restriction,
+including when used on a hyperlink's display runs. Text projection includes link
+display text but not target/tooltips or image alt text. Paragraphs cache a private
+immutable projection; links derive theirs from children without another cache.
+
+Targets retain Unicode and original percent escapes/query/fragment syntax. The
+external relationship is registered against the actual owning part, with IDs and
+deduplication scoped to that owner. No target is resolved over the network.
+Imported links remain opaque XML rather than a typed import model. Structural
+template edits can replace across display runs inside one link, but not across its
+boundary, and do not rewrite targets. Rust/Python tests, relocated-owner fixtures,
+independent Python readback with target mutation controls, and official-schema
+validation cover generation; they do not establish browser/Word navigation safety.
 
 ## Formatting and units
 
