@@ -2,6 +2,7 @@
 /examples/*.docx
 __pycache__/
 /.venv/
+/.venv-opencode/
 
 /python/rv_docx/*.so
 /python/rv_docx/*.pyd

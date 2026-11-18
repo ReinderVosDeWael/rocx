@@ -1,0 +1,75 @@
+name: Verification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: ["1.88.0", stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --group test
+      - run: cargo fmt --check
+      - run: cargo test --locked --all-targets
+      - run: cargo test --locked --all-features --all-targets
+      - run: cargo test --locked --all-features --doc
+      - run: cargo clippy --locked --all-features --all-targets -- -D warnings
+      - run: cargo doc --locked --all-features --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --group test
+      - run: uv run --no-sync pytest
+      - run: uv run --no-sync python tools/check_wheel.py
+
+  standards:
+    runs-on: ubuntu-latest
+    env:
+      RV_DOCX_SCHEMA_DIR: ${{ github.workspace }}/.validation-schemas
+      RV_DOCX_REQUIRE_SCHEMAS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --group test
+      - uses: actions/cache@v4
+        id: schemas
+        with:
+          path: ${{ env.RV_DOCX_SCHEMA_DIR }}
+          key: official-schemas-${{ hashFiles('tools/validate_ooxml.py') }}
+      - if: steps.schemas.outputs.cache-hit != 'true'
+        run: uv run --no-sync python tools/validate_ooxml.py --download-schemas
+      - run: uv run --no-sync pytest tests/python_bindings/test_standards.py
+      - run: cargo run --locked --example feature_parity -- "${{ runner.temp }}/features.docx"
+      - run: uv run --no-sync python tools/validate_ooxml.py "${{ runner.temp }}/features.docx"

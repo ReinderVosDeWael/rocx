@@ -19,6 +19,8 @@ spec.loader.exec_module(validation)
 def validator():
     directory = validation.default_directory()
     if not (directory / "wml.xsd").exists():
+        if os.environ.get("RV_DOCX_REQUIRE_SCHEMAS") == "1":
+            pytest.fail("Required official schemas missing; run tools/validate_ooxml.py --download-schemas")
         pytest.skip("Download pinned schemas with tools/validate_ooxml.py --download-schemas or set RV_DOCX_SCHEMA_DIR")
     return validation.Validator(directory)
 

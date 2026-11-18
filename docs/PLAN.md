@@ -124,6 +124,32 @@ well covered. Run the common completion checklist for every slice.
 
 ### R0 — Make the verified baseline repeatable
 
+**Implementation status (2026-11-17, working tree; not committed):** CI and the
+isolated wheel probe are implemented in `.github/workflows/ci.yml` and
+`tools/check_wheel.py`. The standards job requires schemas, caches the
+digest-checked download, and validates Rust-generated `feature_parity` output.
+Regression tests exercise both required-schema failure and optional local skips.
+All five dependency alerts were inspected through GitHub; source/feature-based
+retain-for-now dispositions and residual risks are in [DEPENDENCY-AUDIT.md](DEPENDENCY-AUDIT.md).
+No versions, alert states, upstream fixtures or normalization rules were changed.
+
+Local evidence (stable Rust, Python 3.12; Python commands used
+`UV_PROJECT_ENVIRONMENT=.venv-opencode`):
+
+- `uv sync --locked --group test` provisioned the authorized isolated environment.
+- `cargo fmt --check`, default and all-feature `cargo test --locked --all-targets`
+  passed (82 tests with all features, including 12 independent Python readbacks).
+- `cargo test --locked --all-features --doc` passed (2 doctests); Clippy with
+  `-D warnings` and rustdoc with warnings denied passed.
+- Required official-schema Python run: 112 passed, 1 intentional upstream skip.
+  An explicit missing-schema run failed as expected, rather than skipping.
+- `tools/check_wheel.py` passed: clean installed native extension, optional-only
+  metadata, exact Unicode/formatting, bytes/save and snapshot checks.
+
+GitHub-hosted CI and the Rust 1.88/Python 3.13–3.14 matrix have not run locally.
+**Next concrete slice:** confirm the new CI matrix, then R1's public deferred-field
+inventory and shared interpreter scenario matrix. Do not start R2 before R1.
+
 **Goal:** another checkout can reproduce the checks without undocumented local
 scripts or silently skipped standards validation.
 
@@ -486,8 +512,8 @@ Clean wheel check: use `uv venv <temporary-env>` and `uv pip install --python
 <temporary-env>/bin/python <absolute-wheel-path>`, without reference/test extras.
 Run from outside the source tree, verify the imported module lives in that
 environment, inspect ZIP/XML using the standard library and check optional
-interop failure. Run interop/readback separately with the extra installed. R0
-must turn this currently manual recipe into reusable automation.
+interop failure. Run interop/readback separately with the extra installed.
+`uv run --no-sync python tools/check_wheel.py` now automates this recipe.
 
 Useful focused entrypoints: `tests/domain.rs` (std-only domain boundary),
 `tests/{deferred,async_fields,resolution,compilation}.rs`,
@@ -512,8 +538,7 @@ visual rendering are different evidence and must not be substituted for each oth
 
 ## First assignment for the next agent
 
-Start at **R0**: inspect the current checkout and baseline commands, then add
-repeatable clean-wheel verification and CI with required schema checks. Make
-that a tested commit before changing the public content algebra. Proceed to R1
-and then implement R2 external hyperlinks as the first new feature. Do not
-reopen settled CMI compatibility or repository naming decisions.
+Confirm **R0**'s new CI matrix and checkpoint the verified changes before changing
+the public content algebra. Proceed to **R1**'s deferred-field inventory/scenario
+matrix and then R2 external hyperlinks as the first new feature. Do not reopen
+settled CMI compatibility or repository naming decisions.

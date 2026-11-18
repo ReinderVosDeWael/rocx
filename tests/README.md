@@ -63,10 +63,28 @@ It is independent of the native decoder/serializer. It is not full extension or
 Word-layout validation. Tests skip with an explicit explanation if schemas have
 not been downloaded; a release verification run must provide them.
 
+Set `RV_DOCX_REQUIRE_SCHEMAS=1` to fail instead of skipping when schemas are
+missing. `.github/workflows/ci.yml` uses this mode in its standards job, downloads
+digest-checked schemas on a cache miss, and validates the Rust-generated
+`feature_parity` document as well as Python output and negative controls.
+After setup, validation remains offline. The intentional upstream skip is the
+retired CMI trailing-section expectation (`upstream/conftest.py`); no comparison
+or fixture normalization policy was changed for CI.
+
 ## Wheel verification
 
-Build with `uv build --wheel`. Install it with `uv pip install --python <clean-env>
-<dist-wheel>` into a fresh uv-created environment. Verify import and native bytes/
-save with no `cmi_docx` or `docx` installed, inspect content with standard ZIP/XML
-tools, and confirm `to_docx()` explains the optional extra. Test editable consumer
-objects separately with `interop` installed. Artifacts belong outside the Git tree.
+```sh
+uv run --no-sync python tools/check_wheel.py
+```
+
+This builds with `uv build --wheel`, installs only that wheel into a temporary
+uv environment, and runs an isolated probe outside the source tree. It checks
+native import locations, dependency metadata, exact Unicode and bold/italic XML,
+bytes/save, repeatable snapshots without rerunning producers, and the missing
+interop error. Neither `docx` nor `cmi_docx` may be installed. Test editable
+consumer objects separately with `interop` installed. Temporary environments and
+output are cleaned up; set `TMPDIR` to choose their parent directory.
+
+CI runs Rust 1.88/stable and Python 3.12–3.14 checks without publishing artifacts
+or packages. Dependency alert dispositions are in
+[`docs/DEPENDENCY-AUDIT.md`](../docs/DEPENDENCY-AUDIT.md).
