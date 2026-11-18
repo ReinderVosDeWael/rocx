@@ -110,6 +110,11 @@ excluding an independently declared property. Typed references detect dependency
 cycles within a resolution pass; arbitrary opaque user futures are not inspected.
 `Value::deferred()` remains available for explicitly shared computation results.
 
+See the [deferred-field inventory and scenario matrix](docs/DEFERRED-FIELDS.md)
+for supported fields, ownership differences and remaining cross-language gaps.
+Image transformation and alt-text options use the same Rust deferred-field
+machinery as image data, without rerunning producers when rendering snapshots.
+
 Runnable examples: [Rust](examples/property_dependencies.rs),
 [Python](examples/property_dependencies.py), and the
 [feature document](examples/feature_parity.rs).

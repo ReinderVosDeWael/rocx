@@ -51,6 +51,15 @@ Rust declarations/property sources are single-use owned programs; references may
 observe their cached result after resolution. Use new source factories/programs
 for fresh passes. Rendering a resolved snapshot never reruns producers.
 
+R1's first slice makes Rust `ImageRun.transformation` and `ImageRun.alt_text`
+`Value<Option<...>>` fields. Assign ready options with `Some(value).into()` or
+`None.into()`; lazy/async values and typed property references use those same
+fields. Image data, transformation and alt text resolve concurrently after the
+image condition passes. Producer errors identify the failing field. Image header
+inspection and domain output are unchanged. See the
+[field inventory and scenario matrix](DEFERRED-FIELDS.md) for remaining gaps and
+intentional Rust/Python ownership differences.
+
 ## Python snapshots and optional interoperability
 
 `rv_docx` remains the import. Resolution no longer mutates declarations or returns

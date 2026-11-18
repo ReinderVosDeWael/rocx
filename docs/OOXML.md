@@ -122,7 +122,7 @@ an OOXML limit: document application limits separately from schema bounds.
 | Feature | Specification | Coverage / boundary |
 | --- | --- | --- |
 | Drawing framework and themes | P1 §20.1; §14.2.7, Theme Part | Current theme is primarily supplied by the bundled template. |
-| Pictures | P1 §20.2; §15.2.14, Image Part | Native PNG/JPEG/GIF/BMP/TIFF header inspection and inline picture emission; not a general DrawingML model. |
+| Pictures | P1 §20.2; §15.2.14, Image Part | Native PNG/JPEG/GIF/BMP/TIFF header inspection and inline picture emission; Rust/Python defer data, transformation and alt text through the generic resolver; not a general DrawingML model. |
 | Wordprocessing drawings | P1 §20.4; §§20.4.2.8 (`inline`), 20.4.2.3 (`anchor`), 20.4.2.5 (`docPr`), 20.4.2.7 (`extent`) | Current inline sizing/accessibility fields; floating anchors and broader drawing properties are not generated. |
 | Charts | P1 §21.2; §14.2.1, Chart Part | No typed generation yet; introduces dependent parts and possibly embedded data. |
 | Chart drawings and diagrams | P1 §§21.3–21.4 | No typed generation yet; reuse asset and relationship infrastructure. |

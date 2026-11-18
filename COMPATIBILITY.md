@@ -19,7 +19,7 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Sections | Geometry, margins, columns, page numbering, break type, title-page and vertical alignment |
 | Stories | Main body, default/first/even headers and footers; comment generation currently restricted to body context |
 | Comments | Text/author attached to paragraphs or runs, with paired anchor IDs; not general arbitrary cross-paragraph range authoring |
-| Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline pictures, density-aware dimensions and accessibility fields; header inspection without pixel decoding |
+| Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline pictures, density-aware dimensions and accessibility fields; deferred data/transformation/alt text in both APIs; header inspection without pixel decoding |
 | Numbering | Native definitions/levels/references exposed in both Rust and Python |
 | Metadata | Core properties and snapshot timestamp |
 | Templates | Relationship-driven part discovery, namespace-safe rewriting, opaque payload retention, structural text replacement and insertion |

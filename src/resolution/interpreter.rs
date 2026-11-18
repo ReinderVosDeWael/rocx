@@ -107,11 +107,27 @@ impl ImageRun {
         if !self.condition.evaluate() {
             return Ok(None);
         }
-        let data = self
-            .data
-            .resolve()
-            .await
-            .map_err(|e| e.at(format!("{path}.data")))?;
+        let (data, transformation, alt_text) = futures_util::future::try_join3(
+            async {
+                self.data
+                    .resolve()
+                    .await
+                    .map_err(|e| e.at(format!("{path}.data")))
+            },
+            async {
+                self.transformation
+                    .resolve()
+                    .await
+                    .map_err(|e| e.at(format!("{path}.transformation")))
+            },
+            async {
+                self.alt_text
+                    .resolve()
+                    .await
+                    .map_err(|e| e.at(format!("{path}.alt_text")))
+            },
+        )
+        .await?;
         let (bytes, name) = match data {
             ImageData::Bytes(b) => (b, None),
             ImageData::Path(p) => {
@@ -119,7 +135,7 @@ impl ImageRun {
                 (b, p.file_name().map(|s| s.to_string_lossy().into_owned()))
             }
         };
-        let image = crate::adapters::inspect_image(bytes, name, self.transformation, self.alt_text)
+        let image = crate::adapters::inspect_image(bytes, name, transformation, alt_text)
             .map_err(|e| e.at(path))?;
         Ok(Some(ResolvedInline::Image {
             image,

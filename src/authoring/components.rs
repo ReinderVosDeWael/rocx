@@ -82,8 +82,10 @@ impl From<&str> for ImageData {
 pub struct ImageRun {
     pub data: Value<ImageData>,
     pub r#type: Option<String>,
-    pub transformation: Option<ImageTransformation>,
-    pub alt_text: Option<AltText>,
+    /// Optional dimensions in points, resolved concurrently with data and alt text.
+    pub transformation: Value<Option<ImageTransformation>>,
+    /// Optional accessibility metadata, using the same property-reference mechanism.
+    pub alt_text: Value<Option<AltText>>,
     pub condition: Condition,
 }
 impl ImageRun {
@@ -91,8 +93,8 @@ impl ImageRun {
         Self {
             data: Value::ready(data.into()),
             r#type: None,
-            transformation: None,
-            alt_text: None,
+            transformation: Value::default(),
+            alt_text: Value::default(),
             condition: Condition::default(),
         }
     }

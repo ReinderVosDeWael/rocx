@@ -22,6 +22,7 @@ This is environment configuration, not a library dependency.
 | --- | --- |
 | `domain.rs` | Physical units and standalone compilation of the domain with only std |
 | `resolution.rs`, `deferred.rs`, `async_fields.rs` | Ordering, concurrency, conditions, typed property cycles, cancellation and error locations |
+| `resolution_contract.rs` + `test_resolution_contract.py` | Matched R1 image-field, shared-lifetime, concurrent/nested pass and asset-snapshot scenarios; see `docs/DEFERRED-FIELDS.md` |
 | `docx.rs`, `text_runs.rs`, `features.rs`, `compilation.rs` | Package/content semantics, explicit formatting and deterministic compilation plans |
 | `preservation.rs`, `templates.rs` | Relocated parts/media, namespace shadowing, opaque content, replacements and structured edit boundaries |
 | `python_docx.rs` + `python_docx/verify.py` | Rust writes files; python-docx checks exact expected content, formatting, images and relationships |

@@ -117,7 +117,8 @@ pub fn document() -> Document {
     image.transformation = Some(ImageTransformation {
         width: Some(72.),
         height: None,
-    });
+    })
+    .into();
     let nested = Table::new(vec![TableRow::new(vec![cell("nested")]).into()]);
     let mut first = TableCell::new(vec![Paragraph::new("merged").into()]);
     first.grid_span = Some(2);

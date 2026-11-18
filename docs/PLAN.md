@@ -183,6 +183,48 @@ documented dispositions. Run no automatic publishing as part of this work.
 
 ### R1 — Finish cross-language API and invariant consistency
 
+**First slice implemented and verified (2026-11-18):** the complete field inventory,
+intentional lifetime differences, shared scenario matrix and remaining gaps are
+in [DEFERRED-FIELDS.md](DEFERRED-FIELDS.md). Rust image transformation and alt-text
+fields now use `Value<Option<...>>` and the existing `PropertyRef` mechanism;
+they resolve concurrently with data after the image condition passes. Producer
+errors retain field paths and causes. Ready assignments now need `.into()`;
+see [MIGRATION.md](MIGRATION.md). No dependency ownership semantics were changed.
+
+New Rust/Python contract tests cover image-field references, concurrency, hidden
+producers, option errors, concurrent root passes, nested cycle detection,
+cancellation and snapshot rendering after asset mutation/deletion. Rust also
+adds explicit diamond, direct/indirect cycle, and fresh/shared-pass cases.
+Independent Python readback now exercises Rust-deferred image options. Runnable
+examples are `examples/image_dependencies.{rs,py}`.
+
+Verification on stable Rust/Python 3.12 (Python commands used
+`UV_PROJECT_ENVIRONMENT=.venv-opencode`):
+
+- `cargo fmt --check`; default and all-feature `cargo test --locked --all-targets`
+  passed (92 tests with all features, including 10 new Rust contract tests).
+- `cargo test --locked --all-features --doc` passed (2 doctests).
+- Clippy `--all-features --all-targets -- -D warnings` and rustdoc with
+  `RUSTDOCFLAGS='-D warnings'` passed.
+- Required-schema Python suite passed: 123 tests, 1 intentional upstream skip,
+  including 11 new Python contract cases.
+- Clean installed-wheel probe passed; both new examples ran, and the independent
+  official-schema validator accepted each (8 covered parts plus relationships).
+- `git diff --check` passed. The initial new Rust reference/async-field tests
+  failed compilation against the former ordinary image-option fields, as expected.
+
+**Checkpoint:** `feat(resolution): defer image options and document R1 contracts`
+(locate its hash with `git log`). The engineer requested a commit and a stop for
+conversation compaction at this green checkpoint. The pre-existing untracked
+`docs/DEPENDENCY-AUDIT.md` is not part of this R1 change.
+
+**Next concrete slice:** complete Rust deferred document metadata and section
+properties through deliberate aggregates, using the inventory to avoid duplicate
+ordinary/async fields. Then address table properties and the safe sharing contract
+for owned child declarations, followed by structured diagnostics, domain checked
+invariants/accessors and render options. R1 is **not complete**; do not start R2.
+R0 is checkpointed as `171229c`; its hosted/version-matrix results remain unverified.
+
 **Goal:** shared semantics and diagnostics are deliberate before enlarging the
 content algebra. These are follow-ups to the reorganization, not another move of
 every source file.

@@ -227,12 +227,14 @@ fn image_scaling_alt_text_and_conditional_data() {
     image.transformation = Some(ImageTransformation {
         width: None,
         height: Some(36.),
-    });
+    })
+    .into();
     image.alt_text = Some(AltText {
         title: Some("Title <&>".into()),
         description: Some("Description".into()),
         name: Some("Name".into()),
-    });
+    })
+    .into();
     let bytes = bytes(doc(vec![
         Paragraph::from_children(vec![
             image.into(),

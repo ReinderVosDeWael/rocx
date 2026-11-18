@@ -178,14 +178,18 @@ fn save_images_fixture(path: &Path) {
     let mut png = ImageRun::deferred(Value::future(async {
         ImageData::Bytes(include_bytes!("fixtures/images/sample.png").to_vec())
     }));
-    png.transformation = Some(ImageTransformation {
-        width: Some(36.),
-        height: None,
+    png.transformation = Value::future(async {
+        Some(ImageTransformation {
+            width: Some(36.),
+            height: None,
+        })
     });
-    png.alt_text = Some(AltText {
-        title: Some("Title <&>".into()),
-        description: Some("Red sample".into()),
-        name: Some("Sample PNG".into()),
+    png.alt_text = Value::future(async {
+        Some(AltText {
+            title: Some("Title <&>".into()),
+            description: Some("Red sample".into()),
+            name: Some("Sample PNG".into()),
+        })
     });
     let jpeg = ImageRun::from_path(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images/sample.jpg"),
@@ -194,12 +198,14 @@ fn save_images_fixture(path: &Path) {
     tiff.transformation = Some(ImageTransformation {
         width: None,
         height: Some(24.),
-    });
+    })
+    .into();
     let mut repeated_png = ImageRun::new(include_bytes!("fixtures/images/sample.png").to_vec());
     repeated_png.transformation = Some(ImageTransformation {
         width: Some(72.),
         height: None,
-    });
+    })
+    .into();
     let images = vec![
         png,
         jpeg,
@@ -304,7 +310,8 @@ fn save_template_fixture(temp: &Temp) -> (PathBuf, PathBuf) {
     image.transformation = Some(ImageTransformation {
         width: Some(48.),
         height: None,
-    });
+    })
+    .into();
     let mut section = Section::new(vec![
         greeting.into(),
         Table::new(vec![
