@@ -6,22 +6,10 @@
 //! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 //! These citations identify the relevant vocabulary, not full conformance.
 use crate::model::ResolvedInlineKind;
-use crate::package::Package;
+use crate::opc::Package;
+pub(crate) use crate::xml::validate_text;
 use crate::xml::{Content, Node, val};
 use crate::*;
-pub(crate) fn validate_text(text: &str) -> Result<()> {
-    for (byte_offset, character) in text.char_indices() {
-        if !matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}')
-        {
-            return Err(Error::InvalidXmlCharacter {
-                character,
-                byte_offset,
-            });
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn timestamp() -> String {
     let seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -69,6 +57,8 @@ pub(crate) fn text_run(text: &str) -> Node {
 }
 struct Renderer<'a> {
     package: Package,
+    main: String,
+    drawing: u32,
     styles: Node,
     document: &'a ResolvedDocument,
 }
@@ -88,7 +78,7 @@ impl Renderer<'_> {
         }
         let comment_path = self
             .package
-            .related("word/document.xml", "comments")?
+            .related(&self.main, "comments")?
             .map(|(_, path)| path)
             .unwrap_or("word/comments.xml".into());
         let path = comment_path.as_str();
@@ -127,11 +117,7 @@ impl Renderer<'_> {
             path,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
         )?;
-        self.package.relation(
-            "word/document.xml",
-            "comments",
-            path.strip_prefix("word/").unwrap_or(path),
-        )?;
+        self.package.link(&self.main, "comments", path)?;
         let mut out = vec![Node::new("w:commentRangeStart").attr("w:id", id)];
         out.extend(nodes);
         out.push(Node::new("w:commentRangeEnd").attr("w:id", id));
@@ -153,11 +139,9 @@ impl Renderer<'_> {
             existing.unwrap_or_else(|| self.package.unique("word/media/image", &image.extension));
         self.package.parts.insert(path.clone(), image.data.clone());
         self.package.content_type(&path, &image.content_type)?;
-        let id = self
-            .package
-            .relation(owner, "image", path.strip_prefix("word/").unwrap())?;
-        self.package.drawing += 1;
-        let drawing = self.package.drawing;
+        let id = self.package.link(owner, "image", &path)?;
+        self.drawing += 1;
+        let drawing = self.drawing;
         let alt = image.alt_text.as_ref();
         let name = alt.and_then(|a| a.name.as_deref()).unwrap_or(&image.name);
         let docpr = Node::new("wp:docPr")
@@ -440,7 +424,7 @@ impl Renderer<'_> {
         existing: Option<&str>,
     ) -> Result<String> {
         let related = existing
-            .map(|id| self.package.related("word/document.xml", &format!("#{id}")))
+            .map(|id| self.package.related(&self.main, &format!("#{id}")))
             .transpose()?
             .flatten();
         let path = related
@@ -469,11 +453,7 @@ impl Renderer<'_> {
         if let Some((id, _)) = related {
             return Ok(id);
         }
-        self.package.relation(
-            "word/document.xml",
-            kind,
-            path.strip_prefix("word/").unwrap(),
-        )
+        self.package.link(&self.main, kind, &path)
     }
 }
 fn section_properties(mut previous: Node, props: &Option<SectionProperties>) -> Result<Node> {
@@ -647,33 +627,42 @@ pub(crate) fn render_with_template(
         include_bytes!("../assets/default.docx").to_vec()
     };
     let mut package = Package::load(&bytes)?;
+    let main = package
+        .related("", "officeDocument")?
+        .map(|(_, p)| p)
+        .ok_or_else(|| Error::Validation("package has no officeDocument relationship".into()))?;
+    let main_root = package.xml(&main)?;
+    if main_root.name != "w:document" {
+        return Err(Error::Validation(
+            "unsupported WordprocessingML profile; expected Transitional".into(),
+        ));
+    }
+    let drawing = crate::ooxml::defaults::prepare(&mut package, &main)?;
+    let mut stories = vec![main.clone()];
+    for kind in ["header", "footer"] {
+        for (id, _) in package.relationships(&main, kind)? {
+            if let Some((_, path)) = package.related(&main, &format!("#{id}"))? {
+                stories.push(path);
+            }
+        }
+    }
     if let Some(t) = template {
-        for path in package
-            .parts
-            .keys()
-            .filter(|p| {
-                p.starts_with("word/")
-                    && (p.as_str() == "word/document.xml"
-                        || p.starts_with("word/header")
-                        || p.starts_with("word/footer"))
-                    && p.ends_with(".xml")
-            })
-            .cloned()
-            .collect::<Vec<_>>()
-        {
+        for path in &stories {
             let mut root = package.xml(&path)?;
             crate::template::replacements(&mut root, &t.replacements)?;
             package.put(path, root)?;
         }
     }
-    let styles = crate::styles::apply(&mut package, &doc.styles, &doc.numbering)?;
+    let styles = crate::styles::apply(&mut package, &main, &doc.styles, &doc.numbering)?;
     metadata(&mut package, doc)?;
     let mut renderer = Renderer {
         package,
         styles,
         document: doc,
+        main: main.clone(),
+        drawing,
     };
-    let mut root = renderer.package.xml("word/document.xml")?;
+    let mut root = renderer.package.xml(&main)?;
     root.namespaces();
     let body = root
         .child_mut("w:body")
@@ -705,7 +694,7 @@ pub(crate) fn render_with_template(
                 if *typ == HeaderFooterType::Even {
                     let settings_path = renderer
                         .package
-                        .related("word/document.xml", "settings")?
+                        .related(&main, "settings")?
                         .map(|(_, p)| p)
                         .unwrap_or("word/settings.xml".into());
                     let mut settings = renderer.package.xml(&settings_path)?;
@@ -714,7 +703,7 @@ pub(crate) fn render_with_template(
                 }
             }
         }
-        for block in renderer.blocks(&section.blocks, "word/document.xml", width)? {
+        for block in renderer.blocks(&section.blocks, &main, width)? {
             let insertion = paragraph_cursor
                 .and_then(|index| {
                     body.children
@@ -736,6 +725,6 @@ pub(crate) fn render_with_template(
         }
     }
     body.push(props);
-    renderer.package.put("word/document.xml", root)?;
+    renderer.package.put(&main, root)?;
     renderer.package.finish()
 }

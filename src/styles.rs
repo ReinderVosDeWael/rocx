@@ -3,7 +3,7 @@
 //! References: ECMA-376 Part 1 (2016), §§17.7 (styles), 17.9 (numbering),
 //! 11.3.12 (Style Definitions Part), and 11.3.11 (Numbering Definitions Part).
 //! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
-use crate::package::Package;
+use crate::opc::Package;
 use crate::xml::{Node, val};
 use crate::*;
 fn font(
@@ -82,11 +82,12 @@ fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
 }
 pub(crate) fn apply(
     package: &mut Package,
+    main: &str,
     definitions: &[StyleDefinition],
     numbering: &[NumberingDefinition],
 ) -> Result<Node> {
     let style_path = package
-        .related("word/document.xml", "styles")?
+        .related(main, "styles")?
         .map(|(_, p)| p)
         .unwrap_or("word/styles.xml".into());
     let mut styles = package.xml(&style_path)?;
@@ -197,7 +198,7 @@ pub(crate) fn apply(
     package.put(&style_path, styles.clone())?;
     if !numbering.is_empty() {
         let numbering_path = package
-            .related("word/document.xml", "numbering")?
+            .related(main, "numbering")?
             .map(|(_, p)| p)
             .unwrap_or("word/numbering.xml".into());
         let mut nums = package.xml(&numbering_path)?;

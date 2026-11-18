@@ -14,8 +14,8 @@ pub(crate) fn replacements(root: &mut Node, replacements: &[(String, String)]) -
                 "template replacement needle cannot be empty".into(),
             ));
         }
-        crate::render::validate_text(needle)?;
-        crate::render::validate_text(replacement)?;
+        crate::xml::validate_text(needle)?;
+        crate::xml::validate_text(replacement)?;
         fn visit(n: &mut Node, needle: &str, replacement: &str) {
             if n.name == "w:p" {
                 // Text tokens include tab/break elements, just as python-docx run.text does.

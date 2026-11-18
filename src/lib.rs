@@ -55,7 +55,8 @@ pub use table::*;
 pub use types::*;
 
 mod format;
-mod package;
+mod ooxml;
+pub mod opc;
 mod styles;
 mod template;
 

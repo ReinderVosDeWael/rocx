@@ -7,6 +7,9 @@
 //! Compatibility markup: ECMA-376 Part 3 (2015), §§7–9.
 //! [Official Part 3](https://ecma-international.org/wp-content/uploads/ECMA-376-3_5th_edition_december_2015.zip).
 use crate::{Error, Result};
+use std::collections::BTreeMap;
+mod name;
+pub(crate) use name::Name;
 
 pub(crate) const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 pub(crate) const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -32,8 +35,9 @@ pub(crate) const NS: &[(&str, &str)] = &[
 ];
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Node {
-    pub name: String,
-    pub attrs: Vec<(String, String)>,
+    pub name: Name,
+    pub attrs: Vec<(Name, String)>,
+    imported: bool,
     pub children: Vec<Content>,
 }
 #[derive(Debug, Clone, PartialEq)]
@@ -43,18 +47,19 @@ pub(crate) enum Content {
     Raw(String),
 }
 impl Node {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<Name>) -> Self {
         Self {
             name: name.into(),
             attrs: Vec::new(),
+            imported: false,
             children: Vec::new(),
         }
     }
-    pub fn attr(mut self, key: impl Into<String>, value: impl ToString) -> Self {
+    pub fn attr(mut self, key: impl Into<Name>, value: impl ToString) -> Self {
         self.set(key, value);
         self
     }
-    pub fn set(&mut self, key: impl Into<String>, value: impl ToString) {
+    pub fn set(&mut self, key: impl Into<Name>, value: impl ToString) {
         let key = key.into();
         if let Some((_, v)) = self.attrs.iter_mut().find(|(k, _)| *k == key) {
             *v = value.to_string();
@@ -69,6 +74,17 @@ impl Node {
             .map(|(_, v)| v.as_str())
     }
     pub fn push(&mut self, node: Node) {
+        if self.imported
+            && let Some(order) = self.property_order()
+        {
+            let rank = |name: &Name| order.iter().position(|s| name == &format!("w:{s}"));
+            if let Some(position) = rank(&node.name)
+                && let Some(index) = self.children.iter().position(|c| matches!(c, Content::Element(n) if rank(&n.name).is_some_and(|r| r > position)))
+            {
+                self.children.insert(index, Content::Element(node));
+                return;
+            }
+        }
         self.children.push(Content::Element(node));
     }
     pub fn with(mut self, node: Node) -> Self {
@@ -114,12 +130,18 @@ impl Node {
         self.child_mut(name).unwrap()
     }
     pub fn replace(&mut self, node: Node) {
-        self.remove(&node.name);
-        self.push(node);
+        if let Some(existing) = self.elements_mut().find(|n| n.name == node.name) {
+            *existing = node;
+        } else {
+            self.push(node);
+        }
     }
     pub fn namespaces(&mut self) {
         for (prefix, uri) in NS {
-            self.set(format!("xmlns:{prefix}"), uri);
+            let key = format!("xmlns:{prefix}");
+            if self.get(&key).is_none() {
+                self.set(key, uri);
+            }
         }
     }
     pub fn parse(bytes: &[u8]) -> Result<Self> {
@@ -156,41 +178,46 @@ impl Node {
         };
         let doc = roxmltree::Document::parse(text)
             .map_err(|e| Error::Validation(format!("invalid XML: {e}")))?;
-        fn qname(n: roxmltree::Node<'_, '_>, ns: Option<&str>, local: &str) -> String {
-            if ns == Some("http://www.w3.org/XML/1998/namespace") {
-                return format!("xml:{local}");
-            }
-            let prefix = ns.and_then(|uri| {
-                NS.iter()
-                    .find(|(_, u)| *u == uri)
-                    .map(|(p, _)| *p)
-                    .or_else(|| n.lookup_prefix(uri))
-            });
-            match prefix {
-                Some(p) if !p.is_empty() => format!("{p}:{local}"),
-                _ => local.into(),
-            }
+        if doc
+            .descendants()
+            .any(|n| n.ancestors().take(258).count() > 256)
+        {
+            return Err(Error::Validation(
+                "XML depth exceeds read limit (256)".into(),
+            ));
         }
         fn convert(n: roxmltree::Node<'_, '_>, source: &str) -> Node {
-            let mut node = Node::new(qname(n, n.tag_name().namespace(), n.tag_name().name()));
+            let mut node = Node::new(Name::expanded(
+                n.tag_name().namespace(),
+                n.tag_name().name(),
+                n.tag_name()
+                    .namespace()
+                    .and_then(|uri| n.lookup_prefix(uri)),
+            ));
+            node.imported = true;
+            // Preserve the full scope on opaque imported nodes. Prefix-valued
+            // attributes (including MCE lists) must retain their bindings.
             for ns in n.namespaces() {
-                if n.parent_element()
-                    .is_none_or(|p| p.lookup_namespace_uri(ns.name()) != Some(ns.uri()))
-                {
-                    node.set(
-                        ns.name()
-                            .map(|p| format!("xmlns:{p}"))
-                            .unwrap_or("xmlns".into()),
-                        ns.uri(),
-                    );
-                }
+                node.set(
+                    ns.name()
+                        .map(|p| format!("xmlns:{p}"))
+                        .unwrap_or("xmlns".into()),
+                    ns.uri(),
+                );
             }
             for a in n.attributes() {
-                node.set(qname(n, a.namespace(), a.name()), a.value());
+                node.set(
+                    Name::expanded(
+                        a.namespace(),
+                        a.name(),
+                        a.namespace().and_then(|uri| n.lookup_prefix(uri)),
+                    ),
+                    a.value(),
+                );
             }
             for child in n.children() {
                 if child.is_element() {
-                    node.push(convert(child, source));
+                    node.children.push(Content::Element(convert(child, source)));
                 } else if child.is_text() {
                     node.children
                         .push(Content::Text(child.text().unwrap_or("").into()));
@@ -205,10 +232,7 @@ impl Node {
         root.namespaces();
         Ok(root)
     }
-    pub fn sort_properties(&mut self) {
-        for child in self.elements_mut() {
-            child.sort_properties();
-        }
+    fn property_order(&self) -> Option<Vec<&'static str>> {
         let order = match self.name.as_str() {
             "w:pPr" => {
                 "pStyle keepNext keepLines pageBreakBefore framePr widowControl numPr suppressLineNumbers pBdr shd tabs suppressAutoHyphens kinsoku wordWrap overflowPunct topLinePunct autoSpaceDE autoSpaceDN bidi adjustRightInd snapToGrid spacing ind contextualSpacing mirrorIndents suppressOverlap jc textDirection textAlignment textboxTightWrap outlineLvl divId cnfStyle rPr sectPr pPrChange"
@@ -228,9 +252,20 @@ impl Node {
             "w:style" => {
                 "name aliases basedOn next link autoRedefine hidden uiPriority semiHidden unhideWhenUsed qFormat locked personal personalCompose personalReply rsid pPr rPr tblPr trPr tcPr tblStylePr"
             }
-            _ => return,
+            _ => return None,
         };
-        let names: Vec<_> = order.split_whitespace().collect();
+        Some(order.split_whitespace().collect())
+    }
+    pub fn sort_properties(&mut self) {
+        for child in self.elements_mut() {
+            child.sort_properties();
+        }
+        if self.imported {
+            return;
+        }
+        let Some(names) = self.property_order() else {
+            return;
+        };
         self.children.sort_by_key(|c| match c {
             Content::Element(n) => names
                 .iter()
@@ -241,7 +276,7 @@ impl Node {
     }
     pub fn xml(&self) -> String {
         let mut out = String::new();
-        self.write(&mut out);
+        self.write(&mut out, &BTreeMap::new());
         out
     }
     pub fn bytes(&self) -> Vec<u8> {
@@ -251,14 +286,42 @@ impl Node {
         )
         .into_bytes()
     }
-    fn write(&self, out: &mut String) {
+    fn write(&self, out: &mut String, inherited: &BTreeMap<String, String>) {
+        let mut scope = inherited.clone();
+        let mut declarations = Vec::new();
+        for (name, value) in &self.attrs {
+            if let Some(prefix) = name.declaration() {
+                if scope.get(prefix) != Some(value) {
+                    scope.insert(prefix.to_owned(), value.clone());
+                    declarations.push((name.as_str().to_owned(), value.clone()));
+                }
+            }
+        }
+        if self.imported
+            && self.name.namespace().is_none()
+            && scope.get("").is_some_and(|uri| !uri.is_empty())
+        {
+            scope.insert(String::new(), String::new());
+            declarations.push(("xmlns".into(), String::new()));
+        }
+        let element = self.name.lexical(&mut scope, &mut declarations, false);
+        let attributes: Vec<_> = self
+            .attrs
+            .iter()
+            .filter(|(name, _)| name.declaration().is_none())
+            .map(|(name, value)| (name.lexical(&mut scope, &mut declarations, true), value))
+            .collect();
         out.push('<');
-        out.push_str(&self.name);
-        for (k, v) in &self.attrs {
+        out.push_str(&element);
+        for (name, value) in declarations
+            .iter()
+            .map(|(n, v)| (n.as_str(), v.as_str()))
+            .chain(attributes.iter().map(|(n, v)| (n.as_str(), v.as_str())))
+        {
             out.push(' ');
-            out.push_str(k);
+            out.push_str(name);
             out.push_str("=\"");
-            escape(out, v, true);
+            escape(out, value, true);
             out.push('"');
         }
         if self.children.is_empty() {
@@ -268,13 +331,13 @@ impl Node {
         out.push('>');
         for child in &self.children {
             match child {
-                Content::Element(n) => n.write(out),
+                Content::Element(n) => n.write(out, &scope),
                 Content::Text(t) => escape(out, t, false),
                 Content::Raw(r) => out.push_str(r),
             }
         }
         out.push_str("</");
-        out.push_str(&self.name);
+        out.push_str(&element);
         out.push('>');
     }
 }
@@ -294,4 +357,98 @@ fn escape(out: &mut String, text: &str, attribute: bool) {
 }
 pub(crate) fn val(name: &str, value: impl ToString) -> Node {
     Node::new(format!("w:{name}")).attr("w:val", value)
+}
+
+pub(crate) fn validate_text(text: &str) -> Result<()> {
+    for (byte_offset, character) in text.char_indices() {
+        if !matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}')
+        {
+            return Err(Error::InvalidXmlCharacter {
+                character,
+                byte_offset,
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn namespace_identity_survives_shadowing_and_prefix_valued_attributes() {
+        let source = format!(
+            r#"<w:document xmlns:w="{W}" xmlns:mc="urn:mc" xmlns:e="urn:ext" mc:Ignorable="e"><w:body><e:opaque xmlns:w="urn:shadow" xmlns:main="{W}" xmlns:q="urn:value" q:type="q:Thing"><main:p><main:r><main:t>keep</main:t></main:r></main:p><w:p/></e:opaque></w:body></w:document>"#
+        );
+        let tree = Node::parse(source.as_bytes()).unwrap();
+        let output = tree.bytes();
+        let output = std::str::from_utf8(&output).unwrap();
+        let parsed = roxmltree::Document::parse(output).unwrap();
+        assert!(parsed.descendants().any(|n| n.has_tag_name((W, "p"))));
+        assert!(
+            parsed
+                .descendants()
+                .any(|n| n.has_tag_name(("urn:shadow", "p")))
+        );
+        let opaque = parsed
+            .descendants()
+            .find(|n| n.has_tag_name(("urn:ext", "opaque")))
+            .unwrap();
+        assert_eq!(opaque.attribute(("urn:value", "type")), Some("q:Thing"));
+        assert_eq!(opaque.lookup_namespace_uri(Some("q")), Some("urn:value"));
+        assert_eq!(
+            tree.child("w:body")
+                .unwrap()
+                .elements()
+                .next()
+                .unwrap()
+                .elements()
+                .filter(|n| n.name == "w:p")
+                .count(),
+            1
+        );
+    }
+    #[test]
+    fn imported_property_order_is_retained_but_generated_properties_are_ordered() {
+        let source = format!(
+            r#"<w:pPr xmlns:w="{W}" xmlns:e="urn:ext"><w:jc w:val="left"/><e:opaque/><w:pStyle w:val="X"/></w:pPr>"#
+        );
+        let mut imported = Node::parse(source.as_bytes()).unwrap();
+        imported.sort_properties();
+        assert_eq!(
+            imported
+                .elements()
+                .map(|n| n.name.as_str())
+                .collect::<Vec<_>>(),
+            ["w:jc", "{urn:ext}opaque", "w:pStyle"]
+        );
+        let mut generated = Node::new("w:pPr")
+            .with(val("jc", "left"))
+            .with(val("pStyle", "X"));
+        generated.sort_properties();
+        assert_eq!(
+            generated
+                .elements()
+                .map(|n| n.name.as_str())
+                .collect::<Vec<_>>(),
+            ["w:pStyle", "w:jc"]
+        );
+    }
+    #[test]
+    fn default_namespace_and_unqualified_attributes_remain_distinct() {
+        let tree = Node::parse(
+            br#"<root xmlns="urn:root"><child id="one"><local xmlns=""/></child></root>"#,
+        )
+        .unwrap();
+        let output = tree.xml();
+        let parsed = roxmltree::Document::parse(&output).unwrap();
+        let child = parsed
+            .descendants()
+            .find(|n| n.has_tag_name(("urn:root", "child")))
+            .unwrap();
+        assert_eq!(child.attribute("id"), Some("one"));
+        assert!(child.attributes().all(|a| a.namespace().is_none()));
+        assert!(parsed.descendants().any(|n| n.tag_name().name() == "local"
+            && n.tag_name().namespace().is_none_or(str::is_empty)));
+    }
 }
