@@ -1,4 +1,4 @@
-#[path = "../examples/support/mod.rs"]
+#[path = "support/features.rs"]
 mod features;
 mod support;
 use cmi_docx::*;

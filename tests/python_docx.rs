@@ -1,7 +1,7 @@
 //! Cross-language readback tests: Rust writes files; python-docx reads them.
 #![cfg(feature = "python-tests")]
 
-#[path = "../examples/support/mod.rs"]
+#[path = "support/features.rs"]
 mod features;
 
 use cmi_docx::*;
