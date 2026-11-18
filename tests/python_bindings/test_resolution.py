@@ -18,7 +18,9 @@ async def test_native_renderer_is_required_and_used(monkeypatch):
     declaration = d.Document([d.Section(children=[d.Paragraph(text="Native Rust")])])
     data = await declaration.to_bytes()
     assert _native.BACKEND == rv_docx.__backend__ == "rust"
-    assert calls == [declaration]
+    assert len(calls) == 1
+    assert calls[0] is not declaration
+    assert calls[0]._native_kind == "Document"
     assert docx.Document(io.BytesIO(data)).paragraphs[0].text == "Native Rust"
     def fail(*args):
         raise RuntimeError("native renderer sentinel")
@@ -36,7 +38,7 @@ async def test_returned_python_docx_object_can_be_edited_and_saved(tmp_path):
     assert [p.text for p in docx.Document(output).paragraphs] == ["Rust", "Python edit"]
 
 
-async def test_all_deferred_fields_are_resolved_inplace_and_concurrently():
+async def test_all_deferred_fields_resolve_concurrently_without_mutating_declarations():
     started = set()
     gate = asyncio.Event()
     async def value(name, result):
@@ -57,8 +59,10 @@ async def test_all_deferred_fields_are_resolved_inplace_and_concurrently():
         assert started == {"text", "comment", "author"}
     finally:
         gate.set()
-    assert await task is paragraph
-    assert (paragraph.text, paragraph.comment_text, paragraph.comment_author) == ("resolved", "note", "Ada")
+    resolved = await task
+    assert resolved is not paragraph
+    assert (resolved.text, resolved.comment_text, resolved.comment_author) == ("resolved", "note", "Ada")
+    assert asyncio.iscoroutine(paragraph.text)
 
 
 async def test_lazy_async_children_and_header_footer_dictionaries():
@@ -76,22 +80,23 @@ async def test_lazy_async_children_and_header_footer_dictionaries():
     assert document.sections[0].footer.paragraphs[-1].text == "footer"
 
 
-async def test_conditions_skip_producers_and_preserve_identity():
+async def test_conditions_skip_producers_and_snapshots_can_render_repeatedly():
     calls = []
     def forbidden():
         raise AssertionError("hidden producer was called")
     paragraph = d.Paragraph(text=lambda: calls.append("text") or "once")
-    assert await paragraph is paragraph
     declaration = d.Document([d.Section(children=[paragraph,
         d.Paragraph(text=forbidden, condition=lambda: False)]),
         d.Section(children=forbidden, condition=lambda: False)])
-    first = await declaration.to_docx()
-    second = await declaration.to_docx()
+    snapshot = await declaration.resolve()
+    first = await snapshot.to_docx()
+    second = await snapshot.to_docx()
     assert calls == ["text"]
     assert [p.text for p in first.paragraphs if p.text] == ["once"]
     assert [p.text for p in second.paragraphs if p.text] == ["once"]
-    # The Python interface preserves the pinned CMI packer's final excluded section.
-    assert len(first.sections) == 2
+    assert len(first.sections) == 1
+    assert callable(paragraph.text)
+    assert not hasattr(paragraph, "_active")
 
 
 async def test_shared_components_await_the_same_producer_once():
@@ -127,7 +132,7 @@ async def test_producer_errors_cancel_siblings_and_propagate_original_exception(
 async def test_cyclic_component_graph_is_rejected():
     section = d.Section(children=[])
     section.children.append(section)
-    with pytest.raises(ValueError, match="cannot contain itself"):
+    with pytest.raises(ValueError, match="Cyclic deferred property dependency"):
         await section
 
 
@@ -160,3 +165,58 @@ async def test_subclasses_keep_parent_component_semantics():
         pass
     document = await d.Document([d.Section(children=[CustomParagraph(text="subclass")])]).to_docx()
     assert document.paragraphs[0].text == "subclass"
+
+
+async def test_resolved_snapshots_are_deeply_immutable():
+    import dataclasses
+    source = d.Paragraph(text=lambda: "immutable")
+    declaration = d.Document([d.Section(children=[source], headers={"default": d.Header(children=[])})])
+    snapshot = await declaration.resolve()
+    assert isinstance(snapshot.sections, tuple)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        snapshot.sections[0].children[0].text = "changed"
+    with pytest.raises(TypeError):
+        snapshot.sections[0].headers["first"] = None
+    assert callable(source.text)
+    assert not hasattr(source, "_active")
+
+
+async def test_cancelled_consumer_does_not_poison_a_shared_property():
+    started = asyncio.Event()
+    released = asyncio.Event()
+    calls = []
+    async def fetch():
+        calls.append(1)
+        started.set()
+        await released.wait()
+        return "shared"
+    source = d.Paragraph(text=fetch)
+    async def cancel_one():
+        waiter = asyncio.create_task(source.deferred("text").resolve())
+        await started.wait()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        released.set()
+        return "cancelled"
+    document = await d.Document([d.Section(children=[
+        d.Paragraph(text=cancel_one), d.Paragraph(text=source.deferred("text"))
+    ])]).to_docx()
+    assert [p.text for p in document.paragraphs] == ["cancelled", "shared"]
+    assert calls == [1]
+
+
+async def test_resolved_image_assets_do_not_depend_on_later_filesystem_changes(tmp_path):
+    from pathlib import Path
+    image_bytes = (Path(__file__).parents[1] / "fixtures/images/sample.png").read_bytes()
+    path = tmp_path / "source.png"
+    path.write_bytes(image_bytes)
+    image = d.ImageRun(data=path)
+    snapshot = await d.Document([d.Section(children=[d.Paragraph(children=[image])])]).resolve()
+    assert snapshot.sections[0].children[0].children[0].data == image_bytes
+    assert image.data == path
+    path.unlink()
+    document = await snapshot.to_docx()
+    shape = document.inline_shapes[0]
+    identifier = shape._inline.graphic.graphicData.pic.blipFill.blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
+    assert document.part.related_parts[identifier].blob == image_bytes

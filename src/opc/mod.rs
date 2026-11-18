@@ -5,11 +5,11 @@
 //! [Official Part 2](https://ecma-international.org/wp-content/uploads/ECMA-376-2_5th_edition_december_2021.zip).
 //! Word-specific default seeding is a current implementation concern here;
 //! it is not an OPC requirement.
-use crate::xml::{NS, Node};
+use crate::xml::Node;
 mod names;
 use crate::{Error, Result};
-use names::relationships_path;
 pub use names::{ContentType, PartName, RelationshipId, RelationshipType, Target};
+use names::{relationship_type, relationships_path};
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read, Write},
@@ -17,11 +17,9 @@ use std::{
 #[derive(Debug)]
 pub(crate) struct Package {
     pub parts: BTreeMap<String, Vec<u8>>,
+    edited: std::cell::RefCell<BTreeMap<String, Node>>,
 }
 impl Package {
-    pub fn load(bytes: &[u8]) -> Result<Self> {
-        Self::load_with_limits(bytes, ReadLimits::default())
-    }
     pub fn load_with_limits(bytes: &[u8], limits: ReadLimits) -> Result<Self> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
         if zip.len() > limits.max_parts {
@@ -64,17 +62,32 @@ impl Package {
                 return Err(Error::Validation("duplicate DOCX package part".into()));
             }
         }
-        let p = Self { parts };
+        let p = Self {
+            parts,
+            edited: Default::default(),
+        };
+        p.validate_graph()?;
         Ok(p)
     }
     pub fn xml(&self, path: &str) -> Result<Node> {
-        Node::parse(
-            self.parts
-                .get(path)
-                .ok_or_else(|| Error::Validation(format!("missing package part {path}")))?,
-        )
+        let path = self
+            .parts
+            .keys()
+            .find(|p| p.eq_ignore_ascii_case(path))
+            .map(String::as_str)
+            .unwrap_or(path);
+        if let Some(node) = self.edited.borrow().get(path) {
+            return Ok(node.clone());
+        }
+        let bytes = self
+            .parts
+            .get(path)
+            .ok_or_else(|| Error::Validation(format!("missing package part {path}")))?;
+        let node = Node::parse(bytes)?;
+        self.edited.borrow_mut().insert(path.into(), node.clone());
+        Ok(node)
     }
-    pub fn put(&mut self, path: impl Into<String>, mut node: Node) -> Result<()> {
+    pub fn put(&mut self, path: impl Into<String>, node: Node) -> Result<()> {
         fn validate(n: &Node) -> Result<()> {
             for (_, v) in &n.attrs {
                 crate::xml::validate_text(v)?;
@@ -88,17 +101,21 @@ impl Package {
             }
             Ok(())
         }
-        node.sort_properties();
         validate(&node)?;
-        self.parts.insert(path.into(), node.bytes());
+        let path = path.into();
+        PartName::new(&path)?;
+        let path = self
+            .parts
+            .keys()
+            .find(|p| p.eq_ignore_ascii_case(&path))
+            .cloned()
+            .unwrap_or(path);
+        self.parts.entry(path.clone()).or_default();
+        self.edited.borrow_mut().insert(path, node);
         Ok(())
     }
     pub fn relation(&mut self, owner: &str, kind: &str, target: &str) -> Result<String> {
-        let typ = if kind.contains("://") {
-            kind.to_owned()
-        } else {
-            format!("http://schemas.openxmlformats.org/officeDocument/2006/relationships/{kind}")
-        };
+        let typ = relationship_type(kind);
         self.add_relationship(
             owner,
             &RelationshipType::new(&typ)?,
@@ -123,7 +140,7 @@ impl Package {
             }
         };
         let relpath = relationships_path(owner);
-        let mut rels = if self.parts.contains_key(&relpath) {
+        let mut rels = if self.parts.keys().any(|p| p.eq_ignore_ascii_case(&relpath)) {
             self.xml(&relpath)?
         } else {
             Node::new("Relationships").attr(
@@ -164,7 +181,7 @@ impl Package {
     }
     pub fn related(&self, owner: &str, selector: &str) -> Result<Option<(String, String)>> {
         let relpath = relationships_path(owner);
-        if !self.parts.contains_key(&relpath) {
+        if !self.parts.keys().any(|p| p.eq_ignore_ascii_case(&relpath)) {
             return Ok(None);
         }
         let rels = self.xml(&relpath)?;
@@ -174,7 +191,7 @@ impl Package {
                 .is_some_and(|id| n.get("Id") == Some(id))
                 || (!selector.starts_with('#')
                     && n.get("Type")
-                        .is_some_and(|t| t.ends_with(&format!("/{selector}"))))
+                        .is_some_and(|t| t == relationship_type(selector)))
         });
         let Some(rel) = found else { return Ok(None) };
         if rel.get("TargetMode") == Some("External") {
@@ -197,16 +214,13 @@ impl Package {
     }
     pub fn relationships(&self, owner: &str, kind: &str) -> Result<Vec<(String, String)>> {
         let path = relationships_path(owner);
-        if !self.parts.contains_key(&path) {
+        if !self.parts.keys().any(|p| p.eq_ignore_ascii_case(&path)) {
             return Ok(Vec::new());
         }
         let relationships = self.xml(&path)?;
         relationships
             .elements()
-            .filter(|n| {
-                n.get("Type")
-                    .is_some_and(|t| t.ends_with(&format!("/{kind}")))
-            })
+            .filter(|n| n.get("Type").is_some_and(|t| t == relationship_type(kind)))
             .map(|n| {
                 Ok((
                     n.get("Id")
@@ -222,10 +236,10 @@ impl Package {
         PartName::new(path)?;
         let mut types = self.xml("[Content_Types].xml")?;
         let part = format!("/{path}");
-        if let Some(n) = types
-            .elements_mut()
-            .find(|n| n.get("PartName") == Some(part.as_str()))
-        {
+        if let Some(n) = types.elements_mut().find(|n| {
+            n.get("PartName")
+                .is_some_and(|name| name.eq_ignore_ascii_case(&part))
+        }) {
             n.set("ContentType", mime);
         } else {
             types.push(
@@ -240,7 +254,7 @@ impl Package {
         let mut i = 1;
         loop {
             let path = format!("{prefix}{i}.{extension}");
-            if !self.parts.contains_key(&path) {
+            if !self.parts.keys().any(|p| p.eq_ignore_ascii_case(&path)) {
                 return path;
             }
             i += 1;
@@ -249,23 +263,175 @@ impl Package {
     pub fn link(&mut self, owner: &str, kind: &str, target: &str) -> Result<String> {
         self.relation(owner, kind, &PartName::new(target)?.relative_to(owner)?)
     }
-    pub fn finish(self) -> Result<Vec<u8>> {
-        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .last_modified_time(zip::DateTime::default());
-        for (path, bytes) in self.parts {
-            zip.start_file(path, opts)?;
-            zip.write_all(&bytes)?;
+    fn content_types(&self) -> Result<(BTreeMap<String, String>, BTreeMap<String, String>)> {
+        let root = self.xml("[Content_Types].xml")?;
+        let namespace = "http://schemas.openxmlformats.org/package/2006/content-types";
+        if root.name.namespace() != Some(namespace) || root.name.local() != "Types" {
+            return Err(Error::from(crate::Diagnostic::new(
+                crate::Rule::InvalidPackage,
+                "wrong content-types namespace",
+            )));
         }
-        Ok(zip.finish()?.into_inner())
+        let mut defaults = BTreeMap::new();
+        let mut overrides = BTreeMap::new();
+        for child in root.elements() {
+            if child.name.namespace() != Some(namespace)
+                || !matches!(child.name.local(), "Default" | "Override")
+            {
+                return Err(Error::Validation(
+                    "invalid content-type declaration namespace".into(),
+                ));
+            }
+            let mime = child
+                .get("ContentType")
+                .ok_or_else(|| Error::Validation("missing content type".into()))?;
+            ContentType::new(mime)?;
+            if let Some(extension) = child.get("Extension") {
+                if extension.is_empty()
+                    || extension.contains(['.', '/', '\\'])
+                    || defaults
+                        .insert(extension.to_ascii_lowercase(), mime.into())
+                        .is_some()
+                {
+                    return Err(Error::Validation(
+                        "duplicate or invalid default content type".into(),
+                    ));
+                }
+            } else if let Some(name) = child.get("PartName") {
+                let name = PartName::new(name)?;
+                if overrides
+                    .insert(name.zip_name().to_ascii_lowercase(), mime.into())
+                    .is_some()
+                {
+                    return Err(Error::Validation("duplicate content-type override".into()));
+                }
+            } else {
+                return Err(Error::Validation(
+                    "content type lacks part/extension".into(),
+                ));
+            }
+        }
+        Ok((defaults, overrides))
     }
-    pub fn root(name: &str) -> Node {
-        let mut n = Node::new(name);
-        for (p, u) in NS {
-            n.set(format!("xmlns:{p}"), u);
+    pub fn content_type_for(&self, path: &str) -> Result<Option<String>> {
+        let (defaults, overrides) = self.content_types()?;
+        Ok(overrides
+            .get(&path.trim_start_matches('/').to_ascii_lowercase())
+            .cloned()
+            .or_else(|| {
+                path.rsplit_once('.').and_then(|(_, extension)| {
+                    defaults.get(&extension.to_ascii_lowercase()).cloned()
+                })
+            }))
+    }
+    fn validate_content_types(&self) -> Result<()> {
+        let (defaults, overrides) = self.content_types()?;
+        for path in self
+            .parts
+            .keys()
+            .filter(|p| p.as_str() != "[Content_Types].xml")
+        {
+            let explicit = overrides.contains_key(&path.to_ascii_lowercase());
+            let default = path.rsplit_once('.').is_some_and(|(_, extension)| {
+                defaults.contains_key(&extension.to_ascii_lowercase())
+            });
+            if !explicit && !default {
+                return Err(Error::from(crate::Diagnostic::new(
+                    crate::Rule::InvalidPackage,
+                    format!("part has no content type: {path}"),
+                )));
+            }
         }
-        n
+        Ok(())
+    }
+    fn materialize(&mut self) {
+        for (path, node) in self.edited.take() {
+            self.parts.insert(path, node.bytes());
+        }
+    }
+    fn validate_graph(&self) -> Result<()> {
+        self.validate_content_types()?;
+        for path in self
+            .parts
+            .keys()
+            .filter(|p| p.to_ascii_lowercase().ends_with(".rels"))
+        {
+            let owner = if path.eq_ignore_ascii_case("_rels/.rels") {
+                String::new()
+            } else {
+                let lower = path.to_ascii_lowercase();
+                let split = lower.rfind("_rels/").ok_or_else(|| {
+                    Error::Validation("invalid relationship part location".into())
+                })?;
+                format!("{}{}", &path[..split], &path[split + 6..path.len() - 5])
+            };
+            if !owner.is_empty()
+                && !self
+                    .parts
+                    .keys()
+                    .any(|part| part.eq_ignore_ascii_case(&owner))
+            {
+                return Err(Error::Validation(format!(
+                    "relationship owner is missing: {owner}"
+                )));
+            }
+            let root = self.xml(path)?;
+            if root.name.namespace()
+                != Some("http://schemas.openxmlformats.org/package/2006/relationships")
+                || root.name.local() != "Relationships"
+            {
+                return Err(Error::from(crate::Diagnostic::new(
+                    crate::Rule::InvalidRelationship,
+                    "wrong relationship-part namespace",
+                )));
+            }
+            let mut ids = std::collections::BTreeSet::new();
+            for relationship in root.elements() {
+                if relationship.name.namespace() != root.name.namespace()
+                    || relationship.name.local() != "Relationship"
+                {
+                    return Err(Error::from(crate::Diagnostic::new(
+                        crate::Rule::InvalidRelationship,
+                        "wrong relationship namespace",
+                    )));
+                }
+                let id = relationship
+                    .get("Id")
+                    .ok_or_else(|| Error::Validation("relationship has no ID".into()))?;
+                RelationshipId::new(id)?;
+                if !ids.insert(id) {
+                    return Err(Error::Validation(format!(
+                        "duplicate relationship ID {id} in {path}"
+                    )));
+                }
+                RelationshipType::new(relationship.get("Type").unwrap_or(""))?;
+                let target = relationship
+                    .get("Target")
+                    .ok_or_else(|| Error::Validation("relationship has no target".into()))?;
+                match relationship.get("TargetMode") {
+                    Some("External") => (),
+                    None | Some("Internal") => {
+                        let target = PartName::resolve(&owner, target)?;
+                        if !self
+                            .parts
+                            .keys()
+                            .any(|p| p.eq_ignore_ascii_case(target.zip_name()))
+                        {
+                            return Err(Error::Validation(format!(
+                                "missing relationship target {} from {owner}",
+                                target.as_str()
+                            )));
+                        }
+                    }
+                    Some(mode) => {
+                        return Err(Error::Validation(format!(
+                            "invalid relationship target mode {mode}"
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -283,5 +449,95 @@ impl Default for ReadLimits {
             max_part_bytes: 64 * 1024 * 1024,
             max_expanded_bytes: 256 * 1024 * 1024,
         }
+    }
+}
+
+/// An immutable, inspectable set of package-part writes. Encoding performs no I/O.
+#[derive(Debug)]
+pub struct PackagePlan {
+    package: Package,
+}
+impl PackagePlan {
+    pub(crate) fn new(mut package: Package) -> Result<Self> {
+        package.materialize();
+        package.validate_graph()?;
+        Ok(Self { package })
+    }
+    pub fn parts(&self) -> impl Iterator<Item = (&str, &[u8])> {
+        self.package
+            .parts
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+    }
+    pub fn part(&self, name: &PartName) -> Option<&[u8]> {
+        self.package.parts.get(name.zip_name()).map(Vec::as_slice)
+    }
+    pub fn validate(&self) -> Result<()> {
+        self.package.validate_graph()
+    }
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        self.validate()?;
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .last_modified_time(zip::DateTime::default());
+        for (path, bytes) in &self.package.parts {
+            zip.start_file(path, options)?;
+            zip.write_all(bytes)?;
+        }
+        Ok(zip.finish()?.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn external_targets_are_explicit_and_internal_targets_are_validated() {
+        let mut package = Package {
+            parts: BTreeMap::from([("main.xml".into(), b"<document/>".to_vec()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.to_vec())]),
+            edited: Default::default(),
+        };
+        let external = package
+            .add_relationship(
+                "main.xml",
+                &RelationshipType::new("https://example.test/hyperlink").unwrap(),
+                Target::External("https://example.test/page".into()),
+            )
+            .unwrap();
+        assert_eq!(external, "rId1");
+        PackagePlan::new(package).unwrap().validate().unwrap();
+        let mut package = Package {
+            parts: BTreeMap::from([("main.xml".into(), b"<document/>".to_vec()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.to_vec())]),
+            edited: Default::default(),
+        };
+        package.link("main.xml", "image", "missing.png").unwrap();
+        assert!(
+            PackagePlan::new(package)
+                .unwrap_err()
+                .to_string()
+                .contains("missing relationship target")
+        );
+    }
+    #[test]
+    fn explicit_read_budgets_fail_before_expansion() {
+        let options = ReadLimits {
+            max_parts: 1,
+            ..Default::default()
+        };
+        assert!(
+            Package::load_with_limits(include_bytes!("../../assets/default.docx"), options)
+                .unwrap_err()
+                .to_string()
+                .contains("part count")
+        );
+        let options = ReadLimits {
+            max_part_bytes: 1,
+            ..Default::default()
+        };
+        assert!(
+            Package::load_with_limits(include_bytes!("../../assets/default.docx"), options)
+                .is_err()
+        );
     }
 }

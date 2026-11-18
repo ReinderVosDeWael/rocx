@@ -54,10 +54,10 @@ class TextRun(base.Component):
     comment_author: Awaitable[str] | str | None = None
     bold: bool | None = None
     italic: bool | None = None
-    underline: bool | None = None
+    underline: bool | str | None = None
     font: str | None = None
     size: int | None = None
-    color: tuple[int, int, int] | None = None
+    color: tuple[int, int, int] | str | dict | None = None
     superscript: bool | None = None
     subscript: bool | None = None
     strike: bool | None = None
@@ -114,6 +114,7 @@ class Paragraph(base.Component):
     comment_text: Awaitable[str] | str | None = None
     comment_author: Awaitable[str] | str | None = None
     children: InlineChildren | Callable[[], InlineChildren] | None = None
+    numbering: object | None = None
     heading: int | None = None
     style: str | None = None
     alignment: docx_text.WD_PARAGRAPH_ALIGNMENT | None = None

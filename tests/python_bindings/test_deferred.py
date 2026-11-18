@@ -19,23 +19,24 @@ async def test_paragraph_text_dependency_is_order_independent_and_saved(source_f
         await asyncio.sleep(0)
         return "42 λ"
 
-    source = d.Paragraph(text=fetch())
+    source = d.Paragraph(text=fetch)
     result = source.deferred("text")
 
     async def summarize():
         return f"Result: {await result}"
 
-    consumer = d.Paragraph(text=summarize())
+    consumer = d.Paragraph(text=summarize)
     children = [source, consumer] if source_first else [consumer, source]
     declaration = d.Document([d.Section(children=children)])
     output = tmp_path / "dependencies.docx"
-    await declaration.save(output)
+    snapshot = await declaration.resolve()
+    await snapshot.save(output)
     expected = ["42 λ", "Result: 42 λ"] if source_first else ["Result: 42 λ", "42 λ"]
     assert [p.text for p in docx.Document(output).paragraphs] == expected
-    assert source.text == "42 λ"
-    assert consumer.text == "Result: 42 λ"
+    assert source.text is fetch
+    assert consumer.text is summarize
     assert calls == ["source"]
-    assert [p.text for p in (await declaration.to_docx()).paragraphs] == expected
+    assert [p.text for p in (await snapshot.to_docx()).paragraphs] == expected
     assert calls == ["source"]
 
 
@@ -47,7 +48,7 @@ async def test_fanout_and_multistage_dependencies_share_one_producer():
         await asyncio.sleep(0)
         return "seed"
 
-    source = d.Paragraph(text=fetch())
+    source = d.Paragraph(text=fetch)
     left = d.Paragraph(text=source.deferred("text"))
     right = d.Paragraph(text=source.deferred("text"))
 
@@ -197,12 +198,16 @@ async def test_dependency_error_is_original_and_cancels_other_work():
     assert stopped.is_set()
 
 
-async def test_successful_standalone_reference_is_reusable():
+async def test_standalone_references_use_new_passes_and_shared_computations_are_explicit():
     calls = []
     source = d.Paragraph(text=lambda: calls.append(1) or asyncio.sleep(0, result="once"))
     reference = d.DeferredProperty[str](source, "text")
     assert calls == []
     assert await reference == await reference == "once"
+    assert calls == [1, 1]
+    calls.clear()
+    shared = d.Deferred(lambda: calls.append(1) or asyncio.sleep(0, result="once"))
+    assert await shared == await shared == "once"
     assert calls == [1]
 
 
@@ -211,3 +216,17 @@ def test_invalid_properties_are_rejected_without_evaluation(name):
     source = d.Paragraph(text=lambda: pytest.fail("producer was evaluated"))
     with pytest.raises(AttributeError, match="no resolvable property"):
         source.deferred(name)
+
+
+async def test_explicit_false_theme_colors_and_underline_styles_are_preserved():
+    from docx.oxml.ns import qn
+    document = await render(d.Paragraph(children=[d.TextRun(text="styled", small_caps=False, all_caps=False,
+        strike=False, underline="double", color={"theme": "accent1", "tint": 128})]))
+    run = document.paragraphs[0].runs[0]
+    assert run.font.small_caps is False
+    assert run.font.all_caps is False
+    assert run.font.strike is False
+    assert run._r.rPr.find(qn("w:u")).get(qn("w:val")) == "double"
+    color = run._r.rPr.find(qn("w:color"))
+    assert color.get(qn("w:themeColor")) == "accent1"
+    assert color.get(qn("w:themeTint")) == "80"

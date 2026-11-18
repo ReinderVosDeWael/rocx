@@ -1,4 +1,4 @@
-use cmi_docx::{Document, Paragraph, Result, Section, Value};
+use rv_docx_rs::{Document, Paragraph, Result, Section, Value};
 
 async fn fetch_text() -> String {
     "Text produced asynchronously.".into()

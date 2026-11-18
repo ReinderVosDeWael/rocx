@@ -4,6 +4,7 @@ use std::{error, fmt, io};
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
+    Diagnostic(crate::document::Diagnostic),
     Producer(Box<dyn error::Error + Send + Sync>),
     /// A cached producer error shared by deferred property consumers.
     Shared(std::sync::Arc<Error>),
@@ -39,6 +40,7 @@ impl Error {
     /// The declaration field that failed, when the error arose in the tree.
     pub fn path(&self) -> Option<&str> {
         match self {
+            Self::Diagnostic(d) => d.location.as_deref(),
             Self::At { path, .. } => Some(path),
             Self::Shared(source) => source.path(),
             _ => None,
@@ -49,6 +51,7 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Diagnostic(d) => d.fmt(f),
             Self::Shared(source) => source.fmt(f),
             Self::Validation(message) => f.write_str(message),
             Self::Producer(source) => write!(f, "content producer failed: {source}"),
@@ -73,6 +76,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         Some(match self {
+            Self::Diagnostic(d) => d,
             Self::Shared(source) => source.as_ref(),
             Self::Producer(source) => source.as_ref(),
             Self::At { source, .. } => source.as_ref(),
@@ -93,5 +97,31 @@ impl From<io::Error> for Error {
 impl From<zip::result::ZipError> for Error {
     fn from(source: zip::result::ZipError) -> Self {
         Self::Zip(source)
+    }
+}
+
+impl From<crate::document::Diagnostic> for Error {
+    fn from(d: crate::document::Diagnostic) -> Self {
+        Self::Diagnostic(d)
+    }
+}
+impl Error {
+    pub fn rule(&self) -> Option<crate::document::Rule> {
+        match self {
+            Self::Diagnostic(d) => Some(d.rule),
+            Self::Producer(source) => {
+                source
+                    .downcast_ref::<Self>()
+                    .and_then(Self::rule)
+                    .or_else(|| {
+                        source
+                            .downcast_ref::<crate::document::Diagnostic>()
+                            .map(|d| d.rule)
+                    })
+            }
+            Self::At { source, .. } => source.rule(),
+            Self::Shared(e) => e.rule(),
+            _ => None,
+        }
     }
 }

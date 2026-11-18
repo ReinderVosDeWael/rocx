@@ -10,8 +10,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use cmi_docx::{Block, Condition, Document, Error, Paragraph, Section, Value};
 use futures::{channel::oneshot, executor::block_on, future, task::noop_waker};
+use rv_docx_rs::{Block, Condition, Document, Error, Paragraph, Section, Value};
 use support::texts;
 
 fn bytes(document: Document) -> Vec<u8> {
@@ -301,5 +301,5 @@ fn the_tree_and_resolution_future_can_move_between_threads() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send(wrap(Paragraph::new(Value::future(async { "text".into() }))));
     assert_send(Document::default().resolve());
-    assert_send_sync::<cmi_docx::ResolvedDocument>();
+    assert_send_sync::<rv_docx_rs::ResolvedDocument>();
 }

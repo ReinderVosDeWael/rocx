@@ -1,7 +1,7 @@
 mod support;
 
-use cmi_docx::{Document, Paragraph, Section, Value};
 use futures::executor::block_on;
+use rv_docx_rs::{Document, Paragraph, Section, Value};
 use support::{body, part};
 
 fn section(text: &[&str]) -> Value<Section> {

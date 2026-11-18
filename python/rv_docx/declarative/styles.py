@@ -1,8 +1,12 @@
 """Style definition components for declarative documents."""
 
-import dataclasses
+from __future__ import annotations
 
-from docx.enum import text as docx_text
+import dataclasses
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from docx.enum import text as docx_text
 
 
 @dataclasses.dataclass

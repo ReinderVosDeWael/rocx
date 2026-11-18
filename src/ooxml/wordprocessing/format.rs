@@ -6,17 +6,12 @@
 //! Public units are converted to wire units here; implementation limits and
 //! historical compatibility behavior are not necessarily specification rules.
 use crate::xml::{Node, val};
-use crate::*;
+use crate::{Color, Error, ParagraphFormat, Points, Result, RunFormat};
 pub(crate) fn color(c: [u8; 3]) -> String {
     format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2])
 }
 fn number(value: f64, factor: f64) -> Result<i64> {
-    if !value.is_finite() || value.abs() > 1e9 {
-        return Err(Error::Validation(
-            "formatting lengths must be finite and within OOXML limits".into(),
-        ));
-    }
-    Ok((value * factor).round() as i64)
+    Ok(Points::new(value)?.scaled(factor)?)
 }
 pub(crate) fn run(f: &RunFormat) -> Result<Node> {
     let mut n = Node::new("w:rPr");
@@ -35,14 +30,26 @@ pub(crate) fn run(f: &RunFormat) -> Result<Node> {
         ("strike", f.strike),
     ] {
         if let Some(v) = v {
-            if matches!(k, "caps" | "smallCaps" | "strike") && !v {
-                continue;
-            }
             n.push(val(k, if v { "1" } else { "0" }));
         }
     }
     if let Some(c) = f.color {
-        n.push(val("color", color(c)));
+        let mut value = Node::new("w:color");
+        match c {
+            Color::Rgb(rgb) => value.set("w:val", color(rgb)),
+            Color::Auto => value.set("w:val", "auto"),
+            Color::Theme { name, tint, shade } => {
+                value.set("w:val", "auto");
+                value.set("w:themeColor", name.xml());
+                if let Some(tint) = tint {
+                    value.set("w:themeTint", format!("{tint:02X}"));
+                }
+                if let Some(shade) = shade {
+                    value.set("w:themeShade", format!("{shade:02X}"));
+                }
+            }
+        }
+        n.push(value);
     }
     if let Some(size) = f.size {
         if size < 0. {
@@ -51,7 +58,7 @@ pub(crate) fn run(f: &RunFormat) -> Result<Node> {
         n.push(val("sz", number(size, 2.)?));
     }
     if let Some(u) = f.underline {
-        n.push(val("u", if u { "single" } else { "none" }));
+        n.push(val("u", u.xml()));
     }
     if f.subscript == Some(true) {
         n.push(val("vertAlign", "subscript"));

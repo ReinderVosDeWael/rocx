@@ -1,6 +1,6 @@
 mod support;
-use cmi_docx::*;
 use futures::executor::block_on;
+use rv_docx_rs::*;
 use std::{
     io::{Cursor, Read, Write},
     path::PathBuf,
@@ -41,11 +41,19 @@ fn cell(text: &str) -> Value<TableCell> {
 fn replacement_spans_runs_and_preserves_formatting_and_xml_special_text() {
     let temp = Temp::new();
     let first = TextRun {
-        bold: Some(true),
+        format: RunFormat {
+            bold: Some(true),
+            ..RunFormat::default()
+        }
+        .into(),
         ..TextRun::new("Hello {{NA")
     };
     let second = TextRun {
-        italic: Some(true),
+        format: RunFormat {
+            italic: Some(true),
+            ..RunFormat::default()
+        }
+        .into(),
         ..TextRun::new("ME}}! {{NAME}}")
     };
     resolved(vec![
@@ -54,7 +62,7 @@ fn replacement_spans_runs_and_preserves_formatting_and_xml_special_text() {
     .save(temp.path())
     .unwrap();
     let mut template = DocumentTemplate::new(temp.path());
-    template.replacements = vec![("{{NAME}}".into(), "A<&>\nB\t".into())];
+    template.edits.replacements = vec![("{{NAME}}".into(), "A<&>\nB\t".into())];
     let bytes = empty().to_docx_with_template(&template).unwrap();
     assert_eq!(texts(&bytes), ["Hello A<&>\nB\t! A<&>\nB\t"]);
     let xml = part(&bytes, "word/document.xml");
@@ -73,7 +81,7 @@ fn replacement_order_and_empty_replacements_match_python_dictionary_semantics() 
         .save(temp.path())
         .unwrap();
     let mut template = DocumentTemplate::new(temp.path());
-    template.replacements = vec![
+    template.edits.replacements = vec![
         ("x".into(), "y".into()),
         ("y".into(), "z".into()),
         ("erase".into(), "".into()),
@@ -82,7 +90,7 @@ fn replacement_order_and_empty_replacements_match_python_dictionary_semantics() 
         texts(&empty().to_docx_with_template(&template).unwrap()),
         ["z  z"]
     );
-    template.replacements = vec![("".into(), "bad".into())];
+    template.edits.replacements = vec![("".into(), "bad".into())];
     assert!(empty().to_docx_with_template(&template).is_err());
 }
 #[test]
@@ -103,7 +111,7 @@ fn replacement_covers_nested_tables_headers_and_footers_but_not_new_content() {
         .save(temp.path())
         .unwrap();
     let mut template = DocumentTemplate::new(temp.path());
-    template.replacements = vec![("{{X}}".into(), "changed".into())];
+    template.edits.replacements = vec![("{{X}}".into(), "changed".into())];
     let bytes = resolved(vec![Paragraph::new("New {{X}}").into()])
         .to_docx_with_template(&template)
         .unwrap();
@@ -135,7 +143,7 @@ fn insertion_before_original_paragraphs_handles_tables_and_multiple_sections() {
         let declaration =
             block_on(Document::new(vec![first.into(), second.into()]).resolve()).unwrap();
         let mut template = DocumentTemplate::new(temp.path());
-        template.paragraph_index = Some(index);
+        template.edits.paragraph_index = Some(index);
         let bytes = declaration.to_docx_with_template(&template).unwrap();
         assert_eq!(
             texts(&bytes)
@@ -223,7 +231,12 @@ fn unrelated_parts_and_template_metadata_are_retained() {
             .unwrap();
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes).unwrap();
-        writer.write_all(&bytes).unwrap();
+        if entry.name() == "[Content_Types].xml" {
+            let xml=String::from_utf8(bytes).unwrap().replace("</Types>","<Override PartName=\"/custom/opaque.bin\" ContentType=\"application/octet-stream\"/></Types>");
+            writer.write_all(xml.as_bytes()).unwrap();
+        } else {
+            writer.write_all(&bytes).unwrap();
+        }
     }
     writer
         .start_file(
@@ -353,10 +366,60 @@ fn utf16_template_parts_are_read_and_written_as_valid_utf8() {
         }
         std::fs::write(temp.path(), writer.finish().unwrap().into_inner()).unwrap();
         let mut template = DocumentTemplate::new(temp.path());
-        template.replacements = vec![("{{X}}".into(), "changed".into())];
+        template.edits.replacements = vec![("{{X}}".into(), "changed".into())];
         assert_eq!(
             texts(&empty().to_docx_with_template(&template).unwrap()),
             ["Unicode 日本語 changed"]
         );
     }
+}
+
+#[test]
+fn edits_preserve_page_breaks_and_reject_structured_boundary_crossings() {
+    let temp = Temp::new();
+    let mut package =
+        zip::ZipArchive::new(Cursor::new(include_bytes!("../assets/default.docx"))).unwrap();
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..package.len() {
+        let mut entry = package.by_index(i).unwrap();
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data).unwrap();
+        if entry.name() == "word/document.xml" {
+            let xml = String::from_utf8(data).unwrap();
+            data=xml.replace("<w:sectPr",r#"<w:p><w:r><w:t>replace</w:t><w:br w:type="page"/><w:t>before</w:t></w:r><w:hyperlink w:anchor="local"><w:r><w:t>inside</w:t></w:r></w:hyperlink></w:p><w:sectPr"#).into_bytes();
+        }
+        writer
+            .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(&data).unwrap();
+    }
+    std::fs::write(temp.path(), writer.finish().unwrap().into_inner()).unwrap();
+    let mut template = DocumentTemplate::new(temp.path());
+    template.edits.replacements = vec![("replace".into(), "changed".into())];
+    let output = empty().to_docx_with_template(&template).unwrap();
+    let xml = part(&output, "word/document.xml");
+    let parsed = roxmltree::Document::parse(&xml).unwrap();
+    assert!(
+        parsed
+            .descendants()
+            .any(|n| n.has_tag_name((W, "br")) && n.attribute((W, "type")) == Some("page"))
+    );
+    assert!(
+        parsed.descendants().any(
+            |n| n.has_tag_name((W, "hyperlink")) && n.attribute((W, "anchor")) == Some("local")
+        )
+    );
+    template.edits.replacements = vec![("beforeinside".into(), "unsafe".into())];
+    assert_eq!(
+        empty().to_docx_with_template(&template).unwrap_err().rule(),
+        Some(Rule::UnsupportedEdit)
+    );
+    template.edits.replacements = vec![("inside".into(), "safe".into())];
+    assert!(
+        part(
+            &empty().to_docx_with_template(&template).unwrap(),
+            "word/document.xml"
+        )
+        .contains("safe")
+    );
 }

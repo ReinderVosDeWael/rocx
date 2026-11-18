@@ -1,7 +1,7 @@
 //! Cross-check public template output using an independent XML parser.
 mod support;
-use cmi_docx::*;
 use futures::executor::block_on;
+use rv_docx_rs::*;
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read, Write},
@@ -176,5 +176,42 @@ fn shadowed_namespaces_and_opaque_properties_survive_template_rendering() {
             .map(|n| n.tag_name().name())
             .collect::<Vec<_>>(),
         ["jc", "property", "pStyle"]
+    );
+}
+
+#[test]
+fn generated_metadata_qnames_do_not_rebind_opaque_template_prefixes() {
+    let mut package = parts(include_bytes!("../assets/default.docx"));
+    let core = String::from_utf8(package["docProps/core.xml"].clone())
+        .unwrap()
+        .replace("dcterms:", "actualDate:")
+        .replace("xmlns:dcterms=", "xmlns:actualDate=")
+        .replace(
+            "<cp:coreProperties",
+            "<cp:coreProperties xmlns:dcterms=\"urn:opaque\"",
+        );
+    package.insert("docProps/core.xml".into(), core.into_bytes());
+    let fixture = Fixture::new(package);
+    let output = resolve(Document::default())
+        .to_docx_with_template(&DocumentTemplate::new(&fixture.0))
+        .unwrap();
+    let xml = support::part(&output, "docProps/core.xml");
+    let parsed = roxmltree::Document::parse(&xml).unwrap();
+    assert_eq!(
+        parsed.root_element().lookup_namespace_uri(Some("dcterms")),
+        Some("urn:opaque")
+    );
+    let created = parsed
+        .descendants()
+        .find(|n| n.has_tag_name(("http://purl.org/dc/terms/", "created")))
+        .unwrap();
+    let value = created
+        .attribute(("http://www.w3.org/2001/XMLSchema-instance", "type"))
+        .unwrap();
+    let (prefix, local) = value.split_once(':').unwrap();
+    assert_eq!(local, "W3CDTF");
+    assert_eq!(
+        created.lookup_namespace_uri(Some(prefix)),
+        Some("http://purl.org/dc/terms/")
     );
 }

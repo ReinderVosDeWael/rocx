@@ -1,8 +1,8 @@
 #[path = "support/features.rs"]
 mod features;
 mod support;
-use cmi_docx::*;
 use futures::executor::block_on;
+use rv_docx_rs::*;
 use std::io::Cursor;
 use support::{W, part};
 fn bytes(document: Document) -> Vec<u8> {
@@ -16,6 +16,11 @@ fn normalized(n: roxmltree::Node<'_, '_>) -> Option<String> {
         return None;
     }
     let name = n.tag_name().name();
+    // Historical CMI omits explicit false small-caps. The native contract now
+    // preserves it; separate native assertions cover the override semantics.
+    if name == "smallCaps" && n.attribute((W, "val")) == Some("0") {
+        return None;
+    }
     if [
         "drawing",
         "headerReference",
@@ -475,15 +480,27 @@ fn custom_numbering_is_linked_to_paragraphs_and_ids_cannot_collide() {
 fn invalid_formatting_and_undefined_styles_fail_without_a_package() {
     for paragraph in [
         Paragraph {
-            heading: Some(10),
+            format: ParagraphFormat {
+                heading: Some(10),
+                ..ParagraphFormat::default()
+            }
+            .into(),
             ..Paragraph::default()
         },
         Paragraph {
-            line_spacing: Some(f64::NAN),
+            format: ParagraphFormat {
+                line_spacing: Some(f64::NAN),
+                ..ParagraphFormat::default()
+            }
+            .into(),
             ..Paragraph::default()
         },
         Paragraph {
-            style: Some("Not a style".into()),
+            format: ParagraphFormat {
+                style: Some("Not a style".into()),
+                ..ParagraphFormat::default()
+            }
+            .into(),
             ..Paragraph::default()
         },
     ] {

@@ -17,21 +17,7 @@ pub enum Alignment {
     JustifyLow,
     ThaiJustify,
 }
-impl Alignment {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Left => "left",
-            Self::Center => "center",
-            Self::Right => "right",
-            Self::Justify => "both",
-            Self::Distribute => "distribute",
-            Self::JustifyMedium => "mediumKashida",
-            Self::JustifyHigh => "highKashida",
-            Self::JustifyLow => "lowKashida",
-            Self::ThaiJustify => "thaiDistribute",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BreakType {
     Line,
@@ -39,44 +25,20 @@ pub enum BreakType {
     Column,
     TextWrapping,
 }
-impl BreakType {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Line => "textWrapping",
-            Self::Page => "page",
-            Self::Column => "column",
-            Self::TextWrapping => "textWrapping",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Orientation {
     Portrait,
     Landscape,
 }
-impl Orientation {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Portrait => "portrait",
-            Self::Landscape => "landscape",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HeaderFooterType {
     Default,
     First,
     Even,
 }
-impl HeaderFooterType {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::First => "first",
-            Self::Even => "even",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VerticalAlignment {
     Top,
@@ -84,16 +46,7 @@ pub enum VerticalAlignment {
     Bottom,
     Both,
 }
-impl VerticalAlignment {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Top => "top",
-            Self::Center => "center",
-            Self::Bottom => "bottom",
-            Self::Both => "both",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SectionType {
     NextPage,
@@ -102,43 +55,19 @@ pub enum SectionType {
     EvenPage,
     OddPage,
 }
-impl SectionType {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::NextPage => "nextPage",
-            Self::NextColumn => "nextColumn",
-            Self::Continuous => "continuous",
-            Self::EvenPage => "evenPage",
-            Self::OddPage => "oddPage",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VerticalMerge {
     Restart,
     Continue,
 }
-impl VerticalMerge {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Restart => "restart",
-            Self::Continue => "continue",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TableLayout {
     Fixed,
     Autofit,
 }
-impl TableLayout {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Fixed => "fixed",
-            Self::Autofit => "autofit",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BorderSide {
     Top,
@@ -148,18 +77,7 @@ pub enum BorderSide {
     InsideH,
     InsideV,
 }
-impl BorderSide {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Top => "top",
-            Self::Left => "left",
-            Self::Bottom => "bottom",
-            Self::Right => "right",
-            Self::InsideH => "insideH",
-            Self::InsideV => "insideV",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CellBorderSide {
     Top,
@@ -167,37 +85,21 @@ pub enum CellBorderSide {
     Start,
     End,
 }
-impl CellBorderSide {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Top => "top",
-            Self::Bottom => "bottom",
-            Self::Start => "start",
-            Self::End => "end",
-        }
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BorderLine {
     Single,
     Dashed,
 }
-impl BorderLine {
-    pub(crate) fn xml(self) -> &'static str {
-        match self {
-            Self::Single => "single",
-            Self::Dashed => "dashed",
-        }
-    }
-}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RunFormat {
     pub bold: Option<bool>,
     pub italic: Option<bool>,
-    pub underline: Option<bool>,
+    pub underline: Option<super::Underline>,
     pub font: Option<String>,
     pub size: Option<f64>,
-    pub color: Option<[u8; 3]>,
+    pub color: Option<super::Color>,
     pub superscript: Option<bool>,
     pub subscript: Option<bool>,
     pub strike: Option<bool>,
@@ -383,21 +285,6 @@ impl From<ParagraphStyleDefinition> for StyleDefinition {
 impl From<TableStyleDefinition> for StyleDefinition {
     fn from(v: TableStyleDefinition) -> Self {
         Self::Table(Box::new(v))
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct DocumentTemplate {
-    pub path: std::path::PathBuf,
-    pub replacements: Vec<(String, String)>,
-    pub paragraph_index: Option<usize>,
-}
-
-impl DocumentTemplate {
-    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            ..Self::default()
-        }
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]

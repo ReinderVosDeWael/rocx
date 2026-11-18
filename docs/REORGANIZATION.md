@@ -1,7 +1,24 @@
 # Reorganization implementation plan
 
-Status: proposed work following the [architecture review](ARCHITECTURE.md).
-This plan does not change runtime behavior or implement the proposed modules.
+Status: implemented for the existing feature surface in version 0.2. The ordered
+work below is retained as the execution record; [MODULES.md](MODULES.md) describes
+the actual boundaries and [MIGRATION.md](MIGRATION.md) records deliberate API changes.
+
+| Milestone | Implemented evidence |
+| --- | --- |
+| 1 — baseline/test ownership | `tests/support/features.rs`, `tests/README.md`; independent examples/test builders |
+| 2 — XML preservation | `xml` expanded names and injected ordering; namespace-shadowing/preservation regressions |
+| 3 — OPC boundary | `opc` validated identities, graph/content types, budgets; relocated part/media tests; Word defaults above OPC |
+| 4 — feature compilation | `ooxml` feature codecs/catalogs/context, pure compilation inputs and inspectable `PackagePlan` |
+| 5 — domain | std-only `document`, explicit inline algebra, exclusive paragraph content, values/IDs/diagnostics; boundary compile test |
+| 6 — resolution | separate native/asyncio interpreters, named properties/references, guards/cycles/cancellation; immutable snapshots |
+| 7 — adapters/facade | direct resolved-domain conversion, optional interop, Cargo rename, curated exports and migration examples |
+| 8 — templates/validation/docs | scoped structural edits, namespace/range/control preservation, independent pinned XSD/mutation tooling and standards references |
+
+This completes the reorganization, not full DOCX feature coverage. Some numeric
+conveniences retain their documented point/unit representations, with checked
+conversion helpers; richer properties are introduced as features need them.
+Opaque imported markup remains distinct from typed authoring support.
 
 ## Decisions and scope
 

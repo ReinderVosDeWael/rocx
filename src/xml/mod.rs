@@ -10,6 +10,7 @@ use crate::{Error, Result};
 use std::collections::BTreeMap;
 mod name;
 pub(crate) use name::Name;
+type OrderingPolicy = fn(&Name) -> Option<Vec<&'static str>>;
 
 pub(crate) const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 pub(crate) const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -33,14 +34,15 @@ pub(crate) const NS: &[(&str, &str)] = &[
     ("dcterms", "http://purl.org/dc/terms/"),
     ("xsi", "http://www.w3.org/2001/XMLSchema-instance"),
 ];
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub(crate) struct Node {
     pub name: Name,
     pub attrs: Vec<(Name, String)>,
     imported: bool,
+    ordering: Option<OrderingPolicy>,
     pub children: Vec<Content>,
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub(crate) enum Content {
     Element(Node),
     Text(String),
@@ -52,6 +54,7 @@ impl Node {
             name: name.into(),
             attrs: Vec::new(),
             imported: false,
+            ordering: None,
             children: Vec::new(),
         }
     }
@@ -176,8 +179,14 @@ impl Node {
         } else {
             std::str::from_utf8(bytes).map_err(|e| Error::Validation(e.to_string()))?
         };
-        let doc = roxmltree::Document::parse(text)
-            .map_err(|e| Error::Validation(format!("invalid XML: {e}")))?;
+        let doc = roxmltree::Document::parse_with_options(
+            text,
+            roxmltree::ParsingOptions {
+                allow_dtd: false,
+                nodes_limit: 1_000_000,
+            },
+        )
+        .map_err(|e| Error::Validation(format!("invalid XML: {e}")))?;
         if doc
             .descendants()
             .any(|n| n.ancestors().take(258).count() > 256)
@@ -232,29 +241,14 @@ impl Node {
         root.namespaces();
         Ok(root)
     }
+    pub fn configure_ordering(&mut self, policy: OrderingPolicy) {
+        self.ordering = Some(policy);
+        for child in self.elements_mut() {
+            child.configure_ordering(policy);
+        }
+    }
     fn property_order(&self) -> Option<Vec<&'static str>> {
-        let order = match self.name.as_str() {
-            "w:pPr" => {
-                "pStyle keepNext keepLines pageBreakBefore framePr widowControl numPr suppressLineNumbers pBdr shd tabs suppressAutoHyphens kinsoku wordWrap overflowPunct topLinePunct autoSpaceDE autoSpaceDN bidi adjustRightInd snapToGrid spacing ind contextualSpacing mirrorIndents suppressOverlap jc textDirection textAlignment textboxTightWrap outlineLvl divId cnfStyle rPr sectPr pPrChange"
-            }
-            "w:rPr" => {
-                "rStyle rFonts b bCs i iCs caps smallCaps strike dstrike outline shadow emboss imprint noProof snapToGrid vanish webHidden color spacing w kern position sz szCs highlight u effect bdr shd fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath rPrChange"
-            }
-            "w:sectPr" => {
-                "headerReference footerReference footnotePr endnotePr type pgSz pgMar paperSrc pgBorders lnNumType pgNumType cols formProt vAlign noEndnote titlePg textDirection bidi rtlGutter docGrid printerSettings sectPrChange"
-            }
-            "w:tblPr" => {
-                "tblStyle tblpPr tblOverlap bidiVisual tblStyleRowBandSize tblStyleColBandSize tblW jc tblCellSpacing tblInd tblBorders shd tblLayout tblCellMar tblLook tblCaption tblDescription tblPrChange"
-            }
-            "w:tcPr" => {
-                "cnfStyle tcW gridSpan hMerge vMerge tcBorders shd noWrap tcMar textDirection tcFitText vAlign hideMark headers cellIns cellDel cellMerge tcPrChange"
-            }
-            "w:style" => {
-                "name aliases basedOn next link autoRedefine hidden uiPriority semiHidden unhideWhenUsed qFormat locked personal personalCompose personalReply rsid pPr rPr tblPr trPr tcPr tblStylePr"
-            }
-            _ => return None,
-        };
-        Some(order.split_whitespace().collect())
+        self.ordering.and_then(|policy| policy(&self.name))
     }
     pub fn sort_properties(&mut self) {
         for child in self.elements_mut() {
@@ -290,11 +284,11 @@ impl Node {
         let mut scope = inherited.clone();
         let mut declarations = Vec::new();
         for (name, value) in &self.attrs {
-            if let Some(prefix) = name.declaration() {
-                if scope.get(prefix) != Some(value) {
-                    scope.insert(prefix.to_owned(), value.clone());
-                    declarations.push((name.as_str().to_owned(), value.clone()));
-                }
+            if let Some(prefix) = name.declaration()
+                && scope.get(prefix) != Some(value)
+            {
+                scope.insert(prefix.to_owned(), value.clone());
+                declarations.push((name.as_str().to_owned(), value.clone()));
             }
         }
         if self.imported
@@ -372,6 +366,17 @@ pub(crate) fn validate_text(text: &str) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn is_ncname(value: &str) -> bool {
+    fn start(c: char) -> bool {
+        matches!(c,'A'..='Z'|'a'..='z'|'_'|'\u{c0}'..='\u{d6}'|'\u{d8}'..='\u{f6}'|'\u{f8}'..='\u{2ff}'|'\u{370}'..='\u{37d}'|'\u{37f}'..='\u{1fff}'|'\u{200c}'..='\u{200d}'|'\u{2070}'..='\u{218f}'|'\u{2c00}'..='\u{2fef}'|'\u{3001}'..='\u{d7ff}'|'\u{f900}'..='\u{fdcf}'|'\u{fdf0}'..='\u{fffd}'|'\u{10000}'..='\u{effff}')
+    }
+    let mut characters = value.chars();
+    characters.next().is_some_and(start) && characters.all(|c| {
+        start(c)
+            || matches!(c,'-'|'.'|'0'..='9'|'\u{b7}'|'\u{300}'..='\u{36f}'|'\u{203f}'..='\u{2040}')
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,6 +419,7 @@ mod tests {
             r#"<w:pPr xmlns:w="{W}" xmlns:e="urn:ext"><w:jc w:val="left"/><e:opaque/><w:pStyle w:val="X"/></w:pPr>"#
         );
         let mut imported = Node::parse(source.as_bytes()).unwrap();
+        imported.configure_ordering(crate::ooxml::schema::order);
         imported.sort_properties();
         assert_eq!(
             imported
@@ -425,6 +431,7 @@ mod tests {
         let mut generated = Node::new("w:pPr")
             .with(val("jc", "left"))
             .with(val("pStyle", "X"));
+        generated.configure_ordering(crate::ooxml::schema::order);
         generated.sort_properties();
         assert_eq!(
             generated

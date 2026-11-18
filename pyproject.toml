@@ -4,12 +4,15 @@ build-backend = "maturin"
 
 [project]
 name = "rv-docx-rs"
-version = "0.1.0"
-description = "CMI-compatible declarative Python bindings for the Rust DOCX engine"
+version = "0.2.0"
+description = "Declarative Python authoring for the native Rust DOCX engine"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "LGPL-2.1-or-later" }
-dependencies = ["python-docx==1.2.0"]
+dependencies = []
+
+[project.optional-dependencies]
+interop = ["python-docx==1.2.0"]
 
 [project.urls]
 Repository = "https://github.com/ReinderVosDeWael/rv-docx-rs"

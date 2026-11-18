@@ -30,19 +30,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "cmi-docx"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "futures",
- "futures-executor",
- "futures-util",
- "pyo3",
- "roxmltree",
- "zip",
-]
-
-[[package]]
 name = "crc32fast"
 version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -330,6 +317,18 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rv-docx-rs"
+version = "0.2.0"
+dependencies = [
+ "flate2",
+ "futures",
+ "futures-util",
+ "pyo3",
+ "roxmltree",
+ "zip",
+]
 
 [[package]]
 name = "simd-adler32"

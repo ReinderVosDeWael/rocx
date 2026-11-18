@@ -35,6 +35,9 @@ impl Name {
             canonical,
         }
     }
+    pub fn local(&self) -> &str {
+        &self.local
+    }
     pub fn namespace(&self) -> Option<&str> {
         self.namespace.as_deref()
     }

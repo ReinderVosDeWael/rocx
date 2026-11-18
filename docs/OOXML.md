@@ -3,7 +3,8 @@
 This is a specification map for contributors, not a declaration of full OOXML
 conformance. CMI is a source of examples and historical tests; the standards and
 explicit product choices determine the long-term domain model and behavior.
-See [the architecture review](ARCHITECTURE.md) for proposed boundaries.
+See [the module guide](MODULES.md) for implemented boundaries and
+[the original review](ARCHITECTURE.md) for historical context.
 
 ## Source editions and authority
 
@@ -35,12 +36,14 @@ landing pages can advance to newer revisions.
 
 P1 §2 describes Strict conformance; P4 §2 describes Transitional conformance.
 Today's engine emits the Transitional-family namespace URIs from
-[src/xml.rs](../src/xml.rs) and uses a python-docx blank template. That identifies
+[src/xml/mod.rs](../src/xml/mod.rs) and uses a python-docx blank template. That identifies
 its current serialization vocabulary; it does **not** certify complete
-Transitional conformance. There is no explicit Strict writer, profile selection,
-or MCE preprocessing/conformance validation today.
+Transitional conformance. The explicit profile currently supports Transitional and rejects Strict.
+The engine retains opaque MCE markup; independent developer validation supports
+base-schema checks after MCE preprocessing, not arbitrary extension interpretation.
 
-Future APIs should carry an explicit profile and target capability/version.
+`RenderOptions` carries the output profile, timestamp override and read budgets.
+New extension support must additionally record its target capability/version.
 Distinguish generation, interpretation, safe editing, and preservation of each
 feature. Strict support will require changes to namespaces, relationship types,
 lexical values and permitted markup, not just replacement of one URI. Recognizing
@@ -50,13 +53,13 @@ or retaining an unknown part is not equivalent to understanding its feature.
 
 | Concern | Specification | Current code and implications |
 | --- | --- | --- |
-| Part identity/names | P2 §6.2.2, Part names | [package.rs](../src/package.rs): currently uses raw strings. Introduce validated part-name values and OPC-aware equivalence rules. |
-| Content/media types | P2 §6.2.3; §7.3.7, Mapping the Media Types stream | `Package::content_type` writes overrides. A future content-type registry must model both defaults and overrides. |
-| Relative target resolution | P2 §6.4, Resolving relative references | `Package::related` currently normalizes string segments. Target resolution and relativization should share one implementation. |
-| Relationships and target modes | P2 §6.5, Relationships | `Package::{relation,related}`. IDs belong to an owner; internal targets and external IRIs need distinct representations. |
-| Main document part discovery | P1 §11.3.10, Main Document Part; P2 §6.5 | The package relationship identifies the main part. Current hardcoding of `word/document.xml` is an implementation limitation. |
+| Part identity/names | P2 §6.2.2, Part names | [opc](../src/opc/mod.rs): validates typed part-name values and rejects equivalent duplicate names. |
+| Content/media types | P2 §6.2.3; §7.3.7, Mapping the Media Types stream | `Package::content_type` writes overrides. The registry models defaults/overrides and checks coverage for package parts. |
+| Relative target resolution | P2 §6.4, Resolving relative references | `Package::related` uses centralized validated resolution and relativization from actual owners. |
+| Relationships and target modes | P2 §6.5, Relationships | `Package::{relation,related}`. IDs belong to an owner; internal parts and external targets have distinct representations. |
+| Main document part discovery | P1 §11.3.10, Main Document Part; P2 §6.5 | The package relationship identifies the main part. Discovery follows the package relationship; relocated main parts are tested. |
 | ZIP mapping | P2 §7.3; normative Annex B | `Package::{load,finish}`. Archive reader limits are additional application policy. |
-| Core properties | P2 §8; P1 §15.2.12.1 | `render::metadata` currently mixes OPC metadata and Word generation. |
+| Core properties | P2 §8; P1 §15.2.12.1 | `ooxml/properties.rs` handles metadata above generic OPC. |
 | Signatures | P2 §10 | No signature generation or re-signing implementation. Editing signed content needs an explicit signature-handling policy. |
 
 A relationship target is relative to its source according to OPC rules; a
@@ -73,24 +76,24 @@ payload bytes, but edited XML is not guaranteed to preserve every unknown featur
 
 | Domain / relevant elements | Specification | Current generation | Current implementation |
 | --- | --- | --- | --- |
-| Main story, `document`, `body` | P1 §17.2; §§17.2.2–17.2.3 | Body content through sections | [model.rs](../src/model.rs), [render.rs](../src/render.rs) |
-| Paragraph and run content, `p`, `r`, `t` | P1 §§17.3.1.22, 17.3.2.25, 17.3.3.31 | Text, tabs, line/page/column breaks; flat inline list | `Paragraph`, `TextRun`, `render::text_run` |
-| Paragraph/run properties, `pPr`, `rPr` | P1 §§17.3.1.26, 17.3.2.28 | Selected direct formatting; see units below | [format.rs](../src/format.rs) |
-| Tables and grid/merges | P1 §17.4; §§17.4.17 (`gridSpan`), 17.4.84 (`vMerge`) | Nested tables, widths, spans/merges, borders, shading; not the whole table vocabulary | [table.rs](../src/table.rs), `Renderer::table` |
-| Sections, final/non-final `sectPr` | P1 §17.6; §§17.6.17–17.6.18 | Page geometry, columns and selected section settings | `section_properties`, `render_with_template` |
-| Styles | P1 §17.7; §11.3.12, Style Definitions Part | Selected paragraph/table definitions and references; not complete style semantics | [styles.rs](../src/styles.rs), [types.rs](../src/types.rs) |
-| Fonts | P1 §17.8; §11.3.5, Font Table Part | Font name and selected run properties; template font table retained | [format.rs](../src/format.rs), default assets |
-| Numbering | P1 §17.9; §11.3.11, Numbering Definitions Part | Typed numbering in Rust; current Python numbering dictionary remains unused | [styles.rs](../src/styles.rs), native Python conversion |
-| Headers and footers | P1 §17.10; §§11.3.6, 11.3.9 | Default/first/even stories; linked template content is appended | [components.rs](../src/components.rs), `Renderer::header_footer` |
+| Main story, `document`, `body` | P1 §17.2; §§17.2.2–17.2.3 | Body content through sections | [document content](../src/document/content.rs), [OOXML compiler](../src/ooxml/mod.rs) |
+| Paragraph and run content, `p`, `r`, `t` | P1 §§17.3.1.22, 17.3.2.25, 17.3.3.31 | Text, tabs, line/page/column breaks; explicit inline variants; nested rich inline authoring remains future work | `Paragraph`, `TextRun`, `ooxml::wordprocessing::text::text_run` |
+| Paragraph/run properties, `pPr`, `rPr` | P1 §§17.3.1.26, 17.3.2.28 | Selected direct formatting; see units below | [format.rs](../src/ooxml/wordprocessing/format.rs) |
+| Tables and grid/merges | P1 §17.4; §§17.4.17 (`gridSpan`), 17.4.84 (`vMerge`) | Nested tables, widths, spans/merges, borders, shading; not the whole table vocabulary | [table.rs](../src/document/table.rs), `Compiler::table` |
+| Sections, final/non-final `sectPr` | P1 §17.6; §§17.6.17–17.6.18 | Page geometry, columns and selected section settings | `section_properties`, `ooxml::compile` |
+| Styles | P1 §17.7; §11.3.12, Style Definitions Part | Selected paragraph/table definitions and references; not complete style semantics | [styles.rs](../src/ooxml/wordprocessing/styles.rs), [domain values](../src/document/values.rs) |
+| Fonts | P1 §17.8; §11.3.5, Font Table Part | Font name and selected run properties; template font table retained | [format.rs](../src/ooxml/wordprocessing/format.rs), default assets |
+| Numbering | P1 §17.9; §11.3.11, Numbering Definitions Part | Typed definitions/levels/references in both Rust and Python | [styles.rs](../src/ooxml/wordprocessing/styles.rs), native Python conversion |
+| Headers and footers | P1 §17.10; §§11.3.6, 11.3.9 | Default/first/even stories; linked template content is appended | [authoring components](../src/authoring/components.rs), `Compiler::header_footer` |
 | Footnotes and endnotes | P1 §17.11; §§11.3.4, 11.3.7 | No typed generation yet | Future story/resource model |
 | Glossary/building blocks | P1 §17.12; §11.3.8 | No typed generation yet | Future story/import support |
-| Comments and anchors | P1 §17.13.4; §§17.13.4.3–17.13.4.5; §11.3.2 | Text comments on runs/paragraphs; not general cross-paragraph ranges or modern threaded comments | `ResolvedComment`, `Renderer::comment`; extensions also require [MS-DOCX] |
+| Comments and anchors | P1 §17.13.4; §§17.13.4.3–17.13.4.5; §11.3.2 | Text comments on runs/paragraphs; not general cross-paragraph ranges or modern threaded comments | `ResolvedComment`, `Compiler::comment`; extensions also require [MS-DOCX] |
 | Bookmarks | P1 §17.13.6; §§17.13.6.1–17.13.6.2 | No typed generation yet | Future range model |
 | Tracked revisions | P1 §17.13.5 | No typed generation yet | Future revision/range model |
 | Content controls/custom markup | P1 §17.5; §§17.5.2.29–17.5.2.32 (`sdt` in different contexts) | No typed generation yet | Future context-aware block/inline/control model |
 | Fields and hyperlinks | P1 §17.16; §§17.16.18 (`fldChar`), 17.16.22 (`hyperlink`) | No typed generation yet | Future inline structure and external relationships |
 | Mail merge | P1 §17.14 | No typed generation yet | Future fields/data-source integration |
-| Document settings | P1 §17.15; §11.3.3 | Defaults plus selected changes, including even/odd headers | `Package::load`, renderer |
+| Document settings | P1 §17.15; §11.3.3 | Defaults plus selected changes, including even/odd headers | `ooxml/defaults.rs`, section/story codecs |
 
 Schema element names alone do not determine their context: for example, `sdt`
 and `sectPr` have multiple definitions. Reference the applicable parent/content
@@ -101,13 +104,13 @@ local name.
 
 | Value / rule | Specification | Current implementation and direction |
 | --- | --- | --- |
-| Paragraph/run property sequence and choices | P1 §§17.3.1.26, 17.3.2.28 and normative Annex A.1 | `Node::sort_properties` contains selected ordering lists. Ordering alone is not cardinality/choice validation. |
+| Paragraph/run property sequence and choices | P1 §§17.3.1.26, 17.3.2.28 and normative Annex A.1 | `ooxml/schema.rs` supplies selected ordering policy for generated/changed properties. Ordering alone is not cardinality/choice validation. |
 | Paragraph spacing and line spacing | P1 §17.3.1.33 (`spacing`) | `format::paragraph` converts before/after points to twips, and line multipliers to 240ths. Future types must also express other line rules. |
 | Half-point font sizes | P1 §17.3.2.38 (`sz`); §17.18.42 (`ST_HpsMeasure`) | `format::run` multiplies point sizes by two. Keep the authoring unit separate from the wire unit. |
-| Twip measurements | P1 §22.9.2.14 (`ST_TwipsMeasure`); §17.18.81 (`ST_SignedTwipsMeasure`) | Mixed raw integers/floats occur today; use checked domain value objects. |
+| Twip measurements | P1 §22.9.2.14 (`ST_TwipsMeasure`); §17.18.81 (`ST_SignedTwipsMeasure`) | Numeric conveniences retain documented units; checked domain value objects centralize conversion. |
 | Universal measurements | P1 §22.9.2.15 (`ST_UniversalMeasure`) | Distinguish lexical representations and selected output profile. |
 | On/off values and inheritance | P1 §22.9.2.7 (`ST_OnOff`), individual property definitions and §17.7 | Do not conflate absent, true, false, and style toggle semantics. |
-| Font/script selection | P1 §17.3.2.26 (`rFonts`); §17.8 | Current font mapping covers only part of the vocabulary; theme/script-aware values need a richer domain model. |
+| Font/script selection | P1 §17.3.2.26 (`rFonts`); §17.8 | Current font mapping covers part of the vocabulary; broader script/font modeling remains future work. |
 
 The [current public units](../COMPATIBILITY.md#units-and-defaults) are API choices
 inherited from the initial CMI design, not a requirement that future constructors
@@ -135,8 +138,7 @@ separate.
 ## XML and compatibility
 
 - [XML 1.0 §2.2][XML10] defines legal XML characters; §2.3 covers names and
-  references. `render::validate_text` currently owns the character check, but
-  this belongs below the Word renderer.
+  references. `xml::validate_text` owns the shared character check below the Word codecs.
 - [Namespaces in XML 1.0][XMLNS], especially §§2 and 6, defines expanded names
   and namespace scoping. Prefix spelling is not element identity. Attribute
   values containing QName/prefix lists need vocabulary-aware handling.
@@ -145,10 +147,10 @@ separate.
   reference processing model. Unknown-content retention and MCE interpretation
   are different capabilities. The current engine does not implement a complete
   MCE processor.
-- `Package` retains untouched part payload bytes; [xml.rs](../src/xml.rs)
-  normalizes parsed/rewritten trees. Namespace shadowing
-  currently has a confirmed semantic-preservation failure; see the review.
-  Do not describe edited XML as generally lossless.
+- `Package` retains untouched part payload bytes; [XML module](../src/xml/mod.rs)
+  normalizes parsed/rewritten trees while preserving expanded names and opaque
+  prefix bindings. The confirmed shadowing regression is fixed and tested.
+  Do not describe edited XML as byte-lossless.
 
 ## Documentation and contribution policy
 
@@ -196,3 +198,19 @@ command, licensing/provenance, and a reproducibility check.
 [MS-DOCX]: https://learn.microsoft.com/en-us/openspecs/office_standards/ms-docx/b839fe1f-e1ca-4fa6-8c26-5954d0abbccd
 [XML10]: https://www.w3.org/TR/REC-xml/#charsets
 [XMLNS]: https://www.w3.org/TR/REC-xml-names/
+
+
+## Executable validation and current architecture
+
+The [module guide](MODULES.md) records the implemented functional/domain boundary.
+[tests/README.md](../tests/README.md) describes the independent validator and its
+coverage limits. `tools/validate_ooxml.py` pins official archive digests, resolves
+W3C XML attributes locally, validates supported base WordprocessingML/DrawingML
+parts, and rejects broken internal relationship targets/uses. Mutation tests
+verify that invalid property order and missing targets are detected.
+
+Independent validation found an out-of-order settings insertion and a missing
+required `CT_Zoom` percent attribute inherited from the blank template. Both were
+corrected; the asset change is documented in [assets](../assets/README.md). This
+is evidence for using standards checks alongside consumer readback, not a claim
+that all OOXML/Word extensions or layout semantics are now implemented.

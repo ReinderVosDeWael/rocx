@@ -1,5 +1,5 @@
 //! Header-only image metadata: no pixel decoding or codec dependencies.
-use crate::*;
+use crate::{AltText, Error, ImageTransformation, ResolvedImage, Result};
 fn invalid() -> Error {
     Error::Validation(
         "invalid or unsupported image (PNG, JPEG, GIF, BMP and TIFF are supported)".into(),
@@ -211,7 +211,7 @@ pub(crate) fn resolve(
     }
     if let Some(a) = &alt_text {
         for s in [&a.title, &a.name, &a.description].into_iter().flatten() {
-            crate::render::validate_text(s)?;
+            crate::xml::validate_text(s)?;
         }
     }
     Ok(ResolvedImage {

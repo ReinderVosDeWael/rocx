@@ -1,4 +1,4 @@
-use cmi_docx::{Document, Paragraph, Result, Section};
+use rv_docx_rs::{Document, Paragraph, Result, Section};
 
 fn main() -> Result<()> {
     let output = std::env::args()

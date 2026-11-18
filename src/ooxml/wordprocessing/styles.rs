@@ -5,7 +5,10 @@
 //! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 use crate::opc::Package;
 use crate::xml::{Node, val};
-use crate::*;
+use crate::{
+    Color, Diagnostic, Error, NumberingDefinition, ParagraphFormat, Result, Rule, RunFormat,
+    StyleDefinition, TableSectionFormat, Underline,
+};
 fn font(
     name: &Option<String>,
     size: Option<f64>,
@@ -19,8 +22,8 @@ fn font(
         size,
         bold,
         italic,
-        underline,
-        color,
+        underline: underline.map(Underline::from),
+        color: color.map(Color::Rgb),
         ..RunFormat::default()
     }
 }
@@ -36,11 +39,19 @@ pub(crate) fn style_id(styles: &Node, name: &str) -> Result<String> {
         })
         .and_then(|n| n.get("w:styleId"))
         .map(str::to_owned)
-        .ok_or_else(|| Error::Validation(format!("unknown style {name:?}")))
+        .ok_or_else(|| {
+            Error::Diagnostic(Diagnostic::new(
+                Rule::UnknownStyle,
+                format!("unknown style {name:?}"),
+            ))
+        })
 }
 fn apply_run(style: &mut Node, f: &RunFormat) -> Result<()> {
     let rpr = style.ensure("w:rPr");
-    crate::format::merge_properties(rpr, crate::format::run(f)?);
+    crate::ooxml::wordprocessing::format::merge_properties(
+        rpr,
+        crate::ooxml::wordprocessing::format::run(f)?,
+    );
     if f.font.is_some()
         && let Some(fonts) = rpr.child_mut("w:rFonts")
     {
@@ -52,7 +63,7 @@ fn apply_run(style: &mut Node, f: &RunFormat) -> Result<()> {
 }
 fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
     let mut n = Node::new("w:tblStylePr");
-    let r = crate::format::run(&font(
+    let r = crate::ooxml::wordprocessing::format::run(&font(
         &fmt.font,
         fmt.font_size,
         fmt.bold,
@@ -63,7 +74,7 @@ fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
     if !r.children.is_empty() {
         n.push(r);
     }
-    let p = crate::format::paragraph(
+    let p = crate::ooxml::wordprocessing::format::paragraph(
         &ParagraphFormat {
             alignment: fmt.alignment,
             spacing_before: fmt.spacing_before,
@@ -76,7 +87,7 @@ fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
         n.push(p);
     }
     if let Some(c) = fmt.background {
-        n.push(Node::new("w:tcPr").with(crate::format::shading(c)));
+        n.push(Node::new("w:tcPr").with(crate::ooxml::wordprocessing::format::shading(c)));
     }
     Ok(n)
 }
@@ -90,7 +101,7 @@ pub(crate) fn apply(
         .related(main, "styles")?
         .map(|(_, p)| p)
         .unwrap_or("word/styles.xml".into());
-    let mut styles = package.xml(&style_path)?;
+    let mut styles = package.word(&style_path)?;
     for definition in definitions {
         let (name, typ, base) = match definition {
             StyleDefinition::Paragraph(s) => (&s.name, "paragraph", &s.base_style),
@@ -160,9 +171,9 @@ pub(crate) fn apply(
                     widow_control: s.widow_control,
                     ..ParagraphFormat::default()
                 };
-                crate::format::merge_properties(
+                crate::ooxml::wordprocessing::format::merge_properties(
                     style.ensure("w:pPr"),
-                    crate::format::paragraph(&p, 1440.)?,
+                    crate::ooxml::wordprocessing::format::paragraph(&p, 1440.)?,
                 );
             }
             StyleDefinition::Table(s) => {
@@ -195,13 +206,13 @@ pub(crate) fn apply(
             }
         }
     }
-    package.put(&style_path, styles.clone())?;
+    package.put_word(&style_path, styles.clone())?;
     if !numbering.is_empty() {
         let numbering_path = package
             .related(main, "numbering")?
             .map(|(_, p)| p)
             .unwrap_or("word/numbering.xml".into());
-        let mut nums = package.xml(&numbering_path)?;
+        let mut nums = package.word(&numbering_path)?;
         for def in numbering {
             if nums
                 .elements()
@@ -236,7 +247,9 @@ pub(crate) fn apply(
                     .with(val("abstractNumId", absid)),
             );
         }
-        package.put(&numbering_path, nums)?;
+        package.put_word(&numbering_path, nums)?;
     }
     Ok(styles)
 }
+
+use crate::ooxml::WordParts;

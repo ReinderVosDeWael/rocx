@@ -1,8 +1,9 @@
 """Declarative API for creating Word documents."""
 
-from rv_docx.declarative.base import Component, DeferredProperty
+from rv_docx.declarative.base import Component, Deferred, DeferredProperty, PropertyRef
 from rv_docx.declarative.document import Document, DocumentTemplate
 from rv_docx.declarative.image import ImageRun
+from rv_docx.declarative.numbering import NumberingDefinition, NumberingLevel, NumberingReference
 from rv_docx.declarative.paragraph import Break, Paragraph, Tab, TextRun
 from rv_docx.declarative.section import (
     BlockChildren,
@@ -29,12 +30,17 @@ __all__ = [
     "Break",
     "CellBorder",
     "Component",
+    "Deferred",
     "DeferredProperty",
+    "PropertyRef",
     "Document",
     "DocumentTemplate",
     "Footer",
     "Header",
     "ImageRun",
+    "NumberingDefinition",
+    "NumberingLevel",
+    "NumberingReference",
     "Paragraph",
     "ParagraphStyleDefinition",
     "Section",

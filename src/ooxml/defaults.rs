@@ -61,7 +61,11 @@ pub(crate) fn prepare(p: &mut Package, main: &str) -> Result<u32> {
             fn max_id(n: &Node) -> u32 {
                 n.elements()
                     .map(max_id)
-                    .chain(n.get("id").and_then(|i| i.parse().ok()))
+                    .chain(
+                        (n.name == "wp:docPr")
+                            .then(|| n.get("id").and_then(|i| i.parse().ok()))
+                            .flatten(),
+                    )
                     .max()
                     .unwrap_or(0)
             }

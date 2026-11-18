@@ -47,6 +47,11 @@ impl PartName {
         &self.0[1..]
     }
     pub fn resolve(owner: &str, target: &str) -> Result<Self> {
+        if target.starts_with("//") {
+            return Err(Error::Validation(
+                "internal relationship cannot have a URI authority".into(),
+            ));
+        }
         if target.is_empty() {
             return Err(Error::Validation("empty relationship target".into()));
         }
@@ -95,11 +100,7 @@ impl PartName {
 pub struct RelationshipId(String);
 impl RelationshipId {
     pub fn new(value: &str) -> Result<Self> {
-        let mut chars = value.chars();
-        if !chars.next().is_some_and(|c| c == '_' || c.is_alphabetic())
-            || !chars
-                .all(|c| c == '_' || c == '-' || c == '.' || c.is_alphanumeric() || c == '\u{b7}')
-        {
+        if !crate::xml::is_ncname(value) {
             return Err(Error::Validation(format!(
                 "invalid relationship ID {value:?}"
             )));
@@ -156,6 +157,17 @@ pub(super) fn relationships_path(owner: &str) -> String {
     match owner.rsplit_once('/') {
         Some((dir, file)) => format!("{dir}/_rels/{file}.rels"),
         None => format!("_rels/{owner}.rels"),
+    }
+}
+
+pub(super) fn relationship_type(kind: &str) -> String {
+    if kind.contains(':') {
+        kind.into()
+    } else if kind == "core-properties" {
+        "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
+            .into()
+    } else {
+        format!("http://schemas.openxmlformats.org/officeDocument/2006/relationships/{kind}")
     }
 }
 

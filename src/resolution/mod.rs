@@ -85,7 +85,7 @@ impl<T: Clone + Send + Sync + 'static> Value<T> {
 /// A handle refers to its producer, independently of component conditions.
 ///
 /// ```
-/// use cmi_docx::{Error, Value};
+/// use rv_docx_rs::{Error, Value};
 /// # futures::executor::block_on(async {
 /// let count = Value::future(async { 42_u64 }).deferred();
 /// let dependency = count.clone();
@@ -205,3 +205,18 @@ impl fmt::Debug for Condition {
         }
     }
 }
+
+mod property;
+pub(crate) use property::in_pass;
+pub use property::{Property, PropertyId, PropertyRef};
+
+impl<T: Clone + Send + Sync + 'static> Value<T> {
+    pub fn property(self, name: impl Into<String>) -> Property<T> {
+        Property::new(name, self)
+    }
+}
+
+mod interpreter;
+
+mod components;
+pub use components::Component;

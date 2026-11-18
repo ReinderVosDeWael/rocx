@@ -1,7 +1,7 @@
 //! Declarative DOCX generation from a declarative, asynchronous document tree.
 //!
 //! ```
-//! use cmi_docx::{Document, Paragraph, Section};
+//! use rv_docx_rs::{Document, Paragraph, Section};
 //!
 //! # futures::executor::block_on(async {
 //! let document = Document::new(vec![
@@ -9,7 +9,7 @@
 //! ]);
 //! let resolved = document.resolve().await?;
 //! let bytes = resolved.to_docx()?;
-//! # Ok::<(), cmi_docx::Error>(())
+//! # Ok::<(), rv_docx_rs::Error>(())
 //! # }).unwrap();
 //! ```
 //! Resolution consumes producers once. Resolved documents can be rendered repeatedly.
@@ -19,90 +19,57 @@
 //! OOXML vocabulary and packaging are specified in
 //! [ECMA-376](https://ecma-international.org/publications-and-standards/standards/ecma-376/).
 //! The repository's `docs/OOXML.md` maps implemented features to edition-specific
-//! clauses; `docs/ARCHITECTURE.md` records the proposed domain-driven direction.
+//! clauses; `docs/MODULES.md` records the implemented domain-driven boundaries.
 //! Implemented features and reference comparisons do not establish full OOXML
 //! conformance.
 
+mod adapters;
+pub mod application;
+pub mod authoring;
+pub mod document;
 mod error;
-mod model;
-mod render;
-mod value;
+pub mod resolution;
 
-pub use error::{Error, Result};
-pub use model::{
-    Block, BlockChildren, Document, Inline, InlineChildren, Paragraph, ResolvedDocument,
-    ResolvedParagraph, ResolvedSection, ResolvedTextRun, Section, TextRun,
+pub use application::DocumentTemplate;
+pub use authoring::{
+    Block, BlockChildren, Break, Document, Footer, Header, ImageData, ImageRun, Inline,
+    InlineChildren, Paragraph, ParagraphContent, Section, Tab, Table, TableCell, TableRow, TextRun,
 };
-pub use value::{Condition, Deferred, Value};
+pub use document::{
+    Alignment, AltText, AssetId, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide,
+    Color, Columns, CommentId, Diagnostic, DrawingId, Emu, HalfPoints, HeaderFooterType,
+    ImageTransformation, NumberingDefinition, NumberingLevel, NumberingReference, Orientation,
+    PageMargins, PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, Points,
+    ResolvedBlock, ResolvedComment, ResolvedDocument, ResolvedHeaderFooter, ResolvedImage,
+    ResolvedInline, ResolvedParagraph, ResolvedSection, ResolvedTable, ResolvedTableCell,
+    ResolvedTableRow, Rule, RunFormat, SectionProperties, SectionType, StoryId, StoryKind,
+    StyleDefinition, StyleId, TableBorder, TableLayout, TableSectionFormat, TableStyleDefinition,
+    ThemeColor, Twips, Underline, VerticalAlignment, VerticalMerge,
+};
+pub use error::{Error, Result};
+pub use resolution::{Component, Condition, Deferred, Property, PropertyId, PropertyRef, Value};
 
-/// Component imports corresponding to Python's `cmi_docx.declarative` module.
+/// Component imports corresponding to Python's `rv_docx.declarative` module.
 pub mod declarative {
-    pub use crate::types::*;
+    pub use crate::document::{
+        Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Color,
+        Columns, Emu, HalfPoints, HeaderFooterType, ImageTransformation, NumberingDefinition,
+        NumberingLevel, NumberingReference, Orientation, PageMargins, PageNumbering, PageSize,
+        ParagraphFormat, ParagraphStyleDefinition, Points, RunFormat, SectionProperties,
+        SectionType, StyleDefinition, TableBorder, TableLayout, TableSectionFormat,
+        TableStyleDefinition, ThemeColor, Twips, Underline, VerticalAlignment, VerticalMerge,
+    };
     pub use crate::{
         Block, BlockChildren, Break, Component, Condition, Deferred, Document, Footer, Header,
-        ImageData, ImageRun, Inline, InlineChildren, Paragraph, Section, Tab, Table, TableCell,
-        TableRow, TextRun, Value,
+        ImageData, ImageRun, Inline, InlineChildren, Paragraph, ParagraphContent, Property,
+        PropertyRef, Section, Tab, Table, TableCell, TableRow, TextRun, Value,
     };
 }
 
-mod components;
-mod image;
-mod table;
-mod types;
 mod xml;
-pub use components::*;
-pub use table::*;
-pub use types::*;
 
-mod format;
-mod ooxml;
+pub mod ooxml;
+pub use ooxml::OutputProfile;
 pub mod opc;
-mod styles;
-mod template;
-
-/// Common resolution interface for conditional declarative components.
-/// Resolution consumes the declaration; false conditions return `None`.
-pub trait Component: Send + Sized + 'static {
-    type Resolved: Send;
-    fn resolve(self) -> futures_util::future::BoxFuture<'static, Result<Option<Self::Resolved>>>;
-}
-macro_rules! component {
-    ($t:ty,$resolved:ty,$path:literal) => {
-        impl Component for $t {
-            type Resolved = $resolved;
-            fn resolve(
-                self,
-            ) -> futures_util::future::BoxFuture<'static, Result<Option<Self::Resolved>>> {
-                Box::pin(self.resolve_at($path.into()))
-            }
-        }
-        impl std::future::IntoFuture for $t {
-            type Output = Result<Option<$resolved>>;
-            type IntoFuture = futures_util::future::BoxFuture<'static, Self::Output>;
-            fn into_future(self) -> Self::IntoFuture {
-                Component::resolve(self)
-            }
-        }
-    };
-}
-component!(Section, ResolvedSection, "section");
-component!(Paragraph, ResolvedParagraph, "paragraph");
-component!(TextRun, ResolvedTextRun, "text_run");
-component!(ImageRun, ResolvedTextRun, "image_run");
-component!(Tab, ResolvedTextRun, "tab");
-component!(Break, ResolvedTextRun, "break");
-component!(Table, ResolvedTable, "table");
-component!(TableRow, ResolvedTableRow, "table_row");
-component!(TableCell, ResolvedTableCell, "table_cell");
-component!(Header, ResolvedHeaderFooter, "header");
-component!(Footer, ResolvedHeaderFooter, "footer");
-impl std::future::IntoFuture for Document {
-    type Output = Result<ResolvedDocument>;
-    type IntoFuture = futures_util::future::BoxFuture<'static, Self::Output>;
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(self.resolve())
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-mod python_bindings;
+pub mod template;
+pub use template::{EditScope, TemplateEdits};

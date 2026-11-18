@@ -1,4 +1,4 @@
-use cmi_docx::*;
+use rv_docx_rs::*;
 fn cell(text: &str) -> Value<TableCell> {
     TableCell::new(vec![Paragraph::new(text).into()]).into()
 }
@@ -42,32 +42,48 @@ pub fn document() -> Document {
         ..TableStyleDefinition::default()
     };
     let mut heading = Paragraph::new("Feature parity report");
-    heading.heading = Some(1);
+    heading.format = ParagraphFormat {
+        heading: Some(1),
+        ..ParagraphFormat::default()
+    }
+    .into();
     let mut paragraph = Paragraph::from_children(vec![
         TextRun {
+            format: RunFormat {
+                bold: Some(true),
+                italic: Some(false),
+                underline: Some(true.into()),
+                font: Some("Arial".into()),
+                size: Some(14.),
+                color: Some([1, 2, 3].into()),
+                strike: Some(true),
+                all_caps: Some(true),
+                small_caps: Some(false),
+                ..RunFormat::default()
+            }
+            .into(),
             text: "Formatted ".into(),
-            bold: Some(true),
-            italic: Some(false),
-            underline: Some(true),
-            font: Some("Arial".into()),
-            size: Some(14.),
-            color: Some([1, 2, 3]),
-            strike: Some(true),
-            all_caps: Some(true),
-            small_caps: Some(false),
             comment_text: Some("Run note".into()),
             ..TextRun::default()
         }
         .into(),
         TextRun {
+            format: RunFormat {
+                superscript: Some(true),
+                ..RunFormat::default()
+            }
+            .into(),
             text: "sup".into(),
-            superscript: Some(true),
             ..TextRun::default()
         }
         .into(),
         TextRun {
+            format: RunFormat {
+                subscript: Some(true),
+                ..RunFormat::default()
+            }
+            .into(),
             text: "sub".into(),
-            subscript: Some(true),
             ..TextRun::default()
         }
         .into(),
@@ -78,18 +94,22 @@ pub fn document() -> Document {
         Break::new(BreakType::Page).into(),
         Break::new(BreakType::Column).into(),
     ]);
-    paragraph.style = Some("ReportBody".into());
-    paragraph.alignment = Some(Alignment::Justify);
-    paragraph.spacing_before = Some(12.);
-    paragraph.spacing_after = Some(8.);
-    paragraph.line_spacing = Some(1.5);
-    paragraph.left_indent = Some(18.);
-    paragraph.right_indent = Some(9.);
-    paragraph.first_line_indent = Some(-6.);
-    paragraph.keep_together = Some(true);
-    paragraph.keep_with_next = Some(false);
-    paragraph.page_break_before = Some(false);
-    paragraph.widow_control = Some(false);
+    paragraph.format = ParagraphFormat {
+        style: Some("ReportBody".into()),
+        alignment: Some(Alignment::Justify),
+        spacing_before: Some(12.),
+        spacing_after: Some(8.),
+        line_spacing: Some(1.5),
+        left_indent: Some(18.),
+        right_indent: Some(9.),
+        first_line_indent: Some(-6.),
+        keep_together: Some(true),
+        keep_with_next: Some(false),
+        page_break_before: Some(false),
+        widow_control: Some(false),
+        ..ParagraphFormat::default()
+    }
+    .into();
     paragraph.comment_text = Some("Paragraph note".into());
     paragraph.comment_author = Some("Paragraph Author".into());
     let mut image =

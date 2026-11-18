@@ -1,7 +1,7 @@
 mod support;
 
-use cmi_docx::{Deferred, Document, Error, Paragraph, Section, Value};
 use futures::{channel::oneshot, executor::block_on, future::try_join_all, task::noop_waker};
+use rv_docx_rs::{Deferred, Document, Error, Paragraph, Section, Value};
 use std::{
     error::Error as _,
     future::Future,
@@ -178,4 +178,49 @@ fn shared_property_can_move_to_another_thread() {
             .unwrap(),
         123
     );
+}
+
+#[test]
+fn typed_property_references_detect_cycles_and_honor_excluded_sources() {
+    use rv_docx_rs::{Property, PropertyRef, Rule};
+    use std::sync::Mutex;
+    let dependency = Arc::new(Mutex::new(None::<PropertyRef<String>>));
+    let slot = dependency.clone();
+    let first = Property::new(
+        "first.text",
+        Value::try_future(async move {
+            let next = slot.lock().unwrap().clone().unwrap();
+            next.await
+        }),
+    );
+    let reference = first.reference();
+    let second = Property::new(
+        "second.text",
+        Value::try_future(async move { reference.await }),
+    );
+    *dependency.lock().unwrap() = Some(second.reference());
+    let result = block_on(
+        Document::new(vec![
+            Section::new(vec![
+                Paragraph::new(first).into(),
+                Paragraph::new(second).into(),
+            ])
+            .into(),
+        ])
+        .resolve(),
+    );
+    assert_eq!(result.unwrap_err().rule(), Some(Rule::DependencyCycle));
+    let excluded = Property::new(
+        "hidden.text",
+        Value::lazy(|| panic!("excluded property ran")),
+    )
+    .when(false);
+    let reference = excluded.reference();
+    let result = block_on(
+        Document::new(vec![
+            Section::new(vec![Paragraph::new(reference).into()]).into(),
+        ])
+        .resolve(),
+    );
+    assert_eq!(result.unwrap_err().rule(), Some(Rule::ExcludedDependency));
 }

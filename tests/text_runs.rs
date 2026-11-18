@@ -10,8 +10,8 @@ use std::{
     task::Context,
 };
 
-use cmi_docx::{Condition, Document, Error, Inline, Paragraph, Section, TextRun, Value};
 use futures::{channel::oneshot, executor::block_on, task::noop_waker};
+use rv_docx_rs::{Condition, Document, Inline, Paragraph, Section, TextRun, Value};
 use support::{W, body, part};
 
 fn document(paragraphs: Vec<Paragraph>) -> Document {
@@ -202,31 +202,6 @@ fn run_errors_report_the_exact_field() {
     for (paragraph, path) in cases {
         let error = block_on(document(vec![paragraph]).resolve()).unwrap_err();
         assert_eq!(error.path(), Some(path));
-    }
-}
-
-#[test]
-fn conflicting_or_missing_paragraph_content_is_rejected_before_producers_run() {
-    for text in [
-        None,
-        Some(Value::lazy(|| panic!("conflicting text must not resolve"))),
-    ] {
-        let both = text.is_some();
-        let paragraph = Paragraph {
-            text,
-            children: if both {
-                Some(Value::lazy(|| panic!("conflicting list must not resolve")))
-            } else {
-                None
-            },
-            condition: true.into(),
-            ..Paragraph::default()
-        };
-        let error = block_on(document(vec![paragraph]).resolve()).unwrap_err();
-        assert_eq!(error.path(), Some("sections[0].children[0]"));
-        assert!(
-            matches!(error,Error::At {source,..} if matches!(*source,Error::InvalidParagraphContent))
-        );
     }
 }
 

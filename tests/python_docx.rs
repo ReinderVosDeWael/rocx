@@ -4,8 +4,8 @@
 #[path = "support/features.rs"]
 mod features;
 
-use cmi_docx::*;
 use futures::executor::block_on;
+use rv_docx_rs::*;
 use std::{
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
@@ -89,7 +89,11 @@ fn save_text_fixture(path: &Path) {
     let paragraph = Paragraph::default().with_children(Value::lazy(|| {
         vec![
             TextRun {
-                bold: Some(true),
+                format: RunFormat {
+                    bold: Some(true),
+                    ..RunFormat::default()
+                }
+                .into(),
                 ..TextRun::new("First ")
             }
             .into(),
@@ -271,19 +275,31 @@ fn save_template_fixture(temp: &Temp) -> (PathBuf, PathBuf) {
     let output = temp.path("edited.docx");
     let mut greeting = Paragraph::from_children(vec![
         TextRun {
-            bold: Some(true),
+            format: RunFormat {
+                bold: Some(true),
+                ..RunFormat::default()
+            }
+            .into(),
             comment_text: Some("Original note".into()),
             comment_author: Some("Original Author".into()),
             ..TextRun::new("Hello {{NA")
         }
         .into(),
         TextRun {
-            italic: Some(true),
+            format: RunFormat {
+                italic: Some(true),
+                ..RunFormat::default()
+            }
+            .into(),
             ..TextRun::new("ME}}")
         }
         .into(),
     ]);
-    greeting.style = Some("TemplateBody".into());
+    greeting.format = ParagraphFormat {
+        style: Some("TemplateBody".into()),
+        ..ParagraphFormat::default()
+    }
+    .into();
     let mut image = ImageRun::new(include_bytes!("fixtures/images/sample.png").to_vec());
     image.transformation = Some(ImageTransformation {
         width: Some(48.),
@@ -348,8 +364,8 @@ fn save_template_fixture(temp: &Temp) -> (PathBuf, PathBuf) {
     document.title = Some("Updated title".into());
     document.comment_author = Some("New Author".into());
     let mut template = DocumentTemplate::new(&source);
-    template.replacements = vec![("{{NAME}}".into(), "Alice".into())];
-    template.paragraph_index = Some(1);
+    template.edits.replacements = vec![("{{NAME}}".into(), "Alice".into())];
+    template.edits.paragraph_index = Some(1);
     block_on(document.resolve())
         .unwrap()
         .save_with_template(&output, &template)
