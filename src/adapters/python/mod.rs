@@ -79,24 +79,57 @@ mod template;
 use template::*;
 mod errors;
 use errors::*;
-#[pyfunction(signature=(declaration, template_value=None))]
+#[pyfunction(signature=(declaration, template_value=None, options=None))]
 fn render(
     py: Python<'_>,
     declaration: &Bound<'_, PyAny>,
     template_value: Option<&Bound<'_, PyAny>>,
+    options: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyBytes>> {
-    let doc = document(declaration)?;
+    let doc = document(declaration).map_err(|e| conversion_error(e, "document"))?;
+    doc.validate().map_err(|error| rust_error(error.into()))?;
+    let options = render_options(options).map_err(|e| conversion_error(e, "options"))?;
     let template = template_value
         .filter(|v| !v.is_none())
         .map(template)
-        .transpose()?;
+        .transpose()
+        .map_err(|e| conversion_error(e, "template"))?;
     let bytes = py
         .detach(move || match template {
-            Some(t) => doc.to_docx_with_template(&t),
-            None => doc.to_docx(),
+            Some(t) => doc.to_docx_with_template_and_options(&t, &options),
+            None => doc.to_docx_with_options(&options),
         })
         .map_err(rust_error)?;
     Ok(PyBytes::new(py, &bytes).unbind())
+}
+
+fn render_options(
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<crate::application::RenderOptions> {
+    let Some(options) = options.filter(|o| !o.is_none()) else {
+        return Ok(Default::default());
+    };
+    let profile = match field!(options, "profile", String).as_str() {
+        "transitional" => crate::OutputProfile::Transitional,
+        "strict" => crate::OutputProfile::Strict,
+        _ => {
+            return Err(rust_error(
+                crate::Diagnostic::new(crate::Rule::UnsupportedProfile, "unknown output profile")
+                    .at("options.profile")
+                    .into(),
+            ));
+        }
+    };
+    let limits = options.getattr("read_limits")?;
+    Ok(crate::application::RenderOptions {
+        profile,
+        timestamp: field!(options, "timestamp", Option<String>),
+        read_limits: crate::opc::ReadLimits {
+            max_parts: field!(&limits, "max_parts", usize),
+            max_part_bytes: field!(&limits, "max_part_bytes", u64),
+            max_expanded_bytes: field!(&limits, "max_expanded_bytes", u64),
+        },
+    })
 }
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {

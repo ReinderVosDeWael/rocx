@@ -31,8 +31,16 @@ impl Error {
     }
 
     pub(crate) fn at(self, path: impl Into<String>) -> Self {
+        let path = path.into();
+        if let Self::Diagnostic(mut diagnostic) = self {
+            diagnostic.location = Some(match diagnostic.location {
+                Some(location) => format!("{path}.{location}"),
+                None => path,
+            });
+            return Self::Diagnostic(diagnostic);
+        }
         Self::At {
-            path: path.into(),
+            path,
             source: Box::new(self),
         }
     }
@@ -109,19 +117,23 @@ impl Error {
     pub fn rule(&self) -> Option<crate::document::Rule> {
         match self {
             Self::Diagnostic(d) => Some(d.rule),
-            Self::Producer(source) => {
-                source
-                    .downcast_ref::<Self>()
-                    .and_then(Self::rule)
-                    .or_else(|| {
-                        source
-                            .downcast_ref::<crate::document::Diagnostic>()
-                            .map(|d| d.rule)
-                    })
-            }
+            Self::Producer(source) => source
+                .downcast_ref::<Self>()
+                .and_then(Self::rule)
+                .or_else(|| {
+                    source
+                        .downcast_ref::<crate::document::Diagnostic>()
+                        .map(|d| d.rule)
+                })
+                .or(Some(crate::Rule::ProducerError)),
             Self::At { source, .. } => source.rule(),
             Self::Shared(e) => e.rule(),
-            _ => None,
+            Self::Io(_) => Some(crate::Rule::Io),
+            Self::Zip(_) => Some(crate::Rule::InvalidPackage),
+            Self::InvalidXmlCharacter { .. } => Some(crate::Rule::InvalidXml),
+            Self::InvalidParagraphContent | Self::Validation(_) => {
+                Some(crate::Rule::InvalidContent)
+            }
         }
     }
 }

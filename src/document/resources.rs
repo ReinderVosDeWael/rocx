@@ -20,6 +20,12 @@ pub struct ResolvedHeaderFooter {
     pub(crate) blocks: Vec<ResolvedBlock>,
 }
 impl ResolvedImage {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn alt_text(&self) -> Option<&AltText> {
+        self.alt_text.as_ref()
+    }
     pub fn data(&self) -> &[u8] {
         &self.data
     }

@@ -62,6 +62,17 @@ async def verify_install() -> None:
         assert run is not None
         assert run.find(f"{W}rPr/{W}b") is not None
         assert run.find(f"{W}rPr/{W}i") is not None
+    overridden = await snapshot.to_bytes(options=rv_docx.RenderOptions(timestamp="2026-11-18T00:00:00Z"))
+    with zipfile.ZipFile(io.BytesIO(overridden)) as package:
+        assert b"2026-11-18T00:00:00Z" in package.read("docProps/core.xml")
+    try:
+        await snapshot.to_bytes(options=rv_docx.RenderOptions(profile="strict"))
+    except ValueError as error:
+        assert error.rule == "unsupported_profile"
+        assert error.location == "options.profile"
+    else:
+        raise AssertionError("Strict output was unexpectedly accepted")
+    assert calls == ["text"]
     try:
         await snapshot.to_docx()
     except ImportError as error:

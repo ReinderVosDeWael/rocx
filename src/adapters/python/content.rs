@@ -31,7 +31,11 @@ pub(super) fn paragraph(o: &Bound<'_, PyAny>) -> PyResult<ResolvedParagraph> {
     if let Some(level) = heading
         && !(0..=9).contains(&level)
     {
-        return Err(PyValueError::new_err("heading must be in 0..=9"));
+        return Err(rust_error(
+            crate::Diagnostic::new(crate::Rule::InvalidContent, "heading must be in 0..=9")
+                .at("heading")
+                .into(),
+        ));
     }
     Ok(ResolvedParagraph {
         text: runs.iter().map(ResolvedInline::text).collect(),

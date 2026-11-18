@@ -59,6 +59,24 @@ Native rendering is a synchronous CPU step inside the async method, and releases
 the GIL during compilation. Resolution uses asyncio; the Rust adapter does not
 run a second executor. File reads remain explicit adapter work.
 
+All three output methods accept keyword-only `options=` on both declarations and
+snapshots. `rv_docx.RenderOptions(profile="transitional", timestamp=None,
+read_limits=rv_docx.ReadLimits())` preserves defaults; an explicit timestamp
+overrides output metadata without changing the snapshot. ReadLimits controls
+part-count, per-part-byte and total-expanded-byte budgets while reading either
+the default template or a supplied template. Strict is explicitly unsupported.
+See [`examples/resolution_options.py`](examples/resolution_options.py).
+
+Native conversion/domain errors expose `rule`, `location`, and optional string
+`cause` attributes while retaining their normal ValueError, KeyError or OSError
+categories. Known declaration locations use structural paths; package part
+locations can be absolute OPC names such as `/word/document.xml`. Locations may
+be absent where the compiler has no specific context. Source-producer errors
+retain their identity and original `__cause__`, with component/field labels such
+as `Paragraph.text`; image/output I/O errors identify their adapter boundary.
+Legacy compiler checks can still report broad `invalid_content` codes rather than
+a distinct rule per historical message. Never classify failures by message prefixes.
+
 Runs accept RGB tuples, `"auto"`, or theme color mappings such as
 `{"theme": "accent1", "tint": 128}`. Underline accepts booleans or supported
 style names (`single`, `double`, `dotted`, `dash`, `wave`, `words`, `none`).

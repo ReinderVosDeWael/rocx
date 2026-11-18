@@ -185,6 +185,9 @@ pub(crate) fn resolve(
     transform: Option<ImageTransformation>,
     alt_text: Option<AltText>,
 ) -> Result<ResolvedImage> {
+    if let Some(transform) = &transform {
+        transform.validate()?;
+    }
     let (ext, mime, w, h, xdpi, ydpi) = header(&data)?;
     if w == 0 || h == 0 || xdpi <= 0. || ydpi <= 0. {
         return Err(invalid());

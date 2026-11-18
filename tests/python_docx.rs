@@ -85,6 +85,97 @@ fn python_opens_an_empty_rust_document() {
     verify("empty", &path, None);
 }
 
+#[test]
+fn python_reads_deferred_metadata_properties_and_shared_resolved_children() {
+    let temp = Temp::new();
+    let path = temp.path("r1.docx");
+    let children = Property::new(
+        "children",
+        Value::try_future(async {
+            let paragraph = Paragraph::new("shared R1 λ").resolve().await?.unwrap();
+            Ok::<_, Error>(vec![ResolvedBlock::Paragraph(paragraph)])
+        }),
+    );
+    let content = |reference| {
+        Value::from(reference).map(|values: Vec<ResolvedBlock>| {
+            values
+                .into_iter()
+                .map(Into::into)
+                .collect::<BlockChildren>()
+        })
+    };
+    let mut cell = TableCell {
+        children: content(children.reference()),
+        ..Default::default()
+    };
+    cell.properties = Property::new(
+        "cell.properties",
+        Value::future(async {
+            TableCellProperties {
+                background_color: Some([12, 34, 56]),
+                ..Default::default()
+            }
+        }),
+    )
+    .into();
+    let mut table = Table::new(vec![TableRow::new(vec![cell.into()]).into()]);
+    table.properties = Property::new(
+        "table.properties",
+        Value::future(async {
+            TableProperties {
+                column_widths: Some(vec![1440]),
+                layout: Some(TableLayout::Fixed),
+                ..Default::default()
+            }
+        }),
+    )
+    .into();
+    let mut section = Section::new(vec![table.into()]);
+    section.properties = Property::new(
+        "section.properties",
+        Value::future(async {
+            Some(SectionProperties {
+                page_margins: Some(PageMargins {
+                    left: Some(914400),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }),
+    )
+    .into();
+    section.headers.insert(
+        HeaderFooterType::Default,
+        Header {
+            children: content(children.reference()),
+            ..Default::default()
+        }
+        .into(),
+    );
+    let mut document = Document::new(vec![section.into()]);
+    document.metadata = Property::new(
+        "metadata",
+        Value::future(async {
+            Metadata {
+                title: Some("R1 λ".into()),
+                creator: Some("Ada".into()),
+                ..Default::default()
+            }
+        }),
+    )
+    .into();
+    save(document, &path);
+    verify("r1", &path, None);
+    let changed = temp.path("r1-wrong-content.docx");
+    rewrite_part(&path, &changed, "word/document.xml", |xml| {
+        replace_once(xml, "shared R1 λ", "lost content")
+    });
+    let output = python("r1", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
 fn save_text_fixture(path: &Path) {
     let paragraph = Paragraph::default().with_children(Value::lazy(|| {
         vec![
@@ -238,7 +329,7 @@ fn python_reads_rust_section_layout_and_custom_numbering() {
     let temp = Temp::new();
     let path = temp.path("layout.docx");
     let mut paragraph = Paragraph::new("Numbered item");
-    paragraph.numbering = Some(NumberingReference { id: 42, level: 0 });
+    paragraph.numbering = Some(NumberingReference { id: 42, level: 0 }).into();
     let mut section = Section::new(vec![paragraph.into()]);
     section.properties = Some(SectionProperties {
         page_orientation: Some(Orientation::Landscape),
@@ -261,7 +352,8 @@ fn python_reads_rust_section_layout_and_custom_numbering() {
         title_page: Some(true),
         r#type: Some(SectionType::OddPage),
         ..SectionProperties::default()
-    });
+    })
+    .into();
     let mut document = Document::new(vec![section.into()]);
     document.numbering = vec![NumberingDefinition {
         id: 42,
@@ -271,7 +363,8 @@ fn python_reads_rust_section_layout_and_custom_numbering() {
             format: "decimal".into(),
             text: "%1.".into(),
         }],
-    }];
+    }]
+    .into();
     save(document, &path);
     verify("layout", &path, None);
 }
@@ -333,9 +426,13 @@ fn save_template_fixture(temp: &Temp) -> (PathBuf, PathBuf) {
         Footer::new(vec![Paragraph::new("Footer {{NAME}}").into()]).into(),
     );
     let mut template_document = Document::new(vec![section.into()]);
-    template_document.title = Some("Template title".into());
-    template_document.subject = Some("Retained subject".into());
-    template_document.creator = Some("Template Author".into());
+    template_document.metadata = Metadata {
+        title: Some("Template title".into()),
+        subject: Some("Retained subject".into()),
+        creator: Some("Template Author".into()),
+        ..Default::default()
+    }
+    .into();
     template_document.styles = vec![
         ParagraphStyleDefinition {
             name: "TemplateBody".into(),
@@ -345,7 +442,8 @@ fn save_template_fixture(temp: &Temp) -> (PathBuf, PathBuf) {
             ..ParagraphStyleDefinition::default()
         }
         .into(),
-    ];
+    ]
+    .into();
     save(template_document, &source);
 
     let mut addition = Section::new(vec![
@@ -368,8 +466,12 @@ fn save_template_fixture(temp: &Temp) -> (PathBuf, PathBuf) {
         Header::new(vec![Paragraph::new("Header extension").into()]).into(),
     );
     let mut document = Document::new(vec![addition.into()]);
-    document.title = Some("Updated title".into());
-    document.comment_author = Some("New Author".into());
+    document.metadata = Metadata {
+        title: Some("Updated title".into()),
+        ..Default::default()
+    }
+    .into();
+    document.comment_author = Some("New Author".into()).into();
     let mut template = DocumentTemplate::new(&source);
     template.edits.replacements = vec![("{{NAME}}".into(), "Alice".into())];
     template.edits.paragraph_index = Some(1);

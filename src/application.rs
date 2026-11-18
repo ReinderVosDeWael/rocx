@@ -22,17 +22,18 @@ pub(crate) fn render_with_template(
     document: &ResolvedDocument,
     template: Option<&DocumentTemplate>,
 ) -> Result<Vec<u8>> {
+    render_with_options(document, template, &RenderOptions::default())
+}
+pub(crate) fn render_with_options(
+    document: &ResolvedDocument,
+    template: Option<&DocumentTemplate>,
+    options: &RenderOptions,
+) -> Result<Vec<u8>> {
     let bytes = match template {
         Some(t) => crate::adapters::io::read(&t.path)?,
         None => include_bytes!("../assets/default.docx").to_vec(),
     };
-    crate::ooxml::compile(
-        document,
-        &bytes,
-        template.map(|t| &t.edits),
-        &RenderOptions::default(),
-    )?
-    .to_bytes()
+    crate::ooxml::compile(document, &bytes, template.map(|t| &t.edits), options)?.to_bytes()
 }
 
 use std::path::Path;
@@ -52,6 +53,30 @@ impl DocumentTemplate {
 }
 
 impl ResolvedDocument {
+    /// Render using explicit profile, timestamp and package-read budgets.
+    pub fn to_docx_with_options(&self, options: &RenderOptions) -> Result<Vec<u8>> {
+        render_with_options(self, None, options)
+    }
+    pub fn to_docx_with_template_and_options(
+        &self,
+        template: &DocumentTemplate,
+        options: &RenderOptions,
+    ) -> Result<Vec<u8>> {
+        render_with_options(self, Some(template), options)
+    }
+    pub fn save_with_options(&self, path: impl AsRef<Path>, options: &RenderOptions) -> Result<()> {
+        let bytes = self.to_docx_with_options(options)?;
+        crate::adapters::io::write(path.as_ref(), &bytes)
+    }
+    pub fn save_with_template_and_options(
+        &self,
+        path: impl AsRef<Path>,
+        template: &DocumentTemplate,
+        options: &RenderOptions,
+    ) -> Result<()> {
+        let bytes = self.to_docx_with_template_and_options(template, options)?;
+        crate::adapters::io::write(path.as_ref(), &bytes)
+    }
     pub fn to_docx_with_template(&self, template: &DocumentTemplate) -> Result<Vec<u8>> {
         crate::application::render_with_template(self, Some(template))
     }

@@ -60,6 +60,33 @@ inspection and domain output are unchanged. See the
 [field inventory and scenario matrix](DEFERRED-FIELDS.md) for remaining gaps and
 intentional Rust/Python ownership differences.
 
+R1 also moves Rust document metadata into one deferred `metadata: Value<Metadata>`
+aggregate. For example:
+
+```rust
+use rv_docx_rs::{Document, Metadata, Value};
+let mut document = Document::default();
+document.metadata = Metadata { title: Some("Report".into()), ..Default::default() }.into();
+document.timestamp = Some("2026-11-18T00:00:00Z".into()).into();
+document.styles = Vec::new().into();
+document.numbering = Value::future(async { Vec::new() });
+```
+
+`comment_author`, `timestamp`, `styles` and `numbering` are deferred fields too.
+`Section.properties` is `Value<Option<SectionProperties>>`; paragraph numbering
+is `Value<Option<NumberingReference>>`. Ready values need `.into()`.
+Table/cell options now live in deferred `Table.properties: Value<TableProperties>`
+and `TableCell.properties: Value<TableCellProperties>` aggregates, rather than
+separate fields. Child content stays separate. There are no optional/async duplicate
+fields. Use `Value::map` and resolved block/inline variants to share immutable
+child lists; authoring futures remain single-use and are never cloned.
+
+Pure domain checks now reject invalid formatting during Rust resolution as well
+as compilation. Python's direct domain conversion uses those same checks at
+render time. Callers should not rely on invalid snapshots surviving until ZIP
+serialization. Undefined imported styles still require template context and may
+fail only during compilation.
+
 ## Python snapshots and optional interoperability
 
 `rv_docx` remains the import. Resolution no longer mutates declarations or returns
@@ -101,6 +128,30 @@ exceptions. Excluded final sections no longer leave an extra empty section.
 `Document(timestamp=...)` accepts an explicit snapshot timestamp. Otherwise the
 I/O adapter selects UTC once during resolution. Use the resolved snapshot when
 repeatable output is needed.
+
+Explicit rendering policy is now available in both frontends:
+
+```python
+from rv_docx import ReadLimits, RenderOptions
+options = RenderOptions(timestamp="2026-01-01T00:00:00Z",
+                        read_limits=ReadLimits(max_parts=500))
+data = await snapshot.to_bytes(options=options)
+await snapshot.save("report.docx", options=options)
+```
+
+The optional `to_docx()` method also accepts `options=`. Declarations accept the
+same keyword. Omitting options preserves previous defaults. A render timestamp
+override does not change `snapshot.timestamp`; Strict is explicitly rejected.
+Rust provides `to_docx_with_options`, `to_docx_with_template_and_options`,
+`save_with_options`, and `save_with_template_and_options`, using
+`application::RenderOptions`. Pure `compile`/`compile_with_edits` still take
+caller-provided template bytes; path loading remains an application effect.
+
+Python native errors retain ValueError/KeyError/OSError categories and now expose
+`rule`, `location` and `cause`. Inspect rule codes instead of message prefixes.
+Producer exceptions retain identity and their original `__cause__`; dependency
+errors also expose a source-field location. See the inventory for the distinction
+between source-field labels and native structural declaration paths.
 
 ## Templates and numbering
 

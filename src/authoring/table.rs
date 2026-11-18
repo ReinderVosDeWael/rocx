@@ -3,17 +3,11 @@
 //! References: ECMA-376 Part 1 (2016), §17.4 (tables), §17.4.17
 //! (`gridSpan`), and §17.4.84 (`vMerge`).
 //! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
-use crate::{
-    Block, BlockChildren, CellBorder, Condition, TableBorder, TableLayout, Value,
-    VerticalAlignment, VerticalMerge,
-};
+use crate::{Block, BlockChildren, Condition, TableCellProperties, TableProperties, Value};
 #[derive(Debug, Default)]
 pub struct Table {
     pub rows: Value<Vec<Value<TableRow>>>,
-    pub column_widths: Option<Vec<u32>>,
-    pub layout: Option<TableLayout>,
-    pub style: Option<String>,
-    pub borders: Vec<TableBorder>,
+    pub properties: Value<TableProperties>,
     pub condition: Condition,
 }
 #[derive(Debug, Default)]
@@ -24,11 +18,7 @@ pub struct TableRow {
 #[derive(Debug, Default)]
 pub struct TableCell {
     pub children: Value<BlockChildren>,
-    pub grid_span: Option<u32>,
-    pub vmerge: Option<VerticalMerge>,
-    pub borders: Vec<CellBorder>,
-    pub background_color: Option<[u8; 3]>,
-    pub vertical_alignment: Option<VerticalAlignment>,
+    pub properties: Value<TableCellProperties>,
     pub condition: Condition,
 }
 impl Table {

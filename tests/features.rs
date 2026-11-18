@@ -295,7 +295,8 @@ fn sections_support_all_declared_properties_and_inherit_unspecified_values() {
         vertical_align: Some(VerticalAlignment::Center),
         title_page: Some(true),
         r#type: Some(SectionType::OddPage),
-    });
+    })
+    .into();
     let bytes = bytes(Document::new(vec![
         section.into(),
         Section::new(vec![Paragraph::new("two").into()]).into(),
@@ -386,8 +387,12 @@ fn tables_resolve_all_lazy_levels_and_skip_conditional_rows_and_cells() {
 fn autofit_ignores_column_widths_and_fixed_widths_are_validated() {
     let make = |layout| Table {
         rows: vec![TableRow::new(vec![TableCell::default().into()]).into()].into(),
-        layout,
-        column_widths: Some(vec![1000, 2000]),
+        properties: TableProperties {
+            layout,
+            column_widths: Some(vec![1000, 2000]),
+            ..Default::default()
+        }
+        .into(),
         ..Table::default()
     };
     assert!(block_on(doc(vec![make(Some(TableLayout::Fixed)).into()]).resolve()).is_err());
@@ -427,7 +432,7 @@ fn every_table_style_region_is_written_and_duplicate_style_names_fail() {
         ..TableStyleDefinition::default()
     };
     let mut document = doc(vec![]);
-    document.styles = vec![style.clone().into()];
+    document.styles = vec![style.clone().into()].into();
     let bytes = bytes(document);
     let xml = part(&bytes, "word/styles.xml");
     let parsed = roxmltree::Document::parse(&xml).unwrap();
@@ -442,13 +447,13 @@ fn every_table_style_region_is_written_and_duplicate_style_names_fail() {
         12
     );
     let mut document = doc(vec![]);
-    document.styles = vec![style.clone().into(), style.into()];
+    document.styles = vec![style.clone().into(), style.into()].into();
     assert!(block_on(document.resolve()).unwrap().to_docx().is_err());
 }
 #[test]
 fn custom_numbering_is_linked_to_paragraphs_and_ids_cannot_collide() {
     let mut p = Paragraph::new("numbered");
-    p.numbering = Some(NumberingReference { id: 42, level: 0 });
+    p.numbering = Some(NumberingReference { id: 42, level: 0 }).into();
     let mut document = doc(vec![p.into()]);
     document.numbering = vec![NumberingDefinition {
         id: 42,
@@ -458,7 +463,8 @@ fn custom_numbering_is_linked_to_paragraphs_and_ids_cannot_collide() {
             format: "decimal".into(),
             text: "%1.".into(),
         }],
-    }];
+    }]
+    .into();
     let bytes = bytes(document);
     let xml = part(&bytes, "word/numbering.xml");
     let parsed = roxmltree::Document::parse(&xml).unwrap();
@@ -508,8 +514,7 @@ fn invalid_formatting_and_undefined_styles_fail_without_a_package() {
     ] {
         assert!(
             block_on(doc(vec![paragraph.into()]).resolve())
-                .unwrap()
-                .to_docx()
+                .and_then(|snapshot| snapshot.to_docx())
                 .is_err()
         );
     }

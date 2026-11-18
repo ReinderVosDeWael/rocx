@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Generic, TypeVar
 
 from .snapshot import ResolvedNode
+from .. import diagnostics
 
 _ids = itertools.count(1)
 _context = contextvars.ContextVar("rv_docx_resolution", default=None)
@@ -35,8 +36,10 @@ def field_names(owner):
 
 class DependencyError(ValueError):
     """A dependency rule failure, with a stable code for language adapters."""
-    def __init__(self, rule, message):
+    def __init__(self, rule, message, location=None):
         self.rule = rule
+        self.location = location
+        self.cause = None
         super().__init__(message)
 
 
@@ -63,7 +66,7 @@ class _Resolution:
         caller = _current.get()
         if caller is not None:
             if self.reaches(key, caller):
-                raise DependencyError("dependency_cycle", f"Cyclic deferred property dependency: {label}")
+                raise DependencyError("dependency_cycle", f"Cyclic deferred property dependency: {label}", label)
             edges = self.waits.setdefault(caller, {})
             edges[key] = edges.get(key, 0) + 1
         try:
@@ -73,6 +76,11 @@ class _Resolution:
                     token = _current.set(key)
                     try:
                         return await work()
+                    except Exception as error:
+                        # Preserve producer exception identity/categories; attach context
+                        # rather than guessing a rule from its human-readable message.
+                        diagnostics.annotate(error, "invalid_content" if key[1] is _CONDITION else "producer_error", label)
+                        raise
                     finally:
                         _current.reset(token)
                 task = asyncio.create_task(execute())
@@ -135,7 +143,7 @@ async def _property(owner, name):
     context = _context.get()
     context.owners[identity(owner)] = owner
     if not await _condition(owner):
-        raise DependencyError("excluded_dependency", f"Cannot resolve deferred property '{name}' on excluded {type(owner).__name__}")
+        raise DependencyError("excluded_dependency", f"Cannot resolve deferred property '{name}' on excluded {type(owner).__name__}", f"{type(owner).__name__}.{name}")
     async def evaluate():
         value = await resolve_value(getattr(owner, name))
         if getattr(owner, "_native_kind", None) == "ImageRun" and name == "data":

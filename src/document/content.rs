@@ -13,6 +13,21 @@ pub struct ResolvedDocument {
 }
 
 impl ResolvedDocument {
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+    pub fn timestamp(&self) -> &str {
+        &self.timestamp
+    }
+    pub fn comment_author(&self) -> Option<&str> {
+        self.comment_author.as_deref()
+    }
+    pub fn styles(&self) -> &[StyleDefinition] {
+        &self.styles
+    }
+    pub fn numbering(&self) -> &[NumberingDefinition] {
+        &self.numbering
+    }
     pub fn sections(&self) -> &[ResolvedSection] {
         &self.sections
     }
@@ -26,6 +41,15 @@ pub struct ResolvedSection {
     pub(crate) footers: BTreeMap<HeaderFooterType, super::ResolvedHeaderFooter>,
 }
 impl ResolvedSection {
+    pub fn properties(&self) -> Option<&SectionProperties> {
+        self.properties.as_ref()
+    }
+    pub fn headers(&self) -> &BTreeMap<HeaderFooterType, ResolvedHeaderFooter> {
+        &self.headers
+    }
+    pub fn footers(&self) -> &BTreeMap<HeaderFooterType, ResolvedHeaderFooter> {
+        &self.footers
+    }
     pub fn paragraphs(&self) -> Vec<&ResolvedParagraph> {
         self.blocks
             .iter()
@@ -52,6 +76,9 @@ pub struct ResolvedParagraph {
     pub(crate) numbering: Option<NumberingReference>,
 }
 impl ResolvedParagraph {
+    pub fn numbering(&self) -> Option<&NumberingReference> {
+        self.numbering.as_ref()
+    }
     pub fn text(&self) -> &str {
         &self.text
     }
@@ -129,7 +156,7 @@ impl ResolvedInline {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub(crate) struct Metadata {
+pub struct Metadata {
     pub creator: Option<String>,
     pub title: Option<String>,
     pub subject: Option<String>,

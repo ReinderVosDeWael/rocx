@@ -121,19 +121,26 @@ pub fn document() -> Document {
     .into();
     let nested = Table::new(vec![TableRow::new(vec![cell("nested")]).into()]);
     let mut first = TableCell::new(vec![Paragraph::new("merged").into()]);
-    first.grid_span = Some(2);
-    first.vmerge = Some(VerticalMerge::Restart);
-    first.background_color = Some([255, 238, 221]);
-    first.vertical_alignment = Some(VerticalAlignment::Center);
-    first.borders = vec![CellBorder {
-        side: CellBorderSide::Top,
-        sz: 4,
-        color: [16, 32, 48],
-        val: BorderLine::Dashed,
-    }];
+    first.properties = TableCellProperties {
+        grid_span: Some(2),
+        vmerge: Some(VerticalMerge::Restart),
+        background_color: Some([255, 238, 221]),
+        vertical_alignment: Some(VerticalAlignment::Center),
+        borders: vec![CellBorder {
+            side: CellBorderSide::Top,
+            sz: 4,
+            color: [16, 32, 48],
+            val: BorderLine::Dashed,
+        }],
+    }
+    .into();
     let mut continuation = TableCell::new(vec![Paragraph::new("continuation").into()]);
-    continuation.grid_span = Some(2);
-    continuation.vmerge = Some(VerticalMerge::Continue);
+    continuation.properties = TableCellProperties {
+        grid_span: Some(2),
+        vmerge: Some(VerticalMerge::Continue),
+        ..Default::default()
+    }
+    .into();
     let mut table = Table::new(vec![
         TableRow::new(vec![
             first.into(),
@@ -144,14 +151,18 @@ pub fn document() -> Document {
         TableRow::new(vec![cell("short"), cell("row")]).into(),
         TableRow::new(vec![cell("hidden")]).when(false).into(),
     ]);
-    table.column_widths = Some(vec![1000, 2000, 3000]);
-    table.style = Some("ReportTable".into());
-    table.borders = vec![TableBorder {
-        side: BorderSide::InsideH,
-        sz: 8,
-        color: [128, 0, 0],
-        ..TableBorder::default()
-    }];
+    table.properties = TableProperties {
+        column_widths: Some(vec![1000, 2000, 3000]),
+        style: Some("ReportTable".into()),
+        borders: vec![TableBorder {
+            side: BorderSide::InsideH,
+            sz: 8,
+            color: [128, 0, 0],
+            ..TableBorder::default()
+        }],
+        ..Default::default()
+    }
+    .into();
     let mut section = Section::new(vec![
         heading.into(),
         paragraph.into(),
@@ -167,7 +178,8 @@ pub fn document() -> Document {
             right: Some(1143000),
         }),
         ..SectionProperties::default()
-    });
+    })
+    .into();
     section.headers.insert(
         HeaderFooterType::Default,
         Header::new(vec![Paragraph::new("Default header").into()]).into(),
@@ -189,19 +201,23 @@ pub fn document() -> Document {
         properties: Some(SectionProperties {
             page_orientation: Some(Orientation::Landscape),
             ..SectionProperties::default()
-        }),
+        })
+        .into(),
         ..Section::default()
     };
     let mut document = Document::new(vec![section.into(), second.into()]);
-    document.creator = Some("Rust Author".into());
-    document.title = Some("Parity report".into());
-    document.subject = Some("Testing".into());
-    document.description = Some("Description".into());
-    document.comments = Some("Core comments".into());
-    document.keywords = Some("rust, docx".into());
-    document.category = Some("Reports".into());
-    document.version = Some("1.0".into());
-    document.comment_author = Some("Default Author".into());
-    document.styles = vec![paragraph_style.into(), table_style.into()];
+    document.metadata = Metadata {
+        creator: Some("Rust Author".into()),
+        title: Some("Parity report".into()),
+        subject: Some("Testing".into()),
+        description: Some("Description".into()),
+        comments: Some("Core comments".into()),
+        keywords: Some("rust, docx".into()),
+        category: Some("Reports".into()),
+        version: Some("1.0".into()),
+    }
+    .into();
+    document.comment_author = Some("Default Author".into()).into();
+    document.styles = vec![paragraph_style.into(), table_style.into()].into();
     document
 }

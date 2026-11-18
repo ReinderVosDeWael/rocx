@@ -1,5 +1,4 @@
 //! Interpret authoring programs into the pure document domain.
-use crate::document::Metadata;
 use crate::{
     Block, BlockChildren, Break, Document, Error, Footer, Header, ImageData, ImageRun, Inline,
     Paragraph, ParagraphContent, ResolvedBlock, ResolvedComment, ResolvedDocument,
@@ -13,11 +12,11 @@ impl Table {
         if !self.condition.evaluate() {
             return Ok(None);
         }
-        let rows = self
-            .rows
-            .resolve()
-            .await
-            .map_err(|e| e.at(format!("{path}.rows")))?;
+        let (rows, properties) = futures_util::future::try_join(
+            field(self.rows, format!("{path}.rows")),
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
         let rows: Vec<_> = try_join_all(rows.into_iter().enumerate().map(|(i, row)| {
             let p = format!("{path}.rows[{i}]");
             async move {
@@ -34,19 +33,12 @@ impl Table {
         .collect();
         ResolvedTable::checked(
             rows,
-            self.column_widths,
-            self.layout,
-            self.style,
-            self.borders,
+            properties.column_widths,
+            properties.layout,
+            properties.style,
+            properties.borders,
         )
-        .map_err(|d| {
-            let location = d
-                .location
-                .as_ref()
-                .map(|l| format!("{path}.{l}"))
-                .unwrap_or(path);
-            Error::from(d).at(location)
-        })
+        .map_err(|d| Error::from(d).at(path))
     }
 }
 impl TableRow {
@@ -81,24 +73,22 @@ impl TableCell {
         if !self.condition.evaluate() {
             return Ok(None);
         }
-        let span = self.grid_span.unwrap_or(1);
-        if span == 0 {
-            return Err(Error::Validation("grid_span must be positive".into())
-                .at(format!("{path}.grid_span")));
-        }
-        let children = self
-            .children
-            .resolve()
-            .await
-            .map_err(|e| e.at(format!("{path}.children")))?;
+        let (children, properties) = futures_util::future::try_join(
+            field(self.children, format!("{path}.children")),
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
+        properties
+            .validate()
+            .map_err(|e| Error::from(e).at(format!("{path}.properties")))?;
         let blocks = resolve_blocks(children, format!("{path}.children")).await?;
         Ok(Some(ResolvedTableCell {
             blocks,
-            grid_span: span,
-            vmerge: self.vmerge,
-            borders: self.borders,
-            background_color: self.background_color,
-            vertical_alignment: self.vertical_alignment,
+            grid_span: properties.grid_span.unwrap_or(1),
+            vmerge: properties.vmerge,
+            borders: properties.borders,
+            background_color: properties.background_color,
+            vertical_alignment: properties.vertical_alignment,
         }))
     }
 }
@@ -199,27 +189,31 @@ impl Document {
                     .resolve_at(path)
                     .await
             },
-        ))
-        .await?;
-        Ok(ResolvedDocument {
+        ));
+        let ((metadata, comment_author, timestamp), (sections, styles, numbering)) =
+            futures_util::future::try_join(
+                futures_util::future::try_join3(
+                    field(self.metadata, "metadata"),
+                    field(self.comment_author, "comment_author"),
+                    field(self.timestamp, "timestamp"),
+                ),
+                futures_util::future::try_join3(
+                    sections,
+                    field(self.styles, "styles"),
+                    field(self.numbering, "numbering"),
+                ),
+            )
+            .await?;
+        let document = ResolvedDocument {
             sections: sections.into_iter().flatten().collect(),
-            metadata: Metadata {
-                creator: self.creator,
-                title: self.title,
-                subject: self.subject,
-                description: self.description,
-                keywords: self.keywords,
-                category: self.category,
-                comments: self.comments,
-                version: self.version,
-            },
-            comment_author: self.comment_author,
-            styles: self.styles,
-            numbering: self.numbering,
-            timestamp: self
-                .timestamp
-                .unwrap_or_else(crate::adapters::io::timestamp),
-        })
+            metadata,
+            comment_author,
+            styles,
+            numbering,
+            timestamp: timestamp.unwrap_or_else(crate::adapters::io::timestamp),
+        };
+        document.validate()?;
+        Ok(document)
     }
 }
 impl Section {
@@ -280,11 +274,19 @@ impl Section {
                 .collect(),
             )
         };
-        let (blocks, headers, footers) =
-            futures_util::future::try_join3(content, header_work, footer_work).await?;
+        let ((blocks, headers, footers), properties) = futures_util::future::try_join(
+            futures_util::future::try_join3(content, header_work, footer_work),
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
+        if let Some(properties) = &properties {
+            properties
+                .validate()
+                .map_err(|error| Error::from(error).at(format!("{path}.properties")))?;
+        }
         Ok(Some(ResolvedSection {
             blocks,
-            properties: self.properties,
+            properties,
             headers,
             footers,
         }))
@@ -318,6 +320,7 @@ impl Paragraph {
                         let path = format!("{path}[{index}]");
                         async move {
                             match child.resolve().await.map_err(|e| e.at(&path))? {
+                                Inline::Resolved(run) => Ok(Some(run)),
                                 Inline::TextRun(run) => run.resolve_at(path).await,
                                 Inline::Tab(tab) => tab.resolve_at(path).await,
                                 Inline::Break(br) => br.resolve_at(path).await,
@@ -332,23 +335,28 @@ impl Paragraph {
                 }
             })
         };
-        let (runs, comment, format): (Vec<ResolvedInline>, _, _) = futures_util::future::try_join3(
-            content,
-            resolve_comment(self.comment_text, self.comment_author, &path),
-            async {
-                self.format
-                    .resolve()
+        let (runs, comment, (format, numbering)): (Vec<ResolvedInline>, _, _) =
+            futures_util::future::try_join3(
+                content,
+                resolve_comment(self.comment_text, self.comment_author, &path),
+                async {
+                    futures_util::future::try_join(
+                        field(self.format, format!("{path}.format")),
+                        field(self.numbering, format!("{path}.numbering")),
+                    )
                     .await
-                    .map_err(|e| e.at(format!("{path}.format")))
-            },
-        )
-        .await?;
+                },
+            )
+            .await?;
+        format
+            .validate()
+            .map_err(|e| Error::from(e).at(format!("{path}.format")))?;
         let text = runs.iter().map(ResolvedInline::text).collect();
         Ok(Some(ResolvedParagraph {
             text,
             runs,
             comment,
-            numbering: self.numbering,
+            numbering,
             format,
         }))
     }
@@ -375,6 +383,9 @@ impl TextRun {
             },
         )
         .await?;
+        format
+            .validate()
+            .map_err(|e| Error::from(e).at(format!("{path}.format")))?;
         Ok(Some(ResolvedInline::Text {
             text,
             comment,
@@ -419,6 +430,7 @@ pub(crate) fn resolve_blocks(
             let path = format!("{path}[{i}]");
             async move {
                 match b.resolve().await.map_err(|e| e.at(&path))? {
+                    Block::Resolved(block) => Ok(Some(block)),
                     Block::Paragraph(p) => {
                         Ok::<_, Error>(p.resolve_at(path).await?.map(ResolvedBlock::Paragraph))
                     }
@@ -431,4 +443,9 @@ pub(crate) fn resolve_blocks(
         .flatten()
         .collect())
     })
+}
+
+async fn field<T>(value: Value<T>, path: impl Into<String>) -> Result<T> {
+    let path = path.into();
+    value.resolve().await.map_err(|error| error.at(path))
 }

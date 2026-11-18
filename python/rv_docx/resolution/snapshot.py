@@ -15,19 +15,21 @@ class ResolvedNode:
         except KeyError:
             raise AttributeError(name) from None
 
-    async def to_bytes(self, template=None):
+    async def to_bytes(self, template=None, *, options=None):
         if self._native_kind != "Document":
             raise TypeError("Only a resolved Document can be rendered")
         if template is not None and not isinstance(template, ResolvedNode):
             from . import resolve_component
             template = await resolve_component(template)
         from rv_docx import _native
-        return _native.render(self, template)
+        if options is None:
+            return _native.render(self, template)
+        return _native.render(self, template, options)
 
-    async def to_docx(self, template=None):
+    async def to_docx(self, template=None, *, options=None):
         from rv_docx.interop import to_docx
-        return to_docx(await self.to_bytes(template))
+        return to_docx(await self.to_bytes(template, options=options))
 
-    async def save(self, path, template=None):
+    async def save(self, path, template=None, *, options=None):
         from rv_docx.io import save_bytes
-        save_bytes(path, await self.to_bytes(template))
+        save_bytes(path, await self.to_bytes(template, options=options))

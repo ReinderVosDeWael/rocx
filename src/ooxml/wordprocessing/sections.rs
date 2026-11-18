@@ -6,6 +6,7 @@ pub(crate) fn section_properties(
     props: &Option<SectionProperties>,
 ) -> Result<Node> {
     if let Some(p) = props {
+        p.validate()?;
         let size = previous.ensure("w:pgSz");
         let mut w = size
             .get("w:w")
@@ -17,10 +18,10 @@ pub(crate) fn section_properties(
             .unwrap_or(15840);
         if let Some(size) = &p.page_size {
             if let Some(v) = size.width {
-                w = (v as f64 / 635.).round() as i64;
+                w = crate::Emu::new(v).twips().get();
             }
             if let Some(v) = size.height {
-                h = (v as f64 / 635.).round() as i64;
+                h = crate::Emu::new(v).twips().get();
             }
         }
         if let Some(o) = p.page_orientation {
@@ -44,7 +45,7 @@ pub(crate) fn section_properties(
                 if let Some(v) = v {
                     previous
                         .ensure("w:pgMar")
-                        .set(format!("w:{k}"), (v as f64 / 635.).round() as i64);
+                        .set(format!("w:{k}"), crate::Emu::new(v).twips().get());
                 }
             }
         }
@@ -60,9 +61,6 @@ pub(crate) fn section_properties(
         if let Some(c) = &p.columns {
             let node = previous.ensure("w:cols");
             if let Some(count) = c.count {
-                if count == 0 {
-                    return Err(Error::Validation("column count must be positive".into()));
-                }
                 node.set("w:num", count);
             }
             if let Some(space) = c.space {

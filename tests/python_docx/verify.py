@@ -69,6 +69,19 @@ class Readback(unittest.TestCase):
         self.assertEqual(len(self.document.sections), 1)
         self.assertIsNotNone(self.document.core_properties.created)
 
+    def test_r1(self):
+        self.assertEqual(self.document.core_properties.title, "R1 λ")
+        self.assertEqual(self.document.core_properties.author, "Ada")
+        self.assertEqual(self.document.sections[0].left_margin, 914400)
+        self.assertEqual(self.document.sections[0].header.paragraphs[-1].text, "shared R1 λ")
+        table = self.document.tables[0]
+        self.assertEqual(table.cell(0, 0).text, "shared R1 λ")
+        self.assertEqual(table.columns[0].width, Twips(1440))
+        self.assertFalse(table.autofit)
+        shading = table.cell(0, 0)._tc.tcPr.find(qn("w:shd"))
+        self.assertIsNotNone(shading)
+        self.assertEqual(shading.get(qn("w:fill")), "0C2238")
+
     def test_text(self):
         self.assertEqual(
             [paragraph.text for paragraph in self.document.paragraphs],
@@ -288,7 +301,7 @@ class Readback(unittest.TestCase):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template"])
+    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template", "r1"])
     parser.add_argument("document", type=Path)
     parser.add_argument("--source", type=Path)
     arguments = parser.parse_args()

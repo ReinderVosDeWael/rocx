@@ -37,14 +37,15 @@ pub use authoring::{
 };
 pub use document::{
     Alignment, AltText, AssetId, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide,
-    Color, Columns, CommentId, Diagnostic, DrawingId, Emu, HalfPoints, HeaderFooterType,
-    ImageTransformation, NumberingDefinition, NumberingLevel, NumberingReference, Orientation,
-    PageMargins, PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, Points,
-    ResolvedBlock, ResolvedComment, ResolvedDocument, ResolvedHeaderFooter, ResolvedImage,
-    ResolvedInline, ResolvedParagraph, ResolvedSection, ResolvedTable, ResolvedTableCell,
-    ResolvedTableRow, Rule, RunFormat, SectionProperties, SectionType, StoryId, StoryKind,
-    StyleDefinition, StyleId, TableBorder, TableLayout, TableSectionFormat, TableStyleDefinition,
-    ThemeColor, Twips, Underline, VerticalAlignment, VerticalMerge,
+    Color, Columns, CommentId, DeclarationPath, Diagnostic, DrawingId, Emu, HalfPoints,
+    HeaderFooterType, ImageTransformation, Metadata, NumberingDefinition, NumberingLevel,
+    NumberingReference, Orientation, PageMargins, PageNumbering, PageSize, ParagraphFormat,
+    ParagraphStyleDefinition, Points, ResolvedBlock, ResolvedComment, ResolvedDocument,
+    ResolvedHeaderFooter, ResolvedImage, ResolvedInline, ResolvedParagraph, ResolvedSection,
+    ResolvedTable, ResolvedTableCell, ResolvedTableRow, Rule, RunFormat, SectionProperties,
+    SectionType, StoryId, StoryKind, StyleDefinition, StyleId, TableBorder, TableCellProperties,
+    TableLayout, TableProperties, TableSectionFormat, TableStyleDefinition, ThemeColor, Twips,
+    Underline, VerticalAlignment, VerticalMerge,
 };
 pub use error::{Error, Result};
 pub use resolution::{Component, Condition, Deferred, Property, PropertyId, PropertyRef, Value};
@@ -53,11 +54,12 @@ pub use resolution::{Component, Condition, Deferred, Property, PropertyId, Prope
 pub mod declarative {
     pub use crate::document::{
         Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Color,
-        Columns, Emu, HalfPoints, HeaderFooterType, ImageTransformation, NumberingDefinition,
-        NumberingLevel, NumberingReference, Orientation, PageMargins, PageNumbering, PageSize,
-        ParagraphFormat, ParagraphStyleDefinition, Points, RunFormat, SectionProperties,
-        SectionType, StyleDefinition, TableBorder, TableLayout, TableSectionFormat,
-        TableStyleDefinition, ThemeColor, Twips, Underline, VerticalAlignment, VerticalMerge,
+        Columns, Emu, HalfPoints, HeaderFooterType, ImageTransformation, Metadata,
+        NumberingDefinition, NumberingLevel, NumberingReference, Orientation, PageMargins,
+        PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, Points, RunFormat,
+        SectionProperties, SectionType, StyleDefinition, TableBorder, TableCellProperties,
+        TableLayout, TableProperties, TableSectionFormat, TableStyleDefinition, ThemeColor, Twips,
+        Underline, VerticalAlignment, VerticalMerge,
     };
     pub use crate::{
         Block, BlockChildren, Break, Component, Condition, Deferred, Document, Footer, Header,

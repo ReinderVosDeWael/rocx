@@ -44,11 +44,11 @@ class Document:
     async def resolve(self):
         return await resolve_component(self)
 
-    async def to_bytes(self, template=None):
-        return await (await self.resolve()).to_bytes(template)
+    async def to_bytes(self, template=None, *, options=None):
+        return await (await self.resolve()).to_bytes(template, options=options)
 
-    async def to_docx(self, template=None):
-        return await (await self.resolve()).to_docx(template)
+    async def to_docx(self, template=None, *, options=None):
+        return await (await self.resolve()).to_docx(template, options=options)
 
-    async def save(self, path, template=None):
-        return await (await self.resolve()).save(path, template)
+    async def save(self, path, template=None, *, options=None):
+        return await (await self.resolve()).save(path, template, options=options)

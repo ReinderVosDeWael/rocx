@@ -11,7 +11,12 @@ impl Compiler<'_> {
         let mut node = Node::new("w:p");
         let mut props = crate::ooxml::wordprocessing::format::paragraph(&p.format, 20.)?;
         if let Some(style) = props.child_mut("w:pStyle") {
-            style.set("w:val", self.styles.get(style.get("w:val").unwrap())?);
+            style.set(
+                "w:val",
+                self.styles
+                    .get(style.get("w:val").unwrap())
+                    .map_err(|error| error.at(context.source.as_str()))?,
+            );
         }
         if let Some(num) = &p.numbering {
             props.push(

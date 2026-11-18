@@ -23,9 +23,12 @@ impl Package {
     pub fn load_with_limits(bytes: &[u8], limits: ReadLimits) -> Result<Self> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
         if zip.len() > limits.max_parts {
-            return Err(Error::Validation(
-                "package part count exceeds read limit".into(),
-            ));
+            return Err(crate::Diagnostic::new(
+                crate::Rule::InvalidPackage,
+                "package part count exceeds read limit",
+            )
+            .at("package")
+            .into());
         }
         let mut total = 0_u64;
         let mut identities = std::collections::BTreeSet::new();
@@ -44,9 +47,12 @@ impl Package {
             if file.size() > limits.max_part_bytes
                 || total.saturating_add(file.size()) > limits.max_expanded_bytes
             {
-                return Err(Error::Validation(
-                    "package expanded bytes exceed read limit".into(),
-                ));
+                return Err(crate::Diagnostic::new(
+                    crate::Rule::InvalidPackage,
+                    "package expanded bytes exceed read limit",
+                )
+                .at(file.name())
+                .into());
             }
             let mut bytes = Vec::new();
             (&mut file)
@@ -54,9 +60,12 @@ impl Package {
                 .read_to_end(&mut bytes)?;
             total += bytes.len() as u64;
             if bytes.len() as u64 > limits.max_part_bytes || total > limits.max_expanded_bytes {
-                return Err(Error::Validation(
-                    "package expanded bytes exceed read limit".into(),
-                ));
+                return Err(crate::Diagnostic::new(
+                    crate::Rule::InvalidPackage,
+                    "package expanded bytes exceed read limit",
+                )
+                .at(file.name())
+                .into());
             }
             if parts.insert(file.name().to_owned(), bytes).is_some() {
                 return Err(Error::Validation("duplicate DOCX package part".into()));

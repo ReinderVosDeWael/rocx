@@ -59,3 +59,16 @@ macro_rules! integer_measure {
 integer_measure!(Twips, 20.);
 integer_measure!(Emu, 12700.);
 integer_measure!(HalfPoints, 2.);
+
+impl Emu {
+    /// Round EMU to twips without lossy floating-point intermediate values.
+    pub fn twips(self) -> Twips {
+        let value = self.0 as i128;
+        let rounded = if value < 0 {
+            -((-value + 317) / 635)
+        } else {
+            (value + 317) / 635
+        };
+        Twips::new(rounded as i64)
+    }
+}

@@ -2,11 +2,13 @@
 mod content;
 mod resources;
 mod table;
+mod validation;
 mod values;
-pub(crate) use content::Metadata;
+pub use content::Metadata;
 pub use content::{ResolvedDocument, ResolvedInline, ResolvedParagraph, ResolvedSection};
 pub use resources::{ResolvedComment, ResolvedHeaderFooter, ResolvedImage};
 pub use table::{ResolvedBlock, ResolvedTable, ResolvedTableCell, ResolvedTableRow};
+pub use table::{TableCellProperties, TableProperties};
 pub use values::{
     Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Columns,
     HeaderFooterType, ImageTransformation, NumberingDefinition, NumberingLevel, NumberingReference,
@@ -17,7 +19,7 @@ pub use values::{
 
 mod diagnostic;
 mod measure;
-pub use diagnostic::{Diagnostic, Rule};
+pub use diagnostic::{DeclarationPath, Diagnostic, Rule};
 pub use measure::{Emu, HalfPoints, Points, Twips};
 
 mod color;

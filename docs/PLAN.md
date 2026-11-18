@@ -124,7 +124,7 @@ well covered. Run the common completion checklist for every slice.
 
 ### R0 — Make the verified baseline repeatable
 
-**Implementation status (2026-11-17, working tree; not committed):** CI and the
+**Implementation checkpoint (2026-11-17, `171229c`):** CI and the
 isolated wheel probe are implemented in `.github/workflows/ci.yml` and
 `tools/check_wheel.py`. The standards job requires schemas, caches the
 digest-checked download, and validates Rust-generated `feature_parity` output.
@@ -147,8 +147,8 @@ Local evidence (stable Rust, Python 3.12; Python commands used
   metadata, exact Unicode/formatting, bytes/save and snapshot checks.
 
 GitHub-hosted CI and the Rust 1.88/Python 3.13–3.14 matrix have not run locally.
-**Next concrete slice:** confirm the new CI matrix, then R1's public deferred-field
-inventory and shared interpreter scenario matrix. Do not start R2 before R1.
+R1 completion is recorded below. The hosted R0 version matrix remains unverified
+in this local session.
 
 **Goal:** another checkout can reproduce the checks without undocumented local
 scripts or silently skipped standards validation.
@@ -182,6 +182,70 @@ job cannot silently skip, and dependency findings have evidence-based fixes or
 documented dispositions. Run no automatic publishing as part of this work.
 
 ### R1 — Finish cross-language API and invariant consistency
+
+**R1 complete (2026-11-18).** Continuation checkpoint subject:
+`feat: complete cross-language R1 consistency`, following `7e69c33`.
+The engineer requested all of R1, then a green commit and a stop for compaction.
+
+Completion against the six R1 acceptance areas:
+
+1. Public fields/intentional differences are inventoried in
+   [DEFERRED-FIELDS.md](DEFERRED-FIELDS.md). Rust now defers `Metadata`, section
+   properties, table/cell property aggregates, paragraph numbering and document
+   styles/numbering/comment-author/timestamp through `Value`/`PropertyRef`.
+   Static structural shells/discriminants remain deliberate ownership choices.
+2. Both interpreters exercise the shared scenario matrix, including metadata and
+   child dependencies. `Value::map`, `Block::Resolved` and `Inline::Resolved` allow
+   Rust to reuse cloneable immutable content without cloning owned futures or
+   reevaluating original guards/assets. Raw authoring child lists are intentionally
+   not cloneable; resolved-content reuse is the supported reference contract.
+3. Existing guard/lifetime semantics are unchanged. Concurrent roots, nested
+   passes, diamond/cycle cases, excluded sources, producer failures, cancellation
+   and fresh-versus-explicit sharing are covered by the first and final R1 suites.
+4. Native errors expose stable `Rule::code`, location and optional cause text while
+   retaining standard Python exception categories and a cause chain. Python
+   producers retain identity and original causes; image/output I/O has adapter
+   context. Domain traversal uses typed `DeclarationPath`; known package context
+   uses canonical OPC names. Legacy generic `Validation` messages remain classified
+   as `invalid_content`, not guessed from text. This is the planned incremental
+   diagnostic contract, not exhaustive reclassification of every legacy check.
+5. Pure domain validators now own supported format/measurement, section-size/
+   column-count, image-transformation and cell-span invariants. Both frontends and
+   codecs reuse them; template-dependent checks remain in compilation. `Emu`
+   converts to twips with integer rounding. Read-only snapshot accessors cover
+   metadata, resources, sections/stories and table/cell properties. Application
+   limits versus schema constraints are documented.
+6. Python `RenderOptions`/`ReadLimits` and Rust output/save option methods expose
+   profile, timestamp override and package-read budgets. Pure compilation still
+   takes bytes; template file loading stays at application boundaries. Overrides
+   do not mutate snapshots; original image mutation/deletion regressions remain.
+
+Final verification (stable Rust, CPython 3.12; Python commands used
+`UV_PROJECT_ENVIRONMENT=.venv-opencode`):
+
+- `uv sync --locked --group test` rebuilt the isolated editable extension.
+- `cargo fmt --check`; `cargo test --locked --all-targets`; and
+  `cargo test --locked --all-features --all-targets` passed (98 all-feature tests,
+  including 13 independent Python readbacks and their negative controls).
+- `cargo test --locked --all-features --doc` passed (2 doctests).
+- `cargo clippy --locked --all-features --all-targets -- -D warnings` passed.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --all-features --no-deps
+  --document-private-items` passed.
+- Full Python suite with `RV_DOCX_REQUIRE_SCHEMAS=1` and
+  `RV_DOCX_SCHEMA_DIR=/tmp/opencode/rv-docx-schemas`: 135 passed, 1 intentional
+  upstream skip. New errors/options tests initially failed against the old native
+  extension; they pass after rebuilding. Test setup/canonical-path expectations
+  and Clippy findings encountered during implementation were corrected.
+- Clean installed-wheel probe passed, including explicit timestamp/Strict-error
+  behavior without interop dependencies. `resolution_options` examples ran in
+  both languages; official schemas validated each (9 covered parts/relationships).
+- `git diff --check` passed. Rust 1.88, other Python versions and hosted CI were
+  not run locally. Existing untracked `docs/DEPENDENCY-AUDIT.md` remains untouched.
+
+**Next concrete slice: R2 external hyperlinks.** Start by reading the normative
+inline parent model and defining the smallest domain/authoring/codec contract in
+both languages. Do not start R3 ranges/bookmarks or change dependency ownership
+as part of hyperlinks. R2 has not been implemented in this checkpoint.
 
 **First slice implemented and verified (2026-11-18):** the complete field inventory,
 intentional lifetime differences, shared scenario matrix and remaining gaps are
@@ -218,12 +282,9 @@ Verification on stable Rust/Python 3.12 (Python commands used
 conversation compaction at this green checkpoint. The pre-existing untracked
 `docs/DEPENDENCY-AUDIT.md` is not part of this R1 change.
 
-**Next concrete slice:** complete Rust deferred document metadata and section
-properties through deliberate aggregates, using the inventory to avoid duplicate
-ordinary/async fields. Then address table properties and the safe sharing contract
-for owned child declarations, followed by structured diagnostics, domain checked
-invariants/accessors and render options. R1 is **not complete**; do not start R2.
-R0 is checkpointed as `171229c`; its hosted/version-matrix results remain unverified.
+The gaps recorded at that first checkpoint are addressed by the R1 completion
+entry above. R0 is checkpointed as `171229c`; its hosted/version-matrix results
+remain unverified in this session.
 
 **Goal:** shared semantics and diagnostics are deliberate before enlarging the
 content algebra. These are follow-ups to the reorganization, not another move of
@@ -580,7 +641,8 @@ visual rendering are different evidence and must not be substituted for each oth
 
 ## First assignment for the next agent
 
-Confirm **R0**'s new CI matrix and checkpoint the verified changes before changing
-the public content algebra. Proceed to **R1**'s deferred-field inventory/scenario
-matrix and then R2 external hyperlinks as the first new feature. Do not reopen
-settled CMI compatibility or repository naming decisions.
+R1 is complete; continue with **R2 external hyperlinks**, using the current
+deferred-field inventory and migration guide rather than the baseline API shapes.
+Confirm hosted CI/version-matrix results when available; no package publication
+was authorized. Do not reopen settled CMI compatibility or repository naming
+decisions. Preserve the existing untracked dependency-audit document.

@@ -2,11 +2,16 @@
 import os
 from pathlib import Path
 import tempfile
+from . import diagnostics
 
 
 def save_bytes(destination, data):
     if hasattr(destination, "write"):
-        destination.write(data)
+        try:
+            destination.write(data)
+        except OSError as error:
+            diagnostics.annotate(error, "io_error", "output")
+            raise
         return
     destination = Path(destination)
     temporary = None
@@ -16,6 +21,9 @@ def save_bytes(destination, data):
             output.write(data)
             output.flush()
         os.replace(temporary, destination)
+    except OSError as error:
+        diagnostics.annotate(error, "io_error", "output")
+        raise
     finally:
         if temporary is not None and os.path.exists(temporary):
             os.unlink(temporary)
@@ -31,5 +39,9 @@ def image_bytes(source):
         return source, None
     if isinstance(source, (str, os.PathLike)):
         path = Path(source)
-        return path.read_bytes(), path.name
+        try:
+            return path.read_bytes(), path.name
+        except OSError as error:
+            diagnostics.annotate(error, "io_error", "ImageRun.data")
+            raise
     raise TypeError("ImageRun.data must resolve to bytes or a filesystem path")

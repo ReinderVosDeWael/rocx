@@ -6,7 +6,7 @@
 //! Public units are converted to wire units here; implementation limits and
 //! historical compatibility behavior are not necessarily specification rules.
 use crate::xml::{Node, val};
-use crate::{Color, Error, ParagraphFormat, Points, Result, RunFormat};
+use crate::{Color, ParagraphFormat, Points, Result, RunFormat};
 pub(crate) fn color(c: [u8; 3]) -> String {
     format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2])
 }
@@ -14,6 +14,7 @@ fn number(value: f64, factor: f64) -> Result<i64> {
     Ok(Points::new(value)?.scaled(factor)?)
 }
 pub(crate) fn run(f: &RunFormat) -> Result<Node> {
+    f.validate()?;
     let mut n = Node::new("w:rPr");
     if let Some(font) = &f.font {
         n.push(
@@ -52,9 +53,6 @@ pub(crate) fn run(f: &RunFormat) -> Result<Node> {
         n.push(value);
     }
     if let Some(size) = f.size {
-        if size < 0. {
-            return Err(Error::Validation("font size cannot be negative".into()));
-        }
         n.push(val("sz", number(size, 2.)?));
     }
     if let Some(u) = f.underline {
@@ -68,17 +66,15 @@ pub(crate) fn run(f: &RunFormat) -> Result<Node> {
     Ok(n)
 }
 pub(crate) fn paragraph(f: &ParagraphFormat, indent_factor: f64) -> Result<Node> {
+    f.validate()?;
     let mut n = Node::new("w:pPr");
     if let Some(style) = &f.style {
         n.push(val("pStyle", style));
     }
-    if let Some(heading) = f.heading {
-        if heading > 9 {
-            return Err(Error::Validation("heading must be in 0..=9".into()));
-        }
-        if heading > 0 {
-            n.replace(val("pStyle", format!("Heading{heading}")));
-        }
+    if let Some(heading) = f.heading
+        && heading > 0
+    {
+        n.replace(val("pStyle", format!("Heading{heading}")));
     }
     for (k, v) in [
         ("keepNext", f.keep_with_next),
@@ -93,11 +89,6 @@ pub(crate) fn paragraph(f: &ParagraphFormat, indent_factor: f64) -> Result<Node>
     let mut spacing = Node::new("w:spacing");
     for (k, v) in [("before", f.spacing_before), ("after", f.spacing_after)] {
         if let Some(v) = v {
-            if v < 0. {
-                return Err(Error::Validation(
-                    "paragraph spacing cannot be negative".into(),
-                ));
-            }
             spacing.set(format!("w:{k}"), number(v, 20.)?);
         }
     }

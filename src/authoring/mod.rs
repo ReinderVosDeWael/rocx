@@ -13,18 +13,11 @@ use std::collections::BTreeMap;
 #[derive(Debug, Default)]
 pub struct Document {
     pub sections: Vec<Value<Section>>,
-    pub creator: Option<String>,
-    pub title: Option<String>,
-    pub subject: Option<String>,
-    pub description: Option<String>,
-    pub keywords: Option<String>,
-    pub category: Option<String>,
-    pub comments: Option<String>,
-    pub version: Option<String>,
-    pub comment_author: Option<String>,
-    pub timestamp: Option<String>,
-    pub styles: Vec<StyleDefinition>,
-    pub numbering: Vec<NumberingDefinition>,
+    pub metadata: Value<Metadata>,
+    pub comment_author: Value<Option<String>>,
+    pub timestamp: Value<Option<String>>,
+    pub styles: Value<Vec<StyleDefinition>>,
+    pub numbering: Value<Vec<NumberingDefinition>>,
 }
 
 impl Document {
@@ -42,7 +35,7 @@ pub type BlockChildren = Vec<Value<Block>>;
 /// A document section with default layout and a conditional list of blocks.
 #[derive(Debug, Default)]
 pub struct Section {
-    pub properties: Option<SectionProperties>,
+    pub properties: Value<Option<SectionProperties>>,
     pub headers: BTreeMap<HeaderFooterType, Value<Header>>,
     pub footers: BTreeMap<HeaderFooterType, Value<Footer>>,
     pub children: Value<BlockChildren>,
@@ -72,7 +65,7 @@ impl Section {
 #[derive(Debug)]
 pub struct Paragraph {
     pub format: Value<ParagraphFormat>,
-    pub numbering: Option<NumberingReference>,
+    pub numbering: Value<Option<NumberingReference>>,
     pub comment_text: Option<Value<String>>,
     pub comment_author: Option<Value<String>>,
     pub content: ParagraphContent,
@@ -85,7 +78,7 @@ impl Default for Paragraph {
             format: Value::default(),
             content: ParagraphContent::Text(Value::default()),
             condition: Condition::default(),
-            numbering: None,
+            numbering: Value::default(),
             comment_text: None,
             comment_author: None,
         }
@@ -131,6 +124,8 @@ pub type InlineChildren = Vec<Value<Inline>>;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Inline {
+    /// Reuse immutable content without cloning authoring futures or guards.
+    Resolved(ResolvedInline),
     TextRun(TextRun),
     Tab(crate::Tab),
     Break(crate::Break),
@@ -185,6 +180,8 @@ impl From<TextRun> for Value<Inline> {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Block {
+    /// Reuse immutable content without cloning authoring futures or guards.
+    Resolved(ResolvedBlock),
     Paragraph(Paragraph),
     Table(crate::Table),
 }
@@ -197,6 +194,27 @@ impl From<Paragraph> for Block {
 impl From<Paragraph> for Value<Block> {
     fn from(value: Paragraph) -> Self {
         Self::Ready(Block::Paragraph(value))
+    }
+}
+
+impl From<ResolvedBlock> for Block {
+    fn from(value: ResolvedBlock) -> Self {
+        Self::Resolved(value)
+    }
+}
+impl From<ResolvedBlock> for Value<Block> {
+    fn from(value: ResolvedBlock) -> Self {
+        Self::ready(Block::Resolved(value))
+    }
+}
+impl From<ResolvedInline> for Inline {
+    fn from(value: ResolvedInline) -> Self {
+        Self::Resolved(value)
+    }
+}
+impl From<ResolvedInline> for Value<Inline> {
+    fn from(value: ResolvedInline) -> Self {
+        Self::ready(Inline::Resolved(value))
     }
 }
 

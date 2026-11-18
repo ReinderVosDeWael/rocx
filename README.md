@@ -114,6 +114,12 @@ See the [deferred-field inventory and scenario matrix](docs/DEFERRED-FIELDS.md)
 for supported fields, ownership differences and remaining cross-language gaps.
 Image transformation and alt-text options use the same Rust deferred-field
 machinery as image data, without rerunning producers when rendering snapshots.
+Rust metadata, section and table/cell properties are deferred aggregates too.
+Reuse immutable resolved child lists through `Value::map`, not cloned futures.
+The [Rust](examples/resolution_options.rs) and
+[Python](examples/resolution_options.py) examples show shared children and explicit
+timestamp policy. Python exports `RenderOptions`/`ReadLimits`; native errors
+retain normal exception categories with `rule`, `location` and `cause` attributes.
 
 Runnable examples: [Rust](examples/property_dependencies.rs),
 [Python](examples/property_dependencies.py), and the

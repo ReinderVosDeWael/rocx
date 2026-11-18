@@ -21,6 +21,19 @@ pub enum Value<T> {
 }
 
 impl<T> Value<T> {
+    /// Transform a resolved input without starting it early or duplicating its producer.
+    pub fn map<U, F>(self, transform: F) -> Value<U>
+    where
+        T: Send + 'static,
+        U: Send + 'static,
+        F: FnOnce(T) -> U + Send + 'static,
+    {
+        Value::Async(Box::pin(async move {
+            self.resolve()
+                .await
+                .map(|value| Value::ready(transform(value)))
+        }))
+    }
     pub fn ready(value: T) -> Self {
         Self::Ready(value)
     }

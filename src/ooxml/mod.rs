@@ -27,11 +27,13 @@ pub(crate) fn compile(
     template: Option<&crate::template::TemplateEdits>,
     options: &crate::application::RenderOptions,
 ) -> Result<crate::opc::PackagePlan> {
+    doc.validate()?;
     if options.profile != OutputProfile::Transitional {
         return Err(crate::Diagnostic::new(
             crate::Rule::UnsupportedProfile,
             "Strict output is not implemented",
         )
+        .at("options.profile")
         .into());
     }
     let mut package = Package::load_with_limits(bytes, options.read_limits)?;

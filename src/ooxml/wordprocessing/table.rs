@@ -35,7 +35,12 @@ impl Compiler<'_> {
         };
         let mut props = Node::new("w:tblPr");
         if let Some(style) = &t.style {
-            props.push(val("tblStyle", self.styles.get(style)?));
+            props.push(val(
+                "tblStyle",
+                self.styles
+                    .get(style)
+                    .map_err(|error| error.at(context.source.as_str()))?,
+            ));
         }
         props.push(
             Node::new("w:tblW")

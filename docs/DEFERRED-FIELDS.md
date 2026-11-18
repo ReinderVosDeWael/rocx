@@ -1,6 +1,6 @@
 # Deferred fields and shared resolution scenarios
 
-Inventory for the first R1 slice (2026-11-18). This describes authoring and
+Inventory after R1 (2026-11-18). This describes authoring and
 resolution, not a promise that every resolved value is legal OOXML. Conversion
 and domain validation still apply after producers finish.
 
@@ -13,15 +13,15 @@ without the named reference graph. No field-specific dependency engine exists.
 
 | Declaration | Deferred fields | Currently ordinary fields |
 | --- | --- | --- |
-| `Document` | Each entry in `sections: Vec<Value<Section>>` | The sections vector itself; creator, title, subject, description, keywords, category, comments, version, comment_author, timestamp, styles, numbering |
-| `Section` | children; each header/footer map value | properties; header/footer maps and keys |
-| `Paragraph` | format (`ParagraphFormat` aggregate); content's text **or** inline children; comment_text/comment_author when present | numbering |
+| `Document` | metadata (`Metadata` aggregate); comment_author, timestamp, styles, numbering; each entry in `sections: Vec<Value<Section>>` | The structural sections vector itself |
+| `Section` | properties (`Option<SectionProperties>`); children; each header/footer map value | Header/footer maps and keys |
+| `Paragraph` | format (`ParagraphFormat` aggregate); numbering; content's text **or** inline children; comment_text/comment_author when present | None beyond condition |
 | `TextRun` | text; format (`RunFormat` aggregate); comment_text/comment_author when present | None beyond condition |
 | `ImageRun` | data; transformation (`Option<ImageTransformation>`); alt_text (`Option<AltText>`) | type hint (`r#type`, not used to override inspected image headers) |
 | `Header`, `Footer` | children | None beyond condition |
-| `Table` | rows, including each row entry | column_widths, layout, style, borders |
+| `Table` | properties (`TableProperties`: column_widths, layout, style, borders); rows, including each row entry | None beyond condition |
 | `TableRow` | children, including each cell entry | None beyond condition |
-| `TableCell` | children | grid_span, vmerge, borders, background_color, vertical_alignment |
+| `TableCell` | properties (`TableCellProperties`: grid_span, vmerge, borders, background_color, vertical_alignment); children | None beyond condition |
 | `Break` | None | type |
 | `Tab` | None | None beyond condition |
 
@@ -33,9 +33,26 @@ Defer a supported aggregate, or produce a whole component through `Value`.
 Rust owned declarations, including their futures and conditions, are not Clone.
 Consequently a deferred list of **authoring children** can be produced once but
 cannot itself be shared through `PropertyRef<BlockChildren>` or
-`PropertyRef<InlineChildren>`. Share cloneable input data and construct owned
-children for each consumer instead. This is a current reference-surface gap, not
-evidence that arbitrary child-list reference parity has been achieved.
+`PropertyRef<InlineChildren>`. This ownership distinction is intentional: share
+cloneable input data to build new declarations, or share **resolved** content:
+
+```rust
+use rv_docx_rs::{BlockChildren, Property, ResolvedBlock, Section, Value};
+fn shared_section(source: &Property<Vec<ResolvedBlock>>) -> Section {
+    Section::default().with_children(Value::from(source.reference()).map(|blocks| {
+        blocks.into_iter().map(Into::into).collect::<BlockChildren>()
+    }))
+}
+```
+
+`Block::Resolved`/`Inline::Resolved` carry immutable snapshots through the same
+field machinery, without re-running original guards, futures or asset reads.
+Use `Vec<ResolvedInline>` for inline children. The same block conversion works
+for section, header, footer and cell children. Structural collections of owned
+sections/header entries/rows/cells remain authoring programs, not cloneable
+reference results; create their shells around shared resolved blocks as needed.
+Break type and the ignored image type hint are intentionally static discriminants;
+produce a whole Break/ImageRun declaration to choose those asynchronously.
 
 ## Python field inventory
 
@@ -109,7 +126,7 @@ tests/python_bindings/test_deferred.py`. Existing failure/cancellation tests in
 | Formatting references | `compilation::formatting_can_depend_on_another_named_async_property` | `test_deferred::test_dependencies_cover_formatting_comments_nested_children_and_metadata` |
 | Image data, transformation, alt text; source last | `resolution_contract::image_fields_accept_references_before_the_source_and_snapshots_do_not_rerun_them` | Same scenario in `test_resolution_contract.py` |
 | Concurrent image fields; hidden producers | `resolution_contract::image_fields_start_concurrently_and_hidden_images_do_not_poll_options` | Same scenario in `test_resolution_contract.py` |
-| Children and metadata | Async child producers: `async_fields.rs`; direct shared child/metadata fields remain gaps | `test_deferred` covers shared header/cell children, image/section properties and title/creator |
+| Children and metadata | `r1::immutable_resolved_children_can_be_shared_without_cloning_futures`; `r1::metadata_section_table_and_cell_properties_use_the_same_reference_mechanism` | `test_deferred` shared header/cell children; `test_r1` metadata/section/table/cell references |
 | Diamond | `resolution_contract::diamond_references_share_the_base_producer` | `test_deferred::test_fanout_and_multistage_dependencies_share_one_producer` |
 | Direct/indirect cycles | `resolution_contract::direct_and_indirect_reference_cycles_fail_without_waiting` | `test_deferred::test_dependency_cycles_fail_instead_of_waiting_forever` |
 | Excluded source | `deferred::typed_property_references_detect_cycles_and_honor_excluded_sources` (property guard) | `test_deferred::test_condition_is_shared_and_excluded_dependency_does_not_run` (declaration guard) |
@@ -120,12 +137,37 @@ tests/python_bindings/test_deferred.py`. Existing failure/cancellation tests in
 | Concurrent roots / nested passes | `resolution_contract` tests shared root handles and nested cycle detection | `test_resolution_contract` tests per-pass/explicit sharing and nested cycle detection |
 | Snapshot after image mutation/deletion | `resolution_contract::image_snapshots_survive_source_mutation_and_deletion` | Same scenario in `test_resolution_contract.py` |
 
-## Remaining R1 work
+## Diagnostics, validation and rendering policy
 
-The matrix exposes gaps rather than declaring R1 complete. Resolve the Rust
-document metadata/section/table deferred-field surface in small aggregate slices;
-decide a safe contract for shared owned child declarations without cloning futures.
-Then complete structured Python/native diagnostics, shared domain invariants and
-checked units, snapshot accessors, and profile/read-budget/timestamp options.
-Do not add async duplicate fields beside ordinary fields or promise parity that
-the table above does not demonstrate.
+R1 adds stable `rule`, `location` and `cause` attributes to native errors while
+retaining standard exception categories. Rule codes come from Rust `Rule::code`,
+not display text. Domain traversal uses `DeclarationPath`; package identities
+continue to use OPC part/target types. Native conversion errors without a more
+specific path use `document`, `template` or `options`. Some legacy compiler
+validations retain the broad `invalid_content` rule; R1 is not an exhaustive
+classification of every legacy error. A location can be absent for failures
+without known declaration/part context. `cause` is an optional display string;
+native cause chains also populate Python `__cause__`.
+
+Python producer exceptions are not wrapped or replaced: their original identity,
+category and `__cause__` survive, with rule/location/cause context attached.
+Producer locations identify the component type and field; native domain paths
+identify structural indexes. No promise of a typed Python import/edit model is
+made. Dependency errors retain `dependency_cycle` and `excluded_dependency`.
+
+Run/paragraph formats, image transformations, section size/column counts and cell
+spans have pure validators shared by the frontends/compiler. `Points` rejects
+nonfinite/overflowing conversions; `Emu::twips` uses integer rounding. Image
+coordinate and table column caps are application limits, not assertions of the
+full OOXML numeric range. XML content, imported inherited geometry, style lookup
+and relationship validation still require their existing compilation contexts.
+Rust snapshots expose read-only accessors for metadata/timestamp, styles,
+numbering, section properties/stories, table/cell properties and image alt text.
+
+Python `rv_docx.RenderOptions` and `ReadLimits` map directly to Rust's render
+options. Pass `options=` to bytes, save or optional interop output on declarations
+or snapshots. Profile, timestamp override and archive read budgets are explicit;
+rendering does not change snapshots or read source images again. Strict remains
+unsupported. Templates are read only at the application boundary. Raw XML parser
+budgets remain fixed implementation limits, distinct from selectable archive
+budgets. See [MIGRATION.md](MIGRATION.md) for signatures and timing changes.

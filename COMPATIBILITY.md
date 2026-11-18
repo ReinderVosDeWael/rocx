@@ -10,7 +10,7 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 
 | Area | Current support |
 | --- | --- |
-| Declarations | Documents, sections, paragraphs, runs, tables, headers/footers; ready/lazy/async content and conditions |
+| Declarations | Documents, sections, paragraphs, runs, tables, headers/footers; ready/lazy/async fields and synchronous conditions; deferred Rust metadata/format/property aggregates and immutable resolved-child reuse |
 | Dependencies | Rust typed named properties and shared computations; Python per-field references and shared computations; typed graph cycles and cancellation handling |
 | Text | Unicode, whitespace, explicit empty runs, tabs, line/page/column breaks |
 | Formatting | Selected paragraph/run properties, RGB/theme/automatic run colors, underline styles, explicit false overrides |

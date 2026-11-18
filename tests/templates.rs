@@ -219,8 +219,12 @@ fn template_headers_are_extended_and_existing_comments_and_images_survive() {
 fn unrelated_parts_and_template_metadata_are_retained() {
     let temp = Temp::new();
     let mut source = Document::new(vec![]);
-    source.title = Some("original title".into());
-    source.subject = Some("retain subject".into());
+    source.metadata = Metadata {
+        title: Some("original title".into()),
+        subject: Some("retain subject".into()),
+        ..Default::default()
+    }
+    .into();
     let bytes = block_on(source.resolve()).unwrap().to_docx().unwrap();
     let mut reader = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -247,7 +251,11 @@ fn unrelated_parts_and_template_metadata_are_retained() {
     writer.write_all(b"opaque bytes\0\xff").unwrap();
     std::fs::write(temp.path(), writer.finish().unwrap().into_inner()).unwrap();
     let mut new = Document::new(vec![]);
-    new.title = Some("new title".into());
+    new.metadata = Metadata {
+        title: Some("new title".into()),
+        ..Default::default()
+    }
+    .into();
     let result = block_on(new.resolve())
         .unwrap()
         .to_docx_with_template(&DocumentTemplate::new(temp.path()))

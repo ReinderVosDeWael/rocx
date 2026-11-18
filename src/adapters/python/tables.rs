@@ -17,9 +17,12 @@ pub(super) fn tablerow(o: &Bound<'_, PyAny>) -> PyResult<ResolvedTableRow> {
 }
 pub(super) fn tablecell(o: &Bound<'_, PyAny>) -> PyResult<ResolvedTableCell> {
     let span = field!(o, "grid_span", Option<u32>).unwrap_or(1);
-    if span == 0 {
-        return Err(PyValueError::new_err("grid_span must be positive"));
+    crate::TableCellProperties {
+        grid_span: Some(span),
+        ..Default::default()
     }
+    .validate()
+    .map_err(|error| rust_error(error.into()))?;
     Ok(ResolvedTableCell {
         blocks: blocks(&o.getattr("children")?)?,
         grid_span: span,

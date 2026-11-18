@@ -1,5 +1,22 @@
 //! Resolved table grid values.
 use super::*;
+/// Cloneable table properties, independent of owned child producers.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TableProperties {
+    pub column_widths: Option<Vec<u32>>,
+    pub layout: Option<TableLayout>,
+    pub style: Option<String>,
+    pub borders: Vec<TableBorder>,
+}
+/// Cloneable cell properties; child content is resolved separately.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TableCellProperties {
+    pub grid_span: Option<u32>,
+    pub vmerge: Option<VerticalMerge>,
+    pub borders: Vec<CellBorder>,
+    pub background_color: Option<[u8; 3]>,
+    pub vertical_alignment: Option<VerticalAlignment>,
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedBlock {
     Paragraph(ResolvedParagraph),
@@ -28,6 +45,21 @@ pub struct ResolvedTableCell {
     pub(crate) vertical_alignment: Option<VerticalAlignment>,
 }
 impl ResolvedTable {
+    pub fn column_widths(&self) -> Option<&[u32]> {
+        self.column_widths.as_deref()
+    }
+    pub fn layout(&self) -> Option<TableLayout> {
+        self.layout
+    }
+    pub fn style(&self) -> Option<&str> {
+        self.style.as_deref()
+    }
+    pub fn borders(&self) -> &[TableBorder] {
+        &self.borders
+    }
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
     pub fn rows(&self) -> &[ResolvedTableRow] {
         &self.rows
     }
@@ -38,6 +70,21 @@ impl ResolvedTableRow {
     }
 }
 impl ResolvedTableCell {
+    pub fn grid_span(&self) -> u32 {
+        self.grid_span
+    }
+    pub fn vmerge(&self) -> Option<VerticalMerge> {
+        self.vmerge
+    }
+    pub fn borders(&self) -> &[CellBorder] {
+        &self.borders
+    }
+    pub fn background_color(&self) -> Option<[u8; 3]> {
+        self.background_color
+    }
+    pub fn vertical_alignment(&self) -> Option<VerticalAlignment> {
+        self.vertical_alignment
+    }
     pub fn blocks(&self) -> &[ResolvedBlock] {
         &self.blocks
     }
