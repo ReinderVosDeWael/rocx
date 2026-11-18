@@ -116,6 +116,8 @@ Runnable examples: [Rust](examples/property_dependencies.rs),
 
 ## Architecture and specifications
 
+- [Remaining plan and agent handoff](docs/PLAN.md): project decisions, ordered
+  milestones, acceptance criteria and verification instructions.
 - [Module boundaries](docs/MODULES.md): functional core, interpreters, codecs,
   OPC, templates, adapters and effect ownership.
 - [Reorganization plan and implementation status](docs/REORGANIZATION.md).
