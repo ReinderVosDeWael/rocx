@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Default)]
 pub struct Document {
     pub sections: Vec<Value<Section>>,
+    pub notes: Value<Vec<Value<Note>>>,
     pub metadata: Value<Metadata>,
     pub comment_author: Value<Option<String>>,
     pub timestamp: Value<Option<String>>,
@@ -124,6 +125,10 @@ pub type InlineChildren = Vec<Value<Inline>>;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Inline {
+    Field(Field),
+    NoteReference(NoteReference),
+    RangeStart(RangeStart),
+    RangeEnd(RangeEnd),
     Hyperlink(Hyperlink),
     /// Reuse immutable content without cloning authoring futures or guards.
     Resolved(ResolvedInline),
@@ -220,8 +225,14 @@ impl From<ResolvedInline> for Value<Inline> {
 }
 
 mod components;
+mod field;
 mod hyperlink;
+pub use field::Field;
+mod notes;
+mod range;
 pub use hyperlink::Hyperlink;
+pub use notes::{Comment, Note, NoteReference};
+pub use range::{RangeEnd, RangeStart};
 pub(crate) mod table;
 pub use components::{Break, Footer, Header, ImageData, ImageRun, Tab};
 pub use table::{Table, TableCell, TableRow};

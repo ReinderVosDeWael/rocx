@@ -13,9 +13,9 @@ if TYPE_CHECKING:
 
     from docx.enum import text as docx_text
 
-    from rv_docx.declarative import image, hyperlink
+    from rv_docx.declarative import image, hyperlink, range as ranges, notes, field
 
-type InlineElement = TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink
+type InlineElement = TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink | ranges.RangeStart | ranges.RangeEnd | notes.NoteReference | field.Field
 
 type InlineChildren = MutableSequence[
     TextRun
@@ -23,6 +23,10 @@ type InlineChildren = MutableSequence[
     | Tab
     | Break
     | hyperlink.Hyperlink
+    | ranges.RangeStart
+    | ranges.RangeEnd
+    | notes.NoteReference
+    | field.Field
     | Coroutine[None, None, TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink]
 ]
 

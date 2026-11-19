@@ -132,6 +132,7 @@ impl Compiler<'_> {
                     story: context.story,
                     kind: context.kind,
                     source: context.source.clone(),
+                    content: context.content,
                     width: Twips::new(if t.columns == 0 {
                         cw
                     } else {

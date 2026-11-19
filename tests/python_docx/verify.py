@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 import sys
 import unittest
+from lxml import etree
 
 try:
     import docx
@@ -43,6 +44,26 @@ class Readback(unittest.TestCase):
         # a broken ZIP/XML file is not evidence that semantic checks work.
         print(f"Loaded DOCX: {self.path}", flush=True)
 
+    def test_fields(self):
+        w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        paragraph = self.document.paragraphs[0]
+        root = paragraph._p
+        simple = list(root.iter(f"{w}fldSimple"))
+        self.assertEqual([n.get(f"{w}instr") for n in simple],
+                         [" PAGE ", " REF target ", ' TOC \\o "1-3" \\h \\z \\u '])
+        self.assertEqual([[Run(run, paragraph).text for run in node.findall(f"{w}r")] for node in simple],
+                         [["7"], ["Target"], ["Contents pending"]])
+        self.assertTrue(Run(simple[0].find(f"{w}r"), paragraph).bold)
+        self.assertEqual([n.text for n in root.iter(f"{w}instrText")],
+                         ['  IF 1 = 1 "yes" "no"  ', " NUMPAGES "])
+        marks = list(root.iter(f"{w}fldChar"))
+        self.assertEqual([n.get(f"{w}fldCharType") for n in marks],
+                         ["begin", "separate", "begin", "separate", "end", "end"])
+        self.assertEqual(marks[0].get(f"{w}dirty"), "1")
+        self.assertEqual(marks[0].get(f"{w}fldLock"), "0")
+        self.assertEqual("".join(n.text or "" for n in root.iter(f"{w}t")),
+                         "Target7cached 12TargetContents pending")
+
     def assert_comment_spans(self, expected):
         spans = {}
         for paragraph in self.document.paragraphs:
@@ -68,6 +89,77 @@ class Readback(unittest.TestCase):
         self.assertEqual(len(self.document.inline_shapes), 0)
         self.assertEqual(len(self.document.sections), 1)
         self.assertIsNotNone(self.document.core_properties.created)
+
+    def test_notes(self):
+        w="{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        r="{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+        a="{http://schemas.openxmlformats.org/drawingml/2006/main}"
+        target="https://example.invalid/λ?q=a%20b&x=2#frag"
+        image=(Path(__file__).resolve().parents[1]/"fixtures/images/sample.png").read_bytes()
+        self.assertEqual([p.text for p in self.document.paragraphs],["body λ","reviewed"])
+        self.assertEqual([int(n.get(qn("w:id"))) for n in self.document._element.iter(qn("w:footnoteReference"))],[0,2])
+        self.assertEqual([int(n.get(qn("w:id"))) for n in self.document._element.iter(qn("w:endnoteReference"))],[0])
+        def resources(node,part,with_link):
+            blip=node.find(f".//{a}blip")
+            self.assertIsNotNone(blip)
+            self.assertEqual(part.rels[blip.get(f"{r}embed")].target_part.blob,image)
+            if with_link:
+                link=node.find(f".//{w}hyperlink")
+                self.assertIsNotNone(link)
+                relation=part.rels[link.get(f"{r}id")]
+                self.assertTrue(relation.is_external)
+                self.assertEqual(relation.target_ref,target)
+        for kind,typ,expected,text in [("footnote",RELATIONSHIP_TYPE.FOOTNOTES,{0,2},["Foot λ","note link","note table","nested table"]),
+                                       ("endnote",RELATIONSHIP_TYPE.ENDNOTES,{0},["End Ω"])]:
+            part=self.document.part.part_related_by(typ)
+            root=etree.fromstring(part.blob)
+            notes={int(n.get(f"{w}id")):n for n in root if n.tag==f"{w}{kind}"}
+            self.assertEqual({i for i,n in notes.items() if n.get(f"{w}type","normal")=="normal"},expected)
+            self.assertEqual({n.get(f"{w}type") for n in notes.values() if n.get(f"{w}type")},{"separator","continuationSeparator"})
+            selected=self.document.settings._element.findall(f"{w}{kind}Pr/{w}{kind}")
+            self.assertEqual(len(selected),2)
+            self.assertTrue(all(notes[int(n.get(f"{w}id"))].get(f"{w}type") in {"separator","continuationSeparator"} for n in selected))
+            node=notes[0]
+            self.assertEqual([n.text for n in node.iter(f"{w}t")],text)
+            self.assertIsNotNone(node.find(f".//{w}{kind}Ref"))
+            if kind=="footnote":
+                self.assertEqual(len(node.findall(f".//{w}tbl")),2)
+            resources(node,part,kind=="footnote")
+        comment=list(self.document.comments)[0]
+        self.assertEqual(comment.author,"Ada")
+        self.assertEqual(comment._element.get(f"{w}date"),"2026-11-18T01:02:03Z")
+        self.assertEqual(comment._element.get(f"{w}initials"),"AL")
+        self.assertEqual(comment.paragraphs[0].text,"Rich λcomment link")
+        self.assertTrue(comment.paragraphs[0].runs[0].bold)
+        self.assertEqual(comment.tables[0].cell(0,0).text,"comment table")
+        self.assertEqual(comment.tables[0].cell(0,1).tables[0].cell(0,0).text,"nested table")
+        resources(comment._element,comment.part,True)
+
+    def test_ranges(self):
+        self.assertEqual([p.text for p in self.document.paragraphs], ["jump alpha beta", "gamma delta epsilon", "legacy"])
+        link = self.document.paragraphs[0].hyperlinks[0]
+        self.assertEqual(link.fragment, "beta")
+        self.assertIsNone(link._hyperlink.get(qn("r:id")))
+        self.assertEqual([(c.text, c.author) for c in self.document.comments], [("range note", "Ada"), ("legacy note", "")])
+        active, spans, names = {}, {}, {}
+        for node in self.document._element.iter():
+            if node.tag in (qn("w:bookmarkStart"), qn("w:commentRangeStart")):
+                kind = "bookmark" if node.tag == qn("w:bookmarkStart") else "comment"
+                key = kind, node.get(qn("w:id"))
+                self.assertNotIn(key, active)
+                active[key] = ""
+                names[key] = node.get(qn("w:name"))
+            elif node.tag == qn("w:t"):
+                for key in active:
+                    active[key] += node.text or ""
+            elif node.tag in (qn("w:bookmarkEnd"), qn("w:commentRangeEnd")):
+                kind = "bookmark" if node.tag == qn("w:bookmarkEnd") else "comment"
+                key = kind, node.get(qn("w:id"))
+                self.assertIn(key, active)
+                spans[key] = active.pop(key)
+        self.assertFalse(active)
+        self.assertEqual({names[k]: v for k,v in spans.items() if k[0] == "bookmark"}, {"alpha":"alpha betagamma ","beta":"gamma delta epsilon"})
+        self.assertEqual(sorted(v for k,v in spans.items() if k[0] == "comment"), ["betagamma delta ","legacy"])
 
     def test_hyperlinks(self):
         paragraphs = [self.document.paragraphs[0],
@@ -319,7 +411,7 @@ class Readback(unittest.TestCase):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template", "r1", "hyperlinks"])
+    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template", "r1", "hyperlinks", "ranges", "notes", "fields"])
     parser.add_argument("document", type=Path)
     parser.add_argument("--source", type=Path)
     arguments = parser.parse_args()

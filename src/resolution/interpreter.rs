@@ -190,7 +190,24 @@ impl Document {
                     .await
             },
         ));
-        let ((metadata, comment_author, timestamp), (sections, styles, numbering)) =
+        let notes = async {
+            let notes = field(self.notes, "notes").await?;
+            Ok::<_, Error>(
+                try_join_all(notes.into_iter().enumerate().map(|(i, note)| async move {
+                    let path = format!("notes[{i}]");
+                    note.resolve()
+                        .await
+                        .map_err(|e| e.at(&path))?
+                        .resolve_at(path)
+                        .await
+                }))
+                .await?
+                .into_iter()
+                .flatten()
+                .collect(),
+            )
+        };
+        let ((metadata, comment_author, timestamp), ((sections, notes), styles, numbering)) =
             futures_util::future::try_join(
                 futures_util::future::try_join3(
                     field(self.metadata, "metadata"),
@@ -198,7 +215,7 @@ impl Document {
                     field(self.timestamp, "timestamp"),
                 ),
                 futures_util::future::try_join3(
-                    sections,
+                    futures_util::future::try_join(sections, notes),
                     field(self.styles, "styles"),
                     field(self.numbering, "numbering"),
                 ),
@@ -206,6 +223,7 @@ impl Document {
             .await?;
         let document = ResolvedDocument {
             sections: sections.into_iter().flatten().collect(),
+            notes,
             metadata,
             comment_author,
             styles,
@@ -346,6 +364,26 @@ impl Paragraph {
         }))
     }
 }
+impl crate::Field {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let children = async {
+            let children = field(self.children, format!("{path}.children")).await?;
+            resolve_inlines(children, format!("{path}.children"), true).await
+        };
+        let (instruction, children, properties) = futures_util::future::try_join3(
+            field(self.instruction, format!("{path}.instruction")),
+            children,
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
+        let value = crate::ResolvedField::new(instruction, children, properties)
+            .map_err(|e| Error::from(e).at(path))?;
+        Ok(Some(ResolvedInline::Field(value)))
+    }
+}
 impl crate::Hyperlink {
     pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
         if !self.condition.evaluate() {
@@ -381,6 +419,10 @@ fn resolve_inlines(
                 let path = format!("{path}[{index}]");
                 async move {
                     match child.resolve().await.map_err(|e| e.at(&path))? {
+                        Inline::Field(value) => value.resolve_at(path).await,
+                        Inline::NoteReference(reference) => reference.resolve_at(path).await,
+                        Inline::RangeStart(marker) => marker.resolve_at(path).await,
+                        Inline::RangeEnd(marker) => marker.resolve_at(path).await,
                         Inline::Resolved(run) => Ok(Some(run)),
                         Inline::Hyperlink(link) if !allow_links => {
                             if !link.condition.evaluate() {
@@ -495,4 +537,103 @@ pub(crate) fn resolve_blocks(
 async fn field<T>(value: Value<T>, path: impl Into<String>) -> Result<T> {
     let path = path.into();
     value.resolve().await.map_err(|error| error.at(path))
+}
+
+impl crate::RangeStart {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let (id, kind) = futures_util::future::try_join(
+            field(self.id, format!("{path}.id")),
+            field(self.kind, format!("{path}.kind")),
+        )
+        .await?;
+        if let crate::RangeKind::Comment(comment) = &kind {
+            crate::xml::validate_text(&comment.text)
+                .map_err(|e| e.at(format!("{path}.kind.text")))?;
+        }
+        Ok(Some(ResolvedInline::RangeStart { id, kind }))
+    }
+}
+impl crate::RangeEnd {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        Ok(Some(ResolvedInline::RangeEnd(
+            field(self.id, format!("{path}.id")).await?,
+        )))
+    }
+}
+
+impl crate::Note {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<crate::ResolvedNote>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let (target, children) = futures_util::future::try_join(
+            field(self.target, format!("{path}.target")),
+            field(self.children, format!("{path}.children")),
+        )
+        .await?;
+        let note = crate::ResolvedNote {
+            target,
+            blocks: resolve_blocks(children, format!("{path}.children")).await?,
+        };
+        note.validate().map_err(|e| Error::from(e).at(path))?;
+        Ok(Some(note))
+    }
+}
+impl crate::NoteReference {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        Ok(Some(ResolvedInline::NoteReference(
+            field(self.target, format!("{path}.target")).await?,
+        )))
+    }
+}
+impl crate::Comment {
+    pub(crate) async fn resolve_at(
+        self,
+        path: String,
+    ) -> Result<Option<crate::ResolvedCommentBody>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let (children, metadata) = futures_util::future::try_join(
+            field(self.children, format!("{path}.children")),
+            field(self.metadata, format!("{path}.metadata")),
+        )
+        .await?;
+        let comment = crate::ResolvedCommentBody {
+            blocks: resolve_blocks(children, format!("{path}.children")).await?,
+            metadata,
+        };
+        comment.validate().map_err(|e| Error::from(e).at(path))?;
+        Ok(Some(comment))
+    }
+}
+impl crate::RangeStart {
+    /// Resolve structured content through the same lazy field machinery as other payloads.
+    pub fn structured_comment(
+        id: impl Into<Value<crate::RangeId>>,
+        comment: crate::Comment,
+    ) -> Self {
+        use crate::Component;
+        Self::new(
+            id,
+            Value::try_future(async move {
+                let body = comment.resolve().await?.ok_or_else(|| {
+                    crate::Diagnostic::new(
+                        crate::Rule::ExcludedDependency,
+                        "structured comment source is excluded",
+                    )
+                })?;
+                Ok::<_, Error>(crate::RangeKind::StructuredComment(body))
+            }),
+        )
+    }
 }

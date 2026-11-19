@@ -29,15 +29,22 @@ impl Compiler<'_> {
                 if kind == "header" { "Header" } else { "Footer" },
             ))));
         }
-        let context = self.context(
-            &path,
-            if kind == "header" {
-                StoryKind::Header
-            } else {
-                StoryKind::Footer
-            },
-            width,
-        );
+        let story = if let Some(story) = self.header_stories.get(&path) {
+            *story
+        } else {
+            let story = self.stories.register(
+                if kind == "header" {
+                    StoryKind::Header
+                } else {
+                    StoryKind::Footer
+                },
+                crate::opc::PartName::new(&path)?,
+                crate::ooxml::StoryContent::Blocks,
+            )?;
+            self.header_stories.insert(path.clone(), story);
+            story
+        };
+        let context = self.context(story, width);
         for block in self.blocks(blocks, &context)? {
             root.push(block);
         }

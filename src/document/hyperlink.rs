@@ -1,10 +1,15 @@
 //! External hyperlinks; P1 (2016) §17.16.22 and P2 (2021) §§6.4–6.5.
 use super::*;
 
-/// An absolute external URI/IRI, preserved verbatim rather than normalized/fetched.
-/// Relative and bookmark-only targets are not supported in R2.
+/// An external absolute URI/IRI (preserved verbatim) or an explicit bookmark name.
+/// Strings are never implicitly interpreted as internal anchors.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HyperlinkTarget(String);
+pub struct HyperlinkTarget(TargetValue);
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TargetValue {
+    External(String),
+    Bookmark(BookmarkName),
+}
 impl HyperlinkTarget {
     pub fn external(value: impl Into<String>) -> Result<Self, Diagnostic> {
         let value = value.into();
@@ -35,10 +40,22 @@ impl HyperlinkTarget {
             )
             .at("target"));
         }
-        Ok(Self(value))
+        Ok(Self(TargetValue::External(value)))
+    }
+    pub fn bookmark(name: BookmarkName) -> Self {
+        Self(TargetValue::Bookmark(name))
+    }
+    pub fn bookmark_name(&self) -> Option<&BookmarkName> {
+        match &self.0 {
+            TargetValue::Bookmark(name) => Some(name),
+            _ => None,
+        }
     }
     pub fn as_str(&self) -> &str {
-        &self.0
+        match &self.0 {
+            TargetValue::External(value) => value,
+            TargetValue::Bookmark(name) => name.as_str(),
+        }
     }
 }
 
@@ -63,10 +80,16 @@ impl ResolvedHyperlink {
         properties: HyperlinkProperties,
     ) -> Result<Self, Diagnostic> {
         for (index, child) in children.iter().enumerate() {
-            if matches!(child, ResolvedInline::Hyperlink(_)) {
+            if matches!(
+                child,
+                ResolvedInline::Hyperlink(_)
+                    | ResolvedInline::Field(_)
+                    | ResolvedInline::RangeStart { .. }
+                    | ResolvedInline::RangeEnd(_)
+            ) {
                 return Err(Diagnostic::new(
                     Rule::InvalidContent,
-                    "nested hyperlinks are not supported",
+                    "hyperlink children must be leaf runs (no fields, nested links or range markers)",
                 )
                 .at(format!("children[{index}]")));
             }

@@ -116,6 +116,13 @@ fn at<T>(result: Result<T, Diagnostic>, path: impl std::fmt::Display) -> Result<
 }
 impl ResolvedInline {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Self::RangeStart {
+            kind: RangeKind::StructuredComment(body),
+            ..
+        } = self
+        {
+            at(body.validate(), "content")?;
+        }
         if let Some(format) = self.format() {
             format.validate()?;
         }
@@ -126,7 +133,12 @@ impl ResolvedParagraph {
     pub fn validate(&self) -> Result<(), Diagnostic> {
         at(self.format.validate(), "format")?;
         for (index, run) in self.runs.iter().enumerate() {
-            at(run.validate(), format!("children[{index}].format"))?;
+            let path = if run.format().is_some() {
+                format!("children[{index}].format")
+            } else {
+                format!("children[{index}]")
+            };
+            at(run.validate(), path)?;
         }
         Ok(())
     }
@@ -163,6 +175,28 @@ fn blocks(values: &[ResolvedBlock], path: &DeclarationPath) -> Result<(), Diagno
 impl ResolvedDocument {
     /// Validate supported domain invariants independently of either frontend or codec.
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        validate_ranges(self)?;
+        let mut notes = std::collections::BTreeSet::new();
+        for (i, note) in self.notes().iter().enumerate() {
+            if !notes.insert(note.target()) {
+                return Err(
+                    Diagnostic::new(Rule::InvalidContent, "duplicate note definition")
+                        .at(format!("notes[{i}].target")),
+                );
+            }
+            at(note.validate(), format!("notes[{i}]"))?;
+        }
+        for (kind, runs) in story_inlines(self) {
+            for (run, path) in runs {
+                if matches!(run, ResolvedInline::NoteReference(_)) && kind != StoryKind::Body {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidContent,
+                        "note references are supported only in the body story",
+                    )
+                    .at(path));
+                }
+            }
+        }
         for (index, section) in self.sections.iter().enumerate() {
             let path = DeclarationPath::root("sections").index(index);
             if let Some(properties) = &section.properties {
@@ -184,5 +218,17 @@ impl ResolvedDocument {
             }
         }
         Ok(())
+    }
+}
+
+impl ResolvedNote {
+    pub fn validate(&self) -> Result<(), Diagnostic> {
+        blocks(&self.blocks, &DeclarationPath::root("children"))
+    }
+}
+impl ResolvedCommentBody {
+    pub fn validate(&self) -> Result<(), Diagnostic> {
+        at(self.metadata.validate(), "metadata")?;
+        blocks(&self.blocks, &DeclarationPath::root("children"))
     }
 }

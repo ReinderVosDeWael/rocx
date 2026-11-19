@@ -38,20 +38,35 @@ impl Compiler<'_> {
         Ok(node)
     }
     /// P1 §17.16.22: hyperlink owns runs, not a run's child element.
-    fn inline(
+    pub(super) fn inline(
         &mut self,
         run: &ResolvedInline,
         context: &crate::ooxml::PartContext,
     ) -> Result<Vec<Node>> {
+        match run {
+            ResolvedInline::Field(field) => return self.field(field, context),
+            ResolvedInline::NoteReference(target) => {
+                return Ok(vec![self.note_reference(*target, context)?]);
+            }
+            ResolvedInline::RangeStart { id, kind } => {
+                return Ok(vec![self.range_start(id, kind, context)?]);
+            }
+            ResolvedInline::RangeEnd(id) => return self.range_end(id, context),
+            _ => (),
+        }
         if let ResolvedInline::Hyperlink(link) = run {
-            let id = self.package.add_relationship(
+            let mut node = if let Some(name) = link.target().bookmark_name() {
+                Node::new("w:hyperlink").attr("w:anchor", name.as_str())
+            } else {
+                let id = self.package.add_relationship(
                 context.source.as_str(),
                 &crate::opc::RelationshipType::new(
                     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
                 )?,
                 crate::opc::Target::External(link.target().as_str().into()),
-            )?;
-            let mut node = Node::new("w:hyperlink").attr("r:id", id);
+                )?;
+                Node::new("w:hyperlink").attr("r:id", id)
+            };
             if let Some(tooltip) = &link.properties().tooltip {
                 node.set("w:tooltip", tooltip);
             }
@@ -72,7 +87,11 @@ impl Compiler<'_> {
                 Node::new("w:r").with(Node::new("w:br").attr("w:type", kind.xml()))
             }
             ResolvedInline::Image { image, .. } => self.image(image, context)?,
-            ResolvedInline::Hyperlink(_) => unreachable!("handled container above"),
+            ResolvedInline::Field(_)
+            | ResolvedInline::Hyperlink(_)
+            | ResolvedInline::RangeStart { .. }
+            | ResolvedInline::RangeEnd(_) => unreachable!("handled structural inline above"),
+            ResolvedInline::NoteReference(_) => unreachable!("handled note reference above"),
         };
         let rpr = crate::ooxml::wordprocessing::format::run(run.format().expect("leaf run"))?;
         if !rpr.children.is_empty() {

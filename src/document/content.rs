@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedDocument {
     pub(crate) sections: Vec<ResolvedSection>,
+    pub(crate) notes: Vec<ResolvedNote>,
     pub(crate) metadata: Metadata,
     pub(crate) comment_author: Option<String>,
     pub(crate) styles: Vec<StyleDefinition>,
@@ -13,6 +14,9 @@ pub struct ResolvedDocument {
 }
 
 impl ResolvedDocument {
+    pub fn notes(&self) -> &[ResolvedNote] {
+        &self.notes
+    }
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
     }
@@ -98,6 +102,13 @@ impl ResolvedParagraph {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ResolvedInline {
+    Field(ResolvedField),
+    NoteReference(NoteTarget),
+    RangeStart {
+        id: RangeId,
+        kind: RangeKind,
+    },
+    RangeEnd(RangeId),
     Hyperlink(ResolvedHyperlink),
     Text {
         text: String,
@@ -127,7 +138,11 @@ impl ResolvedInline {
             | Self::Tab { format, .. }
             | Self::Break { format, .. }
             | Self::Image { format, .. } => Some(format),
-            Self::Hyperlink(_) => None,
+            Self::Field(_)
+            | Self::Hyperlink(_)
+            | Self::RangeStart { .. }
+            | Self::RangeEnd(_)
+            | Self::NoteReference(_) => None,
         }
     }
     pub fn comment(&self) -> Option<&ResolvedComment> {
@@ -136,7 +151,11 @@ impl ResolvedInline {
             | Self::Tab { comment, .. }
             | Self::Break { comment, .. }
             | Self::Image { comment, .. } => comment.as_ref(),
-            Self::Hyperlink(_) => None,
+            Self::Field(_)
+            | Self::Hyperlink(_)
+            | Self::RangeStart { .. }
+            | Self::RangeEnd(_)
+            | Self::NoteReference(_) => None,
         }
     }
     pub fn image(&self) -> Option<&ResolvedImage> {
@@ -149,6 +168,7 @@ impl ResolvedInline {
     /// Display text only: borrowed for leaves, projected for containers.
     pub fn text(&self) -> std::borrow::Cow<'_, str> {
         match self {
+            Self::Field(field) => return field.text().into(),
             Self::Hyperlink(link) => return link.text().into(),
             Self::Text { text, .. } => text,
             Self::Tab { .. } => "\t",

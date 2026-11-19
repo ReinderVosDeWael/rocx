@@ -14,7 +14,7 @@ class DocumentTemplate:
 class Document:
     _deferred_fields = (
         "sections", "creator", "title", "subject", "description", "keywords",
-        "category", "comments", "version", "comment_author", "styles", "numbering", "timestamp",
+        "category", "comments", "version", "comment_author", "styles", "numbering", "timestamp", "notes",
     )
 
     def deferred(self, name: str) -> DeferredProperty:
@@ -22,7 +22,7 @@ class Document:
 
     def __init__(self, sections, creator=None, title=None, subject=None,
                  description=None, keywords=None, category=None, comments=None,
-                 version=None, comment_author=None, styles=None, numbering=None, timestamp=None):
+                 version=None, comment_author=None, styles=None, numbering=None, timestamp=None, notes=None):
         identity(self)
         self.sections = sections
         self.creator = creator
@@ -37,6 +37,7 @@ class Document:
         self.styles = styles
         self.numbering = numbering
         self.timestamp = timestamp
+        self.notes = notes
 
     def __await__(self):
         return self.resolve().__await__()

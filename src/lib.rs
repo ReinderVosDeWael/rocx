@@ -31,22 +31,28 @@ mod error;
 pub mod resolution;
 
 pub use application::DocumentTemplate;
+pub use authoring::Field;
 pub use authoring::{
-    Block, BlockChildren, Break, Document, Footer, Header, Hyperlink, ImageData, ImageRun, Inline,
-    InlineChildren, Paragraph, ParagraphContent, Section, Tab, Table, TableCell, TableRow, TextRun,
+    Block, BlockChildren, Break, Comment, Document, Footer, Header, Hyperlink, ImageData, ImageRun,
+    Inline, InlineChildren, Note, NoteReference, Paragraph, ParagraphContent, RangeEnd, RangeStart,
+    Section, Tab, Table, TableCell, TableRow, TextRun,
 };
 pub use document::{
-    Alignment, AltText, AssetId, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide,
-    Color, Columns, CommentId, DeclarationPath, Diagnostic, DrawingId, Emu, HalfPoints,
-    HeaderFooterType, HyperlinkProperties, HyperlinkTarget, ImageTransformation, Metadata,
-    NumberingDefinition, NumberingLevel, NumberingReference, Orientation, PageMargins,
-    PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, Points, ResolvedBlock,
-    ResolvedComment, ResolvedDocument, ResolvedHeaderFooter, ResolvedHyperlink, ResolvedImage,
-    ResolvedInline, ResolvedParagraph, ResolvedSection, ResolvedTable, ResolvedTableCell,
-    ResolvedTableRow, Rule, RunFormat, SectionProperties, SectionType, StoryId, StoryKind,
-    StyleDefinition, StyleId, TableBorder, TableCellProperties, TableLayout, TableProperties,
-    TableSectionFormat, TableStyleDefinition, ThemeColor, Twips, Underline, VerticalAlignment,
-    VerticalMerge, inline_text,
+    Alignment, AltText, AssetId, BookmarkName, BorderLine, BorderSide, BreakType, CellBorder,
+    CellBorderSide, Color, Columns, CommentId, CommentMetadata, DeclarationPath, Diagnostic,
+    DrawingId, Emu, HalfPoints, HeaderFooterType, HyperlinkProperties, HyperlinkTarget,
+    ImageTransformation, Metadata, NoteId, NoteKind, NoteTarget, NumberingDefinition,
+    NumberingLevel, NumberingReference, Orientation, PageMargins, PageNumbering, PageSize,
+    ParagraphFormat, ParagraphStyleDefinition, Points, RangeId, RangeKind, ResolvedBlock,
+    ResolvedComment, ResolvedCommentBody, ResolvedDocument, ResolvedHeaderFooter,
+    ResolvedHyperlink, ResolvedImage, ResolvedInline, ResolvedNote, ResolvedParagraph,
+    ResolvedSection, ResolvedTable, ResolvedTableCell, ResolvedTableRow, Rule, RunFormat,
+    SectionProperties, SectionType, StoryId, StoryKind, StyleDefinition, StyleId, TableBorder,
+    TableCellProperties, TableLayout, TableProperties, TableSectionFormat, TableStyleDefinition,
+    ThemeColor, Twips, Underline, VerticalAlignment, VerticalMerge, inline_text,
+};
+pub use document::{
+    FieldForm, FieldInstruction, FieldProperties, RawFieldInstruction, ResolvedField,
 };
 pub use error::{Error, Result};
 pub use resolution::{Component, Condition, Deferred, Property, PropertyId, PropertyRef, Value};
@@ -54,20 +60,22 @@ pub use resolution::{Component, Condition, Deferred, Property, PropertyId, Prope
 /// Component imports corresponding to Python's `rv_docx.declarative` module.
 pub mod declarative {
     pub use crate::document::{
-        Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Color,
-        Columns, Emu, HalfPoints, HeaderFooterType, HyperlinkProperties, HyperlinkTarget,
-        ImageTransformation, Metadata, NumberingDefinition, NumberingLevel, NumberingReference,
-        Orientation, PageMargins, PageNumbering, PageSize, ParagraphFormat,
-        ParagraphStyleDefinition, Points, RunFormat, SectionProperties, SectionType,
-        StyleDefinition, TableBorder, TableCellProperties, TableLayout, TableProperties,
-        TableSectionFormat, TableStyleDefinition, ThemeColor, Twips, Underline, VerticalAlignment,
-        VerticalMerge,
+        Alignment, AltText, BookmarkName, BorderLine, BorderSide, BreakType, CellBorder,
+        CellBorderSide, Color, Columns, CommentMetadata, Emu, HalfPoints, HeaderFooterType,
+        HyperlinkProperties, HyperlinkTarget, ImageTransformation, Metadata, NoteId, NoteKind,
+        NoteTarget, NumberingDefinition, NumberingLevel, NumberingReference, Orientation,
+        PageMargins, PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, Points,
+        RangeId, RangeKind, RunFormat, SectionProperties, SectionType, StyleDefinition,
+        TableBorder, TableCellProperties, TableLayout, TableProperties, TableSectionFormat,
+        TableStyleDefinition, ThemeColor, Twips, Underline, VerticalAlignment, VerticalMerge,
     };
     pub use crate::{
-        Block, BlockChildren, Break, Component, Condition, Deferred, Document, Footer, Header,
-        Hyperlink, ImageData, ImageRun, Inline, InlineChildren, Paragraph, ParagraphContent,
-        Property, PropertyRef, Section, Tab, Table, TableCell, TableRow, TextRun, Value,
+        Block, BlockChildren, Break, Comment, Component, Condition, Deferred, Document, Footer,
+        Header, Hyperlink, ImageData, ImageRun, Inline, InlineChildren, Note, NoteReference,
+        Paragraph, ParagraphContent, Property, PropertyRef, RangeEnd, RangeStart, Section, Tab,
+        Table, TableCell, TableRow, TextRun, Value,
     };
+    pub use crate::{Field, FieldForm, FieldInstruction, FieldProperties};
 }
 
 mod xml;

@@ -1,7 +1,14 @@
 //! Pure document domain. This module depends only on the standard library.
 mod content;
+mod field;
+pub use field::{FieldForm, FieldInstruction, FieldProperties, RawFieldInstruction, ResolvedField};
 mod hyperlink;
+mod notes;
+mod range;
 pub use hyperlink::{HyperlinkProperties, HyperlinkTarget, ResolvedHyperlink, inline_text};
+pub use notes::{CommentMetadata, NoteKind, NoteTarget, ResolvedCommentBody, ResolvedNote};
+pub use range::{BookmarkName, RangeId, RangeKind};
+pub(crate) use range::{story_inlines, validate_ranges};
 mod resources;
 mod table;
 mod validation;
@@ -28,4 +35,4 @@ mod color;
 pub use color::{Color, ThemeColor, Underline};
 
 mod identity;
-pub use identity::{AssetId, CommentId, DrawingId, StoryId, StoryKind, StyleId};
+pub use identity::{AssetId, CommentId, DrawingId, NoteId, StoryId, StoryKind, StyleId};

@@ -59,9 +59,8 @@ fn collect(
     }
     let container =
         ["w:hyperlink", "w:fldSimple", "w:sdt", "w:ins", "w:del"].contains(&node.name.as_str());
-    let protected = protected
-        || position.field_depth > 0
-        || ["w:fldSimple", "w:sdt", "w:ins", "w:del"].contains(&node.name.as_str());
+    let protected =
+        protected || ["w:fldSimple", "w:sdt", "w:ins", "w:del"].contains(&node.name.as_str());
     if container {
         position.group += 1;
     }
@@ -93,7 +92,7 @@ fn collect(
             before: value.clone(),
             after: value,
             group: position.group,
-            protected,
+            protected: protected || position.field_depth > 0,
         });
     } else {
         for (index, child) in node.children.iter().enumerate() {
@@ -117,15 +116,14 @@ fn parent<'a>(mut node: &'a mut Node, path: &[usize]) -> &'a mut Node {
     }
     node
 }
-fn edit_paragraph(node: &mut Node, needle: &str, replacement: &str) -> Result<()> {
+fn edit_paragraph(
+    node: &mut Node,
+    needle: &str,
+    replacement: &str,
+    position: &mut Position,
+) -> Result<()> {
     let mut tokens = Vec::new();
-    collect(
-        node,
-        &mut Vec::new(),
-        &mut Position::default(),
-        false,
-        &mut tokens,
-    );
+    collect(node, &mut Vec::new(), position, false, &mut tokens);
     let joined: String = tokens.iter().map(|t| t.before.as_str()).collect();
     for start in joined
         .match_indices(needle)
@@ -197,15 +195,23 @@ fn edit_paragraph(node: &mut Node, needle: &str, replacement: &str) -> Result<()
     }
     Ok(())
 }
-fn visit(node: &mut Node, needle: &str, replacement: &str) -> Result<()> {
+fn visit(node: &mut Node, needle: &str, replacement: &str, position: &mut Position) -> Result<()> {
     if node.name.namespace() != Some(W) {
         return Ok(());
     }
+    // A part may contain many independent note/comment stories. An unclosed
+    // imported field must not protect text in the next entry of the same part.
+    let mut entry_position = Position::default();
+    let position = if matches!(node.name.as_str(), "w:footnote" | "w:endnote" | "w:comment") {
+        &mut entry_position
+    } else {
+        position
+    };
     if node.name == "w:p" {
-        edit_paragraph(node, needle, replacement)?;
+        edit_paragraph(node, needle, replacement, position)?;
     }
     for child in node.elements_mut() {
-        visit(child, needle, replacement)?;
+        visit(child, needle, replacement, position)?;
     }
     Ok(())
 }
@@ -218,7 +224,7 @@ pub(crate) fn replacements(root: &mut Node, replacements: &[(String, String)]) -
         }
         crate::xml::validate_text(needle)?;
         crate::xml::validate_text(replacement)?;
-        visit(root, needle, replacement)?;
+        visit(root, needle, replacement, &mut Position::default())?;
     }
     Ok(())
 }

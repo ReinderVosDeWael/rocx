@@ -22,7 +22,7 @@ def test_missing_schemas_skip_only_when_optional(tmp_path: Path, required: bool)
     if required:
         assert result.returncode == 1, output
         assert "Required official schemas missing" in output
-        assert "4 errors" in output
+        assert "7 errors" in output
     else:
         assert result.returncode == 0, output
-        assert "4 skipped" in output
+        assert "7 skipped" in output

@@ -3,6 +3,12 @@
 
 #[path = "support/features.rs"]
 mod features;
+#[path = "support/fields.rs"]
+mod field_fixture;
+#[path = "support/notes.rs"]
+mod note_fixture;
+#[path = "support/ranges.rs"]
+mod range_fixture;
 
 use futures::executor::block_on;
 use rv_docx_rs::*;
@@ -83,6 +89,83 @@ fn python_opens_an_empty_rust_document() {
     let path = temp.path("empty.docx");
     save(Document::default(), &path);
     verify("empty", &path, None);
+}
+
+#[test]
+fn python_reads_field_instructions_and_cached_results_and_rejects_mutations() {
+    let temp = Temp::new();
+    let path = temp.path("fields.docx");
+    save(field_fixture::document(), &path);
+    verify("fields", &path, None);
+    for (name, before, after) in [
+        ("wrong-cache", "Contents pending", "Contents changed"),
+        ("wrong-code", " NUMPAGES ", " PAGE "),
+        (
+            "unbalanced",
+            "w:fldCharType=\"end\"",
+            "w:fldCharType=\"separate\"",
+        ),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, "word/document.xml", |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("fields", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_note_and_structured_comment_stories_and_rejects_semantic_mutations() {
+    let temp = Temp::new();
+    let path = temp.path("notes.docx");
+    save(note_fixture::document(), &path);
+    verify("notes", &path, None);
+    for (name, part, before, after) in [
+        (
+            "wrong-note-text",
+            "word/footnotes.xml",
+            "Foot λ",
+            "Lost foot",
+        ),
+        (
+            "wrong-note-reference",
+            "word/document.xml",
+            "w:footnoteReference w:id=\"0\"",
+            "w:footnoteReference w:id=\"99\"",
+        ),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, part, |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("notes", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_overlapping_ranges_and_rejects_a_changed_bookmark_endpoint() {
+    let temp = Temp::new();
+    let path = temp.path("ranges.docx");
+    save(range_fixture::document(), &path);
+    verify("ranges", &path, None);
+    let changed = temp.path("ranges-wrong-endpoint.docx");
+    rewrite_part(&path, &changed, "word/document.xml", |xml| {
+        replace_once(
+            xml,
+            "w:bookmarkEnd w:id=\"0\"",
+            "w:bookmarkEnd w:id=\"999\"",
+        )
+    });
+    let output = python("ranges", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
 }
 
 #[test]

@@ -80,19 +80,85 @@ pub(super) fn textrun(o: &Bound<'_, PyAny>) -> PyResult<ResolvedInline> {
 }
 pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
     let value = match kind(o)?.as_str() {
+        "Field" => {
+            let instruction = o.getattr("instruction")?;
+            if kind(&instruction)? != "FieldInstruction" {
+                return Err(PyTypeError::new_err("expected FieldInstruction"));
+            }
+            let instruction = match field!(&instruction, "kind", String).as_str() {
+                "page" => crate::FieldInstruction::Page,
+                "num_pages" => crate::FieldInstruction::NumPages,
+                "table_of_contents" => crate::FieldInstruction::TableOfContents,
+                "reference" => crate::FieldInstruction::Reference(
+                    crate::BookmarkName::new(field!(&instruction, "name", String))
+                        .map_err(|e| rust_error(e.at("instruction.name").into()))?,
+                ),
+                "raw" => crate::FieldInstruction::raw(field!(&instruction, "code", String))
+                    .map_err(|e| rust_error(e.into()))?,
+                _ => {
+                    return Err(rust_error(
+                        crate::Diagnostic::new(
+                            crate::Rule::InvalidContent,
+                            "unknown field instruction kind",
+                        )
+                        .at("instruction.kind")
+                        .into(),
+                    ));
+                }
+            };
+            let form = match field!(o, "form", String).as_str() {
+                "simple" => crate::FieldForm::Simple,
+                "complex" => crate::FieldForm::Complex,
+                _ => {
+                    return Err(rust_error(
+                        crate::Diagnostic::new(crate::Rule::InvalidContent, "unknown field form")
+                            .at("form")
+                            .into(),
+                    ));
+                }
+            };
+            let children = list(&o.getattr("children")?, inline)?;
+            ResolvedInline::Field(
+                crate::ResolvedField::new(
+                    instruction,
+                    children,
+                    crate::FieldProperties {
+                        form,
+                        dirty: field!(o, "dirty", Option<bool>),
+                        locked: field!(o, "locked", Option<bool>),
+                    },
+                )
+                .map_err(|e| rust_error(e.into()))?,
+            )
+        }
+        "NoteReference" => ResolvedInline::NoteReference(note_target(o)?),
         "Hyperlink" => {
-            let target = crate::HyperlinkTarget::external(field!(o, "target", String))
-                .map_err(|e| rust_error(e.into()))?;
+            let target = o.getattr("target")?;
+            let target = if let Ok(value) = target.extract::<String>() {
+                crate::HyperlinkTarget::external(value).map_err(|e| rust_error(e.into()))?
+            } else if kind(&target)? == "BookmarkTarget" {
+                crate::HyperlinkTarget::bookmark(
+                    crate::BookmarkName::new(field!(&target, "name", String))
+                        .map_err(|e| rust_error(e.at("target.name").into()))?,
+                )
+            } else {
+                return Err(PyTypeError::new_err(
+                    "expected an external URI or BookmarkTarget",
+                ));
+            };
             let mut children = Vec::new();
             for (index, child) in o.getattr("children")?.try_iter()?.enumerate() {
                 let child = child?;
                 // Check the parent model before native recursion; an unsupported
                 // nested container must not cause unbounded native descent.
-                if kind(&child)? == "Hyperlink" {
+                if matches!(
+                    kind(&child)?.as_str(),
+                    "Hyperlink" | "Field" | "RangeStart" | "RangeEnd"
+                ) {
                     return Err(rust_error(
                         crate::Diagnostic::new(
                             crate::Rule::InvalidContent,
-                            "nested hyperlinks are not supported",
+                            "hyperlink children must be leaf runs (no fields, nested links or range markers)",
                         )
                         .at(format!("children[{index}]"))
                         .into(),
@@ -111,6 +177,35 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
                     .map_err(|e| rust_error(e.into()))?,
             )
         }
+        "RangeStart" => {
+            let id = crate::RangeId::new(field!(o, "id", String))
+                .map_err(|e| rust_error(e.at("id").into()))?;
+            let kind = match field!(o, "kind", String).as_str() {
+                "bookmark" => crate::RangeKind::Bookmark(
+                    crate::BookmarkName::new(field!(o, "name", String))
+                        .map_err(|e| rust_error(e.at("name").into()))?,
+                ),
+                "comment" => crate::RangeKind::Comment(ResolvedComment {
+                    text: field!(o, "text", String),
+                    author: field!(o, "author", Option<String>),
+                }),
+                "structured_comment" => {
+                    crate::RangeKind::StructuredComment(structured_comment(&o.getattr("content")?)?)
+                }
+                _ => {
+                    return Err(rust_error(
+                        crate::Diagnostic::new(crate::Rule::InvalidContent, "unknown range kind")
+                            .at("kind")
+                            .into(),
+                    ));
+                }
+            };
+            ResolvedInline::RangeStart { id, kind }
+        }
+        "RangeEnd" => ResolvedInline::RangeEnd(
+            crate::RangeId::new(field!(o, "id", String))
+                .map_err(|e| rust_error(e.at("id").into()))?,
+        ),
         "TextRun" => textrun(o)?,
         "Tab" => ResolvedInline::Tab {
             format: RunFormat::default(),

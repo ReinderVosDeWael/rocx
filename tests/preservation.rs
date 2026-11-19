@@ -50,11 +50,17 @@ fn resolve(document: Document) -> ResolvedDocument {
 #[test]
 fn relocated_main_headers_and_media_are_discovered_by_relationships() {
     let image = include_bytes!("fixtures/images/sample.png").to_vec();
+    let header_bookmark = BookmarkName::new("HeaderSpot").unwrap();
     let mut section = Section::new(vec![Paragraph::new("before").into()]);
     section.headers.insert(
         HeaderFooterType::Default,
         Header::new(vec![
-            Paragraph::from_children(vec![ImageRun::new(image.clone()).into()]).into(),
+            Paragraph::from_children(vec![
+                RangeStart::bookmark(header_bookmark.clone()).into(),
+                ImageRun::new(image.clone()).into(),
+                RangeEnd::bookmark(&header_bookmark).into(),
+            ])
+            .into(),
         ])
         .into(),
     );
@@ -114,8 +120,19 @@ fn relocated_main_headers_and_media_are_discovered_by_relationships() {
             vec![TextRun::new(text).into()],
         )
     };
+    let body_bookmark = BookmarkName::new("BodySpot").unwrap();
     let mut added = Section::new(vec![
-        Paragraph::from_children(vec![hyperlink("after").into()]).into(),
+        Paragraph::from_children(vec![
+            RangeStart::bookmark(body_bookmark.clone()).into(),
+            hyperlink("after").into(),
+            RangeEnd::bookmark(&body_bookmark).into(),
+            Hyperlink::new(
+                HyperlinkTarget::bookmark(header_bookmark.clone()),
+                Vec::new(),
+            )
+            .into(),
+        ])
+        .into(),
     ]);
     added.headers.insert(
         HeaderFooterType::Default,
@@ -151,6 +168,25 @@ fn relocated_main_headers_and_media_are_discovered_by_relationships() {
     assert_eq!(parts(&output)["assets/picture.png"], image);
     assert!(support::part(&output, "stories/_rels/top.xml.rels").contains("../"));
     assert!(!parts(&output).contains_key("word/document.xml"));
+    let main_bookmark = parsed
+        .descendants()
+        .find(|n| n.has_tag_name((support::W, "bookmarkStart")))
+        .unwrap();
+    let header_tree = roxmltree::Document::parse(&header).unwrap();
+    let imported_bookmark = header_tree
+        .descendants()
+        .find(|n| n.has_tag_name((support::W, "bookmarkStart")))
+        .unwrap();
+    assert_ne!(
+        main_bookmark.attribute((support::W, "id")),
+        imported_bookmark.attribute((support::W, "id"))
+    );
+    assert!(
+        parsed
+            .descendants()
+            .any(|n| n.has_tag_name((support::W, "hyperlink"))
+                && n.attribute((support::W, "anchor")) == Some("HeaderSpot"))
+    );
     for (owner, rels) in [
         ("content/body.xml", "content/_rels/body.xml.rels"),
         ("stories/top.xml", "stories/_rels/top.xml.rels"),

@@ -18,6 +18,7 @@ impl Compiler<'_> {
     }
 }
 mod comments;
+mod fields;
 pub(crate) mod format;
 mod paragraph;
 pub(crate) mod sections;

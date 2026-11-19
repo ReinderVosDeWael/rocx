@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn document(o: &Bound<'_, PyAny>) -> PyResult<ResolvedDocument> {
     Ok(ResolvedDocument {
         sections: list(&o.getattr("sections")?, |v| Ok(Some(section(v)?)))?,
+        notes: list(&o.getattr("notes")?, note)?,
         metadata: crate::document::Metadata {
             creator: field!(o, "creator", Option<String>),
             title: field!(o, "title", Option<String>),

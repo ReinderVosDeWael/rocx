@@ -12,12 +12,19 @@ mod profile;
 mod properties;
 pub(crate) mod wordprocessing;
 pub use profile::OutputProfile;
+mod story;
+pub use story::{StoryContent, StoryDescriptor, StoryRegistry};
+mod notes;
+mod ranges;
 pub(crate) struct Compiler<'a> {
     package: Package,
     main: String,
     drawing: DrawingId,
     media: resources::MediaRegistry,
-    stories: std::collections::BTreeMap<(String, StoryKind), StoryId>,
+    stories: StoryRegistry,
+    header_stories: std::collections::BTreeMap<String, StoryId>,
+    ranges: ranges::RangeCatalog,
+    notes: notes::NoteCatalog,
     styles: style_catalog::StyleCatalog,
     document: &'a ResolvedDocument,
 }
@@ -103,10 +110,15 @@ pub(crate) fn compile(
         options.timestamp.as_deref().unwrap_or(&doc.timestamp),
     )?;
     let media = resources::MediaRegistry::from_package(&package)?;
+    let ranges = ranges::RangeCatalog::new(&package, &main, doc)?;
+    let notes = notes::NoteCatalog::new(&package, &main, doc)?;
     let mut renderer = Compiler {
         package,
         media,
         stories: Default::default(),
+        header_stories: Default::default(),
+        ranges,
+        notes,
         styles: style_catalog::StyleCatalog::new(&styles)?,
         document: doc,
         main: main.clone(),
@@ -124,6 +136,11 @@ pub(crate) fn compile(
     body.remove("w:sectPr");
     let mut paragraph_cursor = template.and_then(|t| t.paragraph_index);
     let count = doc.sections.len();
+    let body_story = renderer.stories.register(
+        StoryKind::Body,
+        crate::opc::PartName::new(&main)?,
+        StoryContent::Blocks,
+    )?;
     for (index, section) in doc.sections.iter().enumerate() {
         props = section_properties(props, &section.properties)?;
         let width = usable_width(&props);
@@ -153,7 +170,7 @@ pub(crate) fn compile(
                 }
             }
         }
-        let context = renderer.context(&main, StoryKind::Body, width);
+        let context = renderer.context(body_story, width);
         for block in renderer.blocks(&section.blocks, &context)? {
             let insertion = paragraph_cursor
                 .and_then(|index| {
@@ -175,8 +192,10 @@ pub(crate) fn compile(
             body.push(Node::new("w:p").with(Node::new("w:pPr").with(props.clone())));
         }
     }
+    let note_width = usable_width(&props);
     body.push(props);
     renderer.package.put_word(&main, root)?;
+    renderer.compile_notes(note_width)?;
     crate::opc::PackagePlan::new(renderer.package)
 }
 
@@ -212,17 +231,17 @@ pub(crate) struct PartContext {
     kind: StoryKind,
     source: crate::opc::PartName,
     width: Twips,
+    content: StoryContent,
 }
 impl Compiler<'_> {
-    fn context(&mut self, source: &str, kind: StoryKind, width: i64) -> PartContext {
-        let next = StoryId::new(self.stories.len() as u32);
-        let story = *self.stories.entry((source.into(), kind)).or_insert(next);
+    fn context(&self, story: StoryId, width: i64) -> PartContext {
+        let descriptor = self.stories.get(story).expect("registered logical story");
         PartContext {
             story,
-            kind,
-            source: crate::opc::PartName::new(source)
-                .expect("package part names validated on load/creation"),
+            kind: descriptor.kind,
+            source: descriptor.owner.clone(),
             width: Twips::new(width),
+            content: descriptor.content,
         }
     }
 }

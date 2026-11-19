@@ -8,22 +8,26 @@ from typing import TYPE_CHECKING
 from rv_docx.declarative import base
 
 if TYPE_CHECKING:
-    from rv_docx.declarative import paragraph
+    from rv_docx.declarative import paragraph, range as ranges
 
 
 @dataclasses.dataclass
 class Hyperlink(base.Component):
-    """An external absolute URI/IRI; targets are preserved and never fetched.
+    """An external absolute URI/IRI or explicit internal BookmarkTarget.
 
     Attributes:
-        target: Absolute external URI/IRI, or a factory/awaitable/reference.
+        target: Absolute external URI/IRI or BookmarkTarget, optionally deferred.
         children: TextRun/ImageRun/Tab/Break display children or deferred sequence.
             Nested hyperlinks are deliberately unsupported (not an XSD restriction).
         tooltip: Optional hover text, resolved independently of the target.
         history: Optional Word visited-history flag; does not fetch the target.
     """
 
-    target: str | Awaitable[str] | Callable[[], str | Awaitable[str]]
+    target: (
+        str | ranges.BookmarkTarget
+        | Awaitable[str | ranges.BookmarkTarget]
+        | Callable[[], str | ranges.BookmarkTarget | Awaitable[str | ranges.BookmarkTarget]]
+    )
     children: (
         Sequence[paragraph.InlineElement]
         | Awaitable[Sequence[paragraph.InlineElement]]

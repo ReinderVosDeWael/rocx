@@ -92,6 +92,40 @@ async def verify_install() -> None:
         relation = next(node for node in relations if node.get("Id") == identifier)
         assert relation.get("Target") == target
         assert relation.get("TargetMode") == "External"
+    ranged = await d.Document([d.Section(children=[d.Paragraph(children=[
+        d.Hyperlink(d.BookmarkTarget("target"), [d.TextRun("jump")]),
+        d.RangeStart.bookmark("target"),d.TextRun("body"),d.RangeEnd.bookmark("target")])])]).to_bytes()
+    with zipfile.ZipFile(io.BytesIO(ranged)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+        start = root.find(f".//{W}bookmarkStart")
+        end = root.find(f".//{W}bookmarkEnd")
+        assert start is not None and end is not None
+        assert start.get(f"{W}id") == end.get(f"{W}id")
+        link = root.find(f".//{W}hyperlink")
+        assert link is not None and link.get(f"{W}anchor") == "target"
+        assert b"/hyperlink" not in package.read("word/_rels/document.xml.rels")
+    content=d.Comment([d.Paragraph(children=[d.TextRun("Rich comment",bold=True)])],author="Ada",date="2026-11-18T00:00:00Z")
+    noted=await d.Document([d.Section(children=[d.Paragraph(children=[d.NoteReference.footnote(0),
+        d.RangeStart.structured_comment("review",content),d.TextRun("anchor"),d.RangeEnd("review")])])],
+        notes=[d.Note.footnote(0,[d.Paragraph(text="Footnote λ")])]).to_bytes()
+    with zipfile.ZipFile(io.BytesIO(noted)) as package:
+        root=ET.fromstring(package.read("word/footnotes.xml"))
+        note=next(node for node in root if node.get(f"{W}id")=="0")
+        assert "".join(note.itertext())=="Footnote λ"
+        assert note.find(f".//{W}footnoteRef") is not None
+        comments=ET.fromstring(package.read("word/comments.xml"))
+        assert comments[0].get(f"{W}author")=="Ada"
+        assert "".join(comments[0].itertext())=="Rich comment"
+    fields = await d.Document([d.Section(children=[d.Paragraph(children=[
+        d.Field(d.FieldInstruction.page(), [d.TextRun("7")]),
+        d.Field(d.FieldInstruction.num_pages(), [d.TextRun("12")], form="complex", dirty=True),
+    ])])]).to_bytes()
+    with zipfile.ZipFile(io.BytesIO(fields)) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+        assert root.find(f".//{W}fldSimple").get(f"{W}instr") == " PAGE "
+        assert root.find(f".//{W}instrText").text == " NUMPAGES "
+        assert [n.get(f"{W}fldCharType") for n in root.iter(f"{W}fldChar")] == ["begin", "separate", "end"]
+        assert "".join(n.text or "" for n in root.iter(f"{W}t")) == "712"
     print("Installed wheel: native imports, metadata, Unicode, formatting and snapshots verified")
 
 

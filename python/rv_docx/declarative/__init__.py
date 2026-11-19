@@ -4,6 +4,9 @@ from rv_docx.declarative.base import Component, Deferred, DeferredProperty, Prop
 from rv_docx.declarative.document import Document, DocumentTemplate
 from rv_docx.declarative.image import ImageRun
 from rv_docx.declarative.hyperlink import Hyperlink
+from rv_docx.declarative.field import Field, FieldInstruction
+from rv_docx.declarative.range import BookmarkTarget, RangeStart, RangeEnd
+from rv_docx.declarative.notes import Note, NoteReference, Comment
 from rv_docx.declarative.numbering import NumberingDefinition, NumberingLevel, NumberingReference
 from rv_docx.declarative.paragraph import Break, Paragraph, Tab, TextRun
 from rv_docx.declarative.section import (
@@ -40,6 +43,14 @@ __all__ = [
     "Header",
     "ImageRun",
     "Hyperlink",
+    "Field",
+    "FieldInstruction",
+    "BookmarkTarget",
+    "RangeStart",
+    "RangeEnd",
+    "Note",
+    "NoteReference",
+    "Comment",
     "NumberingDefinition",
     "NumberingLevel",
     "NumberingReference",

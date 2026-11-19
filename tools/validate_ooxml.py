@@ -5,6 +5,7 @@ It checks base schemas after supported MCE preprocessing, OPC targets, and r:*
 references. It is not Word layout validation or a validator for every extension.
 """
 import argparse
+from collections.abc import Iterable
 from copy import deepcopy
 import hashlib
 import io
@@ -137,6 +138,115 @@ def target_of(owner, target):
     return path
 
 
+def validate_note_graph(parts: dict[str, bytes], relationships: dict[str, dict[str, etree._Element]]) -> None:
+    """Check semantic note IDs independently of the Rust catalog and base XSDs."""
+    def tree(path: str) -> etree._Element:
+        root = etree.fromstring(parts[path], parser())
+        preprocess(root)
+        return root
+
+    def identifier(node: etree._Element, owner: str) -> str:
+        value = node.get(f"{{{W}}}id", "").strip()
+        negative = value.startswith("-")
+        digits = value[1:] if value.startswith(("-", "+")) else value
+        if not digits or any(c not in "0123456789" for c in digits):
+            raise ValidationError(f"invalid note ID in {owner}")
+        digits = digits.lstrip("0") or "0"
+        return f"-{digits}" if negative and digits != "0" else digits
+
+    roots = [target_of("", r.get("Target", "")) for r in relationships.get("", {}).values()
+             if r.get("Type") == f"{R}/officeDocument" and r.get("TargetMode", "Internal") == "Internal"]
+    canonical = {name.lower(): name for name in parts}
+    for main in roots:
+        main = canonical[main.lower()]
+        definitions = {}
+        note_parts = []
+        related_kinds = set()
+        main_relations = relationships.get(main, {})
+        for kind in ("footnote", "endnote"):
+            matches = [r for r in main_relations.values() if r.get("Type") == f"{R}/{kind}s"]
+            if len(matches) > 1:
+                raise ValidationError(f"multiple {kind} parts for {main}")
+            for relation in matches:
+                if relation.get("TargetMode", "Internal") != "Internal":
+                    raise ValidationError(f"external {kind} part relationship")
+                owner = canonical[target_of(main, relation.get("Target", "")).lower()]
+                root = tree(owner)
+                if root.tag != f"{{{W}}}{kind}s":
+                    raise ValidationError(f"incorrect {kind} root in {owner}")
+                related_kinds.add(kind)
+                for note in root.findall(f"{{{W}}}{kind}"):
+                    key = kind, identifier(note, owner)
+                    if key in definitions:
+                        raise ValidationError(f"duplicate note ID in {owner}")
+                    definitions[key] = note.get(f"{{{W}}}type", "normal") == "normal"
+                note_parts.append((owner, root))
+        for relation in main_relations.values():
+            if relation.get("Type") == f"{R}/settings" and relation.get("TargetMode", "Internal") == "Internal":
+                owner = canonical[target_of(main, relation.get("Target", "")).lower()]
+                settings = tree(owner)
+                for kind in related_kinds:
+                    for reference in settings.findall(f"{{{W}}}{kind}Pr/{{{W}}}{kind}"):
+                        if definitions.get((kind, identifier(reference, owner))) is not False:
+                            raise ValidationError(f"note settings must target special entries in {owner}")
+        owners = [(main, tree(main), True)]
+        for relation in main_relations.values():
+            if any(relation.get("Type") == f"{R}/{kind}" for kind in ("header", "footer", "comments")):
+                if relation.get("TargetMode", "Internal") == "Internal":
+                    owner = canonical[target_of(main, relation.get("Target", "")).lower()]
+                    owners.append((owner, tree(owner), True))
+        owners.extend((owner, root, False) for owner, root in note_parts)
+        for owner, root, allowed in owners:
+            for node in root.iter():
+                for kind in ("footnote", "endnote"):
+                    if node.tag != f"{{{W}}}{kind}Reference":
+                        continue
+                    if not allowed:
+                        raise ValidationError(f"nested note reference in {owner}")
+                    if definitions.get((kind, identifier(node, owner))) is not True:
+                        raise ValidationError(f"missing normal note target or reference to special entry in {owner}")
+
+
+def validate_field_structure(root: etree._Element, owner: str) -> None:
+    """Check balanced complex fields per story, independently of the native codec.
+
+    The base XSD cannot pair markers. Simple fields delimit their own cached
+    content; note/comment entries sharing a part are independent stories.
+    """
+    def story(nodes: Iterable[etree._Element]) -> None:
+        stack: list[bool] = []
+
+        def visit(current: etree._Element) -> None:
+            if current.tag == f"{{{W}}}fldSimple":
+                story(current)
+                return
+            if current.tag == f"{{{W}}}fldChar":
+                kind = current.get(f"{{{W}}}fldCharType")
+                if kind == "begin":
+                    stack.append(False)
+                elif kind == "separate" and stack and not stack[-1]:
+                    stack[-1] = True
+                elif kind == "end" and stack:
+                    stack.pop()
+                else:
+                    raise ValidationError(f"unbalanced field marker in {owner}")
+            if current.tag == f"{{{W}}}instrText" and (not stack or stack[-1]):
+                raise ValidationError(f"field instruction outside field codes in {owner}")
+            for child in current:
+                visit(child)
+
+        for node in nodes:
+            visit(node)
+        if stack:
+            raise ValidationError(f"unclosed field in {owner}")
+
+    if root.tag in {f"{{{W}}}footnotes", f"{{{W}}}endnotes", f"{{{W}}}comments"}:
+        for entry in root:
+            story([entry])
+    else:
+        story([root])
+
+
 class Validator:
     def __init__(self, directory):
         directory = Path(directory)
@@ -212,9 +322,12 @@ class Validator:
             preprocess(base)
             if not schema.validate(base):
                 raise ValidationError(f"{name}: {schema.error_log.last_error}")
+            if etree.QName(base).namespace == W:
+                validate_field_structure(base, name)
             checked.append(name)
         if not checked:
             raise ValidationError("no supported WordprocessingML/DrawingML parts were validated")
+        validate_note_graph(parts, relationships)
         return checked
 
 

@@ -12,7 +12,7 @@ macro_rules! identity {
         impl std::fmt::Display for $name {fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{self.0.fmt(f)}}
     )+};
 }
-identity!(StoryId, AssetId, CommentId, DrawingId);
+identity!(StoryId, AssetId, CommentId, DrawingId, NoteId);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StoryKind {
     Body,
