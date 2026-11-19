@@ -17,7 +17,12 @@ use std::{
 #[derive(Debug)]
 pub(crate) struct Package {
     pub parts: BTreeMap<String, Vec<u8>>,
-    edited: std::cell::RefCell<BTreeMap<String, Node>>,
+    xml_cache: std::cell::RefCell<BTreeMap<String, CachedXml>>,
+}
+#[derive(Debug)]
+struct CachedXml {
+    node: Node,
+    dirty: bool,
 }
 impl Package {
     pub fn load_with_limits(bytes: &[u8], limits: ReadLimits) -> Result<Self> {
@@ -73,7 +78,7 @@ impl Package {
         }
         let p = Self {
             parts,
-            edited: Default::default(),
+            xml_cache: Default::default(),
         };
         p.validate_graph()?;
         Ok(p)
@@ -85,15 +90,21 @@ impl Package {
             .find(|p| p.eq_ignore_ascii_case(path))
             .map(String::as_str)
             .unwrap_or(path);
-        if let Some(node) = self.edited.borrow().get(path) {
-            return Ok(node.clone());
+        if let Some(cached) = self.xml_cache.borrow().get(path) {
+            return Ok(cached.node.clone());
         }
         let bytes = self
             .parts
             .get(path)
             .ok_or_else(|| Error::Validation(format!("missing package part {path}")))?;
         let node = Node::parse(bytes)?;
-        self.edited.borrow_mut().insert(path.into(), node.clone());
+        self.xml_cache.borrow_mut().insert(
+            path.into(),
+            CachedXml {
+                node: node.clone(),
+                dirty: false,
+            },
+        );
         Ok(node)
     }
     pub fn put(&mut self, path: impl Into<String>, node: Node) -> Result<()> {
@@ -120,7 +131,9 @@ impl Package {
             .cloned()
             .unwrap_or(path);
         self.parts.entry(path.clone()).or_default();
-        self.edited.borrow_mut().insert(path, node);
+        self.xml_cache
+            .borrow_mut()
+            .insert(path, CachedXml { node, dirty: true });
         Ok(())
     }
     pub fn relation(&mut self, owner: &str, kind: &str, target: &str) -> Result<String> {
@@ -354,8 +367,10 @@ impl Package {
         Ok(())
     }
     fn materialize(&mut self) {
-        for (path, node) in self.edited.take() {
-            self.parts.insert(path, node.bytes());
+        for (path, cached) in self.xml_cache.take() {
+            if cached.dirty {
+                self.parts.insert(path, cached.node.bytes());
+            }
         }
     }
     fn validate_graph(&self) -> Result<()> {
@@ -502,10 +517,33 @@ impl PackagePlan {
 mod tests {
     use super::*;
     #[test]
+    fn reading_xml_preserves_payload_bytes_until_an_explicit_write() {
+        let original = br#"<root attr = 'old'><!-- preserve lexical bytes --></root>"#.to_vec();
+        let mut package = Package {
+            parts: BTreeMap::from([("opaque.xml".into(), original.clone())]),
+            xml_cache: Default::default(),
+        };
+        let mut node = package.xml("opaque.xml").unwrap();
+        node.set("attr", "uncommitted local mutation");
+        package.materialize();
+        assert_eq!(package.parts["opaque.xml"], original);
+        package.put("opaque.xml", node).unwrap();
+        assert_eq!(
+            package.xml("opaque.xml").unwrap().get("attr"),
+            Some("uncommitted local mutation")
+        );
+        package.materialize();
+        assert_ne!(package.parts["opaque.xml"], original);
+        assert_eq!(
+            package.xml("opaque.xml").unwrap().get("attr"),
+            Some("uncommitted local mutation")
+        );
+    }
+    #[test]
     fn external_targets_are_explicit_and_internal_targets_are_validated() {
         let mut package = Package {
             parts: BTreeMap::from([("main.xml".into(), b"<document/>".to_vec()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.to_vec())]),
-            edited: Default::default(),
+            xml_cache: Default::default(),
         };
         let external = package
             .add_relationship(
@@ -518,7 +556,7 @@ mod tests {
         PackagePlan::new(package).unwrap().validate().unwrap();
         let mut package = Package {
             parts: BTreeMap::from([("main.xml".into(), b"<document/>".to_vec()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.to_vec())]),
-            edited: Default::default(),
+            xml_cache: Default::default(),
         };
         package.link("main.xml", "image", "missing.png").unwrap();
         assert!(
