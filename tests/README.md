@@ -25,6 +25,9 @@ This is environment configuration, not a library dependency.
 | `resolution_contract.rs` + `test_resolution_contract.py` | Matched R1 image-field, shared-lifetime, concurrent/nested pass and asset-snapshot scenarios; see `docs/DEFERRED-FIELDS.md` |
 | `r1.rs` + `test_r1.py` | Deferred aggregate/metadata references, resolved-child reuse, shared pure validators, structured errors and explicit render policy |
 | `hyperlinks.rs` + `test_hyperlinks.py` | Rich external links in each story/table context, deferred/reference fields, nesting/URI rejection, captured images, comments and template boundaries; independent Rust-to-Python readback with a target mutation control |
+| `ranges.rs` + `test_ranges.py` | Story identities, overlapping/cross-paragraph bookmark/comment anchors, internal target validation, imported collisions/IDs and template marker positions; independent readback rejects a mutated endpoint |
+| `notes.rs` + `test_notes.py` | Ordinary footnotes/endnotes, special-entry roles, structured comments, deferred fields, relocated owners, imported ID graphs, captured assets; independent OPC/XML readback and semantic mutations |
+| `fields.rs` + `test_fields.py` | Both field encodings, cached nested results, flags/whitespace, typed targets, deferred producers, owned resources and multi-paragraph imported-field edit protection; independent readback and strict balance mutations |
 | `docx.rs`, `text_runs.rs`, `features.rs`, `compilation.rs` | Package/content semantics, explicit formatting and deterministic compilation plans |
 | `preservation.rs`, `templates.rs` | Relocated parts/media, namespace shadowing, opaque content, replacements and structured edit boundaries |
 | `python_docx.rs` + `python_docx/verify.py` | Rust writes files; python-docx checks exact expected content, formatting, images and relationships |

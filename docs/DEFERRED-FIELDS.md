@@ -1,6 +1,6 @@
 # Deferred fields and shared resolution scenarios
 
-Inventory including R2 hyperlinks (2026-11-18). This describes authoring and
+Inventory including R5 document fields (2026-11-18). This describes authoring and
 resolution, not a promise that every resolved value is legal OOXML. Conversion
 and domain validation still apply after producers finish.
 
@@ -13,10 +13,15 @@ without the named reference graph. No field-specific dependency engine exists.
 
 | Declaration | Deferred fields | Currently ordinary fields |
 | --- | --- | --- |
-| `Document` | metadata (`Metadata` aggregate); comment_author, timestamp, styles, numbering; each entry in `sections: Vec<Value<Section>>` | The structural sections vector itself |
+| `Document` | metadata (`Metadata` aggregate); comment_author, timestamp, styles, numbering, notes; each entry in `sections: Vec<Value<Section>>` | The structural sections vector itself |
 | `Section` | properties (`Option<SectionProperties>`); children; each header/footer map value | Header/footer maps and keys |
 | `Paragraph` | format (`ParagraphFormat` aggregate); numbering; content's text **or** inline children; comment_text/comment_author when present | None beyond condition |
 | `Hyperlink` | target (`HyperlinkTarget`); children; properties (`HyperlinkProperties`: tooltip/history) | None beyond condition; nested links intentionally unsupported |
+| `Field` | instruction (`FieldInstruction`); cached children; properties (`FieldProperties`: form/dirty/locked) | None beyond condition |
+| `RangeStart`, `RangeEnd` | id (`RangeId`); start kind/payload (`RangeKind`) | None beyond condition |
+| `Note` | target (`NoteTarget`: kind/id); children | None beyond condition |
+| `NoteReference` | target (`NoteTarget`) | None beyond condition |
+| `Comment` | children; metadata (`CommentMetadata`: author/date/initials) | None beyond condition |
 | `TextRun` | text; format (`RunFormat` aggregate); comment_text/comment_author when present | None beyond condition |
 | `ImageRun` | data; transformation (`Option<ImageTransformation>`); alt_text (`Option<AltText>`) | type hint (`r#type`, not used to override inspected image headers) |
 | `Header`, `Footer` | children | None beyond condition |
@@ -30,6 +35,9 @@ All component conditions are synchronous `Condition` values, not `Value<bool>`.
 Documents have no condition. Domain structs such as `SectionProperties`, format,
 style, numbering, border and image-option values do not run producers themselves.
 Defer a supported aggregate, or produce a whole component through `Value`.
+`Document.notes` is a deferred collection of owned `Value<Note>` declarations;
+like authoring child lists, its futures are not cloneable. Share cloneable target
+keys or immutable child blocks rather than cloning definition programs.
 
 Rust owned declarations, including their futures and conditions, are not Clone.
 Consequently a deferred list of **authoring children** can be produced once but
@@ -65,12 +73,15 @@ values and sequence entries are recursively resolved; mapping keys are not.
 
 | Declaration | Resolvable fields |
 | --- | --- |
-| `Document` | sections, creator, title, subject, description, keywords, category, comments, version, comment_author, styles, numbering, timestamp |
+| `Document` | sections, creator, title, subject, description, keywords, category, comments, version, comment_author, styles, numbering, timestamp, notes |
 | `DocumentTemplate` | path, replacements, paragraph_index, scope (when resolved as a template input) |
 | `Section` | children, properties, headers, footers |
 | `SectionProperties` | page_size, page_orientation, page_margins, page_numbering, columns, vertical_align, title_page, type |
 | `Paragraph` | text, children, comment_text, comment_author, numbering, heading, style, alignment, spacing_before, spacing_after, line_spacing, left_indent, right_indent, first_line_indent, keep_together, keep_with_next, page_break_before, widow_control |
 | `Hyperlink` | target, children, tooltip, history |
+| `Field`, `FieldInstruction` | instruction/children/form/dirty/locked on fields; kind/name/code on instructions |
+| `RangeStart`, `RangeEnd`, `BookmarkTarget` | id/kind/name/text/author/content on starts; id on ends; name on targets |
+| `Note`, `NoteReference`, `Comment` | kind/id/children on notes; kind/id on references; children/author/date/initials on comments |
 | `TextRun` | text, comment_text, comment_author, bold, italic, underline, font, size, color, superscript, subscript, strike, all_caps, small_caps |
 | `ImageRun` | data, type, transformation, alt_text |
 | `Header`, `Footer` | children |

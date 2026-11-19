@@ -77,8 +77,11 @@ The current surface includes documents/sections, paragraphs and explicit
 text/tab/break/image inlines and rich external hyperlinks, selected run/paragraph formatting, RGB/theme/auto
 run colors, underline styles, styles, numbering, nested tables and merges,
 page geometry/columns, default/first/even headers and footers, body comments,
-inline images, core metadata, and structural template text replacement.
-Comments are not yet general arbitrary ranges. Pictures inspect file headers;
+inline images, bookmarks/internal anchor links, footnotes/endnotes, cached simple/
+complex fields, core metadata, and structural
+template text replacement.
+Comments support explicit overlapping paired body ranges and structured base
+content/metadata, not threaded comments or singleton point anchors. Pictures inspect file headers;
 they do not decode pixel data.
 
 OPC loading follows relationships rather than fixed Word filenames. Typed part
@@ -96,11 +99,11 @@ this does not mean arbitrary macro-enabled or signed packages are supported.
 
 | Location | Owns / extension points |
 | --- | --- |
-| `src/document/{content,hyperlink,table,resources,values,validation,color,measure,identity,diagnostic}.rs` | Resolved content, domain values and invariants; standard library only |
-| `src/authoring/{mod,components,table}.rs` | Constructors, unresolved values and conditions; no XML, filesystem or interpreter code |
+| `src/document/{content,hyperlink,range,notes,field,table,resources,values,validation,color,measure,identity,diagnostic}.rs` | Resolved content, domain values and invariants; standard library only |
+| `src/authoring/{mod,components,hyperlink,range,notes,field,table}.rs` | Constructors, unresolved values and conditions; no XML, filesystem or interpreter code |
 | `src/resolution/{mod,property,interpreter,components}.rs` | Value/shared computation/reference primitives, dependency graphs and native interpretation |
-| `src/ooxml/wordprocessing/` | Text, paragraphs, formatting, tables, sections, stories, styles and comments |
-| `src/ooxml/drawing/`, `resources.rs`, `style_catalog.rs`, `schema.rs` | Pictures, media/style registries and Word ordering rules |
+| `src/ooxml/wordprocessing/` | Text, paragraphs, fields, formatting, tables, sections, stories, styles and comments |
+| `src/ooxml/drawing/`, `resources.rs`, `ranges.rs`, `notes.rs`, `story.rs`, `style_catalog.rs`, `schema.rs` | Pictures, media/style/range/note/story registries and Word ordering rules |
 | `src/opc/{mod,names}.rs` | Generic package identities, relationships, budgets and write plans; no Word defaults |
 | `src/xml/{mod,name}.rs` | Generic expanded-name XML tree/writer and parsing/character constraints |
 | `src/template/mod.rs` | Pure edit requests, scopes, token spans and edit-boundary rules |
@@ -399,7 +402,7 @@ Verification on stable Rust/CPython 3.12 (Python commands used
   guard fixes it. A deferred-target diagnostic regression also passes.
 - Hosted CI, MSRV Rust 1.88 and other Python versions remain unverified locally.
 
-**Next concrete slice: R3 story identity/bookmarks/ranges.** Begin with its
+**Handoff after R2: R3 story identity/bookmarks/ranges.** Begin with its
 story/part identity and paired-marker contracts; do not equate general ranges
 with nested inline containers. R2's external-target representation is deliberately
 not a fabricated internal-anchor model. R3 continuation is now authorized.
@@ -435,6 +438,87 @@ are never fetched. Add runnable Rust/Python examples and the support-map entry.
 
 ### R3 — Story identity, bookmarks and general ranges
 
+**R3 complete (2026-11-18; committed in `7ebcdb3` on 2026-11-19).** R2 was committed as
+`7d54cfe` (`feat: add rich external hyperlinks`) as requested. R3 implementation
+and verification are complete; R4 was not started at that checkpoint (completion
+is recorded below). No push or publication was made.
+The pre-existing untracked `docs/DEPENDENCY-AUDIT.md` remains untouched.
+
+Implementation against the five R3 acceptance areas:
+
+1. `ooxml::StoryRegistry` registers explicit logical IDs, kind, typed OPC owner
+   and legal-content context. A body ID is reused across sections; table contexts
+   retain it. Header/footer stories are deliberately reused by physical header/
+   footer owner, while every comment definition registers its own logical text
+   story even when definitions share a comments part. Tests demonstrate distinct
+   logical IDs with identical owner/kind. No note authoring was smuggled into R3.
+2. `RangeId` is a stable authoring key. `RangeStart`/`RangeEnd` are explicit paired
+   markers; `RangeKind` distinguishes bookmark names from comment payloads.
+   `story_inlines` traverses supported domain blocks/containers with structural
+   locations. Per-story maps validate ordering, duplicate/unclosed/cross-story
+   anchors and empty explicit comment spans, without treating ranges as a stack.
+   Overlap, cross-paragraph/section and table-cell ranges work. Names and authoring
+   start keys are document-wide. Standalone markers are not complete stories.
+3. `BookmarkName` and internal `HyperlinkTarget::bookmark` (Python:
+   `BookmarkTarget`) generate paired bookmark elements and anchor-only links.
+   Forward/internal references resolve against generated and relationship-driven
+   imported names, including relocated headers. Missing/ambiguous names and
+   generated collisions fail with locations; no imported references are renamed.
+   Bookmark and comment wire IDs have separate document-wide allocation spaces,
+   reserving imported markers/definitions. High imported IDs can be preserved or
+   linked without generating new IDs; generated IDs have a documented 32-bit cap.
+4. Legacy run/paragraph comments and explicit body comment ranges now share
+   `RangeKind` allocation and the `WireRange` paired-anchor codec. Existing author
+   defaults, reference runs and body-only restrictions remain. Cross-paragraph
+   comments and overlapping bookmark/comment spans have exact independent readback
+   assertions. A changed endpoint is rejected semantically after successful load.
+5. [RANGES.md](RANGES.md) defines stable identities, legal contexts, collision and
+   edit policies. Template replacements retain marker positions and put inserted
+   text in the first matched run, with no inferred offset/range rebasing. Tests
+   preserve those positions and existing hyperlink/field/revision boundaries.
+
+Normative review: consulted the official P1 (2016) PDF, kept outside the repo in
+`/tmp/opencode`. §§17.13.6.1–2 specify matching IDs and document-order pairing;
+§17.13.4.3 requires the comment reference in the same document story. Bookmark
+name/ID scopes and the standard's first-bookmark duplicate-name behavior were
+checked. Conservative duplicate/ambiguous-name rejection, paired-only comments,
+body-only comments, no explicit markers within hyperlinks, Word-compatible ASCII
+name rules and generated-ID caps are documented library policies, not invented
+schema constraints. No broad claim of typed range import or navigation/layout
+equivalence is made.
+
+Verification on stable Rust/CPython 3.12 (Python commands used
+`UV_PROJECT_ENVIRONMENT=.venv-opencode`):
+
+- `uv sync --locked --group test` rebuilt the isolated native extension.
+- Default `cargo test --locked --all-targets` passed; final all-feature
+  `cargo test --locked --all-features --all-targets` passed (115 tests, including
+  15 independent Python readback/negative-control test cases).
+- `cargo test --locked --all-features --doc` passed (2 doctests).
+- `cargo fmt --check`, Clippy all-features/all-targets with `-D warnings`, and
+  private-item rustdoc with `RUSTDOCFLAGS='-D warnings'` passed.
+- Required-schema Python suite: 165 passed, 1 intentional upstream skip, using
+  `RV_DOCX_REQUIRE_SCHEMAS=1` and `/tmp/opencode/rv-docx-schemas`.
+- Clean installed-wheel probe passed without interop dependencies and includes
+  bookmark pairing/internal-target/no-dummy-relationship assertions. Both new
+  `examples/ranges.{rs,py}` ran and passed official-schema validation (9 covered
+  parts plus relationships each). Schema tests also cover headers and table cells.
+- Compilation initially found moved mutable scanner references; reborrowing fixed
+  them. Clippy requested collapsing scanner/target conditionals; corrected.
+  Required-schema failure regressions were updated from 4 to 5 tests without
+  weakening their assertions. Existing comment/link/template regressions pass.
+  Final collision review reproduced a duplicate generated ID when an imported
+  ID used the valid decimal spelling `-0`. Numeric reservation now handles signed,
+  zero-padded and surrounding-whitespace spellings while retaining original XML;
+  four regressions and the final full suites pass.
+- `git diff --check` passed. Hosted CI, MSRV Rust 1.88 and other Python versions
+  remain unverified locally. No new production dependency was added.
+
+**Handoff after R3: R4 footnotes/endnotes/richer comments**, using the explicit
+story registry and range contract rather than filename-derived identity. R3
+was ready for a checkpoint commit. Do not start R4 or publish without
+continuation authorization.
+
 **Goal:** provide shared structural concepts for notes, fields, comments and
 revisions. Sources: P1 §§17.10–17.13; bookmark definitions §§17.13.6.1–17.13.6.2.
 
@@ -463,6 +547,95 @@ with locations, and existing comment/link/template tests remain meaningful.
 
 ### R4 — Footnotes, endnotes and richer comments
 
+**R4 complete (2026-11-18; committed in `7ebcdb3` on 2026-11-19).** Continuation was
+authorized; at implementation completion R3/R4 were uncommitted after R2 `7d54cfe`. The audit
+remains untouched. No push/publication or dependency addition was made; R5 was not
+started at that checkpoint (completion below). The detailed contract is [NOTES.md](NOTES.md).
+
+Implementation against the four R4 acceptance areas:
+
+1. Both frontends author ordinary footnotes/endnotes with separate kind/ID
+   namespaces. `NoteId` is a nonnegative 32-bit authoring value; zero is valid for
+   an ordinary note. Note targets/blocks, reference targets and structured-comment
+   fields use the existing generic deferred machinery. Pure domain validation
+   catches duplicate definitions and illegal/cross-note stories/ranges; compilation
+   resolves references against generated/imported definitions. Missing, duplicate,
+   collided and non-normal targets fail with locations. Roles are determined by
+   `w:type`, not assumed reserved numeric IDs. Special entries cannot be authored
+   as ordinary definitions or referenced by ordinary markers.
+2. Note roots/content types and existing owners are discovered by exact OPC
+   relationships. Each ordinary note registers a distinct logical story in its
+   physical part. Images/links use that owner, including relocated footnote and
+   endnote parts; media deduplication remains shared. New parts avoid filename
+   collisions. Missing separator/continuation-separator entries use unused negative
+   IDs (normally -1/-2), with corresponding special-entry settings references.
+   Existing types/content/settings are retained and checked, not silently
+   remapped. Imported decimal keys use canonical strings, avoiding machine-integer
+   narrowing even for a 5,001-digit valid source ID. Notes get their reference mark
+   at the start of their first paragraph (or a new leading marker paragraph).
+3. `Comment`/`ResolvedCommentBody` and `RangeKind::StructuredComment` provide rich
+   paragraphs/tables/images/links through existing blocks and the common anchor
+   codec. `CommentMetadata` exposes author/date/initials deliberately. Author
+   defaults and legacy text conveniences remain; supplied dates use a checked
+   UTC-seconds calendar subset, while absent dates use snapshot time. Structured
+   comment resources belong to the actual comments owner; unrelated orphan
+   filename collisions are not overwritten. Body-only anchors/references remain
+   an explicit supported-authoring policy; nested notes/comments, threaded
+   extensions, glossary-note authoring and layout/number evaluation are excluded.
+4. Supported-story template edits visit imported note/comment content without
+   changing newly appended declarations. Tests cover rich/nested-table blocks,
+   source conditions/references/concurrency, captured image data, imported ID
+   collisions, special types, relocated owners, exact output and failed-save
+   preservation. Independent python-docx OPC/XML readback checks normal/special
+   IDs, self marks, formatted note/comment content, media bytes and owner-local
+   links. Mutations to note text or a body reference fail after successful load.
+   The independent official-schema tool now checks note graphs too: missing,
+   duplicate, special and nested targets fail; custom relationship suffixes do
+   not masquerade as standard note relations.
+
+Preservation repair discovered by R4: the new untouched-note test failed because
+OPC's parse cache treated all reads as edits. `CachedXml` now tracks dirtiness:
+only explicit `put` operations reserialize a cached part. Both a focused OPC unit
+test and the original byte-for-byte note regression pass, along with the complete
+namespace/template/preservation suite. The contract/test was not weakened.
+
+Normative review used the official P1 (2016) PDF outside the repository:
+§§11.3.4/11.3.7 define note parts/owners; §17.11.10 explicitly illustrates ordinary
+ID zero and distinguishes non-normal entries by type; §§17.11.7/17.11.14 prohibit
+references nested in note stories and require matching definitions. Annex A.1
+defines the supported note/comment block models. Application ID/date/context
+restrictions versus schema rules are documented in NOTES.md. No visual/note-layout
+or full imported-document conformance claim is made.
+
+Verification (stable Rust, CPython 3.12; Python commands used
+`UV_PROJECT_ENVIRONMENT=.venv-opencode`):
+
+- Locked isolated extension rebuild: `uv sync --locked --group test`.
+- `cargo test --locked --all-targets` and final all-feature/all-target suite passed
+  (122 all-feature tests, including 16 independent Python readback/negative-control
+  test cases). `cargo test --locked --all-features --doc`: 2 passed.
+- Formatting, all-feature/all-target Clippy with `-D warnings`, and private-item
+  rustdoc with `RUSTDOCFLAGS='-D warnings'` passed.
+- Required-schema full Python suite: 180 passed, 1 intentional upstream skip,
+  with `RV_DOCX_REQUIRE_SCHEMAS=1` and the existing official schema cache.
+- Clean installed-wheel probe passed without interop dependencies and includes
+  ordinary notes/structured comments. `examples/notes.{rs,py}` ran; official
+  schema + OPC/note-graph validation passed for each (11 covered parts).
+- Initial feature tests failed against missing APIs, then passed. Compilation
+  found one borrowed-string call fix; Clippy found collapsible conditions and two
+  test initializer issues, corrected. Python readback setup used the non-indexable
+  comments collection incorrectly; corrected to iteration. The full Python run
+  then exposed the real parse-cache preservation failure, repaired as above.
+  Missing-schema guard expectations now cover six standards tests, without
+  weakening required-failure behavior.
+- `git diff --check` passed. Hosted CI, Rust 1.88 and other Python versions remain
+  unverified locally. No source dependency or upstream fixture hash was changed.
+
+**Handoff after R4: R5 fields and dynamic references.** Reuse explicit stories,
+range traversal and typed target contracts; cached field results are not computed
+layout. R3/R4 were ready for checkpoint commits. Do not start R5,
+push or publish without continuation authorization.
+
 **Depends on:** R3. Sources: P1 §17.11, §§11.3.4 and 11.3.7; comments §17.13.4
 and §11.3.2. Microsoft threaded-comment features require separately pinned
 MS-DOCX extension revisions.
@@ -485,6 +658,90 @@ validated across imported/generated content, and unresolved/illegal stories fail
 clearly. Merely retaining imported note XML does not satisfy this milestone.
 
 ### R5 — Fields and dynamic document references
+
+**R5 complete (2026-11-18; committed in `7ebcdb3` on 2026-11-19).** Continuation authorized
+this slice. At implementation completion R3–R5 were uncommitted after R2 `7d54cfe`. The dependency audit
+is unchanged. No push, publication, production dependency or lockfile change was
+made. Detailed contracts and examples are in [FIELDS.md](FIELDS.md).
+
+Implementation against R5 acceptance:
+
+1. `Field` resolves instruction, cached rich inlines and `FieldProperties`
+   concurrently through ordinary `Value<T>` machinery; Python resolves
+   `Field`/`FieldInstruction` fields through its unchanged generic interpreter.
+   Conditions skip producers. `ResolvedField` has read-only instruction/result/
+   properties, and text projections include cached display text, never code.
+   `FieldForm` chooses `fldSimple` (default) or balanced begin/instruction/separate/
+   result/end runs. Dirty/locked attributes preserve absent/false/true independently
+   of cached-run formatting. Complex results may nest fields; no raw delimiter
+   components are exposed, so dangling/cross-story markers cannot be authored.
+2. Typed PAGE/NUMPAGES/REF/TOC helpers and a checked raw-instruction escape hatch
+   distinguish instruction programs from cached display. REF reuses `BookmarkName`
+   and the existing imported/generated bookmark catalog, including missing/
+   ambiguous targets in nested results. Raw code preserves XML whitespace and
+   special characters without parsing syntax or embedded targets. The serializer
+   does not calculate pages, evaluate fields or fetch referenced documents.
+3. Field cached results reuse rich-inline compilation and flattened story
+   traversal. Media/links belong to the enclosing physical owner; schema tests
+   exercise headers, notes and structured comments with formatted text, tabs,
+   breaks, images and links in both encodings. Snapshots render after image-source
+   deletion. Explicit cached-result range markers and fields inside hyperlinks
+   are rejected library policies, not invented XSD restrictions. Authored fields
+   remain paragraph-local, with nesting only in results, not in instruction code.
+   Multi-block field/TOC results and instruction/marker run formatting are not
+   exposed. TOC is only a standard instruction plus caller-supplied inline cache
+   and optional consumer-update flag, not a generated contents/layout engine.
+4. Imported field instructions/caches remain protected from template replacement.
+   A new regression first demonstrated an existing hole: field depth reset at
+   each paragraph allowed editing cached results in an imported multi-paragraph
+   field. Depth now persists within each logical story and resets per note/comment
+   entry, including multiple notes sharing one owner. A second regression caught
+   overly inherited protection on text after an end marker in the same paragraph;
+   token-time depth now permits that unrelated suffix edit. Both regressions pass,
+   along with the full template/range/namespace/preservation suites. Unclosed
+   imported fields conservatively protect the remaining story; no complete typed
+   import or consumer-conformance claim is made.
+
+Normative review used official P1 (2016) §§17.16.18–19/17.16.23 and Annex A.1.
+Complex fields require begin/end; the codec always emits a separator and cached
+result (possibly empty). The format permits broader nesting/cross-paragraph
+constructs than this public authoring subset. Dirty requests consumer updates;
+lock inhibits recalculation. Runtime compilation never performs those actions.
+
+Verification on stable Rust / CPython 3.12:
+
+- New Rust acceptance tests initially failed to compile against missing APIs;
+  after implementation the focused field/concurrency tests passed. New Python
+  tests first failed against the old native adapter, then passed after the locked
+  extension rebuild (`UV_PROJECT_ENVIRONMENT=.venv-opencode uv sync --locked --group test`).
+- `cargo test --locked --all-targets` and
+  `UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode cargo test --locked --all-features --all-targets`
+  passed: 126 all-feature Rust tests, including 17 independent readback cases.
+  Readback checks both forms, exact instructions, formatted cached results and
+  marker order through python-docx loaded XML/Run APIs; altered cache/code/markers
+  fail after successful document loading. No complete python-docx field API or
+  visual-layout evidence is claimed.
+- Required-schema full Python suite: **198 passed, 1 intentional upstream skip**,
+  using `UV_PROJECT_ENVIRONMENT=.venv-opencode RV_DOCX_SCHEMA_DIR=/tmp/opencode/rv-docx-schemas RV_DOCX_REQUIRE_SCHEMAS=1 uv run --no-sync pytest`.
+  The validator supplements XSDs with independent per-story complex-field balance
+  checks, including simple-field boundaries and individual note/comment entries.
+  Removed end markers/duplicate separators fail; seven standards tests retain the
+  missing-schema required-failure guard. The strict checker rejects malformed
+  marker streams that consumers could otherwise ignore; it is not a claim that
+  the base XSD pairs markers.
+- `cargo fmt --check`, `git diff --check`, all-feature/all-target Clippy with
+  `-D warnings`, 2 doctests and private-item rustdoc with `RUSTDOCFLAGS='-D warnings'`
+  passed. The pure domain still builds without XML/OPC/external dependencies.
+- Clean installed-wheel verification passed without interop dependencies and
+  covers simple/complex fields and caches. Both `examples/fields.{rs,py}` ran;
+  official schema + OPC/field-graph validation passed (9 covered parts each),
+  producing `/tmp/opencode/rv-docx-r5-{rust,python}.docx`.
+- Hosted CI, Rust 1.88 and other Python versions remain unverified locally.
+
+**Next concrete slice: R6 formatting/styles/lists/tables.** Select one independent
+vertical slice with a property-level inventory rather than attempting all R6 at
+once. R3–R5 are checkpointed in `7ebcdb3`; the OPC repair is `9adaa5f`. Do not push/publish
+or start the next slice without continuation authorization.
 
 **Depends on:** R2/R3. Sources: P1 §17.16, including §17.16.18 (`fldChar`).
 
@@ -716,8 +973,20 @@ visual rendering are different evidence and must not be substituted for each oth
 
 ## First assignment for the next agent
 
-R2 is complete in the working tree; the next implementation is **R3 story identity,
-bookmarks and general ranges**, after continuation authorization. Use the current
+**Committed checkpoints (2026-11-19):** the engineer requested commits for the
+completed work. `9adaa5f` isolates the OPC read-cache preservation fix;
+`7ebcdb3` checkpoints the combined R3–R5 implementation/tests/examples (the
+feature changes share domain, traversal and adapter edits). The accompanying
+documentation checkpoint records contracts and this handoff. The unrelated
+untracked `docs/DEPENDENCY-AUDIT.md` remains excluded. Pre-commit verification
+reran the all-feature/all-target Rust suite (126 passed), required-schema Python
+suite (198 passed, 1 intentional skip), formatting and diff checks successfully.
+No push, publication or R6 implementation was authorized by this commit request.
+
+R2 is committed as `7d54cfe`; R3–R5 are committed as `7ebcdb3`. The next
+implementation is **one independent R6 formatting/styles/lists/tables slice**,
+after continuation authorization. Use [RANGES.md](RANGES.md), [NOTES.md](NOTES.md),
+[FIELDS.md](FIELDS.md), the current
 deferred-field inventory and migration guide rather than baseline API shapes.
 Confirm hosted CI/version-matrix results when available; no package publication
 was authorized. Do not reopen settled CMI compatibility or repository naming

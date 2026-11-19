@@ -5,6 +5,34 @@ historical source of fixtures, not a signature-compatibility requirement.
 
 ## Rust package and authoring changes
 
+R5 adds `Field`, `FieldInstruction`, `FieldProperties` and `FieldForm`, plus
+read-only `ResolvedField` cached content. Constructors/deferred inputs follow
+existing inline patterns. Python adds `Field`/`FieldInstruction` and simple/complex
+forms. Plain-text projections include cached display text, never instructions;
+no result is evaluated. Imported complex-field edit protection now spans
+paragraphs in the same story. See [FIELDS.md](FIELDS.md) for supported instructions,
+nesting and the intentional paragraph-local authoring limit.
+
+R4 adds `Document.notes`, `Note`/`NoteReference` and `NoteTarget` (`NoteKind` +
+`NoteId`). Normal authoring IDs are nonnegative 32-bit values, with zero supported;
+footnotes and endnotes have separate namespaces. Note targets and bodies use the
+existing deferred machinery. `RangeStart::structured_comment(id, Comment)` adds
+base-schema rich content and `CommentMetadata`, without changing the legacy text
+comment fields. Python mirrors this with note helpers and `Comment` content.
+See [NOTES.md](NOTES.md) for special entries, imported graph checks, exact date
+forms and unsupported story contexts. Reference numbers are not plain-text
+projection output; the consuming application evaluates their display numbering.
+
+R3 adds `BookmarkName`, `RangeId`, `RangeKind`, `RangeStart` and `RangeEnd`.
+Use `HyperlinkTarget::bookmark(name)` (Python: `BookmarkTarget(name)`) for internal
+links; external strings keep their existing behavior. Complete documents now
+validate marker pairing and unique identities/names. Internal target lookup and
+imported name collisions require compilation/template context. See
+[RANGES.md](RANGES.md) for overlap, story scope and template edit semantics.
+`ooxml::StoryRegistry` replaces implicit part/kind identity: registering two
+logical stories in one part does not alias their IDs. Existing comment
+conveniences use the shared anchor codec without changing their public syntax.
+
 R2 adds `Hyperlink::new(target, children)`, `HyperlinkTarget::external(...)`,
 `HyperlinkProperties`, and `ResolvedInline::Hyperlink(ResolvedHyperlink)`.
 Targets, children and properties use the existing `Value`/`PropertyRef` machinery.

@@ -45,9 +45,10 @@ flowchart LR
   supports resources outside the conventional media directory. Style identities
   are indexed once after definitions are applied.
 - Story/asset/comment/drawing/style identities are distinct domain values.
-  Compilation passes explicit story, source-part and width context. A body story
-  spans sections; future multiple notes sharing a part will need distinct story
-  contexts rather than treating a part path as universal story identity.
+  `StoryRegistry` explicitly registers kind/owner/legal-content context independently
+  of part identity. A body story spans sections; individual notes and comments
+  have distinct logical stories while sharing their kind's physical owner part.
+  Note IDs/roles are checked independently of owner-local resource relationships.
 - Physical conversions use checked `Points`, `Twips`, `Emu` and `HalfPoints`
   helpers. Current point-valued authoring convenience fields still accept numeric
   values; codecs validate and convert them centrally.
@@ -88,8 +89,9 @@ The next independent crate would most plausibly be the Python extension when its
 release/build lifecycle warrants it. Nothing requires that split now.
 
 New DOCX features should extend domain content/stories/ranges, their typed
-codecs, and resource/relationship registration together. Internal bookmark links,
-general fields, notes, revisions and charts remain future typed authoring work; neither
+codecs, and resource/relationship registration together. Paragraph-local fields
+reuse rich inlines and the bookmark catalog; their codec never evaluates instructions.
+Revisions and charts remain future typed authoring work; neither
 an opaque imported part nor an available `StoryKind` variant proves support.
 The writer has a selected property vocabulary and validation surface, not a full
 runtime XSD validator. Independent schema tooling complements runtime graph and

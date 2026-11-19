@@ -25,8 +25,38 @@ absolute URI/IRI from its display runs. All four fields support the same deferre
 inputs as other declarations. TextRun/ImageRun/Tab/Break children are legal;
 nested links and block children are unsupported. Formatting is explicit on the
 child runs, not inherited from an implicit hyperlink style. Targets are preserved
-verbatim, not fetched or normalized; internal bookmark targets are not yet
-supported. See [`examples/hyperlinks.py`](examples/hyperlinks.py).
+verbatim, not fetched or normalized. Use `BookmarkTarget(name)` for an internal
+link; missing/ambiguous names fail instead of creating dummy relationships. See
+[`examples/hyperlinks.py`](examples/hyperlinks.py).
+
+`RangeStart.bookmark(name)` / `RangeEnd.bookmark(name)` pair a bookmark.
+`RangeStart.comment(id, text, author=None)` / `RangeEnd(id)` pair an explicit body
+comment. Starts/ends can overlap and span paragraphs in one story. All fields can
+be deferred when using the direct `RangeStart(id, kind, name=..., text=...,
+author=...)` constructor. Complete-story validation occurs in the native domain
+at render time, with structured locations. See [RANGES.md](docs/RANGES.md) for
+identity, imported collision, template replacement and legal-context policies.
+
+`Document(notes=[Note.footnote(0, children), Note.endnote(0, children)])` defines
+ordinary notes; use `NoteReference.footnote(0)` or `.endnote(0)` in body content.
+All fields support generic deferred inputs. Equal footnote/endnote IDs do not
+collide, and normal ID zero is supported. The compiler owns special separator
+entries; missing/duplicate/reserved-role targets fail explicitly. Each note is a
+logical story whose media/links belong to the related physical part.
+
+`RangeStart.structured_comment(id, Comment(children, author=None, date=None,
+initials=None))` pairs with `RangeEnd(id)`. Blocks, images and links are supported;
+date uses the checked UTC-seconds form and defaults to snapshot time. Threaded
+comments, nested note references and non-body reference/anchor contexts remain
+unsupported. See [NOTES.md](docs/NOTES.md) for exact policies and limitations.
+
+`Field(FieldInstruction.page(), children, form="simple", dirty=None, locked=None)`
+authors cached field results; `form="complex"` emits balanced markers. Helpers
+also cover `num_pages()`, `reference(name)`, `table_of_contents()` and explicit
+unparsed `raw(code)`. All properties accept generic deferred inputs. REF names
+are checked against generated/imported bookmarks. No instruction is evaluated,
+and no pages or TOC are calculated. See [FIELDS.md](docs/FIELDS.md) for nesting,
+cached content, consumer-update flags and template-edit protection.
 
 Fields may hold ready values, lazy zero-argument factories or awaitables.
 Resolution recursively handles components, declaration dataclasses, dictionaries,

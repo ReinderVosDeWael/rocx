@@ -14,19 +14,22 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Dependencies | Rust typed named properties and shared computations; Python per-field references and shared computations; typed graph cycles and cancellation handling |
 | Text | Unicode, whitespace, explicit empty runs, tabs, line/page/column breaks |
 | Hyperlinks | Rich external absolute URI/IRI links in body/table/header/footer paragraphs, with deferred targets/children/tooltip/history; text/image/tab/break children; owner-local external relationships, never fetched |
+| Bookmarks/ranges | Typed paired bookmark/body-comment markers, overlap and cross-paragraph ranges in one story, internal bookmark links, imported name/ID reservation; see [range contract](docs/RANGES.md) |
+| Notes | Footnote/endnote definitions and body references, rich block stories, type-distinguished special entries, imported ID/owner checks; no layout/number calculation; see [notes](docs/NOTES.md) |
 | Formatting | Selected paragraph/run properties, RGB/theme/automatic run colors, underline styles, explicit false overrides |
 | Styles | Paragraph/table definitions and selected conditional table regions, style references and per-compilation catalog |
 | Tables | Nested tables, fixed/autofit widths, spans/vertical merges, borders, shading and vertical alignment |
 | Sections | Geometry, margins, columns, page numbering, break type, title-page and vertical alignment |
 | Stories | Main body, default/first/even headers and footers; comment generation currently restricted to body context |
-| Comments | Text/author attached to paragraphs or runs, with paired anchor IDs; not general arbitrary cross-paragraph range authoring |
+| Comments | Text conveniences or structured paragraph/table/image/link content on paired body ranges; author/date/initials metadata; no threaded comments |
 | Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline pictures, density-aware dimensions and accessibility fields; deferred data/transformation/alt text in both APIs; header inspection without pixel decoding |
 | Numbering | Native definitions/levels/references exposed in both Rust and Python |
+| Fields | Simple/balanced complex paragraph-local fields, nested cached results, typed PAGE/NUMPAGES/REF/TOC and raw instructions; no evaluation or multi-paragraph TOC generation; see [fields](docs/FIELDS.md) |
 | Metadata | Core properties and snapshot timestamp |
 | Templates | Relationship-driven part discovery, namespace-safe rewriting, opaque payload retention, structural text replacement and insertion |
 | Packaging | Typed names/targets/IDs, defaults/overrides, read budgets, internal relationship/reference graph checks and inspectable package plan |
 
-Typed generation for internal bookmark links, general fields, footnotes/endnotes, revisions,
+Typed generation for revisions,
 content controls, floating drawings, charts, diagrams, equations and broader
 Word extensions remains future work. Retaining imported data is not a claim of
 typed support. Strict output is explicitly unsupported; the writer uses the
@@ -39,7 +42,8 @@ escapes, Unicode, queries and fragments verbatim. They must have an absolute
 scheme, no whitespace/control/forbidden URI characters, and valid percent escapes;
 this lexical check is not a full URL parser, scheme allowlist or safety check for
 opening links. Callers must apply their own policy to untrusted targets. Relative
-and bookmark-only targets are unsupported, not dummy external relationships.
+URI targets are unsupported; internal links require an explicit typed bookmark
+target and do not create external relationships.
 
 ## Units and defaults
 

@@ -125,8 +125,20 @@ Rich external hyperlinks are supported in both languages, including deferred
 targets, formatted display runs, images, tabs and breaks. Links belong to their
 actual body/header/footer part and are never fetched. See
 [`examples/hyperlinks.rs`](examples/hyperlinks.rs) and
-[`examples/hyperlinks.py`](examples/hyperlinks.py). Internal bookmark links remain
-unsupported; nested links are intentionally rejected.
+[`examples/hyperlinks.py`](examples/hyperlinks.py). Internal links use an explicit
+bookmark target; nested links are intentionally rejected. Paired bookmark/comment
+markers support overlap and cross-paragraph ranges without nested containers;
+see the [range contract](docs/RANGES.md) and [example](examples/ranges.py).
+
+Footnotes/endnotes have deferred definitions and references, with images, tables
+and links owned by their actual note part. Structured base comments support the
+same block vocabulary and explicit metadata. See the [note/comment contract](docs/NOTES.md)
+and runnable [`notes.rs`](examples/notes.rs)/[`notes.py`](examples/notes.py) examples.
+
+Simple and complex fields support cached rich results and typed PAGE/NUMPAGES/
+REF/TOC instructions, without evaluating fields or calculating layout. See the
+[field contract](docs/FIELDS.md) and [`fields.rs`](examples/fields.rs)/
+[`fields.py`](examples/fields.py) examples.
 
 Runnable examples: [Rust](examples/property_dependencies.rs),
 [Python](examples/property_dependencies.py), and the

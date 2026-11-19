@@ -85,14 +85,14 @@ payload bytes, but edited XML is not guaranteed to preserve every unknown featur
 | Fonts | P1 §17.8; §11.3.5, Font Table Part | Font name and selected run properties; template font table retained | [format.rs](../src/ooxml/wordprocessing/format.rs), default assets |
 | Numbering | P1 §17.9; §11.3.11, Numbering Definitions Part | Typed definitions/levels/references in both Rust and Python | [styles.rs](../src/ooxml/wordprocessing/styles.rs), native Python conversion |
 | Headers and footers | P1 §17.10; §§11.3.6, 11.3.9 | Default/first/even stories; linked template content is appended | [authoring components](../src/authoring/components.rs), `Compiler::header_footer` |
-| Footnotes and endnotes | P1 §17.11; §§11.3.4, 11.3.7 | No typed generation yet | Future story/resource model |
+| Footnotes and endnotes | P1 §17.11; §§11.3.4, 11.3.7 | Ordinary definitions/references, rich block bodies, type-distinguished specials and settings references; no layout/numbering calculation | [notes](../src/ooxml/notes.rs), explicit logical stories and relationship-discovered owners; [contract](NOTES.md) |
 | Glossary/building blocks | P1 §17.12; §11.3.8 | No typed generation yet | Future story/import support |
-| Comments and anchors | P1 §17.13.4; §§17.13.4.3–17.13.4.5; §11.3.2 | Text comments on runs/paragraphs; not general cross-paragraph ranges or modern threaded comments | `ResolvedComment`, `Compiler::comment`; extensions also require [MS-DOCX] |
-| Bookmarks | P1 §17.13.6; §§17.13.6.1–17.13.6.2 | No typed generation yet | Future range model |
+| Comments and anchors | P1 §17.13.4; §§17.13.4.3–17.13.4.5; §11.3.2 | Text conveniences or structured paragraphs/tables/images/links on body ranges; explicit author/date/initials; not modern threaded comments | `ResolvedComment`/`ResolvedCommentBody`, shared range codec; extensions also require [MS-DOCX] |
+| Bookmarks | P1 §17.13.6; §§17.13.6.1–17.13.6.2 | Paired typed markers, overlap/cross-paragraph spans, document-wide names/IDs and imported collision checks | [range domain](../src/document/range.rs), [range codec](../src/ooxml/ranges.rs); [contract](RANGES.md) |
 | Tracked revisions | P1 §17.13.5 | No typed generation yet | Future revision/range model |
 | Content controls/custom markup | P1 §17.5; §§17.5.2.29–17.5.2.32 (`sdt` in different contexts) | No typed generation yet | Future context-aware block/inline/control model |
-| Hyperlinks, `hyperlink`, `r:id`, `tooltip`, `history` | P1 §17.16.22; normative Annex A.1 `CT_Hyperlink`/`EG_PContent`; P2 §§6.4–6.5 | External absolute URI/IRI generation in body/tables/headers/footers; rich display runs; no internal anchors/nesting | [domain](../src/document/hyperlink.rs), [codec](../src/ooxml/wordprocessing/paragraph.rs); owner-local external relationships via OPC |
-| Fields, `fldChar` | P1 §17.16; §17.16.18 | No typed generation yet | Future field evaluation/preservation contract |
+| Hyperlinks, `hyperlink`, `r:id`, `anchor`, `tooltip`, `history` | P1 §17.16.22; normative Annex A.1 `CT_Hyperlink`/`EG_PContent`; P2 §§6.4–6.5 | External URI/IRI and internal bookmark links; rich display runs; no nesting | [domain](../src/document/hyperlink.rs), [codec](../src/ooxml/wordprocessing/paragraph.rs); internal anchors have no external relationship |
+| Fields, `fldChar` | P1 §17.16; §§17.16.18–19, 17.16.23 | Simple/complex paragraph-local fields and nested cached results, PAGE/NUMPAGES/REF/TOC helpers and raw instructions; no evaluation | [field codec](../src/ooxml/wordprocessing/fields.rs), [contract](FIELDS.md); imported field edits rejected |
 | Mail merge | P1 §17.14 | No typed generation yet | Future fields/data-source integration |
 | Document settings | P1 §17.15; §11.3.3 | Defaults plus selected changes, including even/odd headers | `ooxml/defaults.rs`, section/story codecs |
 
