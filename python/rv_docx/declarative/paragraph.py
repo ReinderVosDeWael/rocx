@@ -7,6 +7,7 @@ from collections.abc import MutableSequence
 from typing import TYPE_CHECKING
 
 from rv_docx.declarative import base
+from rv_docx.declarative import formatting
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
@@ -52,6 +53,16 @@ class TextRun(base.Component):
         strike: Apply strikethrough formatting.
         all_caps: Apply all caps formatting.
         small_caps: Apply small caps formatting.
+        language: Optional RunLanguage hints, without registry validation.
+        bold_complex_script: Optional independent complex-script bold request.
+        italic_complex_script: Optional independent complex-script italic request.
+        size_complex_script: Optional complex-script size in points.
+        rtl: Optional right-to-left run request; does not reverse stored text.
+        complex_script: Optional request to use complex-script formatting.
+            These fields accept generic deferred inputs.
+        font_east_asia: Optional literal East Asian font name.
+        font_complex_script: Optional literal complex-script font name.
+        style: Optional character style name/ID; direct properties remain separate.
     """
 
     text: Awaitable[str] | Callable[[], Awaitable[str] | str] | str
@@ -68,6 +79,15 @@ class TextRun(base.Component):
     strike: bool | None = None
     all_caps: bool | None = None
     small_caps: bool | None = None
+    language: formatting.RunLanguage | None = None
+    bold_complex_script: bool | None = None
+    italic_complex_script: bool | None = None
+    size_complex_script: float | None = None
+    rtl: bool | None = None
+    complex_script: bool | None = None
+    font_east_asia: str | None = None
+    font_complex_script: str | None = None
+    style: str | None = None
 
 
 @dataclasses.dataclass
@@ -106,6 +126,12 @@ class Paragraph(base.Component):
         spacing_before: Space before paragraph in points.
         spacing_after: Space after paragraph in points.
         line_spacing: Line spacing multiplier.
+        line_height: Typed multiple/exact/minimum line height. Mutually exclusive
+            with line_spacing; accepts the same generic deferred inputs.
+        tab_stops: Local custom tab overrides in points; empty leaves inherited
+            stops unchanged. Supports generic deferred inputs.
+        bidi: Optional paragraph RTL layout request, independent of run RTL and
+            stored text order. Supports generic deferred inputs.
         left_indent: Left indent in points.
         right_indent: Right indent in points.
         first_line_indent: First line indent in points.
@@ -133,6 +159,9 @@ class Paragraph(base.Component):
     keep_with_next: bool | None = None
     page_break_before: bool | None = None
     widow_control: bool | None = None
+    line_height: formatting.LineHeight | None = None
+    tab_stops: list[formatting.TabStop] = dataclasses.field(default_factory=list)
+    bidi: bool | None = None
 
     def __post_init__(self) -> None:
         """Validate that either text or children is provided, not both.

@@ -15,6 +15,47 @@ if TYPE_CHECKING:
     from typing import Literal
 
 
+@dataclasses.dataclass(frozen=True)
+class CellMargins:
+    """Cell-local margin overrides, independent of table defaults or bidi layout.
+
+    Attributes:
+        top: Optional nonnegative points above content.
+        start: Optional nonnegative points at the leading cell edge.
+        bottom: Optional nonnegative points below content.
+        end: Optional nonnegative points at the trailing cell edge.
+            Omitted sides are not authored; zero explicitly removes that padding.
+    """
+
+    top: float | None = None
+    start: float | None = None
+    bottom: float | None = None
+    end: float | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class RowHeight:
+    """An exact or minimum table row height, not a calculated row size.
+
+    Attributes:
+        rule: exact or at_least.
+        value: Nonnegative finite points, rounded to the nearest twip.
+    """
+
+    rule: str
+    value: float
+
+    @classmethod
+    def exact(cls, points: float) -> RowHeight:
+        """Request an exact height; content may be clipped by consumers."""
+        return cls("exact", points)
+
+    @classmethod
+    def at_least(cls, points: float) -> RowHeight:
+        """Request a minimum height; consumers may expand it for content."""
+        return cls("at_least", points)
+
+
 @dataclasses.dataclass
 class TableBorder:
     """Defines a table border.
@@ -81,6 +122,9 @@ class TableCell(base.Component):
         vertical_alignment: Vertical alignment of content within the cell.
             ``"top"``, ``"center"``, or ``"bottom"``. Defaults to None (uses
             Word's default, which is top).
+        margins: Optional CellMargins in points; accepts generic deferred inputs.
+        text_direction: Optional checked lrTb/tbRl/btLr/lrTbV/tbRlV/tbLrV text flow,
+            independent of paragraph bidi; accepts generic deferred inputs.
     """
 
     children: (
@@ -104,6 +148,8 @@ class TableCell(base.Component):
     borders: MutableSequence[CellBorder] | None = None
     background_color: tuple[int, int, int] | None = None
     vertical_alignment: Literal["top", "center", "bottom"] | None = None
+    margins: CellMargins | None = None
+    text_direction: str | None = None
 
 
 @dataclasses.dataclass
@@ -114,12 +160,20 @@ class TableRow(base.Component):
         children: List of TableCell components or coroutines that resolve to
             cells. May be a zero-argument callable for lazy evaluation (useful
             with ``condition``).
+        height: Optional exact/minimum RowHeight in points.
+        repeat_header: Optional header repetition request. Only a contiguous
+            leading group of header rows repeats in consuming applications.
+        cant_split: Optional request to keep the row on one page if it fits.
+            All three properties support generic deferred inputs.
     """
 
     children: (
         MutableSequence[TableCell | Coroutine[None, None, TableCell]]
         | Callable[[], MutableSequence[TableCell | Coroutine[None, None, TableCell]]]
     )
+    height: RowHeight | None = None
+    repeat_header: bool | None = None
+    cant_split: bool | None = None
 
 
 @dataclasses.dataclass
@@ -138,6 +192,11 @@ class Table(base.Component):
             widths even if ``column_widths`` is also provided.
         style: Table style name.
         borders: Cell border configuration.
+        look: Optional TableLook activation requests. Missing fields retain the
+            library defaults; no effective conditional formatting is computed.
+        alignment: Optional left, center, right, start, or end inline-table
+            alignment request. None retains style/consumer defaults. Independent
+            of paragraph/cell alignment; supports generic deferred fields.
     """
 
     rows: (
@@ -148,3 +207,28 @@ class Table(base.Component):
     layout: Literal["autofit", "fixed"] | None = None
     style: str | None = None
     borders: MutableSequence[TableBorder] | None = None
+    look: TableLook | None = None
+    alignment: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class TableLook:
+    """Conditional table-style activation, independent of direct cell formatting.
+
+    Attributes:
+        first_row: Optional first-row formatting request; defaults to true.
+        last_row: Optional last-row request; defaults to false.
+        first_column: Optional first-column request; defaults to true.
+        last_column: Optional last-column request; defaults to false.
+        horizontal_banding: Optional row-banding request; defaults to true.
+        vertical_banding: Optional column-banding request; defaults to false.
+            Defaults here are existing library policy, not the normative default
+            for omitted tblLook. Each field supports generic deferred inputs.
+    """
+
+    first_row: bool | None = None
+    last_row: bool | None = None
+    first_column: bool | None = None
+    last_column: bool | None = None
+    horizontal_banding: bool | None = None
+    vertical_banding: bool | None = None

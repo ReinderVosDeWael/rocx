@@ -82,6 +82,12 @@ pub(crate) fn section_properties(
         if let Some(t) = p.r#type {
             previous.replace(val("type", t.xml()));
         }
+        if let Some(bidi) = p.bidi {
+            previous.replace(val("bidi", u8::from(bidi)));
+        }
+        if let Some(rtl_gutter) = p.rtl_gutter {
+            previous.replace(val("rtlGutter", u8::from(rtl_gutter)));
+        }
     }
     Ok(previous)
 }

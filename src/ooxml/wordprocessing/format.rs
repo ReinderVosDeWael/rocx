@@ -6,7 +6,7 @@
 //! Public units are converted to wire units here; implementation limits and
 //! historical compatibility behavior are not necessarily specification rules.
 use crate::xml::{Node, val};
-use crate::{Color, ParagraphFormat, Points, Result, RunFormat};
+use crate::{Color, LineHeight, ParagraphFormat, Points, Result, RunFormat};
 pub(crate) fn color(c: [u8; 3]) -> String {
     format!("{:02X}{:02X}{:02X}", c[0], c[1], c[2])
 }
@@ -16,16 +16,30 @@ fn number(value: f64, factor: f64) -> Result<i64> {
 pub(crate) fn run(f: &RunFormat) -> Result<Node> {
     f.validate()?;
     let mut n = Node::new("w:rPr");
-    if let Some(font) = &f.font {
-        n.push(
-            Node::new("w:rFonts")
-                .attr("w:ascii", font)
-                .attr("w:hAnsi", font),
-        );
+    if let Some(style) = &f.style {
+        n.push(val("rStyle", style));
+    }
+    let mut fonts = Node::new("w:rFonts");
+    for (name, font) in [
+        ("ascii", &f.font),
+        ("hAnsi", &f.font),
+        ("eastAsia", &f.font_east_asia),
+        ("cs", &f.font_complex_script),
+    ] {
+        if let Some(font) = font {
+            fonts.set(format!("w:{name}"), font);
+        }
+    }
+    if !fonts.attrs.is_empty() {
+        n.push(fonts);
     }
     for (k, v) in [
         ("b", f.bold),
         ("i", f.italic),
+        ("bCs", f.bold_complex_script),
+        ("iCs", f.italic_complex_script),
+        ("rtl", f.rtl),
+        ("cs", f.complex_script),
         ("caps", f.all_caps),
         ("smallCaps", f.small_caps),
         ("strike", f.strike),
@@ -55,6 +69,24 @@ pub(crate) fn run(f: &RunFormat) -> Result<Node> {
     if let Some(size) = f.size {
         n.push(val("sz", number(size, 2.)?));
     }
+    if let Some(size) = f.size_complex_script {
+        n.push(val("szCs", number(size, 2.)?));
+    }
+    if let Some(language) = &f.language {
+        let mut node = Node::new("w:lang");
+        for (name, value) in [
+            ("val", &language.latin),
+            ("eastAsia", &language.east_asia),
+            ("bidi", &language.bidi),
+        ] {
+            if let Some(value) = value {
+                node.set(format!("w:{name}"), value);
+            }
+        }
+        if !node.attrs.is_empty() {
+            n.push(node);
+        }
+    }
     if let Some(u) = f.underline {
         n.push(val("u", u.xml()));
     }
@@ -81,20 +113,41 @@ pub(crate) fn paragraph(f: &ParagraphFormat, indent_factor: f64) -> Result<Node>
         ("keepLines", f.keep_together),
         ("pageBreakBefore", f.page_break_before),
         ("widowControl", f.widow_control),
+        ("bidi", f.bidi),
     ] {
         if let Some(v) = v {
             n.push(val(k, if v { "1" } else { "0" }));
         }
     }
     let mut spacing = Node::new("w:spacing");
+    if !f.tab_stops.is_empty() {
+        let mut stops: Vec<_> = f.tab_stops.iter().collect();
+        stops.sort_by(|a, b| a.position.total_cmp(&b.position));
+        let mut tabs = Node::new("w:tabs");
+        for stop in stops {
+            let mut node = Node::new("w:tab")
+                .attr("w:val", stop.alignment.xml())
+                .attr("w:pos", number(stop.position, 20.)?);
+            if let Some(leader) = stop.leader {
+                node.set("w:leader", leader.xml());
+            }
+            tabs.push(node);
+        }
+        n.push(tabs);
+    }
     for (k, v) in [("before", f.spacing_before), ("after", f.spacing_after)] {
         if let Some(v) = v {
             spacing.set(format!("w:{k}"), number(v, 20.)?);
         }
     }
-    if let Some(line) = f.line_spacing {
-        spacing.set("w:line", number(line, 240.)?);
-        spacing.set("w:lineRule", "auto");
+    if let Some(height) = f.line_height.or(f.line_spacing.map(LineHeight::Multiple)) {
+        let (value, factor, rule) = match height {
+            LineHeight::Multiple(value) => (value, 240., "auto"),
+            LineHeight::Exact(value) => (value, 20., "exact"),
+            LineHeight::AtLeast(value) => (value, 20., "atLeast"),
+        };
+        spacing.set("w:line", number(value, factor)?);
+        spacing.set("w:lineRule", rule);
     }
     if !spacing.attrs.is_empty() {
         n.push(spacing);

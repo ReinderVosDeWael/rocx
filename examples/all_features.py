@@ -1,0 +1,292 @@
+"""Independent Python visual catalog, byte-matched to all_features.rs.
+
+Run: uv run --no-sync python examples/all_features.py [output.docx]
+See ALL_FEATURES.md for coverage, viewer caveats and parity verification.
+"""
+import asyncio
+import pathlib
+import sys
+
+import rv_docx
+from rv_docx import declarative as d
+
+STAMP = "2026-11-19T00:00:00Z"
+IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
+REGIONS = ["whole_table", "first_row", "last_row", "first_column", "last_column",
+           "banding_1_row", "banding_2_row", "banding_1_column", "banding_2_column",
+           "top_left_cell", "top_right_cell", "bottom_left_cell", "bottom_right_cell"]
+
+
+def p(text: str) -> d.Paragraph:
+    """Create a plainly labeled paragraph."""
+    return d.Paragraph(text=text)
+
+
+def heading(text: str) -> d.Paragraph:
+    """Start a catalog topic on a new page."""
+    return d.Paragraph(text=text, heading=1, page_break_before=True)
+
+
+def run(text: str, **formatting) -> d.Paragraph:
+    """Show one run-formatting request."""
+    return d.Paragraph(children=[d.TextRun(text, **formatting)])
+
+
+def cell(text: str) -> d.TableCell:
+    """Create a labeled table cell."""
+    return d.TableCell([p(text)])
+
+
+def image(ext: str, size: dict | None = None) -> d.ImageRun:
+    """Embed identical fixture bytes with explicit accessibility metadata."""
+    filename = f"sample.{ext}" if ext != "zero" else "sample_zero_dpi.png"
+    return d.ImageRun((IMAGES / filename).read_bytes(), transformation=size,
+        alt_text={"title": f"Image {ext}", "description": f"Accessible {ext} sample", "name": f"Sample {ext}"})
+
+
+def formatting_blocks() -> list:
+    """Paragraph, run and style galleries, in the same order as Rust."""
+    blocks = [heading("01 Paragraphs and headings")]
+    for level in range(10):
+        blocks.append(d.Paragraph(text=f"This is a Heading {level}" + (" (heading=0: no heading style)" if level == 0 else ""), heading=level))
+    for alignment, name in zip([0, 1, 2, 3, 4, 5, 7, 8, 9],
+            ["left", "center", "right", "justify", "distribute", "justifyMedium", "justifyHigh", "justifyLow", "thaiJustify"], strict=True):
+        blocks.append(d.Paragraph(text=f"Paragraph alignment={name}: The quick brown fox jumps over the lazy dog. Ελληνικά العربية 日本語.", alignment=alignment))
+    for height, name in [(d.LineHeight.multiple(1.5), "multiple 1.5"), (d.LineHeight.exact(20), "exact 20 pt"), (d.LineHeight.at_least(18), "at_least 18 pt")]:
+        blocks.append(d.Paragraph(children=[d.TextRun(f"Line height={name}; before=6 pt; after=8 pt"), d.Break(),
+            d.TextRun("Second line makes the line-height request visible.")], line_height=height, spacing_before=6, spacing_after=8))
+    blocks.append(d.Paragraph(text="Legacy line_spacing=1.25; left=18 pt, right=12 pt, hanging=6 pt; keep lines/next and widow control enabled.",
+        line_spacing=1.25, left_indent=18, right_indent=12, first_line_indent=-6, keep_together=True, keep_with_next=True, widow_control=True))
+    blocks.append(d.Paragraph(text="First-line indent=18 pt; keep lines/next, page-break-before and widow control explicitly false.",
+        first_line_indent=18, keep_together=False, keep_with_next=False, page_break_before=False, widow_control=False, bidi=False))
+    for name in ["left", "center", "right", "decimal", "bar", "clear", "start", "end"]:
+        blocks.append(d.Paragraph(children=[d.TextRun(f"Tab {name}"), d.Tab(), d.TextRun("123.45")], tab_stops=[d.TabStop(216, name)]))
+    for leader in ["none", "dot", "hyphen", "underscore", "heavy", "middle_dot"]:
+        blocks.append(d.Paragraph(children=[d.TextRun(f"Tab leader={leader}"), d.Tab(), d.TextRun("at 288 pt")],
+            tab_stops=[d.TabStop(288, "right", leader), d.TabStop(-12, "clear")]))
+    blocks.append(heading("02 Run formatting, colors, scripts and whitespace"))
+    for name, fmt in [("Bold=true", {"bold": True}), ("Italic=true", {"italic": True}),
+            ("Strike=true", {"strike": True}), ("ALL CAPS=true", {"all_caps": True}),
+            ("Small caps=true", {"small_caps": True}), ("Superscript=true", {"superscript": True}),
+            ("Subscript=true", {"subscript": True}), ("Arial 16 pt, RGB 803020", {"font": "Arial", "size": 16, "color": (128, 48, 32)}),
+            ("Automatic color", {"color": "auto"})]:
+        blocks.append(run(name, **fmt))
+    for underline in ["none", "single", "double", "dotted", "dash", "wave", "words"]:
+        blocks.append(run(f"Underline={underline}: words with spaces", underline=underline))
+    for color in ["dark1", "light1", "dark2", "light2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
+                  "hyperlink", "followedHyperlink", "background1", "text1", "background2", "text2"]:
+        blocks.append(d.Paragraph(children=[d.TextRun(f"Theme {color} (light colors may be invisible on white): "),
+            d.TextRun("colored text", color={"theme": color, "tint": 32, "shade": 224})]))
+    blocks.append(run("Explicit false overrides: bold, italic, strike, caps, small caps, superscript, subscript and underline disabled.",
+        bold=False, italic=False, strike=False, all_caps=False, small_caps=False, superscript=False, subscript=False, underline="none"))
+    blocks.append(d.Paragraph(children=[d.TextRun("  Preserved leading and trailing spaces  "), d.TextRun(""),
+        d.TextRun("Unicode: café Ελληνικά 日本語 العربية; literal tab\tand newline\nend.")]))
+    blocks.append(d.Paragraph(children=[d.TextRun("Run language/script: en-US / ja-JP / ar-SA; العربية 日本語",
+        language=d.RunLanguage("en-US", "ja-JP", "ar-SA"), bold_complex_script=True, italic_complex_script=False,
+        size_complex_script=14, rtl=True, complex_script=True, font_east_asia="Yu Mincho", font_complex_script="Arial")], bidi=True))
+    blocks.append(run("Run RTL=false, complex_script=false, bCs=false, iCs=true; independent from paragraph direction.",
+        rtl=False, complex_script=False, bold_complex_script=False, italic_complex_script=True))
+    blocks.append(heading("03 Styles, inheritance, links and direct overrides"))
+    blocks.append(d.Paragraph(children=[d.TextRun("Paragraph style Catalog Child (forward base/next/link); "),
+        d.TextRun("character style Catalog Character with bold=false override", style="Catalog Character", bold=False)], style="Catalog Child"))
+    blocks.append(d.Paragraph(children=[d.TextRun("Updated template paragraph/character styles: original bold retained, italic added.",
+        style="Catalog Existing Character")], style="Catalog Existing"))
+    return blocks
+
+
+def styles() -> list:
+    """Author forward style references without copying inherited formatting."""
+    result = [d.ParagraphStyleDefinition(name="Catalog Child", base_style="Catalog Base", next_paragraph_style="Normal",
+        linked_style="Catalog Character", line_height=d.LineHeight.at_least(16), tab_stops=[d.TabStop(72)], bidi=False),
+        d.CharacterStyleDefinition(name="Catalog Character", base_style="Catalog Character Base", linked_style="Catalog Child",
+            bold=True, italic=True, color=(48, 64, 144)),
+        d.ParagraphStyleDefinition(name="Catalog Base", base_style="Normal", font="Arial", font_size=12, bold=True,
+            italic=False, underline=False, color=(24, 64, 96), alignment="left", spacing_before=6, spacing_after=6,
+            left_indent=0.25, right_indent=0.125, first_line_indent=-0.125, keep_together=True, keep_with_next=False,
+            page_break_before=False, widow_control=True, language=d.RunLanguage(latin="en-US"),
+            bold_complex_script=False, italic_complex_script=False, size_complex_script=12, rtl=False,
+            complex_script=False, font_east_asia="Yu Mincho", font_complex_script="Arial"),
+        d.CharacterStyleDefinition(name="Catalog Character Base", font="Calibri", size=12),
+        d.ParagraphStyleDefinition(name="Catalog Existing", italic=True),
+        d.CharacterStyleDefinition(name="Catalog Existing Character", italic=True)]
+    for name in REGIONS:
+        fmt = d.TableSectionFormat(bold=True, italic=False, underline=False, font="Calibri", font_size=10, color=(32, 48, 96),
+            background=(224, 238, 255), alignment="center", spacing_before=2, spacing_after=2,
+            line_height=d.LineHeight.at_least(12), tab_stops=[d.TabStop(36)], bidi=False,
+            language=d.RunLanguage("en-US", "ja-JP", "ar-SA"), bold_complex_script=False, italic_complex_script=False,
+            size_complex_script=10, rtl=False, complex_script=False, font_east_asia="Yu Mincho", font_complex_script="Arial")
+        result.append(d.TableStyleDefinition(name=f"Region {name}", base_style="Table Grid", **{name: fmt}))
+    return result
+
+
+def table_blocks() -> list:
+    """Show layouts, merges, row requests, every cell direction and region."""
+    blocks = [heading("04 Tables: layout, rows, cells, merges and nested content"),
+        p("Fixed table: 3 columns of 1440 twips; all six table-border sides; top/bottom/start/end cell borders; padding top=3, start=0, bottom=3, end=6 pt. Header row repeats; cannot split; minimum height=28 pt.")]
+    top = d.TableCell([p("Horizontal span=2; vertical merge restart; shaded; vertically centered")], grid_span=2, vmerge="restart",
+        background_color=(255, 238, 204), vertical_alignment="center", margins=d.CellMargins(3, 0, 3, 6),
+        borders=[d.CellBorder(side, sz=8, color=(128, 64, 32), val="dashed") for side in ["top", "bottom", "start", "end"]])
+    blocks.append(d.Table([
+        d.TableRow([top, cell("Top aligned cell")], height=d.RowHeight.at_least(28), repeat_header=True, cant_split=True),
+        d.TableRow([d.TableCell([p("")], grid_span=2, vmerge="continue"), d.TableCell([p("Bottom aligned cell")], vertical_alignment="bottom")],
+            height=d.RowHeight.exact(48), repeat_header=False, cant_split=False),
+        d.TableRow([cell("Short row: padded grid"), cell("Second cell")])], column_widths=[1440, 1440, 1440], layout="fixed",
+        borders=[d.TableBorder(side, sz=8, color=(32, 64, 96), val="single") for side in ["top", "left", "bottom", "right", "insideH", "insideV"]]))
+    blocks.append(p("Autofit table with nested table and trailing paragraph (nested tables need trailing paragraphs)."))
+    blocks.append(d.Table([d.TableRow([d.TableCell([d.Table([d.TableRow([cell("Nested fixed-width table")])], column_widths=[1440], layout="fixed"),
+        p("Paragraph after nested table")]), cell("Autofit neighbor")])], layout="autofit", column_widths=[2000, 2000]))
+    for direction in ["lrTb", "tbRl", "btLr", "lrTbV", "tbRlV", "tbLrV"]:
+        blocks.append(p(f"Cell text_direction={direction}; independent from paragraph bidi."))
+        blocks.append(d.Table([d.TableRow([d.TableCell([p(f"Text flow {direction}")], text_direction=direction, vertical_alignment="top")],
+            height=d.RowHeight.at_least(72))]))
+    for alignment in ["left", "center", "right", "start", "end"]:
+        blocks.append(p(f"Inline table alignment={alignment}; fixed width=2160 twips. No floating positioning or paragraph alignment is requested."))
+        blocks.append(d.Table([d.TableRow([cell(f"Table alignment: {alignment}")])], alignment=alignment, column_widths=[2160]))
+    blocks.append(p("Repeated-header pagination sample: 36 rows follow. The consumer decides actual page breaks."))
+    blocks.append(d.Table([d.TableRow([cell("Repeated header: index" if i == 0 else f"Row {i}"), cell("Minimum 20 pt; cannot split")],
+        height=d.RowHeight.at_least(20), repeat_header=i == 0, cant_split=True) for i in range(36)]))
+    blocks.append(p("Table look: all six activation flags=false (mask 0600). Whole-table formatting remains unconditional; no region formatting is copied to direct cells."))
+    blocks.append(d.Table([d.TableRow([cell("All conditional regions disabled; base whole_table still applies")])], style="Region whole_table",
+        look=d.TableLook(first_row=False, last_row=False, first_column=False, last_column=False, horizontal_banding=False, vertical_banding=False)))
+    blocks.append(heading("05 Conditional table styles: all 13 regions"))
+    blocks.append(p("Each table references a separate region style. All six table-look activation flags are explicitly enabled (mask 01E0). Region fill/font/paragraph/script requests stay in styles.xml, not direct cell formatting; the viewer applies conditional precedence. Base whole_table is unconditional."))
+    for name in REGIONS:
+        blocks.append(p(f"Conditional region={name}: blue shading, bold 10 pt, centered, minimum line=12 pt, tab=36 pt, bidi/RTL=false; language/script/font slots authored."))
+        blocks.append(d.Table([d.TableRow([cell(f"{name} r{r}c{c}") for c in range(1, 4)]) for r in range(1, 4)], style=f"Region {name}",
+            look=d.TableLook(first_row=True, last_row=True, first_column=True, last_column=True, horizontal_banding=True, vertical_banding=True)))
+    return blocks
+
+
+def link(label: str) -> d.Hyperlink:
+    """Use explicit display formatting; hyperlink targets are never fetched."""
+    return d.Hyperlink("https://example.com/inspection?q=docx#sample", [d.TextRun(label, color={"theme": "hyperlink"}, underline="single")],
+        tooltip="External link; never fetched by the library", history=True)
+
+
+def story_blocks() -> list:
+    """Lists, rich stories, range pairs, field caches and image formats."""
+    blocks = [heading("06 Lists, hyperlinks, bookmarks, comments, notes and cached fields")]
+    blocks.append(p("Concrete numbering-level replacements (numId=60): level 0 uses lowerLetter, text %1), replacement start=3 plus separate startOverride=7; level 1 uses upperRoman, text (%2), start=4. Abstract formats/starts are unchanged. The viewer computes the resulting labels."))
+    blocks.append(p("Legal numbering requests: abstract level 2 and replacement level 1 enable decimal display of referenced levels; replacement level 0 explicitly disables it. Other levels omit the request. numFmt tokens remain unchanged; the viewer renders labels."))
+    blocks.append(p("Numbering suffix requests: abstract level 2 explicitly uses tab; replacement level 0 uses space; replacement level 1 uses nothing. Other levels omit suff (consumer default: tab). Separators are not inserted into paragraph text by the library."))
+    blocks.append(p("Level restart requests: abstract level 2 and replacement level 0 use 0 (never restart); replacement level 1 uses trigger 1 (one-based first level). Other levels omit lvlRestart (restart after the preceding level). This is independent of concrete startOverride; the viewer calculates counters."))
+    blocks.append(p("Numbering-label alignment: abstract levels 0..4 request left, center, right, start, end; replacement levels 0/1 request end/start. Remaining levels omit lvlJc (direction-dependent consumer default). Paragraph text alignment is independent; the viewer positions generated labels."))
+    for level in range(9):
+        blocks.append(d.Paragraph(text=f"Numbered list: concrete numId=60 level={level}; abstract start=1; concrete level 0 restart=7, level 8 restart=0. Labels are computed by your viewer.", numbering=d.NumberingReference(60, level)))
+    blocks.append(d.Paragraph(text="Bullet list: numId=61, literal bullet label.", numbering=d.NumberingReference(61, 0)))
+    blocks.append(d.Paragraph(children=[link("External hyperlink: example.com (tooltip and history=true)")]))
+    blocks.append(d.Paragraph(children=[d.Hyperlink(d.BookmarkTarget("CatalogBookmark"), [d.TextRun("Internal hyperlink: jump to CatalogBookmark")], history=False)]))
+    blocks.append(d.Paragraph(children=[d.RangeStart.bookmark("CatalogBookmark"), d.TextRun("Bookmark CatalogBookmark starts here. "),
+        d.RangeStart.bookmark("OverlappingBookmark"), d.RangeStart.comment("cross-paragraph-review", "Cross-paragraph plain comment", "Range reviewer"),
+        d.TextRun("Overlapping bookmark and comment begin.")]))
+    blocks.append(d.Paragraph(children=[d.TextRun("Cross-paragraph bookmark ends; overlapping bookmark continues. "),
+        d.RangeEnd.bookmark("CatalogBookmark"), d.RangeEnd.bookmark("OverlappingBookmark"), d.RangeEnd("cross-paragraph-review")]))
+    comment = d.Comment([p("Structured comment: paragraph, table, image and hyperlink."), d.Table([d.TableRow([cell("Comment table")])]),
+        d.Paragraph(children=[image("png", {"width": 18}), link("Comment external link")])], author="Structured reviewer", date=STAMP, initials="SR")
+    blocks.append(d.Paragraph(children=[d.RangeStart.structured_comment("structured-review", comment),
+        d.TextRun("Structured comment anchor: inspect the comment pane."), d.RangeEnd("structured-review")]))
+    blocks.append(d.Paragraph(children=[d.TextRun("Run comment convenience anchor", comment_text="Run convenience comment", comment_author="Run reviewer")],
+        comment_text="Paragraph convenience comment", comment_author="Paragraph reviewer"))
+    blocks.append(d.Paragraph(children=[d.TextRun("Footnote reference"), d.NoteReference.footnote(0), d.TextRun("; endnote reference"), d.NoteReference.endnote(0)]))
+    for instruction, label in [(d.FieldInstruction.page(), "PAGE"), (d.FieldInstruction.num_pages(), "NUMPAGES"),
+            (d.FieldInstruction.reference("CatalogBookmark"), "REF CatalogBookmark"), (d.FieldInstruction.table_of_contents(), "TOC"),
+            (d.FieldInstruction.raw(" DATE "), "raw DATE")]:
+        for form in ["simple", "complex"]:
+            blocks.append(d.Paragraph(children=[d.TextRun(f"Field {form} {label}: "), d.Field(instruction,
+                [d.TextRun(f"[{label} cached placeholder]")], form=form, dirty=True, locked=False)]))
+    blocks.append(d.Paragraph(children=[d.TextRun("Nested cached field (outer complex locked=true): "),
+        d.Field(d.FieldInstruction.raw(" IF 1 = 1 "), [d.Field(d.FieldInstruction.page(), [d.TextRun("[nested PAGE cache]")])],
+            form="complex", dirty=False, locked=True)]))
+    blocks.append(heading("07 Inline images and explicit breaks"))
+    for ext, label, size in [("png", "PNG width-only 48 pt (aspect retained)", {"width": 48}),
+            ("jpg", "JPEG height-only 36 pt (aspect retained)", {"height": 36}), ("gif", "GIF both dimensions 48 x 24 pt", {"width": 48, "height": 24}),
+            ("bmp", "BMP native density-derived size", None), ("tiff", "TIFF native density-derived size", None), ("zero", "PNG zero-DPI fallback size", None)]:
+        blocks.append(p(f"Image: {label}; accessibility title/description/name authored."))
+        blocks.append(d.Paragraph(children=[image(ext, size)]))
+    blocks.append(d.Paragraph(children=[d.Hyperlink("https://example.com/image", [image("png", {"width": 24}), d.Tab(),
+        d.TextRun("Linked image, tab and line break"), d.Break(), d.TextRun("Same PNG bytes are deduplicated in the package.")])]))
+    blocks.append(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."))
+    async def image_bytes() -> bytes:
+        return (IMAGES / "sample.png").read_bytes()
+    blocks.append(d.Paragraph(children=[d.ImageRun(IMAGES / "sample.png", type="png", transformation={"width": 24}),
+        d.ImageRun(image_bytes, transformation=lambda: {"height": 24}, alt_text=lambda: {"description": "Deferred image accessibility"})]))
+    for kind, name in [("line", "line"), ("textWrapping", "textWrapping"), ("page", "page"), ("column", "column")]:
+        blocks.append(d.Paragraph(children=[d.TextRun(f"Before explicit {name} break"), d.Break(kind), d.TextRun(f"After explicit {name} break")]))
+    return blocks
+
+
+async def generate(output: pathlib.Path) -> bytes:
+    """Save the catalog and its template; return deterministic final bytes."""
+    seed = d.Paragraph(children=[d.TextRun("Template {{re"), d.TextRun("place}}: cross-run replacement.")])
+    template_path = output.with_suffix(".template.docx")
+    await d.Document([d.Section([seed, p("Template retained paragraph: insertion appears before this.")])], timestamp=STAMP,
+        styles=[d.ParagraphStyleDefinition(name="Catalog Existing", bold=True),
+            d.CharacterStyleDefinition(name="Catalog Existing Character", bold=True)]).save(template_path)
+    blocks = [p("ALL FEATURES — visual inspection catalog"),
+        p("Each sample names its requested feature. Field caches are placeholders; update fields in your viewer. Font fallback, pagination and conditional table-style activation depend on the viewer. Inspect comments, footnotes, endnotes and document properties too."),
+        p("Document defaults: Calibri 11 pt, after spacing 4 pt, 1.1 line height. See template replacement at the start and the retained template paragraph after topic 08.")]
+    blocks.extend(formatting_blocks())
+    blocks.extend(table_blocks())
+    blocks.extend(story_blocks())
+    blocks.append(heading("08 Authoring: ready, lazy, async, references, conditions and snapshot reuse"))
+    blocks.append(p("Ready value: this paragraph was supplied immediately."))
+    blocks.append(d.Paragraph(text=lambda: "Lazy value: this paragraph was produced by a factory."))
+    async def async_text() -> str:
+        return "Async value: this paragraph was produced by an awaitable."
+    blocks.append(d.Paragraph(text=async_text))
+    async def shared_text() -> str:
+        return "Shared reference: computed once and used twice."
+    shared = d.Paragraph(text=shared_text)
+    blocks.extend([d.Paragraph(text=shared.deferred("text")), d.Paragraph(text=shared.deferred("text"))])
+    blocks.append(d.Paragraph(text=d.Deferred(lambda: "Explicit Deferred: shared computation.")))
+    blocks.append(d.Paragraph(text="Condition true: this paragraph is visible.", condition=True))
+    def excluded() -> str:
+        raise AssertionError("excluded producer must not execute")
+    blocks.append(d.Paragraph(text=excluded, condition=False))
+    blocks.append(p("Condition false: the excluded paragraph is absent and its producer did not execute."))
+    reusable = await p("Resolved-child reuse: immutable paragraph used twice.").resolve()
+    blocks.extend([reusable, reusable])
+    inline = await d.TextRun("Resolved-inline reuse: immutable run used twice.").resolve()
+    blocks.append(d.Paragraph(children=[inline, inline]))
+    headers = {name: d.Header([d.Paragraph(children=[d.TextRun(f"Header {name}: "), link("owner-local external hyperlink"), image("png", {"width": 12})])])
+               for name in ["default", "first", "even"]}
+    footers = {name: d.Footer([d.Paragraph(children=[d.TextRun(f"Footer {name}: PAGE "), d.Field(d.FieldInstruction.page(), [d.TextRun("1")]),
+        d.TextRun(" / NUMPAGES "), d.Field(d.FieldInstruction.num_pages(), [d.TextRun("1")])])]) for name in ["default", "first", "even"]}
+    first = d.Section(blocks, properties=d.SectionProperties(page_size={"width": 7772400, "height": 10058400},
+        page_orientation="portrait", page_margins={"top": 914400, "bottom": 914400, "left": 914400, "right": 914400},
+        title_page=True, bidi=False, rtl_gutter=False), headers=headers, footers=footers)
+    sections = [first]
+    for i, kind in enumerate(["nextPage", "nextColumn", "continuous", "evenPage", "oddPage"]):
+        valign = ["top", "center", "bottom", "both", "top"][i]
+        flag = str(i % 2 == 1).lower()
+        sections.append(d.Section([
+            p(f"09 Section: break={kind}; landscape; 2 columns with separator; page numbering lowerRoman starts at {i+1}; vertical alignment={valign}; section bidi={flag}; rtl_gutter={flag}."),
+            p("Section layout request: physical margins remain unchanged. Gutter placement does not create a gutter amount. This is the first column."),
+            d.Paragraph(children=[d.Break("column"), d.TextRun("This follows a column break in the section sample.")])],
+            properties=d.SectionProperties(type=kind, page_orientation="landscape", columns={"count": 2, "space": 360, "separator": True},
+                page_numbering={"start": i+1, "format": "lowerRoman"}, vertical_align=valign, title_page=False, bidi=i % 2 == 1, rtl_gutter=i % 2 == 1)))
+    notes = [d.Note.footnote(0, [p("Footnote body: rich paragraph, table, image and external hyperlink."),
+        d.Table([d.TableRow([cell("Footnote table")])]), d.Paragraph(children=[image("png", {"width": 18}), link("Footnote external link")])]),
+        d.Note.endnote(0, [p("Endnote body: this is an endnote, distinct from footnote id=0.")])]
+    numbering = [d.NumberingDefinition(60, [d.NumberingLevel(level, 1, "lowerRoman" if level == 1 else "decimal", f"%{level+1}.", is_legal=True if level == 2 else None, suffix="tab" if level == 2 else None, restart=0 if level == 2 else None, alignment=["left", "center", "right", "start", "end"][level] if level < 5 else None) for level in range(9)],
+        start_overrides=[d.NumberingStartOverride(0, 7), d.NumberingStartOverride(8, 0)],
+        level_overrides=[d.NumberingLevel(1, 4, "upperRoman", "(%2)", is_legal=True, suffix="nothing", restart=1, alignment="start"), d.NumberingLevel(0, 3, "lowerLetter", "%1)", is_legal=False, suffix="space", restart=0, alignment="end")]),
+        d.NumberingDefinition(61, [d.NumberingLevel(0, 1, "bullet", "•")])]
+    document = d.Document(sections, timestamp=STAMP, creator="DOCX inspection catalog", title="All features visual inspection",
+        subject="Rust/Python byte parity", description="Labeled functionality samples; not a rendering guarantee", keywords="docx,visual,parity",
+        category="Examples", comments="Core metadata comments", version="1.0", comment_author="Catalog reviewer",
+        defaults=d.DocumentDefaults(run=d.RunDefaults(font="Calibri", size=11),
+            paragraph=d.ParagraphDefaults(spacing_after=4, line_height=d.LineHeight.multiple(1.1))),
+        styles=styles(), numbering=numbering, notes=notes)
+    snapshot = await document.resolve()
+    options = rv_docx.RenderOptions(timestamp=STAMP, profile="transitional",
+        read_limits=rv_docx.ReadLimits(max_parts=10000, max_part_bytes=67108864, max_expanded_bytes=268435456))
+    template = d.DocumentTemplate(template_path, replacements={"{{replace}}": "REPLACED"}, paragraph_index=1, scope="supported_stories")
+    data = await snapshot.to_bytes(template, options=options)
+    assert data == await snapshot.to_bytes(template, options=options)
+    await snapshot.save(output, template, options=options)
+    return data
+
+
+if __name__ == "__main__":
+    asyncio.run(generate(pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "examples/all_features-python.docx")))

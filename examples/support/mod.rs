@@ -17,6 +17,8 @@ pub fn document() -> Document {
         spacing_before: Some(6.),
         spacing_after: Some(4.),
         line_spacing: Some(1.2),
+        line_height: None,
+        tab_stops: Vec::new(),
         left_indent: Some(0.25),
         right_indent: Some(0.5),
         first_line_indent: Some(-0.125),
@@ -24,6 +26,7 @@ pub fn document() -> Document {
         keep_with_next: Some(false),
         page_break_before: Some(false),
         widow_control: Some(true),
+        ..Default::default()
     };
     let table_style = TableStyleDefinition {
         name: "ReportTable".into(),
@@ -126,6 +129,8 @@ pub fn document() -> Document {
         vmerge: Some(VerticalMerge::Restart),
         background_color: Some([255, 238, 221]),
         vertical_alignment: Some(VerticalAlignment::Center),
+        margins: None,
+        text_direction: None,
         borders: vec![CellBorder {
             side: CellBorderSide::Top,
             sz: 4,

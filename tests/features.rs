@@ -295,6 +295,8 @@ fn sections_support_all_declared_properties_and_inherit_unspecified_values() {
         vertical_align: Some(VerticalAlignment::Center),
         title_page: Some(true),
         r#type: Some(SectionType::OddPage),
+        bidi: None,
+        rtl_gutter: None,
     })
     .into();
     let bytes = bytes(Document::new(vec![
@@ -457,11 +459,17 @@ fn custom_numbering_is_linked_to_paragraphs_and_ids_cannot_collide() {
     let mut document = doc(vec![p.into()]);
     document.numbering = vec![NumberingDefinition {
         id: 42,
+        start_overrides: Vec::new(),
+        level_overrides: Vec::new(),
         levels: vec![NumberingLevel {
             level: 0,
             start: 1,
             format: "decimal".into(),
             text: "%1.".into(),
+            is_legal: None,
+            suffix: None,
+            restart: None,
+            alignment: None,
         }],
     }]
     .into();

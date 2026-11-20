@@ -103,6 +103,7 @@ pub(crate) fn compile(
         &main,
         &doc.styles,
         &doc.numbering,
+        doc.defaults.as_ref(),
     )?;
     properties::metadata(
         &mut package,

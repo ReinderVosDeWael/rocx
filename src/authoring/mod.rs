@@ -19,6 +19,7 @@ pub struct Document {
     pub timestamp: Value<Option<String>>,
     pub styles: Value<Vec<StyleDefinition>>,
     pub numbering: Value<Vec<NumberingDefinition>>,
+    pub defaults: Value<Option<DocumentDefaults>>,
 }
 
 impl Document {

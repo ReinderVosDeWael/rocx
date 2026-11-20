@@ -46,31 +46,89 @@ pub(crate) fn style_id(styles: &Node, name: &str) -> Result<String> {
             ))
         })
 }
+fn typed_style_id(styles: &Node, name: &str, kind: &str) -> Result<String> {
+    let id = style_id(styles, name)?;
+    let style = styles
+        .elements()
+        .find(|node| node.get("w:styleId") == Some(id.as_str()))
+        .unwrap();
+    if style.get("w:type").unwrap_or("paragraph") != kind {
+        return Err(Diagnostic::new(
+            Rule::InvalidContent,
+            format!("style {name:?} must be a {kind} style"),
+        )
+        .into());
+    }
+    Ok(id)
+}
+fn validate_inheritance(styles: &Node, roots: &[(String, bool)]) -> Result<()> {
+    let parents: std::collections::BTreeMap<_, _> = styles
+        .elements()
+        .filter(|node| node.name == "w:style")
+        .filter_map(|node| {
+            Some((
+                node.get("w:styleId")?,
+                node.child("w:basedOn")
+                    .and_then(|parent| parent.get("w:val")),
+            ))
+        })
+        .collect();
+    for (index, (root, _)) in roots.iter().enumerate() {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut current = Some(root.as_str());
+        while let Some(id) = current {
+            if !seen.insert(id) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    format!("style inheritance cycle reachable from {root:?}"),
+                )
+                .at(format!("styles[{index}].base_style"))
+                .into());
+            }
+            current = parents.get(id).copied().flatten();
+        }
+    }
+    Ok(())
+}
 fn apply_run(style: &mut Node, f: &RunFormat) -> Result<()> {
     let rpr = style.ensure("w:rPr");
     crate::ooxml::wordprocessing::format::merge_properties(
         rpr,
         crate::ooxml::wordprocessing::format::run(f)?,
     );
-    if f.font.is_some()
-        && let Some(fonts) = rpr.child_mut("w:rFonts")
-    {
-        fonts
-            .attrs
-            .retain(|(k, _)| k != "w:asciiTheme" && k != "w:hAnsiTheme");
+    if let Some(fonts) = rpr.child_mut("w:rFonts") {
+        for (theme, overridden) in [
+            ("w:asciiTheme", f.font.is_some()),
+            ("w:hAnsiTheme", f.font.is_some()),
+            ("w:eastAsiaTheme", f.font_east_asia.is_some()),
+            ("w:cstheme", f.font_complex_script.is_some()),
+        ] {
+            if overridden {
+                fonts.attrs.retain(|(name, _)| name != theme);
+            }
+        }
     }
     Ok(())
 }
 fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
     let mut n = Node::new("w:tblStylePr");
-    let r = crate::ooxml::wordprocessing::format::run(&font(
+    let mut run = font(
         &fmt.font,
         fmt.font_size,
         fmt.bold,
         fmt.italic,
         fmt.underline,
         fmt.color,
-    ))?;
+    );
+    run.language = fmt.language.clone();
+    run.bold_complex_script = fmt.bold_complex_script;
+    run.italic_complex_script = fmt.italic_complex_script;
+    run.size_complex_script = fmt.size_complex_script;
+    run.rtl = fmt.rtl;
+    run.complex_script = fmt.complex_script;
+    run.font_east_asia = fmt.font_east_asia.clone();
+    run.font_complex_script = fmt.font_complex_script.clone();
+    let r = crate::ooxml::wordprocessing::format::run(&run)?;
     if !r.children.is_empty() {
         n.push(r);
     }
@@ -79,6 +137,9 @@ fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
             alignment: fmt.alignment,
             spacing_before: fmt.spacing_before,
             spacing_after: fmt.spacing_after,
+            line_height: fmt.line_height,
+            tab_stops: fmt.tab_stops.clone(),
+            bidi: fmt.bidi,
             ..ParagraphFormat::default()
         },
         20.,
@@ -96,16 +157,53 @@ pub(crate) fn apply(
     main: &str,
     definitions: &[StyleDefinition],
     numbering: &[NumberingDefinition],
+    defaults: Option<&crate::DocumentDefaults>,
 ) -> Result<Node> {
     let style_path = package
         .related(main, "styles")?
         .map(|(_, p)| p)
         .unwrap_or("word/styles.xml".into());
     let mut styles = package.word(&style_path)?;
+    if let Some(defaults) = defaults {
+        defaults.validate()?;
+        if let Some(run) = &defaults.run {
+            apply_run(styles.ensure("w:docDefaults").ensure("w:rPrDefault"), run)?;
+        }
+        if let Some(paragraph) = &defaults.paragraph {
+            let target = styles
+                .ensure("w:docDefaults")
+                .ensure("w:pPrDefault")
+                .ensure("w:pPr");
+            if let Some(ind) = target.child_mut("w:ind") {
+                // Character-unit attributes take precedence over point lengths.
+                ind.attrs.retain(|(name, _)| {
+                    !(paragraph.first_line_indent.is_some()
+                        && [
+                            "w:firstLine",
+                            "w:hanging",
+                            "w:firstLineChars",
+                            "w:hangingChars",
+                        ]
+                        .iter()
+                        .any(|key| name == key))
+                        && !(paragraph.left_indent.is_some() && name == "w:leftChars")
+                        && !(paragraph.right_indent.is_some() && name == "w:rightChars")
+                });
+            }
+            crate::ooxml::wordprocessing::format::merge_properties(
+                target,
+                crate::ooxml::wordprocessing::format::paragraph(paragraph, 20.)?,
+            );
+        }
+    }
+    // Reserve identities before resolving links so authored references can point
+    // forward. Existing paragraph styles still update in place; table duplicates fail.
+    let mut allocated = Vec::with_capacity(definitions.len());
     for definition in definitions {
-        let (name, typ, base) = match definition {
-            StyleDefinition::Paragraph(s) => (&s.name, "paragraph", &s.base_style),
-            StyleDefinition::Table(s) => (&s.name, "table", &s.base_style),
+        let (name, typ) = match definition {
+            StyleDefinition::Character(s) => (&s.name, "character"),
+            StyleDefinition::Paragraph(s) => (&s.name, "paragraph"),
+            StyleDefinition::Table(s) => (&s.name, "table"),
         };
         if name.is_empty() {
             return Err(Error::Validation("style name cannot be empty".into()));
@@ -115,6 +213,9 @@ pub(crate) fn apply(
             return Err(Error::Validation(format!(
                 "table style {name:?} already exists"
             )));
+        }
+        if existing.is_some() {
+            typed_style_id(&styles, name, typ)?;
         }
         let id = existing.clone().unwrap_or_else(|| name.replace(' ', ""));
         if existing.is_none() {
@@ -126,42 +227,101 @@ pub(crate) fn apply(
                     "style IDs collide after removing spaces".into(),
                 ));
             }
-            let mut style = Node::new("w:style")
+            let style = Node::new("w:style")
                 .attr("w:type", typ)
                 .attr("w:customStyle", "1")
                 .attr("w:styleId", &id)
                 .with(val("name", name));
-            if let Some(base) = base {
-                style.push(val("basedOn", style_id(&styles, base)?));
-            }
             styles.push(style);
         }
+        allocated.push((id, existing.is_none()));
+    }
+    for (index, (definition, (id, created))) in definitions.iter().zip(&allocated).enumerate() {
+        let (base, kind) = match definition {
+            StyleDefinition::Character(s) => (
+                if *created {
+                    s.base_style.as_ref()
+                } else {
+                    None
+                },
+                "character",
+            ),
+            StyleDefinition::Paragraph(s) => (
+                if *created {
+                    s.base_style.as_ref()
+                } else {
+                    None
+                },
+                "paragraph",
+            ),
+            StyleDefinition::Table(s) => (s.base_style.as_ref(), "table"),
+        };
+        let base = base
+            .map(|name| typed_style_id(&styles, name, kind))
+            .transpose()
+            .map_err(|error| error.at(format!("styles[{index}].base_style")))?;
         let next = match definition {
             StyleDefinition::Paragraph(s) => s
                 .next_paragraph_style
                 .as_ref()
-                .map(|n| style_id(&styles, n))
-                .transpose()?,
+                .map(|n| typed_style_id(&styles, n, "paragraph"))
+                .transpose()
+                .map_err(|error| error.at(format!("styles[{index}].next_paragraph_style")))?,
             _ => None,
         };
+        let linked = match definition {
+            StyleDefinition::Paragraph(s) => {
+                s.linked_style.as_ref().map(|name| (name, "character"))
+            }
+            StyleDefinition::Character(s) => {
+                s.linked_style.as_ref().map(|name| (name, "paragraph"))
+            }
+            StyleDefinition::Table(_) => None,
+        }
+        .map(|(name, kind)| typed_style_id(&styles, name, kind))
+        .transpose()
+        .map_err(|error| error.at(format!("styles[{index}].linked_style")))?;
         let style = styles
             .elements_mut()
             .find(|n| n.get("w:styleId") == Some(id.as_str()))
             .unwrap();
+        if let Some(base) = base {
+            style.push(val("basedOn", base));
+        }
+        if let Some(linked) = linked {
+            style.replace(val("link", linked));
+        }
         match definition {
+            StyleDefinition::Character(s) => {
+                if s.format.style.is_some() {
+                    return Err(Diagnostic::new(Rule::InvalidContent,
+                        "character style formatting cannot contain a run style reference; use base_style")
+                        .at(format!("styles[{index}].format.style")).into());
+                }
+                apply_run(style, &s.format)?;
+            }
             StyleDefinition::Paragraph(s) => {
                 if let Some(next) = next {
                     style.replace(val("next", next));
                 }
-                apply_run(
-                    style,
-                    &font(&s.font, s.font_size, s.bold, s.italic, s.underline, s.color),
-                )?;
+                let mut run = font(&s.font, s.font_size, s.bold, s.italic, s.underline, s.color);
+                run.language = s.language.clone();
+                run.bold_complex_script = s.bold_complex_script;
+                run.italic_complex_script = s.italic_complex_script;
+                run.size_complex_script = s.size_complex_script;
+                run.rtl = s.rtl;
+                run.complex_script = s.complex_script;
+                run.font_east_asia = s.font_east_asia.clone();
+                run.font_complex_script = s.font_complex_script.clone();
+                apply_run(style, &run)?;
                 let p = ParagraphFormat {
+                    bidi: s.bidi,
                     alignment: s.alignment,
                     spacing_before: s.spacing_before,
                     spacing_after: s.spacing_after,
                     line_spacing: s.line_spacing,
+                    line_height: s.line_height,
+                    tab_stops: s.tab_stops.clone(),
                     left_indent: s.left_indent,
                     right_indent: s.right_indent,
                     first_line_indent: s.first_line_indent,
@@ -206,6 +366,7 @@ pub(crate) fn apply(
             }
         }
     }
+    validate_inheritance(&styles, &allocated)?;
     package.put_word(&style_path, styles.clone())?;
     if !numbering.is_empty() {
         let numbering_path = package
@@ -214,6 +375,7 @@ pub(crate) fn apply(
             .unwrap_or("word/numbering.xml".into());
         let mut nums = package.word(&numbering_path)?;
         for def in numbering {
+            def.validate()?;
             if nums
                 .elements()
                 .any(|n| n.get("w:numId") == Some(def.id.to_string().as_str()))
@@ -229,27 +391,56 @@ pub(crate) fn apply(
                 + 1;
             let mut abs = Node::new("w:abstractNum").attr("w:abstractNumId", absid);
             for l in &def.levels {
-                if l.level > 8 {
-                    return Err(Error::Validation("numbering level must be in 0..=8".into()));
-                }
-                abs.push(
-                    Node::new("w:lvl")
-                        .attr("w:ilvl", l.level)
-                        .with(val("start", l.start))
-                        .with(val("numFmt", &l.format))
-                        .with(val("lvlText", &l.text)),
-                );
+                abs.push(numbering_level(l));
             }
             nums.push(abs);
-            nums.push(
-                Node::new("w:num")
-                    .attr("w:numId", def.id)
-                    .with(val("abstractNumId", absid)),
-            );
+            let mut concrete = Node::new("w:num")
+                .attr("w:numId", def.id)
+                .with(val("abstractNumId", absid));
+            let mut overrides = std::collections::BTreeMap::new();
+            for entry in &def.start_overrides {
+                overrides.insert(
+                    entry.level,
+                    Node::new("w:lvlOverride")
+                        .attr("w:ilvl", entry.level)
+                        .with(val("startOverride", entry.start)),
+                );
+            }
+            for entry in &def.level_overrides {
+                overrides
+                    .entry(entry.level)
+                    .or_insert_with(|| Node::new("w:lvlOverride").attr("w:ilvl", entry.level))
+                    .push(numbering_level(entry));
+            }
+            for entry in overrides.into_values() {
+                concrete.push(entry);
+            }
+            nums.push(concrete);
         }
         package.put_word(&numbering_path, nums)?;
     }
     Ok(styles)
+}
+
+fn numbering_level(level: &crate::NumberingLevel) -> Node {
+    let mut node = Node::new("w:lvl")
+        .attr("w:ilvl", level.level)
+        .with(val("start", level.start))
+        .with(val("numFmt", &level.format));
+    if let Some(restart) = level.restart {
+        node.push(val("lvlRestart", restart));
+    }
+    if let Some(enabled) = level.is_legal {
+        node.push(val("isLgl", u8::from(enabled)));
+    }
+    if let Some(suffix) = level.suffix {
+        node.push(val("suff", suffix.xml()));
+    }
+    node.push(val("lvlText", &level.text));
+    if let Some(alignment) = level.alignment {
+        node.push(val("lvlJc", alignment.xml()));
+    }
+    node
 }
 
 use crate::ooxml::WordParts;

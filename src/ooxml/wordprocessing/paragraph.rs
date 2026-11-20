@@ -14,7 +14,7 @@ impl Compiler<'_> {
             style.set(
                 "w:val",
                 self.styles
-                    .get(style.get("w:val").unwrap())
+                    .get_typed(style.get("w:val").unwrap(), "paragraph")
                     .map_err(|error| error.at(context.source.as_str()))?,
             );
         }
@@ -93,7 +93,14 @@ impl Compiler<'_> {
             | ResolvedInline::RangeEnd(_) => unreachable!("handled structural inline above"),
             ResolvedInline::NoteReference(_) => unreachable!("handled note reference above"),
         };
-        let rpr = crate::ooxml::wordprocessing::format::run(run.format().expect("leaf run"))?;
+        let mut rpr = crate::ooxml::wordprocessing::format::run(run.format().expect("leaf run"))?;
+        if let Some(style) = rpr.child_mut("w:rStyle") {
+            let id = self
+                .styles
+                .get_typed(style.get("w:val").unwrap(), "character")
+                .map_err(|error| error.at(context.source.as_str()))?;
+            style.set("w:val", id);
+        }
         if !rpr.children.is_empty() {
             n.children.insert(0, Content::Element(rpr));
         }

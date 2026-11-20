@@ -18,8 +18,8 @@ except ImportError as error:
 
 from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION_START
-from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT, WD_TAB_LEADER
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, Twips
@@ -43,6 +43,229 @@ class Readback(unittest.TestCase):
         # Mutation tests require this marker before accepting an assertion failure:
         # a broken ZIP/XML file is not evidence that semantic checks work.
         print(f"Loaded DOCX: {self.path}", flush=True)
+
+    def test_numbering_overrides(self):
+        numbering = self.document.part.numbering_part.element
+        num = next(n for n in numbering if n.get(qn("w:numId")) == "42")
+        abstract_id = num.find(qn("w:abstractNumId")).get(qn("w:val"))
+        abstract = next(n for n in numbering if n.get(qn("w:abstractNumId")) == abstract_id)
+        self.assertEqual(abstract.find(qn("w:lvl")).find(qn("w:start")).get(qn("w:val")), "1")
+        override = num.find(qn("w:lvlOverride"))
+        self.assertEqual(override.get(qn("w:ilvl")), "0")
+        self.assertEqual(override.find(qn("w:startOverride")).get(qn("w:val")), "7")
+        self.assertEqual(self.document.paragraphs[0].text, "restart")
+
+    def test_character_styles(self):
+        style = self.document.styles["Child Character"]
+        self.assertEqual(style.base_style.name, "Later Character")
+        self.assertTrue(style.font.italic)
+        self.assertEqual(style._element.find(qn("w:rPr")).find(qn("w:szCs")).get(qn("w:val")), "29")
+        run = self.document.paragraphs[0].runs[0]
+        self.assertEqual(run.style.name, "Child Character")
+        self.assertFalse(run.bold)
+        self.assertIsNone(run.italic)
+        self.assertEqual(run.text, "styled")
+
+    def test_style_references(self):
+        self.assertEqual(self.document.styles["Child"].base_style.name, "Later Base")
+        self.assertEqual(self.document.styles["Child"].next_paragraph_style.name, "Later Next")
+        self.assertEqual(self.document.styles["Later Next"].next_paragraph_style.name, "Later Next")
+
+    def test_table_look(self):
+        table = self.document.tables[0]
+        node = table._tbl.find(qn("w:tblPr")).find(qn("w:tblLook"))
+        for name, expected in [("firstRow", "1"), ("lastRow", "1"), ("firstColumn", "0"), ("lastColumn", "1"), ("noHBand", "1"), ("noVBand", "0"), ("val", "0360")]:
+            self.assertEqual(node.get(qn(f"w:{name}")), expected)
+        self.assertEqual(table.cell(0, 0).text, "table-look request, not computed formatting")
+        self.assertIsNone(table.cell(0, 0).paragraphs[0].runs[0].bold)
+
+    def test_table_alignment(self):
+        tables = self.document.tables
+        self.assertEqual([None if (n := table._tbl.find(qn("w:tblPr")).find(qn("w:jc"))) is None else n.get(qn("w:val")) for table in tables], [None, "left", "center", "right", "start", "end"])
+        for table in tables:
+            self.assertEqual(table._tbl.find(qn("w:tblGrid")).find(qn("w:gridCol")).get(qn("w:w")), "1440")
+            paragraph = table.cell(0, 0).paragraphs[0]
+            self.assertEqual(paragraph.text, "table alignment, not text alignment")
+            self.assertEqual(paragraph._p.find(qn("w:pPr")).find(qn("w:jc")).get(qn("w:val")), "right")
+
+    def test_numbering_alignment(self):
+        root = self.document.part.numbering_part.element
+        num = next(n for n in root if n.get(qn("w:numId")) == "80")
+        identity = num.find(qn("w:abstractNumId")).get(qn("w:val"))
+        abstract = next(n for n in root if n.get(qn("w:abstractNumId")) == identity)
+        replacements = [n.find(qn("w:lvl")) for n in num.findall(qn("w:lvlOverride"))]
+        requests = [None, "left", "center", "right", "start", "end"]
+        for nodes, expected in [(abstract.findall(qn("w:lvl")), requests), (replacements, list(reversed(requests)))]:
+            self.assertEqual([None if (n := level.find(qn("w:lvlJc"))) is None else n.get(qn("w:val")) for level in nodes], expected)
+        self.assertEqual(self.document.paragraphs[0].text, "label alignment, not paragraph alignment")
+        self.assertEqual(self.document.paragraphs[0]._p.find(qn("w:pPr")).find(qn("w:jc")).get(qn("w:val")), "right")
+
+    def test_numbering_restart(self):
+        root = self.document.part.numbering_part.element
+        num = next(n for n in root if n.get(qn("w:numId")) == "80")
+        abstract_id = num.find(qn("w:abstractNumId")).get(qn("w:val"))
+        abstract = next(n for n in root if n.get(qn("w:abstractNumId")) == abstract_id)
+        replacements = [n.find(qn("w:lvl")) for n in num.findall(qn("w:lvlOverride"))]
+        requests = [None, "0", "1", "2", "4294967295"]
+        for nodes, expected in [(abstract.findall(qn("w:lvl")), requests), (replacements, list(reversed(requests)))]:
+            self.assertEqual([None if (n := level.find(qn("w:lvlRestart"))) is None else n.get(qn("w:val")) for level in nodes], expected)
+            self.assertEqual([level.find(qn("w:start")).get(qn("w:val")) for level in nodes], ["3"] * 5)
+        self.assertEqual(num.findall(qn("w:lvlOverride"))[2].find(qn("w:startOverride")).get(qn("w:val")), "7")
+        self.assertEqual(self.document.paragraphs[0].text, "restart request, not a calculated counter")
+
+    def test_numbering_suffix(self):
+        root = self.document.part.numbering_part.element
+        num = next(n for n in root if n.get(qn("w:numId")) == "80")
+        abstract_id = num.find(qn("w:abstractNumId")).get(qn("w:val"))
+        abstract = next(n for n in root if n.get(qn("w:abstractNumId")) == abstract_id)
+        replacements = [n.find(qn("w:lvl")) for n in num.findall(qn("w:lvlOverride"))]
+        tokens = [None, "tab", "space", "nothing"]
+        for nodes, expected in [(abstract.findall(qn("w:lvl")), tokens), (replacements, list(reversed(tokens)))]:
+            self.assertEqual([None if (n := level.find(qn("w:suff"))) is None else n.get(qn("w:val")) for level in nodes], expected)
+            self.assertEqual([level.find(qn("w:numFmt")).get(qn("w:val")) for level in nodes], ["upperRoman"] * 4)
+        self.assertEqual(self.document.paragraphs[0].text, "suffix request, not inserted text")
+
+    def test_numbering_replacements(self):
+        root = self.document.part.numbering_part.element
+        num = next(n for n in root if n.get(qn("w:numId")) == "42")
+        overrides = num.findall(qn("w:lvlOverride"))
+        self.assertEqual([n.get(qn("w:ilvl")) for n in overrides], ["0", "1", "2"])
+        self.assertEqual([n.tag for n in overrides[0]], [qn("w:startOverride"), qn("w:lvl")])
+        level = overrides[0].find(qn("w:lvl"))
+        self.assertEqual(level.get(qn("w:ilvl")), "0")
+        self.assertEqual(level.find(qn("w:start")).get(qn("w:val")), "4")
+        self.assertEqual(level.find(qn("w:numFmt")).get(qn("w:val")), "upperRoman")
+        self.assertEqual(level.find(qn("w:lvlText")).get(qn("w:val")), "Replacement-%1")
+        self.assertEqual(overrides[0].find(qn("w:startOverride")).get(qn("w:val")), "7")
+        self.assertEqual(overrides[1].find(qn("w:lvl")).find(qn("w:start")).get(qn("w:val")), "0")
+        abstract_id = num.find(qn("w:abstractNumId")).get(qn("w:val"))
+        abstract = next(n for n in root if n.get(qn("w:abstractNumId")) == abstract_id)
+        self.assertEqual([n.find(qn("w:numFmt")).get(qn("w:val")) for n in abstract.findall(qn("w:lvl"))], ["decimal"] * 3)
+        self.assertEqual(self.document.paragraphs[0].text, "replacement request, not a calculated label")
+
+    def test_section_gutter(self):
+        self.assertEqual([s._sectPr.find(qn("w:rtlGutter")).get(qn("w:val")) for s in self.document.sections], ["1", "1", "0"])
+        self.assertEqual([s._sectPr.find(qn("w:bidi")).get(qn("w:val")) for s in self.document.sections], ["0", "0", "0"])
+        self.assertEqual([p.text for p in self.document.paragraphs if p.text], ["on", "inherited", "off"])
+
+    def test_linked_styles(self):
+        for name, target in [("Pair Paragraph", "PairCharacter"), ("Pair Character", "PairParagraph")]:
+            self.assertEqual(self.document.styles[name]._element.find(qn("w:link")).get(qn("w:val")), target)
+        self.assertEqual(self.document.paragraphs[0].style.name, "Pair Paragraph")
+        self.assertEqual(self.document.paragraphs[0].runs[0].style.name, "Pair Character")
+        self.assertFalse(self.document.paragraphs[0].runs[0].italic)
+        self.assertIsNone(self.document.styles["Pair Character"].font.bold)
+
+    def test_document_defaults(self):
+        defaults = self.document.styles.element.find(qn("w:docDefaults"))
+        run = defaults.find(qn("w:rPrDefault")).find(qn("w:rPr"))
+        self.assertEqual(run.find(qn("w:sz")).get(qn("w:val")), "27")
+        self.assertEqual(run.find(qn("w:rFonts")).get(qn("w:ascii")), "Literal")
+        self.assertIsNone(run.find(qn("w:rFonts")).get(qn("w:asciiTheme")))
+        self.assertEqual(run.find(qn("w:b")).get(qn("w:val")), "1")
+        self.assertEqual(run.find(qn("w:lang")).get(qn("w:bidi")), "ar-SA")
+        paragraph = defaults.find(qn("w:pPrDefault")).find(qn("w:pPr"))
+        self.assertEqual(paragraph.find(qn("w:spacing")).get(qn("w:before")), "0")
+        self.assertEqual(paragraph.find(qn("w:spacing")).get(qn("w:line")), "280")
+        self.assertEqual(paragraph.find(qn("w:ind")).get(qn("w:left")), "240")
+        self.assertEqual(paragraph.find(qn("w:ind")).get(qn("w:hanging")), "120")
+        self.assertFalse(self.document.paragraphs[0].runs[0].bold)
+        self.assertIsNone(self.document.paragraphs[0].paragraph_format.left_indent)
+
+    def test_conditional_script_formatting(self):
+        style = self.document.styles["Scripts"]._element
+        region = next(n for n in style.findall(qn("w:tblStylePr")) if n.get(qn("w:type")) == "firstRow")
+        properties = region.find(qn("w:rPr"))
+        for element, expected in [("bCs", "0"), ("iCs", "1"), ("szCs", "27"), ("rtl", "0"), ("cs", "1")]:
+            self.assertEqual(properties.find(qn(f"w:{element}")).get(qn("w:val")), expected)
+        self.assertEqual(dict(properties.find(qn("w:lang")).attrib), {qn("w:val"): "en-US", qn("w:eastAsia"): "ja-JP", qn("w:bidi"): "ar-SA"})
+        self.assertEqual(dict(properties.find(qn("w:rFonts")).attrib), {qn("w:eastAsia"): "East", qn("w:cs"): "Complex"})
+
+    def test_conditional_paragraph_formatting(self):
+        style = self.document.styles["Conditional"]._element
+        region = next(n for n in style.findall(qn("w:tblStylePr")) if n.get(qn("w:type")) == "firstRow")
+        properties = region.find(qn("w:pPr"))
+        self.assertEqual(properties.find(qn("w:spacing")).get(qn("w:line")), "290")
+        self.assertEqual(properties.find(qn("w:spacing")).get(qn("w:lineRule")), "exact")
+        tab = properties.find(qn("w:tabs")).find(qn("w:tab"))
+        self.assertEqual(tab.get(qn("w:pos")), "1440")
+        self.assertEqual(tab.get(qn("w:val")), "right")
+        self.assertEqual(tab.get(qn("w:leader")), "dot")
+        self.assertEqual(properties.find(qn("w:bidi")).get(qn("w:val")), "0")
+
+    def test_section_direction(self):
+        self.assertEqual([section._sectPr.find(qn("w:bidi")).get(qn("w:val")) for section in self.document.sections], ["1", "1", "0"])
+        self.assertEqual(self.document.paragraphs[0].text, "first العربية last")
+        self.assertFalse(self.document.paragraphs[0].runs[0].font.rtl)
+        self.assertEqual(self.document.paragraphs[0]._p.find(qn("w:pPr")).find(qn("w:bidi")).get(qn("w:val")), "0")
+
+    def test_script_formatting(self):
+        self.assertEqual(self.document.paragraphs[0]._p.find(qn("w:pPr")).find(qn("w:bidi")).get(qn("w:val")), "1")
+        self.assertEqual(self.document.styles["Script"]._element.find(qn("w:pPr")).find(qn("w:bidi")).get(qn("w:val")), "0")
+        run = self.document.paragraphs[0].runs[0]
+        self.assertEqual(run.text, "العربية 日本語")
+        self.assertFalse(run.bold)
+        self.assertTrue(run.font.cs_bold)
+        self.assertTrue(run.italic)
+        self.assertFalse(run.font.cs_italic)
+        self.assertTrue(run.font.rtl)
+        self.assertFalse(run.font.complex_script)
+        self.assertEqual(run.font.size.pt, 11)
+        self.assertEqual(run.font.name, "Latin")
+        props = run._r.find(qn("w:rPr"))
+        self.assertEqual(props.find(qn("w:rFonts")).get(qn("w:eastAsia")), "East Asian")
+        self.assertEqual(props.find(qn("w:rFonts")).get(qn("w:cs")), "Arabic")
+        self.assertEqual(props.find(qn("w:szCs")).get(qn("w:val")), "29")
+        self.assertEqual(dict(props.find(qn("w:lang")).attrib), {qn("w:val"): "en-GB", qn("w:eastAsia"): "ja-JP", qn("w:bidi"): "ar-SA"})
+        style = self.document.styles["Script"]
+        self.assertFalse(style.font.cs_bold)
+        self.assertEqual(style._element.find(qn("w:rPr")).find(qn("w:lang")).get(qn("w:bidi")), "he-IL")
+
+    def test_cell_layout(self):
+        cell = self.document.tables[0].cell(0, 0)
+        self.assertEqual(cell.text, "cell")
+        props = cell._tc.find(qn("w:tcPr"))
+        margins = props.find(qn("w:tcMar"))
+        self.assertEqual([(etree.QName(node).localname, node.get(qn("w:w")), node.get(qn("w:type"))) for node in margins],
+                         [("top", "63", "dxa"), ("start", "0", "dxa"), ("bottom", "120", "dxa"), ("end", "180", "dxa")])
+        self.assertEqual(props.find(qn("w:textDirection")).get(qn("w:val")), "tbRl")
+
+    def test_row_properties(self):
+        rows = self.document.tables[0].rows
+        self.assertEqual(rows[0].height.pt, 14.25)
+        self.assertEqual(rows[0].height_rule, WD_ROW_HEIGHT_RULE.EXACTLY)
+        self.assertEqual(rows[1].height.pt, 18)
+        self.assertEqual(rows[1].height_rule, WD_ROW_HEIGHT_RULE.AT_LEAST)
+        self.assertIsNone(rows[2].height)
+        for row, flag in zip(rows[:2], ["1", "0"]):
+            for name in ["tblHeader", "cantSplit"]:
+                self.assertEqual(row._tr.find(qn("w:trPr")).find(qn(f"w:{name}")).get(qn("w:val")), flag)
+        self.assertIsNone(rows[2]._tr.find(qn("w:trPr")))
+
+    def test_tab_stops(self):
+        paragraphs = self.document.paragraphs
+        self.assertEqual(paragraphs[0].text, "label\tvalue")
+        stops = list(paragraphs[0].paragraph_format.tab_stops)
+        self.assertEqual([stop.position.pt for stop in stops], [-12, 72, 108, 144, 180])
+        self.assertEqual([stop.alignment for stop in stops], [WD_TAB_ALIGNMENT.LEFT, WD_TAB_ALIGNMENT.CENTER,
+                         WD_TAB_ALIGNMENT.RIGHT, WD_TAB_ALIGNMENT.DECIMAL, WD_TAB_ALIGNMENT.BAR])
+        self.assertEqual(stops[2].leader, WD_TAB_LEADER.DOTS)
+        self.assertEqual(len(paragraphs[1].paragraph_format.tab_stops), 0)
+        self.assertEqual(paragraphs[2].paragraph_format.tab_stops[0].alignment, WD_TAB_ALIGNMENT.CLEAR)
+        self.assertEqual(self.document.styles["Tabbed"].paragraph_format.tab_stops[0].position.pt, 72)
+
+    def test_line_heights(self):
+        formats = [p.paragraph_format for p in self.document.paragraphs]
+        self.assertEqual(formats[0].line_spacing, 1.5)
+        self.assertEqual(formats[0].line_spacing_rule, WD_LINE_SPACING.ONE_POINT_FIVE)
+        self.assertEqual(formats[1].line_spacing.pt, 14.25)
+        self.assertEqual(formats[1].line_spacing_rule, WD_LINE_SPACING.EXACTLY)
+        self.assertEqual(formats[2].line_spacing.pt, 18)
+        self.assertEqual(formats[2].line_spacing_rule, WD_LINE_SPACING.AT_LEAST)
+        self.assertIsNone(formats[3].line_spacing)
+        style = self.document.styles["Measured"].paragraph_format
+        self.assertEqual(style.line_spacing.pt, 20)
+        self.assertEqual(style.line_spacing_rule, WD_LINE_SPACING.AT_LEAST)
 
     def test_fields(self):
         w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -411,7 +634,7 @@ class Readback(unittest.TestCase):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template", "r1", "hyperlinks", "ranges", "notes", "fields"])
+    parser.add_argument("case", choices=["empty", "text", "dependencies", "rich", "images", "layout", "template", "r1", "hyperlinks", "ranges", "notes", "fields", "line_heights", "tab_stops", "row_properties", "cell_layout", "script_formatting", "style_references", "character_styles", "numbering_overrides", "section_direction", "conditional_paragraph_formatting", "conditional_script_formatting", "document_defaults", "linked_styles", "section_gutter", "numbering_replacements", "table_look", "numbering_suffix", "numbering_restart", "numbering_alignment", "table_alignment"])
     parser.add_argument("document", type=Path)
     parser.add_argument("--source", type=Path)
     arguments = parser.parse_args()

@@ -45,37 +45,17 @@ pub(super) fn paragraph(o: &Bound<'_, PyAny>) -> PyResult<ResolvedParagraph> {
         format: ParagraphFormat {
             heading: heading.map(|n| n as u8),
             style: field!(o, "style", Option<String>),
-            alignment: optional_enum(o, "alignment", alignment)?,
-            spacing_before: field!(o, "spacing_before", Option<f64>),
-            spacing_after: field!(o, "spacing_after", Option<f64>),
-            line_spacing: field!(o, "line_spacing", Option<f64>),
-            left_indent: field!(o, "left_indent", Option<f64>),
-            right_indent: field!(o, "right_indent", Option<f64>),
-            first_line_indent: field!(o, "first_line_indent", Option<f64>),
-            keep_together: field!(o, "keep_together", Option<bool>),
-            keep_with_next: field!(o, "keep_with_next", Option<bool>),
-            page_break_before: field!(o, "page_break_before", Option<bool>),
-            widow_control: field!(o, "widow_control", Option<bool>),
+            ..paragraph_format(o)?
         },
     })
 }
 pub(super) fn textrun(o: &Bound<'_, PyAny>) -> PyResult<ResolvedInline> {
+    let mut format = run_format(o)?;
+    format.style = field!(o, "style", Option<String>);
     Ok(ResolvedInline::Text {
         text: field!(o, "text", String),
         comment: comment(o)?,
-        format: RunFormat {
-            bold: field!(o, "bold", Option<bool>),
-            italic: field!(o, "italic", Option<bool>),
-            underline: optional_record(o, "underline", underline)?,
-            font: field!(o, "font", Option<String>),
-            size: field!(o, "size", Option<f64>),
-            color: optional_record(o, "color", color)?,
-            superscript: field!(o, "superscript", Option<bool>),
-            subscript: field!(o, "subscript", Option<bool>),
-            strike: field!(o, "strike", Option<bool>),
-            all_caps: field!(o, "all_caps", Option<bool>),
-            small_caps: field!(o, "small_caps", Option<bool>),
-        },
+        format,
     })
 }
 pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {

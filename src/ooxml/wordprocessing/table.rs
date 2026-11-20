@@ -61,6 +61,9 @@ impl Compiler<'_> {
                     },
                 ),
         );
+        if let Some(alignment) = t.alignment {
+            props.push(val("jc", alignment.xml()));
+        }
         if t.layout.is_some() || t.column_widths.is_some() {
             props.push(
                 Node::new("w:tblLayout")
@@ -79,16 +82,24 @@ impl Compiler<'_> {
             }
             props.push(b);
         }
-        props.push(
-            Node::new("w:tblLook")
-                .attr("w:firstColumn", 1)
-                .attr("w:firstRow", 1)
-                .attr("w:lastColumn", 0)
-                .attr("w:lastRow", 0)
-                .attr("w:noHBand", 0)
-                .attr("w:noVBand", 1)
-                .attr("w:val", "04A0"),
-        );
+        let look = t.look.unwrap_or_default();
+        let mut node = Node::new("w:tblLook");
+        let mut mask = 0_u16;
+        for (name, enabled, bit) in [
+            ("firstColumn", look.first_column.unwrap_or(true), 0x80),
+            ("firstRow", look.first_row.unwrap_or(true), 0x20),
+            ("lastColumn", look.last_column.unwrap_or(false), 0x100),
+            ("lastRow", look.last_row.unwrap_or(false), 0x40),
+            ("noHBand", !look.horizontal_banding.unwrap_or(true), 0x200),
+            ("noVBand", !look.vertical_banding.unwrap_or(false), 0x400),
+        ] {
+            node.set(format!("w:{name}"), u8::from(enabled));
+            if enabled {
+                mask |= bit;
+            }
+        }
+        node.set("w:val", format!("{mask:04X}"));
+        props.push(node);
         let mut grid = Node::new("w:tblGrid");
         for w in &widths {
             grid.push(Node::new("w:gridCol").attr("w:w", w));
@@ -96,6 +107,30 @@ impl Compiler<'_> {
         let mut node = Node::new("w:tbl").with(props).with(grid);
         for row in &t.rows {
             let mut tr = Node::new("w:tr");
+            row.properties.validate()?;
+            let mut row_properties = Node::new("w:trPr");
+            for (name, value) in [
+                ("cantSplit", row.properties.cant_split),
+                ("tblHeader", row.properties.repeat_header),
+            ] {
+                if let Some(value) = value {
+                    row_properties.push(val(name, if value { "1" } else { "0" }));
+                }
+            }
+            if let Some(height) = row.properties.height {
+                let (points, rule) = match height {
+                    crate::RowHeight::Exact(points) => (points, "exact"),
+                    crate::RowHeight::AtLeast(points) => (points, "atLeast"),
+                };
+                row_properties.push(
+                    Node::new("w:trHeight")
+                        .attr("w:val", crate::Points::new(points)?.twips()?.get())
+                        .attr("w:hRule", rule),
+                );
+            }
+            if !row_properties.children.is_empty() {
+                tr.push(row_properties);
+            }
             let mut column = 0;
             for cell in &row.cells {
                 let span = cell.grid_span as usize;
@@ -126,6 +161,30 @@ impl Compiler<'_> {
                 }
                 if let Some(v) = cell.vertical_alignment {
                     pr.push(val("vAlign", v.xml()));
+                }
+                if let Some(margins) = &cell.margins {
+                    margins.validate()?;
+                    let mut node = Node::new("w:tcMar");
+                    for (name, points) in [
+                        ("top", margins.top),
+                        ("start", margins.start),
+                        ("bottom", margins.bottom),
+                        ("end", margins.end),
+                    ] {
+                        if let Some(points) = points {
+                            node.push(
+                                Node::new(format!("w:{name}"))
+                                    .attr("w:w", crate::Points::new(points)?.twips()?.get())
+                                    .attr("w:type", "dxa"),
+                            );
+                        }
+                    }
+                    if !node.children.is_empty() {
+                        pr.push(node);
+                    }
+                }
+                if let Some(direction) = cell.text_direction {
+                    pr.push(val("textDirection", direction.xml()));
                 }
                 let mut tc = Node::new("w:tc").with(pr);
                 let cell_context = crate::ooxml::PartContext {

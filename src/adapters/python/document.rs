@@ -18,6 +18,7 @@ pub(super) fn document(o: &Bound<'_, PyAny>) -> PyResult<ResolvedDocument> {
         styles: list(&o.getattr("styles")?, |v| {
             Ok(Some(match kind(v)?.as_str() {
                 "ParagraphStyleDefinition" => paragraphstyledefinition(v)?.into(),
+                "CharacterStyleDefinition" => character_style(v)?.into(),
                 "TableStyleDefinition" => tablestyledefinition(v)?.into(),
                 _ => return Err(PyTypeError::new_err("Unknown style definition")),
             }))
@@ -26,6 +27,7 @@ pub(super) fn document(o: &Bound<'_, PyAny>) -> PyResult<ResolvedDocument> {
             Ok(Some(numbering_definition(n)?))
         })?,
         timestamp: field!(o, "timestamp", String),
+        defaults: optional_record(o, "defaults", document_defaults)?,
     })
 }
 

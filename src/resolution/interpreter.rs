@@ -37,6 +37,8 @@ impl Table {
             properties.layout,
             properties.style,
             properties.borders,
+            properties.look,
+            properties.alignment,
         )
         .map_err(|d| Error::from(d).at(path))
     }
@@ -46,11 +48,14 @@ impl TableRow {
         if !self.condition.evaluate() {
             return Ok(None);
         }
-        let children = self
-            .children
-            .resolve()
-            .await
-            .map_err(|e| e.at(format!("{path}.children")))?;
+        let (children, properties) = futures_util::future::try_join(
+            field(self.children, format!("{path}.children")),
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
+        properties
+            .validate()
+            .map_err(|e| Error::from(e).at(format!("{path}.properties")))?;
         let cells = try_join_all(children.into_iter().enumerate().map(|(i, cell)| {
             let p = format!("{path}.children[{i}]");
             async move {
@@ -65,7 +70,7 @@ impl TableRow {
         .into_iter()
         .flatten()
         .collect();
-        Ok(Some(ResolvedTableRow { cells }))
+        Ok(Some(ResolvedTableRow { cells, properties }))
     }
 }
 impl TableCell {
@@ -89,6 +94,8 @@ impl TableCell {
             borders: properties.borders,
             background_color: properties.background_color,
             vertical_alignment: properties.vertical_alignment,
+            margins: properties.margins,
+            text_direction: properties.text_direction,
         }))
     }
 }
@@ -207,20 +214,25 @@ impl Document {
                 .collect(),
             )
         };
-        let ((metadata, comment_author, timestamp), ((sections, notes), styles, numbering)) =
-            futures_util::future::try_join(
-                futures_util::future::try_join3(
-                    field(self.metadata, "metadata"),
-                    field(self.comment_author, "comment_author"),
-                    field(self.timestamp, "timestamp"),
-                ),
-                futures_util::future::try_join3(
-                    futures_util::future::try_join(sections, notes),
-                    field(self.styles, "styles"),
+        let (
+            (metadata, comment_author, timestamp),
+            ((sections, notes), styles, (numbering, defaults)),
+        ) = futures_util::future::try_join(
+            futures_util::future::try_join3(
+                field(self.metadata, "metadata"),
+                field(self.comment_author, "comment_author"),
+                field(self.timestamp, "timestamp"),
+            ),
+            futures_util::future::try_join3(
+                futures_util::future::try_join(sections, notes),
+                field(self.styles, "styles"),
+                futures_util::future::try_join(
                     field(self.numbering, "numbering"),
+                    field(self.defaults, "defaults"),
                 ),
-            )
-            .await?;
+            ),
+        )
+        .await?;
         let document = ResolvedDocument {
             sections: sections.into_iter().flatten().collect(),
             notes,
@@ -228,6 +240,7 @@ impl Document {
             comment_author,
             styles,
             numbering,
+            defaults,
             timestamp: timestamp.unwrap_or_else(crate::adapters::io::timestamp),
         };
         document.validate()?;

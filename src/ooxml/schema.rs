@@ -16,11 +16,18 @@ pub(crate) fn order(name: &crate::xml::Name) -> Option<Vec<&'static str>> {
         "w:tcPr" => {
             "cnfStyle tcW gridSpan hMerge vMerge tcBorders shd noWrap tcMar textDirection tcFitText vAlign hideMark headers cellIns cellDel cellMerge tcPrChange"
         }
+        "w:tcBorders" | "w:tblBorders" => {
+            "top start left bottom end right insideH insideV tl2br tr2bl"
+        }
         "w:style" => {
             "name aliases basedOn next link autoRedefine hidden uiPriority semiHidden unhideWhenUsed qFormat locked personal personalCompose personalReply rsid pPr rPr tblPr trPr tcPr tblStylePr"
         }
+        "w:tblStylePr" => "pPr rPr tblPr trPr tcPr",
+        "w:styles" => "docDefaults latentStyles style",
+        "w:docDefaults" => "rPrDefault pPrDefault",
         "w:numbering" => "numPicBullet abstractNum num numIdMac",
         "w:abstractNum" => "nsid multiLevelType tmpl name styleLink numStyleLink lvl",
+        "w:lvlOverride" => "startOverride lvl",
         "w:lvl" => {
             "start numFmt lvlRestart pStyle isLgl suff lvlText lvlPicBulletId legacy lvlJc pPr rPr"
         }

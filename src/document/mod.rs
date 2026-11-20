@@ -16,14 +16,25 @@ mod values;
 pub use content::Metadata;
 pub use content::{ResolvedDocument, ResolvedInline, ResolvedParagraph, ResolvedSection};
 pub use resources::{ResolvedComment, ResolvedHeaderFooter, ResolvedImage};
+pub use table::TableAlignment;
+pub use table::TableLook;
+pub use table::{CellMargins, CellTextDirection};
 pub use table::{ResolvedBlock, ResolvedTable, ResolvedTableCell, ResolvedTableRow};
+pub use table::{RowHeight, TableRowProperties};
 pub use table::{TableCellProperties, TableProperties};
+pub use values::CharacterStyleDefinition;
+pub use values::DocumentDefaults;
+pub use values::NumberingAlignment;
+pub use values::NumberingStartOverride;
+pub use values::NumberingSuffix;
+pub use values::RunLanguage;
 pub use values::{
     Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Columns,
-    HeaderFooterType, ImageTransformation, NumberingDefinition, NumberingLevel, NumberingReference,
-    Orientation, PageMargins, PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition,
-    RunFormat, SectionProperties, SectionType, StyleDefinition, TableBorder, TableLayout,
-    TableSectionFormat, TableStyleDefinition, VerticalAlignment, VerticalMerge,
+    HeaderFooterType, ImageTransformation, LineHeight, NumberingDefinition, NumberingLevel,
+    NumberingReference, Orientation, PageMargins, PageNumbering, PageSize, ParagraphFormat,
+    ParagraphStyleDefinition, RunFormat, SectionProperties, SectionType, StyleDefinition,
+    TabAlignment, TabLeader, TabStop, TableBorder, TableLayout, TableSectionFormat,
+    TableStyleDefinition, VerticalAlignment, VerticalMerge,
 };
 
 mod diagnostic;

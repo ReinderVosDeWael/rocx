@@ -1,14 +1,50 @@
 //! Cross-language readback tests: Rust writes files; python-docx reads them.
 #![cfg(feature = "python-tests")]
 
+#[path = "support/cell_layout.rs"]
+mod cell_layout_fixture;
+#[path = "support/character_styles.rs"]
+mod character_fixture;
+#[path = "support/conditional_paragraph_formatting.rs"]
+mod conditional_paragraph_fixture;
+#[path = "support/conditional_script_formatting.rs"]
+mod conditional_script_fixture;
+#[path = "support/document_defaults.rs"]
+mod defaults_fixture;
 #[path = "support/features.rs"]
 mod features;
 #[path = "support/fields.rs"]
 mod field_fixture;
+#[path = "support/linked_styles.rs"]
+mod linked_styles_fixture;
 #[path = "support/notes.rs"]
 mod note_fixture;
+#[path = "support/numbering_alignment.rs"]
+mod numbering_alignment_fixture;
+#[path = "support/numbering_overrides.rs"]
+mod numbering_override_fixture;
+#[path = "support/numbering_replacements.rs"]
+mod numbering_replacement_fixture;
+#[path = "support/numbering_restart.rs"]
+mod numbering_restart_fixture;
+#[path = "support/numbering_suffix.rs"]
+mod numbering_suffix_fixture;
 #[path = "support/ranges.rs"]
 mod range_fixture;
+#[path = "support/row_properties.rs"]
+mod row_fixture;
+#[path = "support/script_formatting.rs"]
+mod script_fixture;
+#[path = "support/section_direction.rs"]
+mod section_direction_fixture;
+#[path = "support/section_gutter.rs"]
+mod section_gutter_fixture;
+#[path = "support/tab_stops.rs"]
+mod tab_fixture;
+#[path = "support/table_alignment.rs"]
+mod table_alignment_fixture;
+#[path = "support/table_look.rs"]
+mod table_look_fixture;
 
 use futures::executor::block_on;
 use rv_docx_rs::*;
@@ -20,6 +56,206 @@ use std::{
 };
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+#[test]
+fn python_reads_table_alignment_and_rejects_a_changed_table_request() {
+    let temp = Temp::new();
+    let path = temp.path("table-alignment.docx");
+    save(table_alignment_fixture::document(), &path);
+    verify("table_alignment", &path, None);
+    let changed = temp.path("wrong-table-alignment.docx");
+    rewrite_part(&path, &changed, "word/document.xml", |xml| {
+        replace_once(xml, "<w:jc w:val=\"end\"", "<w:jc w:val=\"start\"")
+    });
+    let output = python("table_alignment", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_numbering_alignment_and_rejects_a_changed_label_alignment() {
+    let temp = Temp::new();
+    let path = temp.path("numbering-alignment.docx");
+    save(numbering_alignment_fixture::document(), &path);
+    verify("numbering_alignment", &path, None);
+    let changed = temp.path("wrong-numbering-alignment.docx");
+    rewrite_part(&path, &changed, "word/numbering.xml", |xml| {
+        replace_once(xml, "<w:lvlJc w:val=\"end\"", "<w:lvlJc w:val=\"start\"")
+    });
+    let output = python("numbering_alignment", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_numbering_restart_requests_and_rejects_a_changed_trigger() {
+    let temp = Temp::new();
+    let path = temp.path("restart.docx");
+    save(numbering_restart_fixture::document(), &path);
+    verify("numbering_restart", &path, None);
+    let changed = temp.path("wrong-restart.docx");
+    rewrite_part(&path, &changed, "word/numbering.xml", |xml| {
+        replace_once(
+            xml,
+            "<w:lvlRestart w:val=\"0\"",
+            "<w:lvlRestart w:val=\"1\"",
+        )
+    });
+    let output = python("numbering_restart", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_numbering_suffixes_and_rejects_a_changed_separator() {
+    let temp = Temp::new();
+    let path = temp.path("suffix.docx");
+    save(numbering_suffix_fixture::document(), &path);
+    verify("numbering_suffix", &path, None);
+    let changed = temp.path("wrong-suffix.docx");
+    rewrite_part(&path, &changed, "word/numbering.xml", |xml| {
+        replace_once(xml, "<w:suff w:val=\"space\"", "<w:suff w:val=\"nothing\"")
+    });
+    let output = python("numbering_suffix", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_table_look_and_rejects_a_changed_activation_flag() {
+    let temp = Temp::new();
+    let path = temp.path("look.docx");
+    save(table_look_fixture::document(), &path);
+    verify("table_look", &path, None);
+    let changed = temp.path("wrong-look.docx");
+    rewrite_part(&path, &changed, "word/document.xml", |xml| {
+        replace_once(xml, "w:lastRow=\"1\"", "w:lastRow=\"0\"")
+    });
+    let output = python("table_look", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_concrete_numbering_replacements_and_rejects_changed_level_text() {
+    let temp = Temp::new();
+    let path = temp.path("replacements.docx");
+    save(numbering_replacement_fixture::document(), &path);
+    verify("numbering_replacements", &path, None);
+    let changed = temp.path("wrong-replacement.docx");
+    rewrite_part(&path, &changed, "word/numbering.xml", |xml| {
+        replace_once(xml, "w:val=\"Replacement-%1\"", "w:val=\"Wrong-%1\"")
+    });
+    let output = python("numbering_replacements", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_section_gutter_and_rejects_a_changed_placement_flag() {
+    let temp = Temp::new();
+    let path = temp.path("gutter.docx");
+    save(section_gutter_fixture::document(), &path);
+    verify("section_gutter", &path, None);
+    let changed = temp.path("wrong-gutter.docx");
+    rewrite_part(&path, &changed, "word/document.xml", |xml| {
+        replace_once(xml, "<w:rtlGutter w:val=\"1\"", "<w:rtlGutter w:val=\"0\"")
+    });
+    let output = python("section_gutter", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_linked_styles_and_rejects_a_changed_link() {
+    let temp = Temp::new();
+    let path = temp.path("linked.docx");
+    save(linked_styles_fixture::document(), &path);
+    verify("linked_styles", &path, None);
+    let changed = temp.path("wrong-link.docx");
+    rewrite_part(&path, &changed, "word/styles.xml", |xml| {
+        replace_once(
+            xml,
+            "<w:link w:val=\"PairCharacter\"",
+            "<w:link w:val=\"PairParagraph\"",
+        )
+    });
+    let output = python("linked_styles", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_document_defaults_and_rejects_a_changed_default_size() {
+    let temp = Temp::new();
+    let path = temp.path("defaults.docx");
+    save(defaults_fixture::document(), &path);
+    verify("document_defaults", &path, None);
+    let changed = temp.path("wrong-default.docx");
+    rewrite_part(&path, &changed, "word/styles.xml", |xml| {
+        replace_once(xml, "<w:sz w:val=\"27\"", "<w:sz w:val=\"26\"")
+    });
+    let output = python("document_defaults", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_conditional_script_formatting_and_rejects_changed_rtl() {
+    let temp = Temp::new();
+    let path = temp.path("scripts.docx");
+    save(conditional_script_fixture::document(), &path);
+    verify("conditional_script_formatting", &path, None);
+    let changed = temp.path("wrong-rtl.docx");
+    rewrite_part(&path, &changed, "word/styles.xml", |xml| {
+        replace_once(xml, "<w:rtl w:val=\"0\"", "<w:rtl w:val=\"1\"")
+    });
+    let output = python("conditional_script_formatting", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_conditional_paragraph_formatting_and_rejects_changed_line_height() {
+    let temp = Temp::new();
+    let path = temp.path("conditional.docx");
+    save(conditional_paragraph_fixture::document(), &path);
+    verify("conditional_paragraph_formatting", &path, None);
+    let changed = temp.path("wrong-height.docx");
+    rewrite_part(&path, &changed, "word/styles.xml", |xml| {
+        replace_once(xml, "w:line=\"290\"", "w:line=\"20\"")
+    });
+    let output = python("conditional_paragraph_formatting", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_section_direction_and_rejects_a_changed_section_flag() {
+    let temp = Temp::new();
+    let path = temp.path("section-direction.docx");
+    save(section_direction_fixture::document(), &path);
+    verify("section_direction", &path, None);
+    let changed = temp.path("wrong-direction.docx");
+    rewrite_part(&path, &changed, "word/document.xml", |xml| {
+        replace_once(xml, "<w:bidi w:val=\"1\"", "<w:bidi w:val=\"0\"")
+    });
+    let output = python("section_direction", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
 
 struct Temp(PathBuf);
 impl Temp {
@@ -115,6 +351,271 @@ fn python_reads_field_instructions_and_cached_results_and_rejects_mutations() {
         assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
         assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
     }
+}
+
+#[test]
+fn python_reads_typed_line_heights_and_rejects_changed_units_or_rules() {
+    let temp = Temp::new();
+    let path = temp.path("line-heights.docx");
+    let mut document = Document::new(vec![
+        Section::new(vec![
+            Paragraph::new("multiple")
+                .with_format(ParagraphFormat {
+                    line_height: Some(LineHeight::Multiple(1.5)),
+                    ..Default::default()
+                })
+                .into(),
+            Paragraph::new("exact")
+                .with_format(ParagraphFormat {
+                    line_height: Some(LineHeight::Exact(14.25)),
+                    ..Default::default()
+                })
+                .into(),
+            Paragraph::new("minimum")
+                .with_format(ParagraphFormat {
+                    line_height: Some(LineHeight::AtLeast(18.)),
+                    ..Default::default()
+                })
+                .into(),
+            Paragraph::new("inherited")
+                .with_format(ParagraphFormat {
+                    style: Some("Measured".into()),
+                    ..Default::default()
+                })
+                .into(),
+        ])
+        .into(),
+    ]);
+    document.styles = vec![
+        ParagraphStyleDefinition {
+            name: "Measured".into(),
+            line_height: Some(LineHeight::AtLeast(20.)),
+            ..Default::default()
+        }
+        .into(),
+    ]
+    .into();
+    save(document, &path);
+    verify("line_heights", &path, None);
+    for (name, owner, before, after) in [
+        (
+            "wrong-units",
+            "word/document.xml",
+            "w:line=\"285\"",
+            "w:line=\"14\"",
+        ),
+        (
+            "wrong-rule",
+            "word/document.xml",
+            "w:lineRule=\"exact\"",
+            "w:lineRule=\"atLeast\"",
+        ),
+        (
+            "wrong-style",
+            "word/styles.xml",
+            "w:line=\"400\"",
+            "w:line=\"20\"",
+        ),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, owner, |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("line_heights", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_custom_tab_stops_and_rejects_changed_position_alignment_or_leader() {
+    let temp = Temp::new();
+    let path = temp.path("tabs.docx");
+    save(tab_fixture::document(), &path);
+    verify("tab_stops", &path, None);
+    for (name, before, after) in [
+        ("position", "w:pos=\"2160\"", "w:pos=\"108\""),
+        ("alignment", "w:val=\"right\"", "w:val=\"left\""),
+        ("leader", "w:leader=\"dot\"", "w:leader=\"heavy\""),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, "word/document.xml", |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("tab_stops", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_row_properties_and_rejects_changed_height_rule_or_flags() {
+    let temp = Temp::new();
+    let path = temp.path("row-properties.docx");
+    save(row_fixture::document(), &path);
+    verify("row_properties", &path, None);
+    for (name, before, after) in [
+        ("height", "w:val=\"285\"", "w:val=\"14\""),
+        ("rule", "w:hRule=\"exact\"", "w:hRule=\"auto\""),
+        (
+            "header",
+            "<w:tblHeader w:val=\"1\"",
+            "<w:tblHeader w:val=\"0\"",
+        ),
+        (
+            "split",
+            "<w:cantSplit w:val=\"1\"",
+            "<w:cantSplit w:val=\"0\"",
+        ),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, "word/document.xml", |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("row_properties", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_cell_layout_and_rejects_changed_margin_or_direction() {
+    let temp = Temp::new();
+    let path = temp.path("cell-layout.docx");
+    save(cell_layout_fixture::document(), &path);
+    verify("cell_layout", &path, None);
+    for (name, before, after) in [
+        ("margin", "w:w=\"63\"", "w:w=\"3\""),
+        ("direction", "w:val=\"tbRl\"", "w:val=\"lrTb\""),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, "word/document.xml", |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("cell_layout", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_script_formatting_and_rejects_changed_language_flag_or_size() {
+    let temp = Temp::new();
+    let path = temp.path("scripts.docx");
+    save(script_fixture::document(), &path);
+    verify("script_formatting", &path, None);
+    for (name, before, after) in [
+        ("language", "ar-SA", "en-US"),
+        ("font", "Arabic", "Other"),
+        ("size", "w:val=\"29\"", "w:val=\"14\""),
+        ("bold", "<w:bCs w:val=\"1\"", "<w:bCs w:val=\"0\""),
+        ("rtl", "<w:rtl w:val=\"1\"", "<w:rtl w:val=\"0\""),
+        (
+            "paragraph-bidi",
+            "<w:bidi w:val=\"1\"",
+            "<w:bidi w:val=\"0\"",
+        ),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, "word/document.xml", |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("script_formatting", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_forward_style_references_and_rejects_retargeted_links() {
+    let temp = Temp::new();
+    let path = temp.path("styles.docx");
+    let mut document = Document::new(vec![]);
+    document.styles = vec![
+        ParagraphStyleDefinition {
+            name: "Child".into(),
+            base_style: Some("Later Base".into()),
+            next_paragraph_style: Some("Later Next".into()),
+            ..Default::default()
+        }
+        .into(),
+        ParagraphStyleDefinition {
+            name: "Later Base".into(),
+            ..Default::default()
+        }
+        .into(),
+        ParagraphStyleDefinition {
+            name: "Later Next".into(),
+            next_paragraph_style: Some("Later Next".into()),
+            ..Default::default()
+        }
+        .into(),
+    ]
+    .into();
+    save(document, &path);
+    verify("style_references", &path, None);
+    for (name, before, after) in [
+        (
+            "base",
+            "<w:basedOn w:val=\"LaterBase\"",
+            "<w:basedOn w:val=\"Normal\"",
+        ),
+        (
+            "next",
+            "<w:next w:val=\"LaterNext\"",
+            "<w:next w:val=\"Normal\"",
+        ),
+    ] {
+        let changed = temp.path(&format!("{name}.docx"));
+        rewrite_part(&path, &changed, "word/styles.xml", |xml| {
+            replace_once(xml, before, after)
+        });
+        let output = python("style_references", &changed, None);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+    }
+}
+
+#[test]
+fn python_reads_character_styles_and_rejects_retargeted_run_style() {
+    let temp = Temp::new();
+    let path = temp.path("character-styles.docx");
+    save(character_fixture::document(), &path);
+    verify("character_styles", &path, None);
+    let changed = temp.path("retargeted.docx");
+    rewrite_part(&path, &changed, "word/document.xml", |xml| {
+        replace_once(xml, "ChildCharacter", "LaterCharacter")
+    });
+    let output = python("character_styles", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
+}
+
+#[test]
+fn python_reads_numbering_override_graph_and_rejects_changed_start() {
+    let temp = Temp::new();
+    let path = temp.path("numbering-overrides.docx");
+    save(numbering_override_fixture::document(), &path);
+    verify("numbering_overrides", &path, None);
+    let changed = temp.path("wrong-start.docx");
+    rewrite_part(&path, &changed, "word/numbering.xml", |xml| {
+        replace_once(
+            xml,
+            "<w:startOverride w:val=\"7\"",
+            "<w:startOverride w:val=\"8\"",
+        )
+    });
+    let output = python("numbering_overrides", &changed, None);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Loaded DOCX:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("AssertionError"));
 }
 
 #[test]
@@ -494,11 +995,17 @@ fn python_reads_rust_section_layout_and_custom_numbering() {
     let mut document = Document::new(vec![section.into()]);
     document.numbering = vec![NumberingDefinition {
         id: 42,
+        start_overrides: Vec::new(),
+        level_overrides: Vec::new(),
         levels: vec![NumberingLevel {
             level: 0,
             start: 3,
             format: "decimal".into(),
             text: "%1.".into(),
+            is_legal: None,
+            suffix: None,
+            restart: None,
+            alignment: None,
         }],
     }]
     .into();

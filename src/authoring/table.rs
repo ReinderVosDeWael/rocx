@@ -13,6 +13,7 @@ pub struct Table {
 #[derive(Debug, Default)]
 pub struct TableRow {
     pub children: Value<Vec<Value<TableCell>>>,
+    pub properties: Value<crate::TableRowProperties>,
     pub condition: Condition,
 }
 #[derive(Debug, Default)]
@@ -34,6 +35,13 @@ impl Table {
     }
 }
 impl TableRow {
+    pub fn with_properties(
+        mut self,
+        properties: impl Into<Value<crate::TableRowProperties>>,
+    ) -> Self {
+        self.properties = properties.into();
+        self
+    }
     pub fn new(children: Vec<Value<TableCell>>) -> Self {
         Self {
             children: children.into(),

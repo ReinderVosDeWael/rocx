@@ -10,10 +10,14 @@ pub struct ResolvedDocument {
     pub(crate) comment_author: Option<String>,
     pub(crate) styles: Vec<StyleDefinition>,
     pub(crate) numbering: Vec<NumberingDefinition>,
+    pub(crate) defaults: Option<DocumentDefaults>,
     pub(crate) timestamp: String,
 }
 
 impl ResolvedDocument {
+    pub fn defaults(&self) -> Option<&DocumentDefaults> {
+        self.defaults.as_ref()
+    }
     pub fn notes(&self) -> &[ResolvedNote] {
         &self.notes
     }

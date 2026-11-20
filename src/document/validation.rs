@@ -19,14 +19,80 @@ fn measurement(value: f64, factor: f64, nonnegative: bool, name: &str) -> Result
 
 impl RunFormat {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Some(size) = self.size_complex_script {
+            measurement(size, 2., true, "size_complex_script")?;
+        }
         if let Some(size) = self.size {
             measurement(size, 2., true, "size")?;
         }
         Ok(())
     }
 }
+impl NumberingDefinition {
+    pub fn validate(&self) -> Result<(), Diagnostic> {
+        let mut levels = std::collections::BTreeSet::new();
+        for (index, level) in self.levels.iter().enumerate() {
+            if level.level > 8 || !levels.insert(level.level) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "numbering levels must be unique and in 0..=8",
+                )
+                .at(format!("levels[{index}].level")));
+            }
+        }
+        let mut overridden = std::collections::BTreeSet::new();
+        for (index, entry) in self.start_overrides.iter().enumerate() {
+            if !levels.contains(&entry.level) || !overridden.insert(entry.level) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "numbering start override must target a unique defined level",
+                )
+                .at(format!("start_overrides[{index}].level")));
+            }
+        }
+        let mut replaced = std::collections::BTreeSet::new();
+        for (index, entry) in self.level_overrides.iter().enumerate() {
+            if !levels.contains(&entry.level) || !replaced.insert(entry.level) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "numbering level override must target a unique defined level",
+                )
+                .at(format!("level_overrides[{index}].level")));
+            }
+        }
+        Ok(())
+    }
+}
 impl ParagraphFormat {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        let mut positions = std::collections::BTreeSet::new();
+        for (index, stop) in self.tab_stops.iter().enumerate() {
+            let position = Points::new(stop.position)
+                .and_then(Points::twips)
+                .map_err(|error| error.at(format!("tab_stops[{index}].position")))?
+                .get();
+            if !positions.insert(position) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "tab stops collide after rounding to twips",
+                )
+                .at(format!("tab_stops[{index}].position")));
+            }
+        }
+        if self.line_spacing.is_some() && self.line_height.is_some() {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "line_height and line_spacing are mutually exclusive",
+            )
+            .at("line_height"));
+        }
+        if let Some(height) = self.line_height {
+            let (value, factor) = match height {
+                LineHeight::Multiple(value) => (value, 240.),
+                LineHeight::Exact(value) | LineHeight::AtLeast(value) => (value, 20.),
+            };
+            measurement(value, factor, true, "line_height")?;
+        }
         if self.heading.is_some_and(|h| h > 9) {
             return Err(
                 Diagnostic::new(Rule::InvalidContent, "heading must be in 0..=9").at("heading"),
@@ -101,6 +167,33 @@ impl TableCellProperties {
                 Diagnostic::new(Rule::InvalidContent, "grid_span must be positive").at("grid_span"),
             );
         }
+        if let Some(margins) = &self.margins {
+            at(margins.validate(), "margins")?;
+        }
+        Ok(())
+    }
+}
+impl CellMargins {
+    pub fn validate(&self) -> Result<(), Diagnostic> {
+        for (name, value) in [
+            ("top", self.top),
+            ("start", self.start),
+            ("bottom", self.bottom),
+            ("end", self.end),
+        ] {
+            if let Some(value) = value {
+                measurement(value, 20., true, name)?;
+            }
+        }
+        Ok(())
+    }
+}
+impl TableRowProperties {
+    pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Some(height) = self.height {
+            let (RowHeight::Exact(points) | RowHeight::AtLeast(points)) = height;
+            measurement(points, 20., true, "height")?;
+        }
         Ok(())
     }
 }
@@ -150,6 +243,10 @@ fn blocks(values: &[ResolvedBlock], path: &DeclarationPath) -> Result<(), Diagno
             ResolvedBlock::Paragraph(p) => at(p.validate(), &path)?,
             ResolvedBlock::Table(t) => {
                 for (row_index, row) in t.rows.iter().enumerate() {
+                    at(
+                        row.properties.validate(),
+                        path.field("rows").index(row_index).field("properties"),
+                    )?;
                     for (cell_index, cell) in row.cells.iter().enumerate() {
                         let path = path
                             .field("rows")
@@ -159,6 +256,7 @@ fn blocks(values: &[ResolvedBlock], path: &DeclarationPath) -> Result<(), Diagno
                         at(
                             TableCellProperties {
                                 grid_span: Some(cell.grid_span),
+                                margins: cell.margins.clone(),
                                 ..Default::default()
                             }
                             .validate(),
@@ -175,7 +273,13 @@ fn blocks(values: &[ResolvedBlock], path: &DeclarationPath) -> Result<(), Diagno
 impl ResolvedDocument {
     /// Validate supported domain invariants independently of either frontend or codec.
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Some(defaults) = &self.defaults {
+            at(defaults.validate(), "defaults")?;
+        }
         validate_ranges(self)?;
+        for (index, definition) in self.numbering.iter().enumerate() {
+            at(definition.validate(), format!("numbering[{index}]"))?;
+        }
         let mut notes = std::collections::BTreeSet::new();
         for (i, note) in self.notes().iter().enumerate() {
             if !notes.insert(note.target()) {
@@ -216,6 +320,31 @@ impl ResolvedDocument {
                     )?;
                 }
             }
+        }
+        Ok(())
+    }
+}
+impl DocumentDefaults {
+    pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Some(run) = &self.run {
+            if run.style.is_some() {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "document defaults cannot contain run style references",
+                )
+                .at("run.style"));
+            }
+            at(run.validate(), "run")?;
+        }
+        if let Some(paragraph) = &self.paragraph {
+            if paragraph.style.is_some() || paragraph.heading.is_some() {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "document defaults cannot contain paragraph style references or headings",
+                )
+                .at("paragraph"));
+            }
+            at(paragraph.validate(), "paragraph")?;
         }
         Ok(())
     }

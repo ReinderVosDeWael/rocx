@@ -172,6 +172,47 @@ fn instruction_cached_result_and_field_properties_resolve_concurrently() {
         .is_none()
     );
 }
+
+#[test]
+fn row_children_and_properties_resolve_concurrently_and_hidden_properties_stay_unpolled() {
+    let started = Arc::new(AtomicUsize::new(0));
+    let mut senders = Vec::new();
+    let children =
+        pending(&started, &mut senders, "cells").map(|_| vec![TableCell::new(vec![]).into()]);
+    let properties = pending(&started, &mut senders, "props").map(|_| TableRowProperties {
+        height: Some(RowHeight::AtLeast(18.)),
+        ..Default::default()
+    });
+    let mut resolution = Box::pin(
+        TableRow {
+            children,
+            properties,
+            ..Default::default()
+        }
+        .resolve(),
+    );
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    assert!(resolution.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(started.load(Ordering::SeqCst), 2);
+    for sender in senders {
+        sender.send(()).unwrap();
+    }
+    assert_eq!(
+        block_on(resolution).unwrap().unwrap().properties().height,
+        Some(RowHeight::AtLeast(18.))
+    );
+    assert!(
+        block_on(
+            TableRow::new(vec![])
+                .with_properties(Value::lazy(|| panic!("hidden properties")))
+                .when(false)
+                .resolve()
+        )
+        .unwrap()
+        .is_none()
+    );
+}
 #[test]
 fn standalone_components_and_documents_can_be_awaited() {
     block_on(async {

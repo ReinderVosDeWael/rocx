@@ -1,5 +1,74 @@
 //! Wire spelling for domain values: ECMA-376 Part 1 §§17–22.
 use crate::document::*;
+impl TableAlignment {
+    pub(crate) fn xml(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::Start => "start",
+            Self::End => "end",
+        }
+    }
+}
+impl NumberingAlignment {
+    pub(crate) fn xml(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::Start => "start",
+            Self::End => "end",
+        }
+    }
+}
+impl NumberingSuffix {
+    pub(crate) fn xml(self) -> &'static str {
+        match self {
+            Self::Tab => "tab",
+            Self::Space => "space",
+            Self::Nothing => "nothing",
+        }
+    }
+}
+impl CellTextDirection {
+    pub(crate) fn xml(self) -> &'static str {
+        match self {
+            Self::LeftToRight => "lrTb",
+            Self::TopToBottomRightToLeft => "tbRl",
+            Self::BottomToTopLeftToRight => "btLr",
+            Self::LeftToRightVertical => "lrTbV",
+            Self::TopToBottomRightToLeftVertical => "tbRlV",
+            Self::TopToBottomLeftToRightVertical => "tbLrV",
+        }
+    }
+}
+impl TabAlignment {
+    pub(crate) fn xml(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::Decimal => "decimal",
+            Self::Bar => "bar",
+            Self::Clear => "clear",
+            Self::Start => "start",
+            Self::End => "end",
+        }
+    }
+}
+impl TabLeader {
+    pub(crate) fn xml(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Dot => "dot",
+            Self::Hyphen => "hyphen",
+            Self::Underscore => "underscore",
+            Self::Heavy => "heavy",
+            Self::MiddleDot => "middleDot",
+        }
+    }
+}
 impl Alignment {
     pub(crate) fn xml(self) -> &'static str {
         match self {

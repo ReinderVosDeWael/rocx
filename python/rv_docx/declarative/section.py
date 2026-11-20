@@ -30,6 +30,13 @@ class SectionProperties:
         title_page: Use different header/footer on first page.
         type: Section break type ('nextPage', 'nextColumn', 'continuous',
             'evenPage', 'oddPage').
+        bidi: Optional right-to-left section page direction request, separate
+            from paragraph bidi and run RTL. Omission preserves inherited or
+            template section properties; false explicitly requests LTR.
+        rtl_gutter: Optional right-side gutter placement request, independent
+            of section/text bidi. Omission preserves template/previous settings;
+            false explicitly disables the request. No gutter size, margin
+            mirroring or page layout is computed.
     """
 
     page_size: dict[Literal["width", "height"], int] | None = None
@@ -42,6 +49,8 @@ class SectionProperties:
     type: (
         Literal["nextPage", "nextColumn", "continuous", "evenPage", "oddPage"] | None
     ) = None
+    bidi: bool | None = None
+    rtl_gutter: bool | None = None
 
 
 @dataclasses.dataclass

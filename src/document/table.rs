@@ -1,5 +1,56 @@
 //! Resolved table grid values.
 use super::*;
+/// Optional cell-local margins in points. Omission does not author a default.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CellMargins {
+    pub top: Option<f64>,
+    pub start: Option<f64>,
+    pub bottom: Option<f64>,
+    pub end: Option<f64>,
+}
+/// Cell text flow, independent of paragraph bidi or text content order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellTextDirection {
+    LeftToRight,
+    TopToBottomRightToLeft,
+    BottomToTopLeftToRight,
+    LeftToRightVertical,
+    TopToBottomRightToLeftVertical,
+    TopToBottomLeftToRightVertical,
+}
+/// Table row height in points; no content measurement or pagination is performed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RowHeight {
+    Exact(f64),
+    AtLeast(f64),
+}
+/// Cloneable row properties, resolved independently from owned cell producers.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TableRowProperties {
+    pub height: Option<RowHeight>,
+    pub repeat_header: Option<bool>,
+    pub cant_split: Option<bool>,
+}
+/// Conditional table-style activation requests, not effective formatting.
+/// Omitted fields retain the library's existing table-look defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TableLook {
+    pub first_row: Option<bool>,
+    pub last_row: Option<bool>,
+    pub first_column: Option<bool>,
+    pub last_column: Option<bool>,
+    pub horizontal_banding: Option<bool>,
+    pub vertical_banding: Option<bool>,
+}
+/// Inline-table alignment request; no floating positioning or layout calculation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableAlignment {
+    Left,
+    Center,
+    Right,
+    Start,
+    End,
+}
 /// Cloneable table properties, independent of owned child producers.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TableProperties {
@@ -7,6 +58,8 @@ pub struct TableProperties {
     pub layout: Option<TableLayout>,
     pub style: Option<String>,
     pub borders: Vec<TableBorder>,
+    pub look: Option<TableLook>,
+    pub alignment: Option<TableAlignment>,
 }
 /// Cloneable cell properties; child content is resolved separately.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -16,6 +69,8 @@ pub struct TableCellProperties {
     pub borders: Vec<CellBorder>,
     pub background_color: Option<[u8; 3]>,
     pub vertical_alignment: Option<VerticalAlignment>,
+    pub margins: Option<CellMargins>,
+    pub text_direction: Option<CellTextDirection>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedBlock {
@@ -30,10 +85,13 @@ pub struct ResolvedTable {
     pub(crate) style: Option<String>,
     pub(crate) borders: Vec<TableBorder>,
     pub(crate) columns: usize,
+    pub(crate) look: Option<TableLook>,
+    pub(crate) alignment: Option<TableAlignment>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedTableRow {
     pub(crate) cells: Vec<ResolvedTableCell>,
+    pub(crate) properties: TableRowProperties,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedTableCell {
@@ -43,8 +101,16 @@ pub struct ResolvedTableCell {
     pub(crate) borders: Vec<CellBorder>,
     pub(crate) background_color: Option<[u8; 3]>,
     pub(crate) vertical_alignment: Option<VerticalAlignment>,
+    pub(crate) margins: Option<CellMargins>,
+    pub(crate) text_direction: Option<CellTextDirection>,
 }
 impl ResolvedTable {
+    pub fn alignment(&self) -> Option<TableAlignment> {
+        self.alignment
+    }
+    pub fn look(&self) -> Option<&TableLook> {
+        self.look.as_ref()
+    }
     pub fn column_widths(&self) -> Option<&[u32]> {
         self.column_widths.as_deref()
     }
@@ -65,11 +131,20 @@ impl ResolvedTable {
     }
 }
 impl ResolvedTableRow {
+    pub fn properties(&self) -> &TableRowProperties {
+        &self.properties
+    }
     pub fn cells(&self) -> &[ResolvedTableCell] {
         &self.cells
     }
 }
 impl ResolvedTableCell {
+    pub fn margins(&self) -> Option<&CellMargins> {
+        self.margins.as_ref()
+    }
+    pub fn text_direction(&self) -> Option<CellTextDirection> {
+        self.text_direction
+    }
     pub fn grid_span(&self) -> u32 {
         self.grid_span
     }
@@ -98,6 +173,8 @@ impl ResolvedTable {
         layout: Option<TableLayout>,
         style: Option<String>,
         borders: Vec<TableBorder>,
+        look: Option<TableLook>,
+        alignment: Option<TableAlignment>,
     ) -> Result<Option<Self>, Diagnostic> {
         if rows.is_empty() {
             return Ok(None);
@@ -147,6 +224,8 @@ impl ResolvedTable {
             style,
             borders,
             columns,
+            look,
+            alignment,
         }))
     }
 }

@@ -1,5 +1,63 @@
 //! Native conversion into resolved domain values.
 use super::*;
+use crate::ParagraphFormat;
+pub(super) fn run_format(o: &Bound<'_, PyAny>) -> PyResult<RunFormat> {
+    Ok(RunFormat {
+        style: None,
+        bold: field!(o, "bold", Option<bool>),
+        italic: field!(o, "italic", Option<bool>),
+        underline: optional_record(o, "underline", underline)?,
+        font: field!(o, "font", Option<String>),
+        size: field!(o, "size", Option<f64>),
+        color: optional_record(o, "color", color)?,
+        superscript: field!(o, "superscript", Option<bool>),
+        subscript: field!(o, "subscript", Option<bool>),
+        strike: field!(o, "strike", Option<bool>),
+        all_caps: field!(o, "all_caps", Option<bool>),
+        small_caps: field!(o, "small_caps", Option<bool>),
+        language: optional_record(o, "language", run_language)?,
+        bold_complex_script: field!(o, "bold_complex_script", Option<bool>),
+        italic_complex_script: field!(o, "italic_complex_script", Option<bool>),
+        size_complex_script: field!(o, "size_complex_script", Option<f64>),
+        rtl: field!(o, "rtl", Option<bool>),
+        complex_script: field!(o, "complex_script", Option<bool>),
+        font_east_asia: field!(o, "font_east_asia", Option<String>),
+        font_complex_script: field!(o, "font_complex_script", Option<String>),
+    })
+}
+pub(super) fn character_style(o: &Bound<'_, PyAny>) -> PyResult<crate::CharacterStyleDefinition> {
+    Ok(crate::CharacterStyleDefinition {
+        name: field!(o, "name", String),
+        base_style: field!(o, "base_style", Option<String>),
+        format: run_format(o)?,
+        linked_style: field!(o, "linked_style", Option<String>),
+    })
+}
+pub(super) fn document_defaults(o: &Bound<'_, PyAny>) -> PyResult<crate::DocumentDefaults> {
+    Ok(crate::DocumentDefaults {
+        run: optional_record(o, "run", run_format)?,
+        paragraph: optional_record(o, "paragraph", paragraph_format)?,
+    })
+}
+pub(super) fn paragraph_format(o: &Bound<'_, PyAny>) -> PyResult<ParagraphFormat> {
+    Ok(ParagraphFormat {
+        bidi: field!(o, "bidi", Option<bool>),
+        alignment: optional_enum(o, "alignment", alignment)?,
+        spacing_before: field!(o, "spacing_before", Option<f64>),
+        spacing_after: field!(o, "spacing_after", Option<f64>),
+        line_spacing: field!(o, "line_spacing", Option<f64>),
+        line_height: optional_record(o, "line_height", line_height)?,
+        tab_stops: list(&o.getattr("tab_stops")?, tab_stop)?,
+        left_indent: field!(o, "left_indent", Option<f64>),
+        right_indent: field!(o, "right_indent", Option<f64>),
+        first_line_indent: field!(o, "first_line_indent", Option<f64>),
+        keep_together: field!(o, "keep_together", Option<bool>),
+        keep_with_next: field!(o, "keep_with_next", Option<bool>),
+        page_break_before: field!(o, "page_break_before", Option<bool>),
+        widow_control: field!(o, "widow_control", Option<bool>),
+        ..Default::default()
+    })
+}
 pub(super) fn alignment(o: &Bound<'_, PyAny>) -> PyResult<Alignment> {
     if let Ok(v) = o.extract::<i64>() {
         return match v {
@@ -156,9 +214,11 @@ pub(super) fn alttext(o: &Bound<'_, PyAny>) -> PyResult<AltText> {
 }
 pub(super) fn paragraphstyledefinition(o: &Bound<'_, PyAny>) -> PyResult<ParagraphStyleDefinition> {
     Ok(ParagraphStyleDefinition {
+        bidi: field!(o, "bidi", Option<bool>),
         name: field!(o, "name", String),
         base_style: field!(o, "base_style", Option<String>),
         next_paragraph_style: field!(o, "next_paragraph_style", Option<String>),
+        linked_style: field!(o, "linked_style", Option<String>),
         bold: field!(o, "bold", Option<bool>),
         italic: field!(o, "italic", Option<bool>),
         underline: field!(o, "underline", Option<bool>),
@@ -169,6 +229,8 @@ pub(super) fn paragraphstyledefinition(o: &Bound<'_, PyAny>) -> PyResult<Paragra
         spacing_before: field!(o, "spacing_before", Option<f64>),
         spacing_after: field!(o, "spacing_after", Option<f64>),
         line_spacing: field!(o, "line_spacing", Option<f64>),
+        line_height: optional_record(o, "line_height", line_height)?,
+        tab_stops: list(&o.getattr("tab_stops")?, tab_stop)?,
         left_indent: field!(o, "left_indent", Option<f64>),
         right_indent: field!(o, "right_indent", Option<f64>),
         first_line_indent: field!(o, "first_line_indent", Option<f64>),
@@ -176,7 +238,73 @@ pub(super) fn paragraphstyledefinition(o: &Bound<'_, PyAny>) -> PyResult<Paragra
         keep_with_next: field!(o, "keep_with_next", Option<bool>),
         page_break_before: field!(o, "page_break_before", Option<bool>),
         widow_control: field!(o, "widow_control", Option<bool>),
+        language: optional_record(o, "language", run_language)?,
+        bold_complex_script: field!(o, "bold_complex_script", Option<bool>),
+        italic_complex_script: field!(o, "italic_complex_script", Option<bool>),
+        size_complex_script: field!(o, "size_complex_script", Option<f64>),
+        rtl: field!(o, "rtl", Option<bool>),
+        complex_script: field!(o, "complex_script", Option<bool>),
+        font_east_asia: field!(o, "font_east_asia", Option<String>),
+        font_complex_script: field!(o, "font_complex_script", Option<String>),
     })
+}
+pub(super) fn run_language(o: &Bound<'_, PyAny>) -> PyResult<crate::RunLanguage> {
+    Ok(crate::RunLanguage {
+        latin: field!(o, "latin", Option<String>),
+        east_asia: field!(o, "east_asia", Option<String>),
+        bidi: field!(o, "bidi", Option<String>),
+    })
+}
+pub(super) fn line_height(o: &Bound<'_, PyAny>) -> PyResult<crate::LineHeight> {
+    let value = field!(o, "value", f64);
+    match field!(o, "rule", String).as_str() {
+        "multiple" => Ok(crate::LineHeight::Multiple(value)),
+        "exact" => Ok(crate::LineHeight::Exact(value)),
+        "at_least" => Ok(crate::LineHeight::AtLeast(value)),
+        _ => Err(rust_error(
+            crate::Diagnostic::new(crate::Rule::InvalidContent, "unknown line_height rule")
+                .at("line_height.rule")
+                .into(),
+        )),
+    }
+}
+pub(super) fn tab_stop(o: &Bound<'_, PyAny>) -> PyResult<Option<crate::TabStop>> {
+    let invalid = |name: &str| {
+        rust_error(
+            crate::Diagnostic::new(
+                crate::Rule::InvalidContent,
+                format!("unknown tab stop {name}"),
+            )
+            .at(format!("tab_stops.{name}"))
+            .into(),
+        )
+    };
+    let alignment = match field!(o, "alignment", String).as_str() {
+        "left" => crate::TabAlignment::Left,
+        "center" => crate::TabAlignment::Center,
+        "right" => crate::TabAlignment::Right,
+        "decimal" => crate::TabAlignment::Decimal,
+        "bar" => crate::TabAlignment::Bar,
+        "clear" => crate::TabAlignment::Clear,
+        "start" => crate::TabAlignment::Start,
+        "end" => crate::TabAlignment::End,
+        _ => return Err(invalid("alignment")),
+    };
+    let leader = match field!(o, "leader", Option<String>).as_deref() {
+        None => None,
+        Some("none") => Some(crate::TabLeader::None),
+        Some("dot") => Some(crate::TabLeader::Dot),
+        Some("hyphen") => Some(crate::TabLeader::Hyphen),
+        Some("underscore") => Some(crate::TabLeader::Underscore),
+        Some("heavy") => Some(crate::TabLeader::Heavy),
+        Some("middle_dot") => Some(crate::TabLeader::MiddleDot),
+        _ => return Err(invalid("leader")),
+    };
+    Ok(Some(crate::TabStop {
+        position: field!(o, "position", f64),
+        alignment,
+        leader,
+    }))
 }
 pub(super) fn tablesectionformat(o: &Bound<'_, PyAny>) -> PyResult<TableSectionFormat> {
     Ok(TableSectionFormat {
@@ -190,6 +318,17 @@ pub(super) fn tablesectionformat(o: &Bound<'_, PyAny>) -> PyResult<TableSectionF
         alignment: optional_enum(o, "alignment", alignment)?,
         spacing_before: field!(o, "spacing_before", Option<f64>),
         spacing_after: field!(o, "spacing_after", Option<f64>),
+        line_height: optional_record(o, "line_height", line_height)?,
+        tab_stops: list(&o.getattr("tab_stops")?, tab_stop)?,
+        bidi: field!(o, "bidi", Option<bool>),
+        language: optional_record(o, "language", run_language)?,
+        bold_complex_script: field!(o, "bold_complex_script", Option<bool>),
+        italic_complex_script: field!(o, "italic_complex_script", Option<bool>),
+        size_complex_script: field!(o, "size_complex_script", Option<f64>),
+        rtl: field!(o, "rtl", Option<bool>),
+        complex_script: field!(o, "complex_script", Option<bool>),
+        font_east_asia: field!(o, "font_east_asia", Option<String>),
+        font_complex_script: field!(o, "font_complex_script", Option<String>),
     })
 }
 pub(super) fn tableborder(o: &Bound<'_, PyAny>) -> PyResult<TableBorder> {
@@ -237,6 +376,8 @@ pub(super) fn sectionproperties(o: &Bound<'_, PyAny>) -> PyResult<SectionPropert
         vertical_align: optional_enum(o, "vertical_align", verticalalignment)?,
         title_page: field!(o, "title_page", Option<bool>),
         r#type: optional_enum(o, "type", sectiontype)?,
+        bidi: field!(o, "bidi", Option<bool>),
+        rtl_gutter: field!(o, "rtl_gutter", Option<bool>),
     })
 }
 
@@ -292,9 +433,9 @@ pub(super) fn color(o: &Bound<'_, PyAny>) -> PyResult<Color> {
 use crate::{
     Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Color,
     Columns, HeaderFooterType, ImageTransformation, Orientation, PageMargins, PageNumbering,
-    PageSize, ParagraphStyleDefinition, SectionProperties, SectionType, TableBorder, TableLayout,
-    TableSectionFormat, TableStyleDefinition, ThemeColor, Underline, VerticalAlignment,
-    VerticalMerge,
+    PageSize, ParagraphStyleDefinition, RunFormat, SectionProperties, SectionType, TableBorder,
+    TableLayout, TableSectionFormat, TableStyleDefinition, ThemeColor, Underline,
+    VerticalAlignment, VerticalMerge,
 };
 
 pub(super) fn numbering_reference(o: &Bound<'_, PyAny>) -> PyResult<crate::NumberingReference> {
@@ -306,13 +447,53 @@ pub(super) fn numbering_reference(o: &Bound<'_, PyAny>) -> PyResult<crate::Numbe
 pub(super) fn numbering_definition(o: &Bound<'_, PyAny>) -> PyResult<crate::NumberingDefinition> {
     Ok(crate::NumberingDefinition {
         id: field!(o, "id", u32),
-        levels: list(&o.getattr("levels")?, |level| {
-            Ok(Some(crate::NumberingLevel {
-                level: field!(level, "level", u8),
-                start: field!(level, "start", u32),
-                format: field!(level, "format", String),
-                text: field!(level, "text", String),
+        levels: list(&o.getattr("levels")?, numbering_level)?,
+        start_overrides: list(&o.getattr("start_overrides")?, |entry| {
+            Ok(Some(crate::NumberingStartOverride {
+                level: field!(entry, "level", u8),
+                start: field!(entry, "start", u32),
             }))
         })?,
+        level_overrides: list(&o.getattr("level_overrides")?, numbering_level)?,
     })
+}
+fn numbering_level(o: &Bound<'_, PyAny>) -> PyResult<Option<crate::NumberingLevel>> {
+    let alignment = match field!(o, "alignment", Option<String>).as_deref() {
+        None => None,
+        Some("left") => Some(crate::NumberingAlignment::Left),
+        Some("center") => Some(crate::NumberingAlignment::Center),
+        Some("right") => Some(crate::NumberingAlignment::Right),
+        Some("start") => Some(crate::NumberingAlignment::Start),
+        Some("end") => Some(crate::NumberingAlignment::End),
+        _ => {
+            return Err(rust_error(
+                crate::Diagnostic::new(crate::Rule::InvalidContent, "unknown numbering alignment")
+                    .at("alignment")
+                    .into(),
+            ));
+        }
+    };
+    let suffix = match field!(o, "suffix", Option<String>).as_deref() {
+        None => None,
+        Some("tab") => Some(crate::NumberingSuffix::Tab),
+        Some("space") => Some(crate::NumberingSuffix::Space),
+        Some("nothing") => Some(crate::NumberingSuffix::Nothing),
+        _ => {
+            return Err(rust_error(
+                crate::Diagnostic::new(crate::Rule::InvalidContent, "unknown numbering suffix")
+                    .at("suffix")
+                    .into(),
+            ));
+        }
+    };
+    Ok(Some(crate::NumberingLevel {
+        level: field!(o, "level", u8),
+        start: field!(o, "start", u32),
+        format: field!(o, "format", String),
+        text: field!(o, "text", String),
+        is_legal: field!(o, "is_legal", Option<bool>),
+        suffix,
+        restart: field!(o, "restart", Option<u32>),
+        alignment,
+    }))
 }
