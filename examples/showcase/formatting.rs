@@ -114,6 +114,24 @@ pub fn blocks(out: &mut BlockChildren) {
         );
     }
     out.push(heading("02 Run formatting, colors, scripts and whitespace"));
+    out.push(p("Chainable Rust builders: omitted, enabled and explicitly disabled bold; Python keywords author the same properties."));
+    out.push(
+        Paragraph::from_children(vec![
+            TextRun::new("Builder bold unspecified; ").into(),
+            TextRun::new("Builder bold enabled; ")
+                .with_format(RunFormat::default().with_bold(true))
+                .into(),
+            TextRun::new("Builder bold disabled, italic enabled.")
+                .with_format(RunFormat::default().with_bold(false).with_italic(true))
+                .into(),
+        ])
+        .with_format(
+            ParagraphFormat::default()
+                .with_spacing_after(6.)
+                .with_keep_with_next(false),
+        )
+        .into(),
+    );
     for (name, format) in [
         (
             "Bold=true",

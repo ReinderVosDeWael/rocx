@@ -1,4 +1,46 @@
 //! Pure document domain. This module depends only on the standard library.
+// Keep setter declarations beside their structs while sharing assignment semantics.
+macro_rules! setters {
+    ($owner:ty { $($method:ident => $field:ident : $kind:ident <$ty:ty>),* $(,)? }) => {
+        impl $owner {
+            $(setters!(@method $method, $field, $kind, $ty);)*
+        }
+    };
+    (@method $method:ident, $field:ident, optional, $ty:ty) => {
+        #[doc = concat!("Set `", stringify!($field), "` to `Some(value)`. Other fields are unchanged.")]
+        #[must_use = "builders return the updated value"]
+        pub fn $method(mut self, value: $ty) -> Self {
+            self.$field = Some(value);
+            self
+        }
+    };
+    (@method $method:ident, $field:ident, value, $ty:ty) => {
+        #[doc = concat!("Replace `", stringify!($field), "`. Other fields are unchanged.")]
+        #[must_use = "builders return the updated value"]
+        pub fn $method(mut self, value: $ty) -> Self {
+            self.$field = value;
+            self
+        }
+    };
+    (@method $method:ident, $field:ident, optional_into, $ty:ty) => {
+        #[doc = concat!("Set `", stringify!($field), "` to `Some(value)`. Other fields are unchanged.")]
+        #[must_use = "builders return the updated value"]
+        pub fn $method(mut self, value: impl Into<$ty>) -> Self {
+            self.$field = Some(value.into());
+            self
+        }
+    };
+    (@method $method:ident, $field:ident, into, $ty:ty) => {
+        #[doc = concat!("Replace `", stringify!($field), "`. Other fields are unchanged.")]
+        #[must_use = "builders return the updated value"]
+        pub fn $method(mut self, value: impl Into<$ty>) -> Self {
+            self.$field = value.into();
+            self
+        }
+    };
+}
+pub(crate) use setters;
+
 mod content;
 mod field;
 pub use field::{FieldForm, FieldInstruction, FieldProperties, RawFieldInstruction, ResolvedField};

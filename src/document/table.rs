@@ -8,6 +8,12 @@ pub struct CellMargins {
     pub bottom: Option<f64>,
     pub end: Option<f64>,
 }
+setters!(CellMargins {
+    with_top => top: optional<f64>,
+    with_bottom => bottom: optional<f64>,
+    with_start => start: optional<f64>,
+    with_end => end: optional<f64>,
+});
 /// Cell text flow, independent of paragraph bidi or text content order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellTextDirection {
@@ -31,6 +37,11 @@ pub struct TableRowProperties {
     pub repeat_header: Option<bool>,
     pub cant_split: Option<bool>,
 }
+setters!(TableRowProperties {
+    with_height => height: optional<RowHeight>,
+    with_repeat_header => repeat_header: optional<bool>,
+    with_cant_split => cant_split: optional<bool>,
+});
 /// Conditional table-style activation requests, not effective formatting.
 /// Omitted fields retain the library's existing table-look defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -42,6 +53,14 @@ pub struct TableLook {
     pub horizontal_banding: Option<bool>,
     pub vertical_banding: Option<bool>,
 }
+setters!(TableLook {
+    with_first_row => first_row: optional<bool>,
+    with_last_row => last_row: optional<bool>,
+    with_first_column => first_column: optional<bool>,
+    with_last_column => last_column: optional<bool>,
+    with_horizontal_banding => horizontal_banding: optional<bool>,
+    with_vertical_banding => vertical_banding: optional<bool>,
+});
 /// Inline-table alignment request; no floating positioning or layout calculation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TableAlignment {
@@ -61,6 +80,14 @@ pub struct TableProperties {
     pub look: Option<TableLook>,
     pub alignment: Option<TableAlignment>,
 }
+setters!(TableProperties {
+    with_column_widths => column_widths: optional<Vec<u32>>,
+    with_layout => layout: optional<TableLayout>,
+    with_style => style: optional_into<String>,
+    with_borders => borders: value<Vec<TableBorder>>,
+    with_look => look: optional<TableLook>,
+    with_alignment => alignment: optional<TableAlignment>,
+});
 /// Cloneable cell properties; child content is resolved separately.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TableCellProperties {
@@ -72,6 +99,15 @@ pub struct TableCellProperties {
     pub margins: Option<CellMargins>,
     pub text_direction: Option<CellTextDirection>,
 }
+setters!(TableCellProperties {
+    with_grid_span => grid_span: optional<u32>,
+    with_vmerge => vmerge: optional<VerticalMerge>,
+    with_borders => borders: value<Vec<CellBorder>>,
+    with_background_color => background_color: optional<[u8; 3]>,
+    with_vertical_alignment => vertical_alignment: optional<VerticalAlignment>,
+    with_margins => margins: optional<CellMargins>,
+    with_text_direction => text_direction: optional<CellTextDirection>,
+});
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedBlock {
     Paragraph(ResolvedParagraph),

@@ -2,6 +2,56 @@
 
 ## Purpose and starting point
 
+**Authoring builders complete:** the engineer expanded the RunFormat request to all
+structs where chainable setters make sense. Cover public authoring configuration
+records (formatting, styles, layout, tables, numbering, images, metadata, links,
+fields and comments), including required and collection fields; fill component
+setter gaps using existing deferred Value inputs. Exclude immutable resolved
+snapshots, validated identities/measurements and infrastructure. Setters consume
+Self, accept plain property values (strings use Into<String>), wrap optional
+values in Some, and return Self. Collections replace, not append. Omission,
+explicit false and repeated setters preserve normal field-assignment semantics.
+Keep public fields/struct literals, validation, serialization and Python APIs
+unchanged. Test coverage, chaining/overwriting, deferred values and exact bytes
+against literals. Update labeled equivalent Rust/Python catalog samples, coverage
+checks and exact DOCX byte parity. Preserve the unrelated dependency audit. Per the engineer's follow-up, declare each
+setter block immediately beside its struct; only the shared assignment macro is
+centralized.
+
+**Builder checkpoint:** added 249 setters across 32 domain authoring records
+and 18 components. Declarations sit immediately after their structs. The private
+shared `setters!` macro lives in `src/document/mod.rs`, and authoring modules
+import it; no separate builder implementation file remains. Immutable snapshots,
+checked types and infrastructure are excluded. See docs/FORMATTING.md for the
+contract. Coverage includes `tests/authoring_builders.rs` (40 tests) and
+`tests/run_format_builders.rs` (3 tests).
+
+Builder slice complete. Final verification:
+- Full Python suite with schemas required passed **498 tests, 1 intentional
+  skip**, including the missing-setter inventory negative control.
+- Focused Rust builder and domain rerun passed **45 tests**. The handoff also
+  records **233 passing tests** in the full all-feature/all-target Rust suite,
+  plus Clippy with warnings denied, 3 doctests and private-item rustdoc with
+  warnings denied.
+- Regenerated both catalogs after the macro relocation. The final DOCX files
+  match exactly (**55,454 bytes**, SHA-256
+  `61244a58b369757762d88891da46aafdc10c1b70be4d20b4e618363212876691`).
+  Intermediate template DOCX files also match exactly. Each final catalog
+  independently passed validation of **17 schema-covered parts plus OPC
+  relationships**. Formatting and diff checks passed.
+
+Source inventory checks in `tools/check_examples.py` guard domain value fields,
+adjacent setter declarations and assignment-test coverage. Both catalogs,
+content and mutation checks, README and the formatting contract are updated.
+The engineer requested committing this checkpoint and pushing the current branch.
+Preserve untracked `docs/DEPENDENCY-AUDIT.md`.
+
+Next roadmap slice: continue R6 numbering with shared abstract numbering
+identities. Use `docs/NUMBERING.md` and the R6 numbering checkpoints for the
+existing contracts, and cover shared references and imported numbering
+preservation before moving on to richer level properties and numbering style
+links. R7–R10 remain open.
+
 **Expanded commit checkpoint (2026-11-20):** the engineer confirmed the rename
 to rocx is intentional and must be included. `d3ed743` commits the renamed
 manifests, imports, Python package tree, tools, tests and lockfiles; `ddd79ff`

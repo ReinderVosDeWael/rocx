@@ -4,6 +4,7 @@
 //! (comments), 20.2 (pictures), and 20.4 (WordprocessingML drawings).
 //! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 
+use crate::document::setters;
 use crate::{AltText, BlockChildren, BreakType, Condition, ImageTransformation, Inline, Value};
 
 #[derive(Debug, Default)]
@@ -15,6 +16,7 @@ pub struct Break {
     pub r#type: BreakType,
     pub condition: Condition,
 }
+setters!(Break { with_type => r#type: value<BreakType> });
 impl Default for Break {
     fn default() -> Self {
         Self {
@@ -88,6 +90,12 @@ pub struct ImageRun {
     pub alt_text: Value<Option<AltText>>,
     pub condition: Condition,
 }
+setters!(ImageRun {
+    with_data => data: into<Value<ImageData>>,
+    with_type => r#type: optional_into<String>,
+    with_transformation => transformation: into<Value<Option<ImageTransformation>>>,
+    with_alt_text => alt_text: into<Value<Option<AltText>>>,
+});
 impl ImageRun {
     pub fn new(data: impl Into<ImageData>) -> Self {
         Self {
@@ -118,11 +126,13 @@ pub struct Header {
     pub children: Value<BlockChildren>,
     pub condition: Condition,
 }
+setters!(Header { with_children => children: into<Value<BlockChildren>> });
 #[derive(Debug, Default)]
 pub struct Footer {
     pub children: Value<BlockChildren>,
     pub condition: Condition,
 }
+setters!(Footer { with_children => children: into<Value<BlockChildren>> });
 macro_rules! hf {
     ($t:ty) => {
         impl $t {

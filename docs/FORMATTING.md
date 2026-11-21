@@ -1,5 +1,58 @@
 # Formatting coverage
 
+## Rust chainable authoring setters
+
+Public authoring property records support consuming `with_<field>` setters next
+to their definitions. These are an additive alternative to struct literals:
+
+```rust
+use rocx::{ParagraphFormat, RunFormat, TextRun};
+
+let run = TextRun::new("Participant (REDCap ID): ")
+    .with_format(RunFormat::default().with_bold(true));
+let paragraph_format = ParagraphFormat::default()
+    .with_spacing_after(6.)
+    .with_keep_with_next(false);
+```
+
+- Optional properties accept the plain value and store `Some(value)`. No call
+  leaves the original value unchanged, including `None`; `with_bold(false)` is
+  explicitly false, not unspecified. Repeating a setter replaces the prior value.
+- Strings accept `impl Into<String>` (borrowed or owned). Other value properties
+  accept their existing field type. Collection setters replace the whole
+  collection, rather than appending or merging.
+- Nested records compose normally, for example
+  `TableCellProperties::default().with_margins(CellMargins::default().with_top(3.))`.
+- Existing public fields, struct literals and defaults remain available. Clear
+  optional properties with field assignment (`format.bold = None`). Setters do
+  not clear conflicting properties or validate early: existing validation still
+  runs at its existing boundary. For example, setting both `line_spacing` and
+  `line_height` remains an error.
+
+Coverage includes `RunFormat`, `RunLanguage`, `ParagraphFormat`, `TabStop`,
+`DocumentDefaults`, page size/margins/numbering, columns and section properties;
+paragraph/character/table style definitions and conditional table formatting;
+table/row/cell properties, cell margins, table-look flags and border records;
+numbering definitions/levels/start overrides/references; image transformations
+and alt text; document/comment metadata, note targets, hyperlink and field
+properties. `with_type` sets fields named `r#type`.
+
+Authoring components also expose setters for their configurable fields alongside
+their existing constructors, `with_format`, `with_properties`, `with_children`
+and `when` methods. Deferred fields accept `impl Into<Value<T>>`, preserving
+ready values, property references and owned futures. When `T` is optional, use
+`Some(value)` or an existing `Value<Option<T>>`, for example
+`Section::default().with_properties(Some(SectionProperties::default().with_bidi(false)))`.
+Conditions continue to use `when`; paragraph content continues to use `with_text`
+or `with_children`, preserving its exclusive representation.
+
+Immutable resolved snapshots, checked identifiers/measurements and infrastructure
+records are not mutable authoring configuration and gain no setters. Python keeps
+its existing keyword arguments; no Python builder API or wire format is added.
+Tests compare setters to literals, cover all value fields and deferred component
+inputs, and require exact DOCX bytes for equivalent RunFormat authoring. Topic 02
+of both visual catalogs labels omitted, enabled and explicitly disabled bold.
+
 ## R6a: paragraph line height
 
 Paragraphs and paragraph styles share `LineHeight` and the same spacing codec.

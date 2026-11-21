@@ -1,4 +1,5 @@
 //! External hyperlink authoring; display children are independent of the target.
+use crate::document::setters;
 use crate::{Condition, HyperlinkProperties, HyperlinkTarget, Inline, InlineChildren, Value};
 
 #[derive(Debug)]
@@ -8,6 +9,10 @@ pub struct Hyperlink {
     pub properties: Value<HyperlinkProperties>,
     pub condition: Condition,
 }
+setters!(Hyperlink {
+    with_target => target: into<Value<HyperlinkTarget>>,
+    with_children => children: into<Value<InlineChildren>>,
+});
 impl Hyperlink {
     pub fn new(
         target: impl Into<Value<HyperlinkTarget>>,

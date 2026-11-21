@@ -19,6 +19,10 @@ pub struct NoteTarget {
     pub kind: NoteKind,
     pub id: NoteId,
 }
+setters!(NoteTarget {
+    with_kind => kind: value<NoteKind>,
+    with_id => id: value<NoteId>,
+});
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedNote {
     pub(crate) target: NoteTarget,
@@ -40,6 +44,11 @@ pub struct CommentMetadata {
     pub date: Option<String>,
     pub initials: Option<String>,
 }
+setters!(CommentMetadata {
+    with_author => author: optional_into<String>,
+    with_date => date: optional_into<String>,
+    with_initials => initials: optional_into<String>,
+});
 impl CommentMetadata {
     /// Supplied dates use the supported UTC-seconds subset, not arbitrary XSD dates.
     pub fn validate(&self) -> Result<(), Diagnostic> {

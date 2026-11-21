@@ -1,4 +1,5 @@
 //! Generic deferred note and structured comment story declarations.
+use crate::document::setters;
 use crate::{
     BlockChildren, CommentMetadata, Condition, Inline, NoteId, NoteKind, NoteTarget, Value,
 };
@@ -9,6 +10,10 @@ pub struct Note {
     pub children: Value<BlockChildren>,
     pub condition: Condition,
 }
+setters!(Note {
+    with_target => target: into<Value<NoteTarget>>,
+    with_children => children: into<Value<BlockChildren>>,
+});
 impl Note {
     pub fn new(
         target: impl Into<Value<NoteTarget>>,
@@ -48,6 +53,7 @@ pub struct NoteReference {
     pub target: Value<NoteTarget>,
     pub condition: Condition,
 }
+setters!(NoteReference { with_target => target: into<Value<NoteTarget>> });
 impl NoteReference {
     pub fn new(target: impl Into<Value<NoteTarget>>) -> Self {
         Self {
@@ -89,6 +95,7 @@ pub struct Comment {
     pub metadata: Value<CommentMetadata>,
     pub condition: Condition,
 }
+setters!(Comment { with_children => children: into<Value<BlockChildren>> });
 impl Comment {
     pub fn new(children: impl Into<Value<BlockChildren>>) -> Self {
         Self {

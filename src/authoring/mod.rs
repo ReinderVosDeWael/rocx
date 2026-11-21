@@ -21,6 +21,16 @@ pub struct Document {
     pub numbering: Value<Vec<NumberingDefinition>>,
     pub defaults: Value<Option<DocumentDefaults>>,
 }
+setters!(Document {
+    with_sections => sections: value<Vec<Value<Section>>>,
+    with_notes => notes: into<Value<Vec<Value<Note>>>>,
+    with_metadata => metadata: into<Value<Metadata>>,
+    with_comment_author => comment_author: into<Value<Option<String>>>,
+    with_timestamp => timestamp: into<Value<Option<String>>>,
+    with_styles => styles: into<Value<Vec<StyleDefinition>>>,
+    with_numbering => numbering: into<Value<Vec<NumberingDefinition>>>,
+    with_defaults => defaults: into<Value<Option<DocumentDefaults>>>,
+});
 
 impl Document {
     pub fn new(sections: Vec<Value<Section>>) -> Self {
@@ -43,6 +53,11 @@ pub struct Section {
     pub children: Value<BlockChildren>,
     pub condition: Condition,
 }
+setters!(Section {
+    with_properties => properties: into<Value<Option<SectionProperties>>>,
+    with_headers => headers: value<BTreeMap<HeaderFooterType, Value<Header>>>,
+    with_footers => footers: value<BTreeMap<HeaderFooterType, Value<Footer>>>,
+});
 
 impl Section {
     pub fn new(children: BlockChildren) -> Self {
@@ -73,6 +88,11 @@ pub struct Paragraph {
     pub content: ParagraphContent,
     pub condition: Condition,
 }
+setters!(Paragraph {
+    with_numbering => numbering: into<Value<Option<NumberingReference>>>,
+    with_comment_text => comment_text: optional_into<Value<String>>,
+    with_comment_author => comment_author: optional_into<Value<String>>,
+});
 
 impl Default for Paragraph {
     fn default() -> Self {
@@ -148,6 +168,10 @@ pub struct TextRun {
     pub text: Value<String>,
     pub condition: Condition,
 }
+setters!(TextRun {
+    with_comment_text => comment_text: optional_into<Value<String>>,
+    with_comment_author => comment_author: optional_into<Value<String>>,
+});
 
 impl TextRun {
     pub fn with_format(mut self, format: impl Into<Value<RunFormat>>) -> Self {

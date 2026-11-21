@@ -133,3 +133,13 @@ schemas, builds wheels/sdist, and publishes only from `v*` tags. See
 [releasing](../docs/RELEASING.md) for the one-time trusted-publisher setup and
 release checklist. Dependency alert dispositions are in
 [`docs/DEPENDENCY-AUDIT.md`](../docs/DEPENDENCY-AUDIT.md).
+## Rust authoring builders
+
+`run_format_builders.rs` verifies every run setter, three-state bold, overwrite
+and unrelated-field preservation, and exact DOCX byte equality with equivalent
+literals using a fixed timestamp. `authoring_builders.rs` compares every other
+public authoring value field to literal assignments, both separately and chained,
+and checks collection replacement, existing validation and deferred component
+inputs. The catalog inventory guard checks field/setter/test coverage; paired
+catalog samples independently assert omitted/true/false bold, including an
+explicit-false-removal negative control.

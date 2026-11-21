@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import zipfile
@@ -37,6 +38,36 @@ def verify_inventory() -> None:
         assert set(actual) == set(expected.split()), f"Update both catalogs and inventory for {name}: {actual}"
     wrappers = {"BlockChildren", "Deferred", "DeferredProperty", "PropertyRef"}
     assert set(d.__all__) == set(inventory) | wrappers, "Update catalog coverage for changed public exports"
+    verify_rust_builder_inventory()
+
+
+def verify_rust_builder_inventory() -> None:
+    """Require builders and assignment tests for public authoring value fields.
+
+    This source guard covers the repository's flat property records, not arbitrary
+    Rust syntax. Compilation and behavioral tests verify the generated methods.
+    """
+    assignments = (ROOT / "tests/authoring_builders.rs").read_text()
+    run_tests = (ROOT / "tests/run_format_builders.rs").read_text()
+    for path in (ROOT / "src/document").glob("*.rs"):
+        source = path.read_text()
+        for record in re.finditer(r"pub struct (\w+) \{([^}]+)\}", source):
+            name, body = record.groups()
+            if name.startswith("Resolved") or name == "Diagnostic":
+                continue  # Immutable snapshots and infrastructure are not authoring records.
+            fields = set(re.findall(r"pub (?:r#)?(\w+):", body))
+            if not fields:
+                continue
+            block = re.match(r"\s*setters!\(" + name + r" \{(.*?)\}\);", source[record.end():], re.S)
+            assert block, f"Keep {name} builders next to the struct"
+            methods = re.findall(r"(with_\w+)\s*=>\s*(?:r#)?(\w+):", block[1])
+            assert {field for _, field in methods} == fields, f"Missing {name} builder fields"
+            assert all(method == f"with_{field}" for method, field in methods)
+            tests = run_tests if name == "RunFormat" else re.search(
+                r"check!\(\w+,\s*" + name + r",(.*?)\n\);", assignments, re.S)
+            assert tests, f"Add {name} builder assignment tests"
+            tested = run_tests if name == "RunFormat" else tests[1]
+            assert all(method in tested for method, _ in methods), f"Untested {name} builders"
 
 
 def exact_bytes(rust: bytes, python: bytes) -> str:
@@ -56,6 +87,13 @@ def verify_content(data: bytes, template: bytes) -> None:
         document = etree.fromstring(package.read("word/document.xml"))
         styles = etree.fromstring(package.read("word/styles.xml"))
         text = "\n".join(document.xpath("//w:t/text()", namespaces=NS))
+        for caption, expected in [("Builder bold unspecified; ", []),
+                ("Builder bold enabled; ", ["1"]),
+                ("Builder bold disabled, italic enabled.", ["0"])]:
+            runs = document.xpath("//w:r[w:t[text()=$caption]]", caption=caption, namespaces=NS)
+            assert len(runs) == 1
+            assert runs[0].xpath("w:rPr/w:b/@w:val", namespaces=NS) == expected
+        assert runs[0].xpath("w:rPr/w:i/@w:val", namespaces=NS) == ["1"]
         def values(root, path: str) -> set:
             return set(root.xpath(path, namespaces=NS))
         for topic in ["01 Paragraphs", "02 Run formatting", "03 Styles", "04 Tables", "05 Conditional", "06 Lists", "07 Inline images", "08 Authoring", "09 Section"]:

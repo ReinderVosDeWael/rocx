@@ -197,3 +197,13 @@ pub struct Metadata {
     pub comments: Option<String>,
     pub version: Option<String>,
 }
+setters!(Metadata {
+    with_creator => creator: optional_into<String>,
+    with_title => title: optional_into<String>,
+    with_subject => subject: optional_into<String>,
+    with_description => description: optional_into<String>,
+    with_keywords => keywords: optional_into<String>,
+    with_category => category: optional_into<String>,
+    with_comments => comments: optional_into<String>,
+    with_version => version: optional_into<String>,
+});

@@ -65,6 +65,10 @@ pub struct HyperlinkProperties {
     pub tooltip: Option<String>,
     pub history: Option<bool>,
 }
+setters!(HyperlinkProperties {
+    with_tooltip => tooltip: optional_into<String>,
+    with_history => history: optional<bool>,
+});
 
 /// Immutable display content; text is projected rather than stored twice.
 #[derive(Debug, Clone, PartialEq)]

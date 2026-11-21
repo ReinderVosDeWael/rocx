@@ -27,6 +27,20 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     checks.verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
 
 
+def test_builder_inventory_rejects_a_missing_setter(tmp_path, monkeypatch) -> None:
+    source_dir = tmp_path / "src/document"
+    source_dir.mkdir(parents=True)
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    for name in ["authoring_builders.rs", "run_format_builders.rs"]:
+        (tests_dir / name).write_text((ROOT / "tests" / name).read_text())
+    source = (ROOT / "src/document/values.rs").read_text()
+    (source_dir / "values.rs").write_text(source.replace("    with_bold => bold: optional<bool>,\n", "", 1))
+    monkeypatch.setattr(checks, "ROOT", tmp_path)
+    with pytest.raises(AssertionError, match="Missing RunFormat builder fields"):
+        checks.verify_rust_builder_inventory()
+
+
 def test_exact_byte_check_rejects_container_only_differences(catalogs) -> None:
     rust, _ = catalogs
     original = rust.read_bytes()
@@ -36,6 +50,22 @@ def test_exact_byte_check_rejects_container_only_differences(catalogs) -> None:
             target.writestr(name, source.read(name))
     with pytest.raises(AssertionError, match="ZIP container metadata/compression only"):
         checks.exact_bytes(original, output.getvalue())
+
+
+def test_content_check_rejects_losing_explicit_false_from_a_builder(catalogs) -> None:
+    rust, _ = catalogs
+    output = io.BytesIO()
+    with zipfile.ZipFile(rust) as source, zipfile.ZipFile(output, "w") as target:
+        for name in source.namelist():
+            data = source.read(name)
+            if name == "word/document.xml":
+                root = etree.fromstring(data)
+                node = root.xpath("//w:r[w:t[text()='Builder bold disabled, italic enabled.']]/w:rPr/w:b", namespaces=checks.NS)[0]
+                node.getparent().remove(node)
+                data = etree.tostring(root)
+            target.writestr(name, data)
+    with pytest.raises(AssertionError):
+        checks.verify_content(output.getvalue(), rust.with_suffix(".template.docx").read_bytes())
 
 
 def test_content_check_detects_a_missing_feature_even_if_both_languages_agree(catalogs) -> None:

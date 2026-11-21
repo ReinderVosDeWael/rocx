@@ -31,9 +31,8 @@ catalogs and their parity/coverage checks.
 use rocx::{Document, Error, Paragraph, RunFormat, Section, TextRun};
 
 async fn report() -> Result<(), Error> {
-    let run = TextRun::new("Hello, world!").with_format(RunFormat {
-        bold: Some(true), size: Some(14.), ..RunFormat::default()
-    });
+    let run = TextRun::new("Hello, world!")
+        .with_format(RunFormat::default().with_bold(true).with_size(14.));
     let declaration = Document::new(vec![
         Section::new(vec![Paragraph::from_children(vec![run.into()]).into()]).into(),
     ]);

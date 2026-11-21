@@ -1,4 +1,5 @@
 //! Matching Rust/Python visual inspection catalog. See examples/ALL_FEATURES.md.
+//! Includes chainable authoring builders and omitted/true/false formatting.
 #[path = "showcase/mod.rs"]
 mod showcase;
 

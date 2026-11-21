@@ -36,8 +36,15 @@ After native changes, rebuild the editable Python extension first using the
 repository's locked native rebuild command. A stale native extension can cause
 an actual parity failure.
 
-Verified local baseline through R6v (2026-11-20): both final files are 55,352 bytes, SHA-256
-`a9af36b93d674c9e5689b803aff950afefad315457bae3d958fec6a4e8f72837`.
+Verified local baseline including authoring builders: both final files are 55,454 bytes, SHA-256
+`61244a58b369757762d88891da46aafdc10c1b70be4d20b4e618363212876691`.
+
+Topic 02 labels a chainable-setter sample: bold omitted, bold enabled, and bold
+explicitly disabled with italic enabled. Rust uses `RunFormat`/`ParagraphFormat`
+builders; Python uses equivalent existing keyword arguments. The inventory guard
+also checks that public Rust authoring value fields have adjacent setters and
+assignment tests. Builders change authoring syntax only; they do not add OOXML
+features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters).
 
 Topic 04 also labels all five inline-table alignment tokens on narrow 2160-twip
 tables. Existing tables retain omitted alignment; paragraph alignment is separate.

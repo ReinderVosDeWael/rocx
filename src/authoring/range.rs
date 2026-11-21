@@ -1,4 +1,5 @@
 //! Stable paired range markers. Conditions can omit markers; validation catches dangling pairs.
+use crate::document::setters;
 use crate::{BookmarkName, Condition, Inline, RangeId, RangeKind, ResolvedComment, Value};
 
 #[derive(Debug)]
@@ -7,11 +8,16 @@ pub struct RangeStart {
     pub kind: Value<RangeKind>,
     pub condition: Condition,
 }
+setters!(RangeStart {
+    with_id => id: into<Value<RangeId>>,
+    with_kind => kind: into<Value<RangeKind>>,
+});
 #[derive(Debug)]
 pub struct RangeEnd {
     pub id: Value<RangeId>,
     pub condition: Condition,
 }
+setters!(RangeEnd { with_id => id: into<Value<RangeId>> });
 impl RangeStart {
     pub fn new(id: impl Into<Value<RangeId>>, kind: impl Into<Value<RangeKind>>) -> Self {
         Self {

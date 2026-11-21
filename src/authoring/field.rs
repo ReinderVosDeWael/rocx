@@ -1,4 +1,5 @@
 //! Deferred fields; balanced structure is constructed rather than marker-authored.
+use crate::document::setters;
 use crate::{Condition, FieldInstruction, FieldProperties, Inline, InlineChildren, Value};
 
 #[derive(Debug)]
@@ -8,6 +9,10 @@ pub struct Field {
     pub properties: Value<FieldProperties>,
     pub condition: Condition,
 }
+setters!(Field {
+    with_instruction => instruction: into<Value<FieldInstruction>>,
+    with_children => children: into<Value<InlineChildren>>,
+});
 impl Field {
     pub fn new(
         instruction: impl Into<Value<FieldInstruction>>,

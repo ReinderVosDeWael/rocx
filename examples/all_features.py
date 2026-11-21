@@ -65,6 +65,11 @@ def formatting_blocks() -> list:
         blocks.append(d.Paragraph(children=[d.TextRun(f"Tab leader={leader}"), d.Tab(), d.TextRun("at 288 pt")],
             tab_stops=[d.TabStop(288, "right", leader), d.TabStop(-12, "clear")]))
     blocks.append(heading("02 Run formatting, colors, scripts and whitespace"))
+    blocks.append(p("Chainable Rust builders: omitted, enabled and explicitly disabled bold; Python keywords author the same properties."))
+    blocks.append(d.Paragraph(children=[d.TextRun("Builder bold unspecified; "),
+        d.TextRun("Builder bold enabled; ", bold=True),
+        d.TextRun("Builder bold disabled, italic enabled.", bold=False, italic=True)],
+        spacing_after=6, keep_with_next=False))
     for name, fmt in [("Bold=true", {"bold": True}), ("Italic=true", {"italic": True}),
             ("Strike=true", {"strike": True}), ("ALL CAPS=true", {"all_caps": True}),
             ("Small caps=true", {"small_caps": True}), ("Superscript=true", {"superscript": True}),

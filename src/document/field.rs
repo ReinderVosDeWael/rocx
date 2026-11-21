@@ -54,6 +54,11 @@ pub struct FieldProperties {
     pub dirty: Option<bool>,
     pub locked: Option<bool>,
 }
+setters!(FieldProperties {
+    with_form => form: value<FieldForm>,
+    with_dirty => dirty: optional<bool>,
+    with_locked => locked: optional<bool>,
+});
 
 /// A paragraph-local, balanced field with immutable cached display inlines.
 /// Nested fields occur only in results; markers cannot escape into other stories.
