@@ -14,7 +14,7 @@ defers its target key and child blocks; a reference defers the same cloneable
 content. Structural authoring lists/futures remain single-use, not cloneable.
 
 ```rust
-use rv_docx_rs::*;
+use rocx::*;
 let note = Note::footnote(NoteId::new(0), vec![Paragraph::new("Note body").into()]);
 let reference = NoteReference::footnote(NoteId::new(0));
 let mut document = Document::new(vec![Section::new(vec![

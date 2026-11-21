@@ -124,7 +124,27 @@ validation cover generation; they do not establish browser/Word navigation safet
 | Value / rule | Specification | Current implementation and direction |
 | --- | --- | --- |
 | Paragraph/run property sequence and choices | P1 §§17.3.1.26, 17.3.2.28 and normative Annex A.1 | `ooxml/schema.rs` supplies selected ordering policy for generated/changed properties. Ordering alone is not cardinality/choice validation. |
-| Paragraph spacing and line spacing | P1 §17.3.1.33 (`spacing`) | `format::paragraph` converts before/after points to twips, and line multipliers to 240ths. Future types must also express other line rules. |
+| Paragraph spacing and line spacing | P1 §17.3.1.33 (`spacing`) | Before/after points to twips; `LineHeight` supports multiples in 240ths and exact/minimum point heights in twips on paragraphs/styles. Legacy multiplier unchanged; [coverage](FORMATTING.md). |
+| Custom tab stops | P1 §§17.3.1.37–38, 17.18.84–85 | Signed point positions to twips; typed alignments/leaders/clears on paragraphs/styles, additive inheritance left to consumer; [coverage](FORMATTING.md). |
+| Row height/pagination | P1 §§17.4.6, 17.4.49, 17.4.80 | Exact/minimum point heights to twips; optional header/cannot-split flags; no pagination calculation; [row contract](TABLES.md). |
+| Cell margins/text flow | P1 §§17.4.68, 17.4.72, 17.18.93 | Point margins to twips and checked text direction; [cell contract](TABLES.md). |
+| Language/complex-script runs | P1 §§17.3.2.2, .7, .17, .20, .26, .30, .39; §17.7.3 | Language/font slots, independent complex-script flags/size and RTL requests; no shaping/effective-style calculation; [coverage](FORMATTING.md). |
+| Character styles and run references | P1 §§17.7, 17.3.2.29 | Shared run properties and checked character IDs; forward bases, no effective-style calculation; [contract](STYLES.md). |
+| Concrete numbering starts | P1 §§17.9.8, 17.9.26 | Typed defined-level start overrides; abstract start unchanged, no label evaluation; [coverage](NUMBERING.md). |
+| Paragraph bidi | P1 §17.3.1.6 | Optional direct/style paragraph direction, distinct from run RTL/cell text flow; no string reversal or computed layout. |
+| Section bidi | P1 §17.6.1 | Optional section page direction, preserving omitted/inherited settings; independent of text direction, no page-layout calculation. |
+| Conditional table paragraph formatting | P1 §§17.7.6.1, 17.7.6.6 | Typed line heights/tabs and optional bidi in table-style regions, no effective conditional formatting calculation. |
+| Conditional table run scripts | P1 §§17.7.6.2, 17.3.2 | Language, literal script fonts and complex-script/RTL requests, no shaping or effective conditional formatting. |
+| Document defaults | P1 §§17.7.5.1–5 | Explicit run/paragraph defaults merged into template styles; no effective-style computation. |
+| Linked styles | P1 §17.7.4.6 | Explicit opposite-kind paragraph/character links, forward references; no automatic backlinks or application-selection behavior. |
+| Section gutter placement | P1 §17.6.16 | Optional rtlGutter request, independently of page/text direction; no gutter-size or binding/layout calculation. |
+| Concrete numbering level replacements | P1 §§17.9.7–8, 17.9.26 | Supported NumberingLevel subset under lvlOverride/lvl, combined with distinct startOverride; no abstract mutation or counter evaluation. |
+| Table-look activation | P1 §17.4.55 | Explicit first/last row/column and row/column banding requests, consistent val mask; no effective conditional-style computation. |
+| Inline table alignment | P1 §17.4.28 | Optional tblPr/jc left/center/right/start/end; no width/grid changes or floating positioning. |
+| Legal numbering display | P1 §17.9.4 | Optional isLgl on abstract/replacement levels; explicit false/true, no label calculation or numFmt mutation. |
+| Numbering suffix | P1 §17.9.28 | Optional suff on abstract/replacement levels: tab/space/nothing; no separator insertion or tab layout. |
+| Numbering level restart | P1 §17.9.10 | Optional lvlRestart on abstract/replacement levels; zero/one-based requests, no effective counter calculation. |
+| Numbering-label alignment | P1 §17.9.7 | Optional lvlJc: left/center/right/start/end on abstract/replacement levels; independent of paragraph alignment. |
 | Half-point font sizes | P1 §17.3.2.38 (`sz`); §17.18.42 (`ST_HpsMeasure`) | `format::run` multiplies point sizes by two. Keep the authoring unit separate from the wire unit. |
 | Twip measurements | P1 §22.9.2.14 (`ST_TwipsMeasure`); §17.18.81 (`ST_SignedTwipsMeasure`) | Numeric conveniences retain documented units; checked domain value objects centralize conversion. |
 | Universal measurements | P1 §22.9.2.15 (`ST_UniversalMeasure`) | Distinguish lexical representations and selected output profile. |

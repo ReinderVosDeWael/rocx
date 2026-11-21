@@ -1,6 +1,7 @@
 # Reorganization implementation plan
 
-Status: implemented for the existing feature surface in version 0.2. The ordered
+Status: implemented for the existing feature surface in version 0.2. Names in this
+execution record predate the package rename to `rocx`. The ordered
 work below is retained as the execution record; [MODULES.md](MODULES.md) describes
 the actual boundaries and [MIGRATION.md](MIGRATION.md) records deliberate API changes.
 

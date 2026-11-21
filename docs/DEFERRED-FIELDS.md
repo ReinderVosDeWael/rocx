@@ -1,6 +1,6 @@
 # Deferred fields and shared resolution scenarios
 
-Inventory including R5 document fields (2026-11-18). This describes authoring and
+Inventory including R6a–R6v formatting/table/style/list properties (2026-11-20). This describes authoring and
 resolution, not a promise that every resolved value is legal OOXML. Conversion
 and domain validation still apply after producers finish.
 
@@ -13,7 +13,7 @@ without the named reference graph. No field-specific dependency engine exists.
 
 | Declaration | Deferred fields | Currently ordinary fields |
 | --- | --- | --- |
-| `Document` | metadata (`Metadata` aggregate); comment_author, timestamp, styles, numbering, notes; each entry in `sections: Vec<Value<Section>>` | The structural sections vector itself |
+| `Document` | metadata (`Metadata` aggregate); comment_author, timestamp, styles, numbering, notes, defaults (`Option<DocumentDefaults>` aggregate); each entry in `sections: Vec<Value<Section>>` | The structural sections vector itself |
 | `Section` | properties (`Option<SectionProperties>`); children; each header/footer map value | Header/footer maps and keys |
 | `Paragraph` | format (`ParagraphFormat` aggregate); numbering; content's text **or** inline children; comment_text/comment_author when present | None beyond condition |
 | `Hyperlink` | target (`HyperlinkTarget`); children; properties (`HyperlinkProperties`: tooltip/history) | None beyond condition; nested links intentionally unsupported |
@@ -25,9 +25,9 @@ without the named reference graph. No field-specific dependency engine exists.
 | `TextRun` | text; format (`RunFormat` aggregate); comment_text/comment_author when present | None beyond condition |
 | `ImageRun` | data; transformation (`Option<ImageTransformation>`); alt_text (`Option<AltText>`) | type hint (`r#type`, not used to override inspected image headers) |
 | `Header`, `Footer` | children | None beyond condition |
-| `Table` | properties (`TableProperties`: column_widths, layout, style, borders); rows, including each row entry | None beyond condition |
-| `TableRow` | children, including each cell entry | None beyond condition |
-| `TableCell` | properties (`TableCellProperties`: grid_span, vmerge, borders, background_color, vertical_alignment); children | None beyond condition |
+| `Table` | properties (`TableProperties`: column_widths, layout, style, borders, look, alignment); rows, including each row entry | None beyond condition |
+| `TableRow` | children, including each cell entry; properties (`TableRowProperties`: height/repeat_header/cant_split) | None beyond condition |
+| `TableCell` | properties (`TableCellProperties`: grid_span, vmerge, borders, background_color, vertical_alignment, margins, text_direction); children | None beyond condition |
 | `Break` | None | type |
 | `Tab` | None | None beyond condition |
 
@@ -35,6 +35,13 @@ All component conditions are synchronous `Condition` values, not `Value<bool>`.
 Documents have no condition. Domain structs such as `SectionProperties`, format,
 style, numbering, border and image-option values do not run producers themselves.
 Defer a supported aggregate, or produce a whole component through `Value`.
+`ParagraphFormat.line_height` and style `line_height` use the same aggregate
+approach in Rust; Python's line-height property uses generic per-field references.
+`tab_stops` uses those same format/styles aggregates and Python field references;
+individual `TabStop` values introduce no special evaluation machinery.
+Character style definitions reuse Rust `RunFormat` within the deferred styles
+collection. Direct `RunFormat.style` and Python `TextRun.style` use the same
+generic format/field reference mechanisms as the other formatting properties.
 `Document.notes` is a deferred collection of owned `Value<Note>` declarations;
 like authoring child lists, its futures are not cloneable. Share cloneable target
 keys or immutable child blocks rather than cloning definition programs.
@@ -46,7 +53,7 @@ cannot itself be shared through `PropertyRef<BlockChildren>` or
 cloneable input data to build new declarations, or share **resolved** content:
 
 ```rust
-use rv_docx_rs::{BlockChildren, Property, ResolvedBlock, Section, Value};
+use rocx::{BlockChildren, Property, ResolvedBlock, Section, Value};
 fn shared_section(source: &Property<Vec<ResolvedBlock>>) -> Section {
     Section::default().with_children(Value::from(source.reference()).map(|blocks| {
         blocks.into_iter().map(Into::into).collect::<BlockChildren>()
@@ -73,30 +80,40 @@ values and sequence entries are recursively resolved; mapping keys are not.
 
 | Declaration | Resolvable fields |
 | --- | --- |
-| `Document` | sections, creator, title, subject, description, keywords, category, comments, version, comment_author, styles, numbering, timestamp, notes |
+| `Document` | sections, creator, title, subject, description, keywords, category, comments, version, comment_author, styles, numbering, timestamp, notes, defaults |
+| `DocumentDefaults` | run, paragraph |
+| `RunDefaults` | TextRun formatting fields except text/comments/style |
+| `ParagraphDefaults` | Paragraph formatting fields except heading/style; all lengths use points |
 | `DocumentTemplate` | path, replacements, paragraph_index, scope (when resolved as a template input) |
 | `Section` | children, properties, headers, footers |
-| `SectionProperties` | page_size, page_orientation, page_margins, page_numbering, columns, vertical_align, title_page, type |
-| `Paragraph` | text, children, comment_text, comment_author, numbering, heading, style, alignment, spacing_before, spacing_after, line_spacing, left_indent, right_indent, first_line_indent, keep_together, keep_with_next, page_break_before, widow_control |
+| `SectionProperties` | page_size, page_orientation, page_margins, page_numbering, columns, vertical_align, title_page, type, bidi, rtl_gutter |
+| `Paragraph` | text, children, comment_text, comment_author, numbering, heading, style, alignment, bidi, spacing_before, spacing_after, line_spacing, line_height, tab_stops, left_indent, right_indent, first_line_indent, keep_together, keep_with_next, page_break_before, widow_control |
 | `Hyperlink` | target, children, tooltip, history |
 | `Field`, `FieldInstruction` | instruction/children/form/dirty/locked on fields; kind/name/code on instructions |
 | `RangeStart`, `RangeEnd`, `BookmarkTarget` | id/kind/name/text/author/content on starts; id on ends; name on targets |
 | `Note`, `NoteReference`, `Comment` | kind/id/children on notes; kind/id on references; children/author/date/initials on comments |
-| `TextRun` | text, comment_text, comment_author, bold, italic, underline, font, size, color, superscript, subscript, strike, all_caps, small_caps |
+| `TextRun` | text, comment_text, comment_author, style, bold, italic, underline, font, font_east_asia, font_complex_script, size, size_complex_script, color, superscript, subscript, strike, all_caps, small_caps, language, bold_complex_script, italic_complex_script, rtl, complex_script |
 | `ImageRun` | data, type, transformation, alt_text |
 | `Header`, `Footer` | children |
-| `Table` | rows, column_widths, layout, style, borders |
-| `TableRow` | children |
-| `TableCell` | children, grid_span, vmerge, borders, background_color, vertical_alignment |
+| `Table` | rows, column_widths, layout, style, borders, look, alignment |
+| `TableLook` | first_row, last_row, first_column, last_column, horizontal_banding, vertical_banding |
+| `TableRow` | children, height, repeat_header, cant_split |
+| `TableCell` | children, grid_span, vmerge, borders, background_color, vertical_alignment, margins, text_direction |
+| `CellMargins` | top, start, bottom, end |
+| `RunLanguage` | latin, east_asia, bidi |
+| `LineHeight` | rule, value |
+| `TabStop` | position, alignment, leader |
 | `TableBorder`, `CellBorder` | side, sz, color, val |
 | `Break` | type |
 | `Tab` | None |
 | `NumberingReference` | id, level |
-| `NumberingDefinition` | id, levels |
-| `NumberingLevel` | level, start, format, text |
-| `ParagraphStyleDefinition` | name, base_style, next_paragraph_style, font, font_size, bold, italic, underline, color, alignment, spacing_before, spacing_after, line_spacing, left_indent, right_indent, first_line_indent, keep_together, keep_with_next, page_break_before, widow_control |
+| `NumberingDefinition` | id, levels, start_overrides, level_overrides |
+| `NumberingStartOverride` | level, start |
+| `NumberingLevel` | level, start, format, text, is_legal, suffix, restart, alignment |
+| `ParagraphStyleDefinition` | name, base_style, next_paragraph_style, linked_style, font, font_size, bold, italic, underline, color, alignment, spacing_before, spacing_after, line_spacing, line_height, tab_stops, left_indent, right_indent, first_line_indent, keep_together, keep_with_next, page_break_before, widow_control; script/language/font fields as in TextRun |
+| `CharacterStyleDefinition` | name, base_style, linked_style; TextRun formatting fields except text/comments/style |
 | `TableStyleDefinition` | name, base_style, whole_table, first_row, last_row, first_column, last_column, banding_1_row, banding_2_row, banding_1_column, banding_2_column, top_left_cell, top_right_cell, bottom_left_cell, bottom_right_cell |
-| `TableSectionFormat` | font, font_size, bold, italic, underline, color, background, alignment, spacing_before, spacing_after |
+| `TableSectionFormat` | font, font_size, bold, italic, underline, color, background, alignment, spacing_before, spacing_after, line_height, tab_stops, bidi, language, bold_complex_script, italic_complex_script, size_complex_script, rtl, complex_script, font_east_asia, font_complex_script |
 
 `condition` is synchronous and evaluated once per source declaration per pass.
 Computed helpers (`hex_color`, methods) and internal identities are not reference
@@ -177,7 +194,7 @@ and relationship validation still require their existing compilation contexts.
 Rust snapshots expose read-only accessors for metadata/timestamp, styles,
 numbering, section properties/stories, table/cell properties and image alt text.
 
-Python `rv_docx.RenderOptions` and `ReadLimits` map directly to Rust's render
+Python `rocx.RenderOptions` and `ReadLimits` map directly to Rust's render
 options. Pass `options=` to bytes, save or optional interop output on declarations
 or snapshots. Profile, timestamp override and archive read budgets are explicit;
 rendering does not change snapshots or read source images again. Strict remains

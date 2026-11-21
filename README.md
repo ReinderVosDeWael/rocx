@@ -1,19 +1,34 @@
-# rv-docx-rs
+# rocx
 
 Declarative DOCX authoring in Rust and Python, with asynchronous values,
 conditions, and dependencies inside the authoring tree. A shared immutable
 Rust document domain compiles directly to OOXML and OPC packages. CMI inspired
 the original API; it does not constrain this project's interface.
 
-The Rust package is **`rv-docx-rs`**, imported as **`rv_docx_rs`**. The Python
-package is also `rv-docx-rs`, imported as **`rv_docx`**. Version 0.2 reorganizes
+The Rust package is **`rocx`**, imported as **`rocx`**. The Python
+package is also `rocx`, imported as **`rocx`**. Version 0.2 reorganizes
 the implementation and makes deliberate API changes; see the
 [migration guide](docs/MIGRATION.md).
+
+## Visual inspection catalog
+
+Matching [Rust](examples/all_features.rs) and [Python](examples/all_features.py)
+examples build a labeled catalog of the implemented functionality. Generate both
+and verify exact DOCX byte equality with:
+
+```sh
+UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync python tools/check_examples.py
+```
+
+Open `examples/all_features-rust.docx` or `examples/all_features-python.docx`.
+See the [coverage/inspection guide](examples/ALL_FEATURES.md) for sample locations,
+viewer caveats and maintenance requirements. New features must update both
+catalogs and their parity/coverage checks.
 
 ## Rust
 
 ```rust
-use rv_docx_rs::{Document, Error, Paragraph, RunFormat, Section, TextRun};
+use rocx::{Document, Error, Paragraph, RunFormat, Section, TextRun};
 
 async fn report() -> Result<(), Error> {
     let run = TextRun::new("Hello, world!").with_format(RunFormat {
@@ -42,7 +57,7 @@ uv run --locked examples/property_dependencies.py report.docx
 
 ```python
 import asyncio
-from rv_docx.declarative import Document, Paragraph, Section, TextRun
+from rocx.declarative import Document, Paragraph, Section, TextRun
 
 async def main():
     declaration = Document([Section(children=[Paragraph(children=[
@@ -90,7 +105,7 @@ memoized computation handle.
 Rust offers typed named properties with guarded producers and references:
 
 ```rust
-use rv_docx_rs::{Document, Error, Paragraph, Property, Section, Value};
+use rocx::{Document, Error, Paragraph, Property, Section, Value};
 
 async fn dependent_report() -> Result<Vec<u8>, Error> {
     let source = Property::new("result", Value::future(async { "42".to_owned() }));
@@ -140,6 +155,42 @@ REF/TOC instructions, without evaluating fields or calculating layout. See the
 [field contract](docs/FIELDS.md) and [`fields.rs`](examples/fields.rs)/
 [`fields.py`](examples/fields.py) examples.
 
+Paragraphs and paragraph styles support typed multiple, exact and minimum line
+heights and custom tab stops with leaders and explicit clears. See
+[formatting coverage](docs/FORMATTING.md) for units and examples.
+
+Table rows support exact/minimum heights and optional header-repetition/splitting
+requests without calculating pagination. See [row coverage](docs/TABLES.md).
+
+Cell-local margins/text flow and run language/script-font controls use the same
+checked native codecs. Styles support forward references and inheritance-cycle
+checks; see [formatting](docs/FORMATTING.md), [tables](docs/TABLES.md) and
+[style references](docs/STYLES.md) for supported behavior and limitations.
+
+Character styles, concrete numbering start overrides and level replacements are
+available in both APIs, without computing effective styles or list labels. See [styles](docs/STYLES.md)
+and [numbering](docs/NUMBERING.md).
+
+Section page direction is independent of paragraph/run direction. Conditional
+table-style regions also support typed paragraph line heights, tabs and bidi;
+these serialize requests without computing effective formatting or page layout.
+Document run/paragraph defaults can be authored separately and merged into
+template defaults without copying effective formatting into document content.
+Paragraph/character styles also support explicit linked-style references, and
+sections support a gutter-placement request independent of bidi direction.
+Tables also expose `TableLook` activation flags for conditional style regions,
+without materializing effective formatting into cells.
+Numbering levels support optional legal-numbering display requests (`is_legal`),
+including concrete replacements; consumers calculate the displayed labels.
+Optional numbering suffixes request tab, space or no separator after labels,
+without inserting separator text into paragraphs.
+Level-restart requests preserve omitted, never-restart and one-based triggers
+without computing counters.
+Numbering-label alignment supports left/center/right/start/end independently of
+paragraph text alignment.
+Inline tables also accept left/center/right/start/end alignment requests without
+changing grids or cell text alignment.
+
 Runnable examples: [Rust](examples/property_dependencies.rs),
 [Python](examples/property_dependencies.py), and the
 [feature document](examples/feature_parity.rs).
@@ -157,6 +208,8 @@ Runnable examples: [Rust](examples/property_dependencies.rs),
 - [Python interface](PYTHON_BINDINGS.md) and [current support](COMPATIBILITY.md).
 - [Testing](tests/README.md): native tests, independent schemas, consumer
   readback, mutation controls and clean wheel verification.
+- [Releasing](docs/RELEASING.md): tag-gated crates.io/PyPI publishing,
+  trusted-publisher setup and version checks.
 - [Historical architecture review](docs/ARCHITECTURE.md).
 
 The initial output profile is Transitional. Strict is explicitly rejected until

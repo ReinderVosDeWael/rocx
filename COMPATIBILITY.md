@@ -16,14 +16,14 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Hyperlinks | Rich external absolute URI/IRI links in body/table/header/footer paragraphs, with deferred targets/children/tooltip/history; text/image/tab/break children; owner-local external relationships, never fetched |
 | Bookmarks/ranges | Typed paired bookmark/body-comment markers, overlap and cross-paragraph ranges in one story, internal bookmark links, imported name/ID reservation; see [range contract](docs/RANGES.md) |
 | Notes | Footnote/endnote definitions and body references, rich block stories, type-distinguished special entries, imported ID/owner checks; no layout/number calculation; see [notes](docs/NOTES.md) |
-| Formatting | Selected paragraph/run properties, RGB/theme/automatic run colors, underline styles, explicit false overrides |
-| Styles | Paragraph/table definitions and selected conditional table regions, style references and per-compilation catalog |
-| Tables | Nested tables, fixed/autofit widths, spans/vertical merges, borders, shading and vertical alignment |
-| Sections | Geometry, margins, columns, page numbering, break type, title-page and vertical alignment |
+| Formatting | Selected paragraph/run properties, RGB/theme/automatic run colors, underline styles, explicit false overrides; typed line heights and signed custom tab stops/leaders/clears on paragraphs/styles ([coverage](docs/FORMATTING.md)) |
+| Styles | Document run/paragraph defaults, paragraph/character/table definitions and selected conditional table regions (including line heights/tabs/bidi and run script controls), direct character run references, forward base/next/opposite-kind linked references, reachable inheritance-cycle/kind checks and per-compilation catalog ([contract](docs/STYLES.md)) |
+| Tables | Nested tables, fixed/autofit widths, spans/vertical merges, borders, shading and vertical alignment; exact/minimum row heights, repeated-header/cannot-split, inline alignment and explicit conditional table-look activation requests ([contract](docs/TABLES.md)) |
+| Sections | Geometry, margins, columns, page numbering, break type, title-page, vertical alignment, optional section page direction and right-side gutter request ([contract](docs/FORMATTING.md)) |
 | Stories | Main body, default/first/even headers and footers; comment generation currently restricted to body context |
 | Comments | Text conveniences or structured paragraph/table/image/link content on paired body ranges; author/date/initials metadata; no threaded comments |
 | Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline pictures, density-aware dimensions and accessibility fields; deferred data/transformation/alt text in both APIs; header inspection without pixel decoding |
-| Numbering | Native definitions/levels/references exposed in both Rust and Python |
+| Numbering | Native definitions/levels/references, concrete per-level start overrides and level replacements, optional legal-numbering, suffix, level-restart and label-alignment requests in Rust and Python; checked level references, no counter evaluation ([coverage](docs/NUMBERING.md)) |
 | Fields | Simple/balanced complex paragraph-local fields, nested cached results, typed PAGE/NUMPAGES/REF/TOC and raw instructions; no evaluation or multi-paragraph TOC generation; see [fields](docs/FIELDS.md) |
 | Metadata | Core properties and snapshot timestamp |
 | Templates | Relationship-driven part discovery, namespace-safe rewriting, opaque payload retention, structural text replacement and insertion |

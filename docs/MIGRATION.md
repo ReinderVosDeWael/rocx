@@ -3,7 +3,160 @@
 Version 0.2 implements the domain/functional reorganization. CMI remains a
 historical source of fixtures, not a signature-compatibility requirement.
 
+## Package rename to rocx
+
+The package is now `rocx` in both ecosystems. Replace imports and distribution
+references as follows:
+
+| Former | Current |
+| --- | --- |
+| Rust crate `rv-docx-rs`, imported as `rv_docx_rs` | crate `rocx`, imported as `rocx` |
+| Python distribution `rv-docx-rs` | distribution `rocx` |
+| Python import `rv_docx` | import `rocx` |
+| Native extension `rv_docx._native` | `rocx._native` |
+| `RV_DOCX_SCHEMA_DIR`, `RV_DOCX_REQUIRE_SCHEMAS` | `ROCX_SCHEMA_DIR`, `ROCX_REQUIRE_SCHEMAS` |
+
+Install the renamed distributions (`rocx[interop]` for the Python interop extra)
+and update import paths. The GitHub repository remains
+`ReinderVosDeWael/rv-docx-rs`; repository URLs, pinned historical source links and
+trusted-publisher repository fields retain that name. The version remains 0.2.0.
+
 ## Rust package and authoring changes
+
+R6v appends optional `TableProperties.alignment` / Python `Table.alignment`.
+Rust uses `TableAlignment::{Left, Center, Right, Start, End}`; Python accepts
+matching lowercase tokens. None retains old output and style/consumer defaults.
+This does not set paragraph alignment or floating coordinates. Rust exhaustive
+literals need the field or `..Default::default()`. See [TABLES.md](TABLES.md).
+
+R6u appends optional `NumberingLevel.alignment`: Rust `NumberingAlignment` with
+Left/Center/Right/Start/End, Python left/center/right/start/end tokens. This aligns
+labels, not paragraph text. None preserves previous output and consumer defaults.
+Rust exhaustive literals need the field or `..Default::default()`. See
+[NUMBERING.md](NUMBERING.md).
+
+R6t appends optional `NumberingLevel.restart`, a nonnegative 32-bit one-based
+trigger request. Zero means never restart, not the first level. None preserves
+previous output; consumer-ignored values are preserved. Rust exhaustive literals
+need the field or `..Default::default()`. See [NUMBERING.md](NUMBERING.md).
+
+R6s appends optional `NumberingLevel.suffix`: Rust `NumberingSuffix::{Tab, Space,
+Nothing}`, Python `"tab"`, `"space"`, `"nothing"`. Omission retains previous
+output (consumer default: tab). Rust exhaustive literals need the field or
+`..Default::default()`. Separators are not inserted into paragraph text. See
+[NUMBERING.md](NUMBERING.md).
+
+R6r appends optional `NumberingLevel.is_legal` in both APIs, also used by concrete
+level replacements. Omitted values preserve old output; explicit false and true
+remain distinct requests. Rust exhaustive literals need the field or
+`..Default::default()`. See [NUMBERING.md](NUMBERING.md).
+
+R6q adds `TableLook` and optional `TableProperties.look` / Python `Table.look`.
+Omitted fields retain existing library defaults and output bytes. Banding API
+flags are positive; wire `noHBand`/`noVBand` attributes are inverted. Python
+appends its argument; Rust exhaustive property literals need `look` or
+`..Default::default()`. No effective conditional formatting is computed. See
+[TABLES.md](TABLES.md).
+
+R6p appends `NumberingDefinition.level_overrides` using existing `NumberingLevel`
+values in both APIs. Replacement and start overrides can coexist at the same
+defined level without mutating abstract levels. Python preserves existing
+positional arguments; Rust exhaustive literals need the field or
+`..Default::default()`. See [NUMBERING.md](NUMBERING.md) for the supported subset.
+
+The all-features catalog exposed two property-order omissions. Generated
+cell/table borders now follow the schema sequence regardless of input side order;
+conditional table-style properties now put `pPr` before `rPr` when both are
+present. This changes serialized bytes for previously invalid orderings, not
+the requested formatting. Existing declaration inputs remain supported.
+
+R6o appends optional `rtl_gutter` to `SectionProperties` in both APIs. It authors
+a right-side gutter request independently of section/text direction; it does not
+change gutter size, top-gutter settings, margins or width metrics. Omission
+preserves previous/template values. Rust exhaustive literals need the field or
+`..Default::default()`. See [FORMATTING.md](FORMATTING.md).
+
+R6n appends `linked_style` to paragraph/character style definitions. Explicit
+edges resolve opposite-kind names/IDs, including forward targets; no reciprocal
+edge or effective formatting is inferred. Omission preserves template links.
+Rust exhaustive literals need the field or `..Default::default()`; Python keeps
+existing positional arguments. Direct paragraph references now reject character/
+table targets instead of writing malformed `pStyle` references; linked character
+styles must still be used as run styles. See [STYLES.md](STYLES.md).
+
+R6m appends optional deferred `Document.defaults` and introduces `DocumentDefaults`.
+Rust reuses run/paragraph format values; Python adds `RunDefaults` and
+`ParagraphDefaults`. Paragraph-default indents use points, not paragraph-style
+inches. Omitted properties retain templates; defaults do not materialize effective
+formatting or accept style references/headings. Rust exhaustive `Document`
+literals need the field or `..Default::default()`. See [STYLES.md](STYLES.md).
+
+R6l appends optional language/script/font fields to `TableSectionFormat`, matching
+the paragraph-style script vocabulary. Rust exhaustive literals need these
+fields or `..Default::default()`. Existing Python positional arguments retain
+their order. See [STYLES.md](STYLES.md) for conditional run semantics and limits.
+
+R6k appends `line_height`, `tab_stops` and `bidi` to `TableSectionFormat` in both
+APIs. Rust exhaustive literals need these fields or `..Default::default()`.
+Conditional table paragraph properties use the same units/validation as direct
+paragraphs, without computing effective conditional formatting. See [STYLES.md](STYLES.md).
+
+R6j appends optional `bidi` to `SectionProperties` in both APIs. Rust exhaustive
+literals need the new field or `..Default::default()`. This controls section page
+direction only, independently of paragraph `bidi` and run `rtl`; omitted values
+retain template/previous section settings. See [FORMATTING.md](FORMATTING.md).
+
+R6i adds optional `bidi` on paragraph formats/styles (and Python paragraphs),
+separate from run `rtl`. It requests layout direction without reversing text or
+changing explicit indents/alignment. See [FORMATTING.md](FORMATTING.md).
+
+R6h appends `start_overrides` to numbering definitions and adds
+`NumberingStartOverride { level, start }`. Rust exhaustive definitions need an
+empty vector or `..Default::default()` when no overrides are needed. Definitions
+now reject duplicate/out-of-range abstract levels and duplicate/undefined
+override levels. Concrete IDs/collision behavior remains unchanged. See
+[NUMBERING.md](NUMBERING.md) for the restart subset and deferred inputs.
+
+R6g adds `CharacterStyleDefinition` using Rust `RunFormat` and Python's flattened
+run formatting fields, plus direct run `style` references. Rust custom matches on
+`StyleDefinition` must handle its new `Character` variant. Character inheritance
+and direct reference target kinds are checked; inherited properties are not
+copied into direct formatting. See [STYLES.md](STYLES.md).
+
+R6d adds `CellMargins` and checked `CellTextDirection` to cell properties, with
+matching Python `margins`/`text_direction` fields. R6e adds `RunLanguage`, literal
+East Asian/complex-script font names, complex-script bold/italic/size and run RTL/
+script-selection fields to Rust run formats and paragraph styles and matching
+Python declarations. Rust exhaustive literals need the new fields or
+`..Default::default()`; Python optional fields are appended. See [TABLES.md](TABLES.md)
+and [FORMATTING.md](FORMATTING.md) for units and inheritance limits.
+
+R6f resolves forward style references and rejects authored/reachable based-on
+cycles and incompatible reference kinds. Existing paragraph `base_style` remains
+creation-only; table duplicates still fail. Self-next styles remain legal. See
+[STYLES.md](STYLES.md) for imported graph boundaries and error behavior.
+
+R6c adds deferred `TableRow.properties: Value<TableRowProperties>`, with optional
+`RowHeight::{Exact,AtLeast}` point heights and `repeat_header`/`cant_split` flags.
+Use `.with_properties(...)` or `..Default::default()` for Rust row literals.
+Python appends equivalent optional row fields and exports `RowHeight` helpers.
+No property is evaluated as layout; flag absence/false/true is preserved. See
+[TABLES.md](TABLES.md) for header grouping and over-page row limitations.
+
+R6b adds `tab_stops: Vec<TabStop>` to paragraph formats and paragraph style
+definitions (`Vec::new()` in exhaustive Rust literals). Python appends the
+optional `tab_stops` list to paragraphs/styles and exports `TabStop(position,
+alignment="left", leader=None)`. Positions are signed points; duplicate rounded
+twip positions fail. An empty list leaves inherited stops alone; use explicit
+clear entries at known positions. See [FORMATTING.md](FORMATTING.md).
+
+R6a adds optional `line_height: Option<LineHeight>` to `ParagraphFormat` and
+`ParagraphStyleDefinition`. Add `line_height: None` to exhaustive Rust literals
+or use `..Default::default()`. `Multiple`, `Exact` and `AtLeast` distinguish line
+multipliers from point heights. Python adds `LineHeight.multiple/exact/at_least`
+and an appended optional `line_height` argument on paragraphs/styles. Legacy
+`line_spacing` retains its multiplier semantics; providing both properties is an
+error. See [FORMATTING.md](FORMATTING.md) for units, rounding and limitations.
 
 R5 adds `Field`, `FieldInstruction`, `FieldProperties` and `FieldForm`, plus
 read-only `ResolvedField` cached content. Constructors/deferred inputs follow
@@ -50,10 +203,10 @@ nested links and block children are rejected. No link is fetched and no default
 blue/underline styling is imposed. See [hyperlink examples](../examples/hyperlinks.rs)
 and the [Python counterpart](../examples/hyperlinks.py).
 
-The Cargo package is now `rv-docx-rs`, imported as `rv_docx_rs`:
+The Cargo package is now `rocx`, imported as `rocx`:
 
 ```rust
-use rv_docx_rs::{Document, Paragraph, Section};
+use rocx::{Document, Paragraph, Section};
 ```
 
 Paragraphs have one `ParagraphContent` value instead of independent optional
@@ -64,7 +217,7 @@ cannot be constructed through those fields anymore.
 Run/paragraph formatting is a deferred field containing the domain format:
 
 ```rust
-use rv_docx_rs::{Paragraph, ParagraphFormat, RunFormat, TextRun};
+use rocx::{Paragraph, ParagraphFormat, RunFormat, TextRun};
 
 let run = TextRun::new("bold").with_format(RunFormat {
     bold: Some(true), ..RunFormat::default()
@@ -109,7 +262,7 @@ R1 also moves Rust document metadata into one deferred `metadata: Value<Metadata
 aggregate. For example:
 
 ```rust
-use rv_docx_rs::{Document, Metadata, Value};
+use rocx::{Document, Metadata, Value};
 let mut document = Document::default();
 document.metadata = Metadata { title: Some("Report".into()), ..Default::default() }.into();
 document.timestamp = Some("2026-11-18T00:00:00Z".into()).into();
@@ -134,11 +287,11 @@ fail only during compilation.
 
 ## Python snapshots and optional interoperability
 
-`rv_docx` remains the import. Resolution no longer mutates declarations or returns
+`rocx` remains the import. Resolution no longer mutates declarations or returns
 the same object:
 
 ```python
-from rv_docx.declarative import Document, Paragraph, Section
+from rocx.declarative import Document, Paragraph, Section
 
 source = Paragraph(text=lambda: fetch_text())
 declaration = Document([Section(children=[source])])
@@ -177,7 +330,7 @@ repeatable output is needed.
 Explicit rendering policy is now available in both frontends:
 
 ```python
-from rv_docx import ReadLimits, RenderOptions
+from rocx import ReadLimits, RenderOptions
 options = RenderOptions(timestamp="2026-01-01T00:00:00Z",
                         read_limits=ReadLimits(max_parts=500))
 data = await snapshot.to_bytes(options=options)
@@ -203,7 +356,7 @@ between source-field labels and native structural declaration paths.
 Rust's file template separates its source path from pure edit requests:
 
 ```rust
-use rv_docx_rs::{DocumentTemplate, EditScope};
+use rocx::{DocumentTemplate, EditScope};
 let mut template = DocumentTemplate::new("source.docx");
 template.edits.replacements.push(("{{NAME}}".into(), "Ada".into()));
 template.edits.scope = EditScope::BodyHeadersFooters;
@@ -225,7 +378,7 @@ Python numbering now uses actual native declarations rather than an ignored
 arbitrary dictionary:
 
 ```python
-from rv_docx.declarative import NumberingDefinition, NumberingLevel, NumberingReference
+from rocx.declarative import NumberingDefinition, NumberingLevel, NumberingReference
 
 numbering = [NumberingDefinition(42, [NumberingLevel(start=3)])]
 paragraph = Paragraph(text="item", numbering=NumberingReference(42))

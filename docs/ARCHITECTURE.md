@@ -1,6 +1,8 @@
 # Architecture review and proposed direction
 
-Historical review of commit `85faea7`. Version 0.2 implements the reorganization;
+Historical review of commit `85faea7`. This record predates the package rename to
+`rocx`: pinned links and paths below retain the repository's historical
+`rv-docx-rs`/`rv_docx` names. Version 0.2 implements the reorganization;
 see [current module boundaries](MODULES.md), [migration](MIGRATION.md) and the
 [implementation milestones](REORGANIZATION.md). The findings below describe the
 starting point, not unresolved current runtime failures. Source links are pinned
@@ -338,7 +340,7 @@ src/
   adapters/
     python/                    # conversion and diagnostics by feature
     io.rs                      # asset sources, clocks, paths and streams
-python/rv_docx/
+python/rocx/
   declarative/                 # Python authoring syntax
   resolution/                  # asyncio interpreter, separated from declarations
   interop.py                   # optional python-docx conveniences
