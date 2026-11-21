@@ -4,7 +4,9 @@ __pycache__/
 /.venv/
 /.venv-opencode/
 
-/python/rv_docx/*.so
-/python/rv_docx/*.pyd
+/python/rocx/*.so
+/python/rocx/*.pyd
 /.pytest_cache/
 /dist/
+/.validation-schemas/
+.~lock.*#

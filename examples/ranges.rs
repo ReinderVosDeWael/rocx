@@ -1,5 +1,5 @@
 //! Overlapping bookmarks and a cross-paragraph body comment, with an internal link.
-use rv_docx_rs::*;
+use rocx::*;
 
 fn main() -> Result<()> {
     let output = std::env::args().nth(1).unwrap_or("ranges.docx".into());

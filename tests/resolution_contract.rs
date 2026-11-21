@@ -2,7 +2,7 @@
 mod support;
 
 use futures::{channel::oneshot, executor::block_on, future::try_join, task::noop_waker};
-use rv_docx_rs::*;
+use rocx::*;
 use std::{
     future::Future,
     sync::{
@@ -346,7 +346,7 @@ fn dropping_a_pass_drops_owned_work_but_an_external_property_can_resume() {
 #[test]
 fn image_snapshots_survive_source_mutation_and_deletion() {
     use std::io::{Cursor, Read};
-    let directory = std::env::temp_dir().join(format!("rv-docx-r1-assets-{}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!("rocx-r1-assets-{}", std::process::id()));
     std::fs::create_dir(&directory).unwrap();
     let path = directory.join("input.png");
     let original = include_bytes!("fixtures/images/sample.png");

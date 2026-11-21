@@ -1,6 +1,6 @@
-"""Authoring declarations; asyncio execution lives in rv_docx.resolution."""
+"""Authoring declarations; asyncio execution lives in rocx.resolution."""
 import dataclasses
-from rv_docx.resolution import Deferred, DeferredProperty, PropertyRef, identity, resolve_component
+from rocx.resolution import Deferred, DeferredProperty, PropertyRef, identity, resolve_component
 
 
 @dataclasses.dataclass

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from rv_docx import declarative
+from rocx import declarative
 
 
 async def fetch_paragraph() -> declarative.Paragraph:

@@ -6,7 +6,7 @@ use std::io::{Cursor, Read};
 
 #[test]
 fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
-    let directory = std::env::temp_dir().join(format!("rv-docx-catalog-{}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!("rocx-catalog-{}", std::process::id()));
     std::fs::create_dir(&directory).unwrap();
     let path = directory.join("catalog.docx");
     futures::executor::block_on(showcase::generate(&path)).unwrap();

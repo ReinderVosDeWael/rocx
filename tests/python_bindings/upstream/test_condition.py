@@ -2,8 +2,8 @@
 
 import pytest
 
-from rv_docx import declarative
-from rv_docx.declarative import BlockChildren
+from rocx import declarative
+from rocx.declarative import BlockChildren
 
 
 @pytest.mark.asyncio

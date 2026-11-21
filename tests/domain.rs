@@ -1,4 +1,4 @@
-use rv_docx_rs::{Points, Rule};
+use rocx::{Points, Rule};
 #[test]
 fn physical_units_agree_on_an_inch_and_signed_offsets() {
     let inch = Points::new(72.).unwrap();
@@ -14,7 +14,7 @@ fn physical_units_agree_on_an_inch_and_signed_offsets() {
 }
 #[test]
 fn document_domain_compiles_without_external_libraries_or_other_modules() {
-    let output = std::env::temp_dir().join(format!("rv-docx-domain-{}.rlib", std::process::id()));
+    let output = std::env::temp_dir().join(format!("rocx-domain-{}.rlib", std::process::id()));
     let result = std::process::Command::new("rustc")
         .args([
             "--edition=2024",

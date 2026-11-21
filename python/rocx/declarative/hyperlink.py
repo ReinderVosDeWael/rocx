@@ -5,10 +5,10 @@ import dataclasses
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING
 
-from rv_docx.declarative import base
+from rocx.declarative import base
 
 if TYPE_CHECKING:
-    from rv_docx.declarative import paragraph, range as ranges
+    from rocx.declarative import paragraph, range as ranges
 
 
 @dataclasses.dataclass

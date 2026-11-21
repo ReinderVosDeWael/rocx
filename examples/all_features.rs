@@ -2,7 +2,7 @@
 #[path = "showcase/mod.rs"]
 mod showcase;
 
-fn main() -> rv_docx_rs::Result<()> {
+fn main() -> rocx::Result<()> {
     let output = std::env::args()
         .nth(1)
         .unwrap_or("examples/all_features-rust.docx".into());

@@ -38,7 +38,7 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut temporary = None;
     for _ in 0..100 {
         let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let candidate = parent.join(format!(".rv-docx-{}-{id}.tmp", std::process::id()));
+        let candidate = parent.join(format!(".rocx-{}-{id}.tmp", std::process::id()));
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)

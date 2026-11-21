@@ -1,7 +1,7 @@
 //! Declarative DOCX generation from a declarative, asynchronous document tree.
 //!
 //! ```
-//! use rv_docx_rs::{Document, Paragraph, Section};
+//! use rocx::{Document, Paragraph, Section};
 //!
 //! # futures::executor::block_on(async {
 //! let document = Document::new(vec![
@@ -9,7 +9,7 @@
 //! ]);
 //! let resolved = document.resolve().await?;
 //! let bytes = resolved.to_docx()?;
-//! # Ok::<(), rv_docx_rs::Error>(())
+//! # Ok::<(), rocx::Error>(())
 //! # }).unwrap();
 //! ```
 //! Resolution consumes producers once. Resolved documents can be rendered repeatedly.
@@ -68,7 +68,7 @@ pub use document::{TabAlignment, TabLeader, TabStop};
 pub use error::{Error, Result};
 pub use resolution::{Component, Condition, Deferred, Property, PropertyId, PropertyRef, Value};
 
-/// Component imports corresponding to Python's `rv_docx.declarative` module.
+/// Component imports corresponding to Python's `rocx.declarative` module.
 pub mod declarative {
     pub use crate::CharacterStyleDefinition;
     pub use crate::DocumentDefaults;

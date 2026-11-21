@@ -7,7 +7,7 @@ import zipfile
 
 import docx
 import pytest
-from rv_docx import declarative as d
+from rocx import declarative as d
 
 
 async def test_image_fields_accept_references_before_the_source_and_snapshots_do_not_rerun_them() -> None:

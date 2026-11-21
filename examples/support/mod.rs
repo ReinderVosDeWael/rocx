@@ -1,4 +1,4 @@
-use rv_docx_rs::*;
+use rocx::*;
 fn cell(text: &str) -> Value<TableCell> {
     TableCell::new(vec![Paragraph::new(text).into()]).into()
 }

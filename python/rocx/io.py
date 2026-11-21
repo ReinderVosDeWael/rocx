@@ -16,7 +16,7 @@ def save_bytes(destination, data):
     destination = Path(destination)
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".rv-docx-", delete=False) as output:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".rocx-", delete=False) as output:
             temporary = output.name
             output.write(data)
             output.flush()

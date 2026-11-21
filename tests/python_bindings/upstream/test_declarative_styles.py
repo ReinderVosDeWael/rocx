@@ -9,7 +9,7 @@ from docx import shared
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 
-from rv_docx import declarative
+from rocx import declarative
 
 
 def _make_doc(

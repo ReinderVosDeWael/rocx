@@ -3,9 +3,9 @@ import io
 
 import docx
 import pytest
-import rv_docx
-from rv_docx import _native
-from rv_docx import declarative as d
+import rocx
+from rocx import _native
+from rocx import declarative as d
 
 
 async def test_native_renderer_is_required_and_used(monkeypatch):
@@ -17,7 +17,7 @@ async def test_native_renderer_is_required_and_used(monkeypatch):
     monkeypatch.setattr(_native, "render", spy)
     declaration = d.Document([d.Section(children=[d.Paragraph(text="Native Rust")])])
     data = await declaration.to_bytes()
-    assert _native.BACKEND == rv_docx.__backend__ == "rust"
+    assert _native.BACKEND == rocx.__backend__ == "rust"
     assert len(calls) == 1
     assert calls[0] is not declaration
     assert calls[0]._native_kind == "Document"

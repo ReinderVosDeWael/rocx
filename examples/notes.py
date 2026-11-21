@@ -2,7 +2,7 @@
 import asyncio
 import sys
 
-from rv_docx import declarative as d
+from rocx import declarative as d
 
 
 async def main() -> None:

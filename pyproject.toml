@@ -3,7 +3,7 @@ requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [project]
-name = "rv-docx-rs"
+name = "rocx"
 version = "0.2.0"
 description = "Declarative Python authoring for the native Rust DOCX engine"
 readme = "README.md"
@@ -25,7 +25,7 @@ cmi-docx = { git = "https://github.com/childmindresearch/cmi-docx", rev = "3449b
 
 [tool.maturin]
 python-source = "python"
-module-name = "rv_docx._native"
+module-name = "rocx._native"
 features = ["python-bindings", "pyo3/extension-module"]
 
 [tool.uv]

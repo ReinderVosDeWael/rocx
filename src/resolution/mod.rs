@@ -98,7 +98,7 @@ impl<T: Clone + Send + Sync + 'static> Value<T> {
 /// A handle refers to its producer, independently of component conditions.
 ///
 /// ```
-/// use rv_docx_rs::{Error, Value};
+/// use rocx::{Error, Value};
 /// # futures::executor::block_on(async {
 /// let count = Value::future(async { 42_u64 }).deferred();
 /// let dependency = count.clone();

@@ -1,4 +1,4 @@
-use rv_docx_rs::{Document, Paragraph, Result, Section, Value};
+use rocx::{Document, Paragraph, Result, Section, Value};
 
 async fn fetch_text() -> String {
     "Text produced asynchronously.".into()

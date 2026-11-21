@@ -3,7 +3,7 @@
 import pytest
 from docx.shared import Inches
 
-from rv_docx import declarative
+from rocx import declarative
 
 
 @pytest.mark.asyncio

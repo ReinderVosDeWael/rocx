@@ -7,7 +7,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 from lxml import etree
 import pytest
-from rv_docx import declarative as d
+from rocx import declarative as d
 
 ROOT = Path(__file__).parents[2]
 spec = importlib.util.spec_from_file_location("ooxml_validator", ROOT / "tools/validate_ooxml.py")
@@ -19,9 +19,9 @@ spec.loader.exec_module(validation)
 def validator():
     directory = validation.default_directory()
     if not (directory / "wml.xsd").exists():
-        if os.environ.get("RV_DOCX_REQUIRE_SCHEMAS") == "1":
+        if os.environ.get("ROCX_REQUIRE_SCHEMAS") == "1":
             pytest.fail("Required official schemas missing; run tools/validate_ooxml.py --download-schemas")
-        pytest.skip("Download pinned schemas with tools/validate_ooxml.py --download-schemas or set RV_DOCX_SCHEMA_DIR")
+        pytest.skip("Download pinned schemas with tools/validate_ooxml.py --download-schemas or set ROCX_SCHEMA_DIR")
     return validation.Validator(directory)
 
 

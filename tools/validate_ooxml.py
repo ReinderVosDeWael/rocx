@@ -41,7 +41,7 @@ class ValidationError(ValueError):
 
 
 def default_directory():
-    return Path(os.environ.get("RV_DOCX_SCHEMA_DIR", Path(tempfile.gettempdir()) / "rv-docx-validation-schemas"))
+    return Path(os.environ.get("ROCX_SCHEMA_DIR", Path(tempfile.gettempdir()) / "rocx-validation-schemas"))
 
 
 def download(directory):
@@ -250,7 +250,7 @@ def validate_field_structure(root: etree._Element, owner: str) -> None:
 class Validator:
     def __init__(self, directory):
         directory = Path(directory)
-        self._temporary = tempfile.TemporaryDirectory(prefix="rv-docx-xsd-")
+        self._temporary = tempfile.TemporaryDirectory(prefix="rocx-xsd-")
         prepared = Path(self._temporary.name)
         # ECMA imports the XML namespace without a location. Supply the official
         # W3C schema locally, without changing OOXML types/content models.

@@ -1,7 +1,7 @@
 //! End-to-end R1 contracts beyond the initial image/lifetime checkpoint.
 mod support;
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},

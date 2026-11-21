@@ -2,7 +2,7 @@
 mod features;
 mod support;
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use std::io::Cursor;
 use support::{W, part};
 fn bytes(document: Document) -> Vec<u8> {

@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from rv_docx import declarative
+from rocx import declarative
 
 
 @pytest.mark.asyncio

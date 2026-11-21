@@ -8,7 +8,7 @@ from docx.enum import text as docx_text
 from lxml import etree
 import pytest
 
-from rv_docx import declarative as d
+from rocx import declarative as d
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 

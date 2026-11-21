@@ -1,7 +1,7 @@
 """Explicit document defaults; no effective formatting is calculated."""
 import dataclasses
 
-from rv_docx.declarative import formatting
+from rocx.declarative import formatting
 
 
 @dataclasses.dataclass

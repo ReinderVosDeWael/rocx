@@ -5,7 +5,7 @@ import pathlib
 from collections.abc import Coroutine
 from typing import Literal
 
-from rv_docx.declarative import base
+from rocx.declarative import base
 
 
 @dataclasses.dataclass

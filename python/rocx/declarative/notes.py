@@ -1,7 +1,7 @@
 """Ordinary note stories and base-schema structured comment content."""
 from __future__ import annotations
 import dataclasses
-from rv_docx.declarative import base
+from rocx.declarative import base
 
 
 @dataclasses.dataclass

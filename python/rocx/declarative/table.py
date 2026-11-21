@@ -8,7 +8,7 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING
 
-from rv_docx.declarative import base, paragraph
+from rocx.declarative import base, paragraph
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, MutableSequence, Sequence

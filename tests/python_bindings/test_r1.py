@@ -5,8 +5,8 @@ import zipfile
 
 import docx
 import pytest
-import rv_docx
-from rv_docx import declarative as d
+import rocx
+from rocx import declarative as d
 
 
 async def test_metadata_and_section_table_cell_fields_share_generic_references() -> None:
@@ -93,8 +93,8 @@ async def test_render_options_are_explicit_and_do_not_change_snapshots(tmp_path:
                               timestamp="2026-11-18T00:00:00Z")
     snapshot = await declaration.resolve()
     original = await snapshot.to_bytes()
-    assert original == await snapshot.to_bytes(options=rv_docx.RenderOptions())
-    options = rv_docx.RenderOptions(timestamp="2026-01-01T00:00:00Z")
+    assert original == await snapshot.to_bytes(options=rocx.RenderOptions())
+    options = rocx.RenderOptions(timestamp="2026-01-01T00:00:00Z")
     overridden = await snapshot.to_bytes(options=options)
     with zipfile.ZipFile(io.BytesIO(overridden)) as package:
         assert b"2026-01-01T00:00:00Z" in package.read("docProps/core.xml")
@@ -106,24 +106,24 @@ async def test_render_options_are_explicit_and_do_not_change_snapshots(tmp_path:
     assert (await snapshot.to_docx(options=options)).paragraphs[0].text == "options"
     assert await declaration.to_bytes(options=options) == overridden
     with pytest.raises(ValueError) as error:
-        await snapshot.to_bytes(options=rv_docx.RenderOptions(profile="strict"))
+        await snapshot.to_bytes(options=rocx.RenderOptions(profile="strict"))
     assert error.value.rule == "unsupported_profile"
     assert error.value.location == "options.profile"
     with pytest.raises(ValueError) as error:
-        await snapshot.to_bytes(options=rv_docx.RenderOptions(read_limits=rv_docx.ReadLimits(max_parts=1)))
+        await snapshot.to_bytes(options=rocx.RenderOptions(read_limits=rocx.ReadLimits(max_parts=1)))
     assert error.value.rule == "invalid_package"
     assert error.value.location == "package"
     template = tmp_path / "template.docx"
     template.write_bytes(original)
     with pytest.raises(ValueError) as error:
-        await snapshot.to_bytes(d.DocumentTemplate(template), options=rv_docx.RenderOptions(read_limits=rv_docx.ReadLimits(max_parts=1)))
+        await snapshot.to_bytes(d.DocumentTemplate(template), options=rocx.RenderOptions(read_limits=rocx.ReadLimits(max_parts=1)))
     assert error.value.rule == "invalid_package"
 
 
 @pytest.mark.parametrize("name", ["max_parts", "max_part_bytes", "max_expanded_bytes"])
 async def test_all_template_read_budgets_are_enforced(name: str) -> None:
     snapshot = await d.Document([]).resolve()
-    options = rv_docx.RenderOptions(read_limits=rv_docx.ReadLimits(**{name: 1}))
+    options = rocx.RenderOptions(read_limits=rocx.ReadLimits(**{name: 1}))
     with pytest.raises(ValueError) as error:
         await snapshot.to_bytes(options=options)
     assert error.value.rule == "invalid_package"

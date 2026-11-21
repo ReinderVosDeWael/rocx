@@ -4,7 +4,7 @@ import io
 import docx
 import pytest
 
-from rv_docx import declarative as d
+from rocx import declarative as d
 from test_conditional_paragraph_formatting import REGIONS
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"

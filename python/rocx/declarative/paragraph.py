@@ -6,15 +6,15 @@ import dataclasses
 from collections.abc import MutableSequence
 from typing import TYPE_CHECKING
 
-from rv_docx.declarative import base
-from rv_docx.declarative import formatting
+from rocx.declarative import base
+from rocx.declarative import formatting
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Coroutine
 
     from docx.enum import text as docx_text
 
-    from rv_docx.declarative import image, hyperlink, range as ranges, notes, field
+    from rocx.declarative import image, hyperlink, range as ranges, notes, field
 
 type InlineElement = TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink | ranges.RangeStart | ranges.RangeEnd | notes.NoteReference | field.Field
 

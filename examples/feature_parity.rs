@@ -1,5 +1,5 @@
 mod support;
-fn main() -> rv_docx_rs::Result<()> {
+fn main() -> rocx::Result<()> {
     let output = std::env::args()
         .nth(1)
         .unwrap_or("examples/feature_parity.docx".into());

@@ -2,8 +2,8 @@
 import asyncio
 import sys
 
-import rv_docx
-from rv_docx import declarative as d
+import rocx
+from rocx import declarative as d
 
 
 async def main() -> None:
@@ -12,7 +12,7 @@ async def main() -> None:
     section = d.Section(children=source.deferred("children"), headers={"default": source},
                         properties=d.SectionProperties(columns=lambda: {"count": 2}))
     snapshot = await d.Document([section], title=lambda: "Resolution and rendering").resolve()
-    options = rv_docx.RenderOptions(timestamp="2026-11-18T00:00:00Z")
+    options = rocx.RenderOptions(timestamp="2026-11-18T00:00:00Z")
     await snapshot.save(sys.argv[1] if len(sys.argv) > 1 else "resolution-options.docx", options=options)
 
 

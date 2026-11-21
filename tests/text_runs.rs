@@ -11,7 +11,7 @@ use std::{
 };
 
 use futures::{channel::oneshot, executor::block_on, task::noop_waker};
-use rv_docx_rs::{Condition, Document, Inline, Paragraph, Section, TextRun, Value};
+use rocx::{Condition, Document, Inline, Paragraph, Section, TextRun, Value};
 use support::{W, body, part};
 
 fn document(paragraphs: Vec<Paragraph>) -> Document {

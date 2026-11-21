@@ -1,7 +1,7 @@
 """Run with `uv run --locked examples/property_dependencies.py report.docx`."""
 import asyncio
 import sys
-from rv_docx.declarative import Document, Paragraph, Section
+from rocx.declarative import Document, Paragraph, Section
 
 
 async def main(destination):

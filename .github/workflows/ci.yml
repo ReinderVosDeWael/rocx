@@ -53,8 +53,8 @@ jobs:
   standards:
     runs-on: ubuntu-latest
     env:
-      RV_DOCX_SCHEMA_DIR: ${{ github.workspace }}/.validation-schemas
-      RV_DOCX_REQUIRE_SCHEMAS: "1"
+      ROCX_SCHEMA_DIR: ${{ github.workspace }}/.validation-schemas
+      ROCX_REQUIRE_SCHEMAS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/cache@v4
         id: schemas
         with:
-          path: ${{ env.RV_DOCX_SCHEMA_DIR }}
+          path: ${{ env.ROCX_SCHEMA_DIR }}
           key: official-schemas-${{ hashFiles('tools/validate_ooxml.py') }}
       - if: steps.schemas.outputs.cache-hit != 'true'
         run: uv run --no-sync python tools/validate_ooxml.py --download-schemas

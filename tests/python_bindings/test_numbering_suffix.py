@@ -6,7 +6,7 @@ import zipfile
 import docx
 import pytest
 
-from rv_docx import declarative as d
+from rocx import declarative as d
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 

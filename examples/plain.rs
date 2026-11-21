@@ -1,4 +1,4 @@
-use rv_docx_rs::{Document, Paragraph, Result, Section};
+use rocx::{Document, Paragraph, Result, Section};
 
 fn main() -> Result<()> {
     let output = std::env::args()

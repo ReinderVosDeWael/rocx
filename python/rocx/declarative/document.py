@@ -2,7 +2,7 @@
 import dataclasses
 
 from .base import DeferredProperty
-from rv_docx.resolution import identity, resolve_component
+from rocx.resolution import identity, resolve_component
 
 @dataclasses.dataclass
 class DocumentTemplate:

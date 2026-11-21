@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 #[test]
 fn compilation_is_deterministic_and_inspectable_with_explicit_inputs() {
     let snapshot = block_on(

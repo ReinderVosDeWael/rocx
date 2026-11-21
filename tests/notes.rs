@@ -2,7 +2,7 @@
 mod fixture;
 mod support;
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use support::{W, part};
 
 #[test]

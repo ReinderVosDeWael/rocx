@@ -1,7 +1,7 @@
 mod support;
 
 use futures::{channel::oneshot, executor::block_on, future::try_join_all, task::noop_waker};
-use rv_docx_rs::{Deferred, Document, Error, Paragraph, Section, Value};
+use rocx::{Deferred, Document, Error, Paragraph, Section, Value};
 use std::{
     error::Error as _,
     future::Future,
@@ -182,7 +182,7 @@ fn shared_property_can_move_to_another_thread() {
 
 #[test]
 fn typed_property_references_detect_cycles_and_honor_excluded_sources() {
-    use rv_docx_rs::{Property, PropertyRef, Rule};
+    use rocx::{Property, PropertyRef, Rule};
     use std::sync::Mutex;
     let dependency = Arc::new(Mutex::new(None::<PropertyRef<String>>));
     let slot = dependency.clone();

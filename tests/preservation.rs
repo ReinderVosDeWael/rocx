@@ -1,7 +1,7 @@
 //! Cross-check public template output using an independent XML parser.
 mod support;
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read, Write},
@@ -13,7 +13,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new(parts: BTreeMap<String, Vec<u8>>) -> Self {
         let path = std::env::temp_dir().join(format!(
-            "rv-docx-preserve-{}-{}.docx",
+            "rocx-preserve-{}-{}.docx",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

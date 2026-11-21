@@ -7,7 +7,7 @@ use std::{
 };
 
 use futures::executor::block_on;
-use rv_docx_rs::{Document, Error, Paragraph, ResolvedDocument, Section};
+use rocx::{Document, Error, Paragraph, ResolvedDocument, Section};
 use support::{W, body, part, texts};
 
 fn document(sections: Vec<Vec<&str>>) -> ResolvedDocument {

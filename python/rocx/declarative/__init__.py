@@ -1,30 +1,30 @@
 """Declarative API for creating Word documents."""
 
-from rv_docx.declarative.base import Component, Deferred, DeferredProperty, PropertyRef
-from rv_docx.declarative.document import Document, DocumentTemplate
-from rv_docx.declarative.defaults import DocumentDefaults, RunDefaults, ParagraphDefaults
-from rv_docx.declarative.image import ImageRun
-from rv_docx.declarative.hyperlink import Hyperlink
-from rv_docx.declarative.field import Field, FieldInstruction
-from rv_docx.declarative.formatting import LineHeight, TabStop, RunLanguage
-from rv_docx.declarative.range import BookmarkTarget, RangeStart, RangeEnd
-from rv_docx.declarative.notes import Note, NoteReference, Comment
-from rv_docx.declarative.numbering import NumberingDefinition, NumberingLevel, NumberingReference, NumberingStartOverride
-from rv_docx.declarative.paragraph import Break, Paragraph, Tab, TextRun
-from rv_docx.declarative.section import (
+from rocx.declarative.base import Component, Deferred, DeferredProperty, PropertyRef
+from rocx.declarative.document import Document, DocumentTemplate
+from rocx.declarative.defaults import DocumentDefaults, RunDefaults, ParagraphDefaults
+from rocx.declarative.image import ImageRun
+from rocx.declarative.hyperlink import Hyperlink
+from rocx.declarative.field import Field, FieldInstruction
+from rocx.declarative.formatting import LineHeight, TabStop, RunLanguage
+from rocx.declarative.range import BookmarkTarget, RangeStart, RangeEnd
+from rocx.declarative.notes import Note, NoteReference, Comment
+from rocx.declarative.numbering import NumberingDefinition, NumberingLevel, NumberingReference, NumberingStartOverride
+from rocx.declarative.paragraph import Break, Paragraph, Tab, TextRun
+from rocx.declarative.section import (
     BlockChildren,
     Footer,
     Header,
     Section,
     SectionProperties,
 )
-from rv_docx.declarative.styles import (
+from rocx.declarative.styles import (
     CharacterStyleDefinition,
     ParagraphStyleDefinition,
     TableSectionFormat,
     TableStyleDefinition,
 )
-from rv_docx.declarative.table import (
+from rocx.declarative.table import (
     CellMargins,
     RowHeight,
     CellBorder,

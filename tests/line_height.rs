@@ -1,5 +1,5 @@
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use std::io::{Cursor, Read};
 
 fn xml(bytes: &[u8], path: &str) -> String {

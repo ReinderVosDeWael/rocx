@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/childmindresearch/cmi-docx",
   "revision": "3449b942034129ad74a28aeb253361035806e385",
-  "changes": "Only cmi_docx imports are replaced with rv_docx imports.",
+  "changes": "Only cmi_docx imports are replaced with rocx imports.",
   "sha256": {
     "test_async.py": "28ff5f37223e656ea644ff2f735978178ec115726937fcc2a7091fd7432e6854",
     "test_condition.py": "d8d8260bd2b712921f4ddcee4ffe5e56db57169e3c61180caa107582fe8ba8ed",

@@ -1,5 +1,5 @@
 //! Rich external links without fetching their targets.
-use rv_docx_rs::*;
+use rocx::*;
 
 fn main() -> Result<()> {
     let output = std::env::args().nth(1).unwrap_or("hyperlinks.docx".into());

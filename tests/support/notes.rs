@@ -1,4 +1,4 @@
-use rv_docx_rs::*;
+use rocx::*;
 
 fn image() -> Value<Inline> {
     ImageRun::new(include_bytes!("../fixtures/images/sample.png").to_vec()).into()

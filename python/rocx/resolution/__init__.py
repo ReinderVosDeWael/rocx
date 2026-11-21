@@ -12,8 +12,8 @@ from .snapshot import ResolvedNode
 from .. import diagnostics
 
 _ids = itertools.count(1)
-_context = contextvars.ContextVar("rv_docx_resolution", default=None)
-_current = contextvars.ContextVar("rv_docx_property", default=None)
+_context = contextvars.ContextVar("rocx_resolution", default=None)
+_current = contextvars.ContextVar("rocx_property", default=None)
 _OMIT = object()
 _COMPONENT = object()
 _CONDITION = object()
@@ -147,7 +147,7 @@ async def _property(owner, name):
     async def evaluate():
         value = await resolve_value(getattr(owner, name))
         if getattr(owner, "_native_kind", None) == "ImageRun" and name == "data":
-            from rv_docx.io import image_bytes
+            from rocx.io import image_bytes
             value, filename = image_bytes(value)
             context.asset_names[identity(owner)] = filename
         return value
@@ -171,7 +171,7 @@ async def _component(owner):
         if kind == "ImageRun":
             fields["_filename"] = context.asset_names.get(identity(owner))
         if kind == "Document" and fields.get("timestamp") is None:
-            from rv_docx.io import timestamp
+            from rocx.io import timestamp
             fields["timestamp"] = timestamp()
         return ResolvedNode(kind, identity(owner), MappingProxyType(fields))
     return await context.run((identity(owner), _COMPONENT), evaluate, type(owner).__name__)
@@ -183,7 +183,7 @@ async def resolve_component(owner):
 
 
 async def resolve_value(value):
-    from rv_docx.declarative.base import Component
+    from rocx.declarative.base import Component
     while True:
         if isinstance(value, ResolvedNode):
             return value

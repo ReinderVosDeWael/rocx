@@ -5,7 +5,7 @@ from docx import shared
 from docx.oxml.ns import qn
 from docx.oxml.simpletypes import ST_Merge
 
-from rv_docx import declarative
+from rocx import declarative
 
 
 @pytest.mark.asyncio

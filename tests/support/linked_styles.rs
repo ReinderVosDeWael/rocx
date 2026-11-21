@@ -1,4 +1,4 @@
-use rv_docx_rs::*;
+use rocx::*;
 
 pub fn document() -> Document {
     let mut document = Document::new(vec![

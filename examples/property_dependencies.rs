@@ -1,5 +1,5 @@
 //! Run with `cargo run --example property_dependencies -- report.docx`.
-use rv_docx_rs::{Document, Error, Paragraph, Section, Value};
+use rocx::{Document, Error, Paragraph, Section, Value};
 
 fn main() -> Result<(), Error> {
     let destination = std::env::args()

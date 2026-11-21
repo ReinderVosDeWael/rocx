@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Callable, Coroutine, MutableSequence
 from typing import Literal
 
-from rv_docx.declarative import base, paragraph, table
+from rocx.declarative import base, paragraph, table
 
 type BlockElement = paragraph.Paragraph | table.Table
 type BlockChildren = MutableSequence[

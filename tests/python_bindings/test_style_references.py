@@ -6,7 +6,7 @@ from collections.abc import Callable
 import docx
 import pytest
 
-from rv_docx import declarative as d
+from rocx import declarative as d
 
 
 async def test_forward_base_and_next_style_references_resolve() -> None:

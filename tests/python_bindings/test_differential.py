@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from cmi_docx import declarative as reference
-from rv_docx import declarative as bindings
+from rocx import declarative as bindings
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 

@@ -1,6 +1,6 @@
 mod support;
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use support::{W, part};
 const TARGET: &str = "https://example.invalid/λ?q=a%20b&lang=日本#résumé";
 const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";

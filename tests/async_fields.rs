@@ -1,5 +1,5 @@
 use futures::{channel::oneshot, executor::block_on, task::noop_waker};
-use rv_docx_rs::*;
+use rocx::*;
 use std::{
     future::Future,
     sync::{

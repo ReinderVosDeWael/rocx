@@ -47,7 +47,7 @@ mod table_alignment_fixture;
 mod table_look_fixture;
 
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use std::{
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
@@ -261,7 +261,7 @@ struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "rv-docx-python-{}-{}",
+            "rocx-python-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

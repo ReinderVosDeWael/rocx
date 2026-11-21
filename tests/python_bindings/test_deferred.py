@@ -3,7 +3,7 @@ import asyncio
 
 import docx
 import pytest
-from rv_docx import declarative as d
+from rocx import declarative as d
 
 
 async def render(*children):

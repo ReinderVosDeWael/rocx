@@ -1,6 +1,6 @@
 mod support;
 use futures::executor::block_on;
-use rv_docx_rs::*;
+use rocx::*;
 use std::{
     io::{Cursor, Read, Write},
     path::PathBuf,
@@ -12,7 +12,7 @@ struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
         let p = std::env::temp_dir().join(format!(
-            "rv-docx-template-{}-{}",
+            "rocx-template-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

@@ -7,8 +7,8 @@ import asyncio
 import pathlib
 import sys
 
-import rv_docx
-from rv_docx import declarative as d
+import rocx
+from rocx import declarative as d
 
 STAMP = "2026-11-19T00:00:00Z"
 IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
@@ -279,8 +279,8 @@ async def generate(output: pathlib.Path) -> bytes:
             paragraph=d.ParagraphDefaults(spacing_after=4, line_height=d.LineHeight.multiple(1.1))),
         styles=styles(), numbering=numbering, notes=notes)
     snapshot = await document.resolve()
-    options = rv_docx.RenderOptions(timestamp=STAMP, profile="transitional",
-        read_limits=rv_docx.ReadLimits(max_parts=10000, max_part_bytes=67108864, max_expanded_bytes=268435456))
+    options = rocx.RenderOptions(timestamp=STAMP, profile="transitional",
+        read_limits=rocx.ReadLimits(max_parts=10000, max_part_bytes=67108864, max_expanded_bytes=268435456))
     template = d.DocumentTemplate(template_path, replacements={"{{replace}}": "REPLACED"}, paragraph_index=1, scope="supported_stories")
     data = await snapshot.to_bytes(template, options=options)
     assert data == await snapshot.to_bytes(template, options=options)

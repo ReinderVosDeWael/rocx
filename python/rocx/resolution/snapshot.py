@@ -21,15 +21,15 @@ class ResolvedNode:
         if template is not None and not isinstance(template, ResolvedNode):
             from . import resolve_component
             template = await resolve_component(template)
-        from rv_docx import _native
+        from rocx import _native
         if options is None:
             return _native.render(self, template)
         return _native.render(self, template, options)
 
     async def to_docx(self, template=None, *, options=None):
-        from rv_docx.interop import to_docx
+        from rocx.interop import to_docx
         return to_docx(await self.to_bytes(template, options=options))
 
     async def save(self, path, template=None, *, options=None):
-        from rv_docx.io import save_bytes
+        from rocx.io import save_bytes
         save_bytes(path, await self.to_bytes(template, options=options))

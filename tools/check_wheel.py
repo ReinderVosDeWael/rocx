@@ -21,19 +21,19 @@ TEXT: Final = "Wheel — café Ελληνικά 日本語 🦀"
 
 async def verify_install() -> None:
     """Check installed native output without either reference implementation."""
-    import rv_docx
-    from rv_docx import _native
-    from rv_docx import declarative as d
+    import rocx
+    from rocx import _native
+    from rocx import declarative as d
 
     environment = Path(sys.prefix).resolve()
-    assert Path(rv_docx.__file__).resolve().is_relative_to(environment)
+    assert Path(rocx.__file__).resolve().is_relative_to(environment)
     assert Path(_native.__file__).resolve().is_relative_to(environment)
     assert any(str(_native.__file__).endswith(suffix)
                for suffix in importlib.machinery.EXTENSION_SUFFIXES)
     assert _native.BACKEND == "rust"
     assert importlib.util.find_spec("docx") is None
     assert importlib.util.find_spec("cmi_docx") is None
-    requirements = importlib.metadata.requires("rv-docx-rs") or []
+    requirements = importlib.metadata.requires("rocx") or []
     assert len(requirements) == 1, requirements
     requirement = requirements[0].lower().replace(" ", "").replace("'", '"')
     assert requirement == 'python-docx==1.2.0;extra=="interop"', requirements
@@ -62,11 +62,11 @@ async def verify_install() -> None:
         assert run is not None
         assert run.find(f"{W}rPr/{W}b") is not None
         assert run.find(f"{W}rPr/{W}i") is not None
-    overridden = await snapshot.to_bytes(options=rv_docx.RenderOptions(timestamp="2026-11-18T00:00:00Z"))
+    overridden = await snapshot.to_bytes(options=rocx.RenderOptions(timestamp="2026-11-18T00:00:00Z"))
     with zipfile.ZipFile(io.BytesIO(overridden)) as package:
         assert b"2026-11-18T00:00:00Z" in package.read("docProps/core.xml")
     try:
-        await snapshot.to_bytes(options=rv_docx.RenderOptions(profile="strict"))
+        await snapshot.to_bytes(options=rocx.RenderOptions(profile="strict"))
     except ValueError as error:
         assert error.rule == "unsupported_profile"
         assert error.location == "options.profile"
@@ -76,7 +76,7 @@ async def verify_install() -> None:
     try:
         await snapshot.to_docx()
     except ImportError as error:
-        assert "rv-docx-rs[interop]" in str(error)
+        assert "rocx[interop]" in str(error)
     else:
         raise AssertionError("to_docx() unexpectedly worked without interop")
     target = "https://example.invalid/λ?q=a%20b&lang=日本#résumé"
@@ -262,7 +262,7 @@ def main() -> None:
         asyncio.run(verify_install())
         return
     root = Path(__file__).resolve().parents[1]
-    with tempfile.TemporaryDirectory(prefix="rv-docx-wheel-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="rocx-wheel-") as temporary:
         directory = Path(temporary)
         subprocess.run(["uv", "build", "--wheel", "--out-dir", str(directory / "dist")],
                        cwd=root, check=True)

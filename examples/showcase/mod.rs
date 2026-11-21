@@ -1,5 +1,5 @@
 //! Independent Rust authoring of the same catalog as all_features.py.
-use rv_docx_rs::*;
+use rocx::*;
 use std::path::Path;
 mod formatting;
 mod stories;

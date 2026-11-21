@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from cmi_docx import declarative as reference
-from rv_docx import declarative as bindings
+from rocx import declarative as bindings
 
 
 def test_upstream_test_expectations_are_unchanged():
@@ -13,7 +13,7 @@ def test_upstream_test_expectations_are_unchanged():
     origin = json.loads((directory / "ORIGIN.json").read_text())
     assert origin["revision"] == "3449b942034129ad74a28aeb253361035806e385"
     for name, digest in origin["sha256"].items():
-        original = (directory / name).read_text().replace("rv_docx", "cmi_docx")
+        original = (directory / name).read_text().replace("rocx", "cmi_docx")
         assert hashlib.sha256(original.encode()).hexdigest() == digest, name
 
 
