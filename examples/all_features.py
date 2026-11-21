@@ -176,9 +176,15 @@ def story_blocks() -> list:
     blocks.append(p("Numbering suffix requests: abstract level 2 explicitly uses tab; replacement level 0 uses space; replacement level 1 uses nothing. Other levels omit suff (consumer default: tab). Separators are not inserted into paragraph text by the library."))
     blocks.append(p("Level restart requests: abstract level 2 and replacement level 0 use 0 (never restart); replacement level 1 uses trigger 1 (one-based first level). Other levels omit lvlRestart (restart after the preceding level). This is independent of concrete startOverride; the viewer calculates counters."))
     blocks.append(p("Numbering-label alignment: abstract levels 0..4 request left, center, right, start, end; replacement levels 0/1 request end/start. Remaining levels omit lvlJc (direction-dependent consumer default). Paragraph text alignment is independent; the viewer positions generated labels."))
+    blocks.append(p("Numbering label formatting: abstract level 0 requests bold; replacement level 0 requests bold off and italic on."))
+    blocks.append(p("Numbering level paragraph properties: abstract level 0 requests 24 pt left and 12 pt hanging; replacement level 0 requests 36 pt left."))
+    blocks.append(p("Numbering level style links: abstract level 0 links to Heading 1; replacement level 0 links to Heading 2."))
     for level in range(9):
         blocks.append(d.Paragraph(text=f"Numbered list: concrete numId=60 level={level}; abstract start=1; concrete level 0 restart=7, level 8 restart=0. Labels are computed by your viewer.", numbering=d.NumberingReference(60, level)))
     blocks.append(d.Paragraph(text="Bullet list: numId=61, literal bullet label.", numbering=d.NumberingReference(61, 0)))
+    blocks.append(d.Paragraph(text="Shared abstract numbering: numId=62 reuses the bullet levels of numId=61 with its own start override.", numbering=d.NumberingReference(62)))
+    blocks.append(p("Numbering style: Catalog Bullets links concrete numId=61 to abstract definition 100."))
+    blocks.append(d.Paragraph(text="Inherited numbering style: numId=63 gets its levels from Catalog Bullets.", numbering=d.NumberingReference(63)))
     blocks.append(d.Paragraph(children=[link("External hyperlink: example.com (tooltip and history=true)")]))
     blocks.append(d.Paragraph(children=[d.Hyperlink(d.BookmarkTarget("CatalogBookmark"), [d.TextRun("Internal hyperlink: jump to CatalogBookmark")], history=False)]))
     blocks.append(d.Paragraph(children=[d.RangeStart.bookmark("CatalogBookmark"), d.TextRun("Bookmark CatalogBookmark starts here. "),
@@ -193,6 +199,50 @@ def story_blocks() -> list:
     blocks.append(d.Paragraph(children=[d.TextRun("Run comment convenience anchor", comment_text="Run convenience comment", comment_author="Run reviewer")],
         comment_text="Paragraph convenience comment", comment_author="Paragraph reviewer"))
     blocks.append(d.Paragraph(children=[d.TextRun("Footnote reference"), d.NoteReference.footnote(0), d.TextRun("; endnote reference"), d.NoteReference.endnote(0)]))
+    blocks.append(p("Note numbering: lower-Roman footnotes start at 3 each page; uppercase-letter endnotes start at 7 each section. Footnotes are requested beneath text and endnotes at section end."))
+    blocks.append(p("Tracked text revisions: inserted text and deleted text retain review metadata. Tracking future edits is explicitly off."))
+    blocks.append(d.Paragraph(children=[
+        d.TextRun("Current: "),
+        d.TextRun("inserted wording", revision=d.TextRevision("insertion", "Catalog editor", "2026-11-20T00:00:00Z")),
+        d.TextRun("old wording", revision=d.TextRevision("deletion", "Catalog editor")),
+    ]))
+    blocks.append(p("Inline content control: rich text, alias Review caption, tag review-caption, ID 5001, content locked."))
+    blocks.append(d.Paragraph(children=[
+        d.TextRun("Review: "),
+        d.InlineContentControl([d.TextRun("controlled caption", bold=True)],
+                               alias="Review caption", tag="review-caption", lock="contentLocked", id=5001),
+    ]))
+    blocks.append(p("Block content control: a controlled paragraph and table share an alias, tag and ID 5002."))
+    blocks.append(d.BlockContentControl([
+        p("Controlled block paragraph"), d.Table([d.TableRow([cell("Controlled table cell")])]),
+    ], alias="Review block", tag="review-block", lock="sdtLocked", id=5002))
+    blocks.append(p("Plain-text control: one run, multiline enabled."))
+    blocks.append(d.Paragraph(children=[
+        d.InlineContentControl([d.TextRun("first line\nsecond line")],
+                               tag="plain-review", text_type="plain", multi_line=True),
+    ]))
+    blocks.append(p("Drop-down control: Review status offers Pending and Accepted, with Accepted selected."))
+    blocks.append(d.Paragraph(children=[
+        d.InlineContentControl([d.TextRun("Accepted")], alias="Review status", tag="review-status",
+            text_type="dropdown", items=[
+                d.ContentControlListItem("Pending", "pending"),
+                d.ContentControlListItem("Accepted", "accepted"),
+            ], selected="accepted"),
+    ]))
+    blocks.append(p("Tracked text move: CatalogMove pairs a source and a destination."))
+    for caption, kind in [("Move source: ", "move_source"), ("Move destination: ", "move_destination")]:
+        blocks.append(d.Paragraph(children=[
+            d.TextRun(caption),
+            d.TextRun("relocated wording", revision=d.TextRevision(
+                kind, "Catalog editor", "2026-11-20T00:00:00Z", "CatalogMove")),
+        ]))
+    blocks.append(p("Table content controls: one row and its cell have separate tags."))
+    blocks.append(d.Table([
+        d.TableRow([cell("Uncontrolled table cell")]),
+        d.TableRow([d.TableCell([p("Controlled row and cell")],
+            content_control=d.ContentControlMetadata(tag="review-cell", id=5004))],
+            content_control=d.ContentControlMetadata(tag="review-row", id=5003)),
+    ]))
     for instruction, label in [(d.FieldInstruction.page(), "PAGE"), (d.FieldInstruction.num_pages(), "NUMPAGES"),
             (d.FieldInstruction.reference("CatalogBookmark"), "REF CatalogBookmark"), (d.FieldInstruction.table_of_contents(), "TOC"),
             (d.FieldInstruction.raw(" DATE "), "raw DATE")]:
@@ -210,6 +260,24 @@ def story_blocks() -> list:
         blocks.append(d.Paragraph(children=[image(ext, size)]))
     blocks.append(d.Paragraph(children=[d.Hyperlink("https://example.com/image", [image("png", {"width": 24}), d.Tab(),
         d.TextRun("Linked image, tab and line break"), d.Break(), d.TextRun("Same PNG bytes are deduplicated in the package.")])]))
+    blocks.append(p("Image crop and rotation: 10% left, 5% top, 20% right and 15% bottom; 30 degrees clockwise, horizontal flip on and vertical flip off."))
+    blocks.append(d.Paragraph(children=[image("png", {"width": 60, "height": 40,
+        "rotation": 30, "flip_horizontal": True, "flip_vertical": False, "crop": d.ImageCrop(10, 5, 20, 15)})]))
+    blocks.append(p("Floating picture: column-relative horizontal offset 250 pt, page-relative bottom alignment, square wrapping on the largest side; gaps top 0, bottom 2, left 3, right 4 pt. Anchor locked; in-cell layout and overlap off."))
+    blocks.append(d.Paragraph(children=[image("png", {"width": 42, "anchor": d.ImageAnchor(
+        horizontal_reference="column", x=250, vertical_alignment="bottom", wrap="square", relative_height=4, wrap_side="largest",
+        distance_top=0, distance_bottom=2, distance_left=3, distance_right=4,
+        locked=True, layout_in_cell=False, allow_overlap=False,
+    )})]))
+    blocks.append(p("Floating picture: tight text wrapping around an authored triangular contour."))
+    blocks.append(d.Paragraph(children=[image("png", {"width": 42, "anchor": d.ImageAnchor(
+        x=360, y=160, wrap="tight", wrap_polygon=[(0, 0), (21600, 21600), (0, 21600)],
+    )})]))
+    blocks.append(p("Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline."))
+    blocks.append(d.Paragraph(children=[
+        d.ShapeRun(56, 32, fill=(32, 80, 176), text="Blue"),
+        d.ShapeRun(44, 32, geometry="ellipse", fill=(32, 144, 80), outline=d.ShapeOutline(1.5, (16, 48, 32))),
+    ]))
     blocks.append(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."))
     async def image_bytes() -> bytes:
         return (IMAGES / "sample.png").read_bytes()
@@ -223,8 +291,24 @@ def story_blocks() -> list:
 async def generate(output: pathlib.Path) -> bytes:
     """Save the catalog and its template; return deterministic final bytes."""
     seed = d.Paragraph(children=[d.TextRun("Template {{re"), d.TextRun("place}}: cross-run replacement.")])
+    tagged_seed = d.Paragraph(children=[
+        d.TextRun("Template plain-text control replacement: "),
+        d.InlineContentControl([d.TextRun("old controlled value", bold=True)],
+                               tag="template-control", lock="sdtLocked", text_type="plain"),
+    ])
+    revision_seed = d.Paragraph(children=[
+        d.TextRun("Template revision action: "),
+        d.TextRun("accepted template wording", revision=d.TextRevision("insertion", "Template editor")),
+        d.TextRun("removed template wording", revision=d.TextRevision("deletion", "Template editor")),
+    ])
+    move_seed = d.Paragraph(children=[
+        d.TextRun("Template accepted move: "),
+        d.TextRun("moved template wording", revision=d.TextRevision("move_source", "Template editor", STAMP, "TemplateMove")),
+        d.TextRun("destination: "),
+        d.TextRun("moved template wording", revision=d.TextRevision("move_destination", "Template editor", STAMP, "TemplateMove")),
+    ])
     template_path = output.with_suffix(".template.docx")
-    await d.Document([d.Section([seed, p("Template retained paragraph: insertion appears before this.")])], timestamp=STAMP,
+    await d.Document([d.Section([seed, p("Template retained paragraph: insertion appears before this."), tagged_seed, revision_seed, move_seed])], timestamp=STAMP,
         styles=[d.ParagraphStyleDefinition(name="Catalog Existing", bold=True),
             d.CharacterStyleDefinition(name="Catalog Existing Character", bold=True)]).save(template_path)
     blocks = [p("ALL FEATURES — visual inspection catalog"),
@@ -253,40 +337,74 @@ async def generate(output: pathlib.Path) -> bytes:
     blocks.extend([reusable, reusable])
     inline = await d.TextRun("Resolved-inline reuse: immutable run used twice.").resolve()
     blocks.append(d.Paragraph(children=[inline, inline]))
+    blocks.append(p("Header/footer distances: 720 and 360 twips from the page edges."))
     headers = {name: d.Header([d.Paragraph(children=[d.TextRun(f"Header {name}: "), link("owner-local external hyperlink"), image("png", {"width": 12})])])
                for name in ["default", "first", "even"]}
     footers = {name: d.Footer([d.Paragraph(children=[d.TextRun(f"Footer {name}: PAGE "), d.Field(d.FieldInstruction.page(), [d.TextRun("1")]),
         d.TextRun(" / NUMPAGES "), d.Field(d.FieldInstruction.num_pages(), [d.TextRun("1")])])]) for name in ["default", "first", "even"]}
+    blocks.append(p("Page borders: navy single top/bottom and gray dashed left/right; first page, offset from page, behind text."))
+    horizontal = d.PageBorder("single", 12, 6, (32, 48, 96))
+    vertical = d.PageBorder("dashed", 8, 4, (96, 96, 96))
+    blocks.append(p("Document page settings: mirrored margins enabled, top gutter explicitly off."))
     first = d.Section(blocks, properties=d.SectionProperties(page_size={"width": 7772400, "height": 10058400},
-        page_orientation="portrait", page_margins={"top": 914400, "bottom": 914400, "left": 914400, "right": 914400},
+        page_orientation="portrait", page_margins={"top": 914400, "bottom": 914400, "left": 914400, "right": 914400, "header": 457200, "footer": 228600},
+        page_borders=d.PageBorders(horizontal, vertical, horizontal, vertical, offset_from="page", display="firstPage", z_order="back"),
         title_page=True, bidi=False, rtl_gutter=False), headers=headers, footers=footers)
     sections = [first]
     for i, kind in enumerate(["nextPage", "nextColumn", "continuous", "evenPage", "oddPage"]):
         valign = ["top", "center", "bottom", "both", "top"][i]
         flag = str(i % 2 == 1).lower()
+        restart = ["newPage", "newSection", "continuous", None, None][i]
+        line_numbering_label = (f"Line numbering: every 5 lines, start=0, distance=240 twips, restart={restart}."
+                                if restart else
+                                "Line numbering: clear previous section settings." if i == 4 else
+                                "Line numbering: preserve previous section settings.")
+        grid_mode = ["default", "lines", "linesAndChars", "snapToChars", None][i]
+        grid_label = (f"Document grid: mode={grid_mode}, line pitch=360 twips, character pitch delta=-4096."
+                      if grid_mode else "Document grid: preserve previous section settings.")
         sections.append(d.Section([
             p(f"09 Section: break={kind}; landscape; 2 columns with separator; page numbering lowerRoman starts at {i+1}; vertical alignment={valign}; section bidi={flag}; rtl_gutter={flag}."),
+            p(line_numbering_label),
+            d.Paragraph(text="Paragraph layout: contextual spacing enabled, mirrored indents explicitly off.",
+                        contextual_spacing=True, mirror_indents=False),
+            p(grid_label),
+            d.Paragraph(children=[d.TextRun("Grid snapping: paragraph enabled, run explicitly off.", snap_to_grid=False)],
+                        snap_to_grid=True),
+            d.Paragraph(text="Paragraph line numbers: suppressed.", suppress_line_numbers=True),
+            d.Paragraph(text="Paragraph line numbers: suppression explicitly off.", suppress_line_numbers=False),
             p("Section layout request: physical margins remain unchanged. Gutter placement does not create a gutter amount. This is the first column."),
             d.Paragraph(children=[d.Break("column"), d.TextRun("This follows a column break in the section sample.")])],
             properties=d.SectionProperties(type=kind, page_orientation="landscape", columns={"count": 2, "space": 360, "separator": True},
-                page_numbering={"start": i+1, "format": "lowerRoman"}, vertical_align=valign, title_page=False, bidi=i % 2 == 1, rtl_gutter=i % 2 == 1)))
+                page_numbering={"start": i+1, "format": "lowerRoman"},
+                document_grid=d.DocumentGrid(grid_mode, 360, -4096) if grid_mode else None,
+                line_numbering=(d.LineNumbering(5, 0, 240, restart) if restart else
+                                d.LineNumbering(clear=True) if i == 4 else None), vertical_align=valign, title_page=False, bidi=i % 2 == 1, rtl_gutter=i % 2 == 1)))
     notes = [d.Note.footnote(0, [p("Footnote body: rich paragraph, table, image and external hyperlink."),
         d.Table([d.TableRow([cell("Footnote table")])]), d.Paragraph(children=[image("png", {"width": 18}), link("Footnote external link")])]),
         d.Note.endnote(0, [p("Endnote body: this is an endnote, distinct from footnote id=0.")])]
-    numbering = [d.NumberingDefinition(60, [d.NumberingLevel(level, 1, "lowerRoman" if level == 1 else "decimal", f"%{level+1}.", is_legal=True if level == 2 else None, suffix="tab" if level == 2 else None, restart=0 if level == 2 else None, alignment=["left", "center", "right", "start", "end"][level] if level < 5 else None) for level in range(9)],
+    bullet_levels = [d.NumberingLevel(0, 1, "bullet", "•")]
+    numbering = [d.NumberingDefinition(60, [d.NumberingLevel(level, 1, "lowerRoman" if level == 1 else "decimal", f"%{level+1}.", is_legal=True if level == 2 else None, suffix="tab" if level == 2 else None, restart=0 if level == 2 else None, alignment=["left", "center", "right", "start", "end"][level] if level < 5 else None, label_format=d.RunDefaults(bold=True) if level == 0 else None, paragraph_format=d.ParagraphDefaults(left_indent=24, first_line_indent=-12) if level == 0 else None, paragraph_style="Heading 1" if level == 0 else None) for level in range(9)],
         start_overrides=[d.NumberingStartOverride(0, 7), d.NumberingStartOverride(8, 0)],
-        level_overrides=[d.NumberingLevel(1, 4, "upperRoman", "(%2)", is_legal=True, suffix="nothing", restart=1, alignment="start"), d.NumberingLevel(0, 3, "lowerLetter", "%1)", is_legal=False, suffix="space", restart=0, alignment="end")]),
-        d.NumberingDefinition(61, [d.NumberingLevel(0, 1, "bullet", "•")])]
+        level_overrides=[d.NumberingLevel(1, 4, "upperRoman", "(%2)", is_legal=True, suffix="nothing", restart=1, alignment="start"), d.NumberingLevel(0, 3, "lowerLetter", "%1)", is_legal=False, suffix="space", restart=0, alignment="end", label_format=d.RunDefaults(bold=False, italic=True), paragraph_format=d.ParagraphDefaults(left_indent=36), paragraph_style="Heading 2")]),
+        d.NumberingDefinition(61, bullet_levels, abstract_id=100),
+        d.NumberingDefinition(62, bullet_levels, start_overrides=[d.NumberingStartOverride(0, 4)], abstract_id=100),
+        d.NumberingDefinition(63, abstract_id=101, inherit_style="Catalog Bullets")]
     document = d.Document(sections, timestamp=STAMP, creator="DOCX inspection catalog", title="All features visual inspection",
         subject="Rust/Python byte parity", description="Labeled functionality samples; not a rendering guarantee", keywords="docx,visual,parity",
         category="Examples", comments="Core metadata comments", version="1.0", comment_author="Catalog reviewer",
         defaults=d.DocumentDefaults(run=d.RunDefaults(font="Calibri", size=11),
-            paragraph=d.ParagraphDefaults(spacing_after=4, line_height=d.LineHeight.multiple(1.1))),
-        styles=styles(), numbering=numbering, notes=notes)
+            paragraph=d.ParagraphDefaults(spacing_after=4, line_height=d.LineHeight.multiple(1.1)),
+            mirror_margins=True, gutter_at_top=False, track_revisions=False,
+            footnote_position="beneathText", endnote_position="sectEnd",
+            footnote_numbering=d.NoteNumbering(3, "eachPage", "lowerRoman"),
+            endnote_numbering=d.NoteNumbering(7, "eachSect", "upperLetter")),
+        styles=[*styles(), d.NumberingStyleDefinition("Catalog Bullets", 61)], numbering=numbering, notes=notes)
     snapshot = await document.resolve()
     options = rocx.RenderOptions(timestamp=STAMP, profile="transitional",
         read_limits=rocx.ReadLimits(max_parts=10000, max_part_bytes=67108864, max_expanded_bytes=268435456))
-    template = d.DocumentTemplate(template_path, replacements={"{{replace}}": "REPLACED"}, paragraph_index=1, scope="supported_stories")
+    template = d.DocumentTemplate(template_path, replacements={"{{replace}}": "REPLACED"}, paragraph_index=1,
+        scope="supported_stories", content_control_replacements={"template-control": "updated controlled value"},
+        text_revision_action="accept")
     data = await snapshot.to_bytes(template, options=options)
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)

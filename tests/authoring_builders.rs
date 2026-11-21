@@ -16,7 +16,34 @@ macro_rules! check {
     (@expected value, $value:expr) => { $value.into() };
 }
 
+check!(content_control_list_item, ContentControlListItem, ContentControlListItem { display_text: String::new(), value: String::new() };
+    with_display_text => display_text: value("Accepted"),
+    with_value => value: value("accepted"),
+);
+check!(content_control_properties, ContentControlProperties, ContentControlProperties::default();
+    with_id => id: optional(42u32),
+    with_text => text: value(ContentControlText::Plain { multi_line: Some(true) }),
+    with_alias => alias: optional("Title"),
+    with_tag => tag: optional("review"),
+    with_lock => lock: optional(ContentControlLock::ControlAndContentLocked),
+);
+check!(text_revision, TextRevision, TextRevision { kind: RevisionKind::Insertion, author: "Initial".into(), date: None };
+    with_kind => kind: value(RevisionKind::Deletion), with_author => author: value("Review"),
+    with_date => date: optional("2026-11-20T00:00:00Z"),
+);
+check!(note_numbering, NoteNumbering, NoteNumbering::default();
+    with_format => format: optional(NoteNumberFormat::UpperRoman),
+    with_start => start: optional(3u32),
+    with_restart => restart: optional(NoteNumberRestart::EachSection),
+);
 check!(defaults, DocumentDefaults, DocumentDefaults::default();
+    with_mirror_margins => mirror_margins: optional(true),
+    with_gutter_at_top => gutter_at_top: optional(false),
+    with_track_revisions => track_revisions: optional(false),
+    with_footnote_position => footnote_position: optional(FootnotePosition::BeneathText),
+    with_endnote_position => endnote_position: optional(EndnotePosition::SectionEnd),
+    with_footnote_numbering => footnote_numbering: optional(NoteNumbering::default().with_start(3)),
+    with_endnote_numbering => endnote_numbering: optional(NoteNumbering::default().with_restart(NoteNumberRestart::Continuous)),
     with_run => run: optional(RunFormat::default().with_bold(false)),
     with_paragraph => paragraph: optional(ParagraphFormat::default().with_bidi(true)),
 );
@@ -47,6 +74,9 @@ check!(paragraph, ParagraphFormat, ParagraphFormat::default();
     with_page_break_before => page_break_before: optional(false),
     with_widow_control => widow_control: optional(true),
     with_tab_stops => tab_stops: value(vec![TabStop::default().with_position(36.)]),
+    with_suppress_line_numbers => suppress_line_numbers: optional(false),
+    with_snap_to_grid => snap_to_grid: optional(false),
+    with_contextual_spacing => contextual_spacing: optional(true), with_mirror_indents => mirror_indents: optional(false),
 );
 check!(page_size, PageSize, PageSize::default();
     with_width => width: optional(12000i64), with_height => height: optional(16000i64),
@@ -54,6 +84,12 @@ check!(page_size, PageSize, PageSize::default();
 check!(page_margins, PageMargins, PageMargins::default();
     with_top => top: optional(720i64), with_bottom => bottom: optional(800i64),
     with_left => left: optional(900i64), with_right => right: optional(1000i64),
+    with_header => header: optional(240i64), with_footer => footer: optional(360i64),
+);
+check!(line_numbering, LineNumbering, LineNumbering::default();
+    with_clear => clear: value(true),
+    with_count_by => count_by: optional(5u32), with_start => start: optional(0u32),
+    with_distance => distance: optional(240u32), with_restart => restart: optional(LineNumberRestart::NewSection),
 );
 check!(page_numbering, PageNumbering, PageNumbering::default();
     with_start => start: optional(4u32), with_format => format: optional("decimal"),
@@ -62,11 +98,32 @@ check!(columns, Columns, Columns::default();
     with_count => count: optional(2u32), with_space => space: optional(720u32),
     with_separator => separator: optional(false),
 );
+check!(page_border, PageBorder, PageBorder { style: BorderLine::Single, size: None, space: None, color: None };
+    with_style => style: value(BorderLine::Dashed), with_size => size: optional(8u32),
+    with_space => space: optional(4u32), with_color => color: optional([32, 64, 96]),
+);
+check!(page_borders, PageBorders, PageBorders::default();
+    with_offset_from => offset_from: optional(PageBorderOffset::Page),
+    with_display => display: optional(PageBorderDisplay::FirstPage),
+    with_z_order => z_order: optional(PageBorderZOrder::Back),
+    with_top => top: optional(PageBorder { style: BorderLine::Single, size: None, space: None, color: None }),
+    with_left => left: optional(PageBorder { style: BorderLine::Single, size: None, space: None, color: None }),
+    with_bottom => bottom: optional(PageBorder { style: BorderLine::Single, size: None, space: None, color: None }),
+    with_right => right: optional(PageBorder { style: BorderLine::Single, size: None, space: None, color: None }),
+);
+check!(document_grid, DocumentGrid, DocumentGrid::default();
+    with_mode => mode: optional(DocumentGridMode::LinesAndChars),
+    with_line_pitch => line_pitch: optional(360u32),
+    with_character_pitch_delta => character_pitch_delta: optional(-4096i32),
+);
 check!(section_properties, SectionProperties, SectionProperties::default();
     with_page_size => page_size: optional(PageSize::default().with_width(12000)),
     with_page_orientation => page_orientation: optional(Orientation::Landscape),
     with_page_margins => page_margins: optional(PageMargins::default().with_left(720)),
+    with_page_borders => page_borders: optional(PageBorders::default()),
+    with_document_grid => document_grid: optional(DocumentGrid::default()),
     with_page_numbering => page_numbering: optional(PageNumbering::default().with_start(3)),
+    with_line_numbering => line_numbering: optional(LineNumbering::default().with_count_by(5)),
     with_columns => columns: optional(Columns::default().with_count(2)),
     with_vertical_align => vertical_align: optional(VerticalAlignment::Center),
     with_title_page => title_page: optional(false),
@@ -105,6 +162,9 @@ check!(paragraph_style, ParagraphStyleDefinition, ParagraphStyleDefinition::defa
     with_font_east_asia => font_east_asia: optional("Yu Mincho"),
     with_font_complex_script => font_complex_script: optional("Arial"),
     with_linked_style => linked_style: optional("Builder character"),
+    with_suppress_line_numbers => suppress_line_numbers: optional(false),
+    with_snap_to_grid => snap_to_grid: optional(false),
+    with_contextual_spacing => contextual_spacing: optional(true), with_mirror_indents => mirror_indents: optional(false),
 );
 check!(conditional_format, TableSectionFormat, TableSectionFormat::default();
     with_bold => bold: optional(true), with_italic => italic: optional(false),
@@ -145,7 +205,44 @@ check!(character_style, CharacterStyleDefinition, CharacterStyleDefinition::defa
     with_format => format: value(RunFormat::default().with_bold(false)),
     with_linked_style => linked_style: optional("Builder style"),
 );
+check!(image_crop, ImageCrop, ImageCrop::default();
+    with_left => left: value(10.), with_top => top: value(5.),
+    with_right => right: value(20.), with_bottom => bottom: value(15.),
+);
+check!(shape_outline, ShapeOutline, ShapeOutline { width: 1., color: [0; 3] };
+    with_width => width: value(2.), with_color => color: value([10u8, 20, 30]),
+);
+check!(shape_properties, ShapeProperties, ShapeProperties::default();
+    with_width => width: value(40.), with_height => height: value(20.),
+    with_geometry => geometry: value(ShapeGeometry::Ellipse), with_fill => fill: optional([1u8, 2, 3]),
+    with_text => text: optional("Label"),
+    with_outline => outline: optional(ShapeOutline { width: 1., color: [0; 3] }),
+);
+check!(image_anchor, ImageAnchor, ImageAnchor::default();
+    with_horizontal_reference => horizontal_reference: value(ImageAnchorReference::Margin),
+    with_vertical_reference => vertical_reference: value(ImageAnchorReference::Margin),
+    with_horizontal_alignment => horizontal_alignment: optional(ImageAnchorHorizontalAlignment::Center),
+    with_vertical_alignment => vertical_alignment: optional(ImageAnchorVerticalAlignment::Bottom),
+    with_x => x: value(-5.), with_y => y: value(18.),
+    with_wrap => wrap: value(ImageWrap::Square),
+    with_wrap_side => wrap_side: optional(ImageWrapSide::Largest),
+    with_wrap_polygon => wrap_polygon: value(vec![(0, 0), (0, 21600), (21600, 0)]),
+    with_distance_top => distance_top: optional(0.),
+    with_distance_bottom => distance_bottom: optional(2.),
+    with_distance_left => distance_left: optional(3.),
+    with_distance_right => distance_right: optional(4.),
+    with_relative_height => relative_height: value(4u32),
+    with_behind_text => behind_text: value(true),
+    with_locked => locked: optional(true),
+    with_layout_in_cell => layout_in_cell: optional(false),
+    with_allow_overlap => allow_overlap: optional(false),
+);
 check!(image_transformation, ImageTransformation, ImageTransformation::default();
+    with_anchor => anchor: optional(ImageAnchor::default()),
+    with_crop => crop: optional(ImageCrop::default().with_left(10.)),
+    with_rotation => rotation: optional(45.),
+    with_flip_horizontal => flip_horizontal: optional(true),
+    with_flip_vertical => flip_vertical: optional(false),
     with_width => width: optional(72.), with_height => height: optional(36.),
 );
 check!(alt_text, AltText, AltText::default();
@@ -157,9 +254,17 @@ check!(numbering_level, NumberingLevel, NumberingLevel::default();
     with_format => format: value("decimal"), with_text => text: value("%1."),
     with_is_legal => is_legal: optional(false), with_suffix => suffix: optional(NumberingSuffix::Space),
     with_restart => restart: optional(0u32), with_alignment => alignment: optional(NumberingAlignment::End),
+    with_label_format => label_format: optional(RunFormat::default().with_bold(false)),
+    with_paragraph_format => paragraph_format: optional(ParagraphFormat::default().with_left_indent(24.)),
+    with_paragraph_style => paragraph_style: optional("Heading 1"),
+);
+check!(numbering_style, NumberingStyleDefinition, NumberingStyleDefinition { name: String::new(), numbering_id: 1 };
+    with_name => name: value("Catalog List"), with_numbering_id => numbering_id: value(42u32),
 );
 check!(numbering_definition, NumberingDefinition, NumberingDefinition::default();
     with_id => id: value(42u32),
+    with_abstract_id => abstract_id: optional(100u32),
+    with_inherit_style => inherit_style: optional("Catalog List"),
     with_levels => levels: value(vec![NumberingLevel::default().with_start(1)]),
     with_start_overrides => start_overrides: value(vec![NumberingStartOverride { level: 0, start: 3 }]),
     with_level_overrides => level_overrides: value(vec![NumberingLevel::default().with_start(4)]),
@@ -177,6 +282,7 @@ check!(cell_margins, CellMargins, CellMargins::default();
 check!(row_properties, TableRowProperties, TableRowProperties::default();
     with_height => height: optional(RowHeight::AtLeast(18.)),
     with_repeat_header => repeat_header: optional(false), with_cant_split => cant_split: optional(true),
+    with_content_control => content_control: optional(ContentControlProperties::default().with_tag("body")),
 );
 check!(table_look, TableLook, TableLook::default();
     with_first_row => first_row: optional(true), with_last_row => last_row: optional(false),
@@ -197,6 +303,7 @@ check!(cell_properties, TableCellProperties, TableCellProperties::default();
     with_vertical_alignment => vertical_alignment: optional(VerticalAlignment::Bottom),
     with_margins => margins: optional(CellMargins::default().with_top(3.)),
     with_text_direction => text_direction: optional(CellTextDirection::TopToBottomRightToLeft),
+    with_content_control => content_control: optional(ContentControlProperties::default().with_tag("body")),
 );
 check!(hyperlink_properties, HyperlinkProperties, HyperlinkProperties::default();
     with_tooltip => tooltip: optional("Visit site"), with_history => history: optional(false),

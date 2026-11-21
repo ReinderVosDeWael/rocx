@@ -291,3 +291,145 @@ schema validation with invalid boolean mutation, and clean-wheel probes. Tests
 cover absence/false/true, inheritance, template preservation, deferred/hidden
 inputs, repeated snapshots and unchanged text/margins/gutter amounts/top settings/
 width metrics. No visual-rendering claim is made. Source: P1 (2016) §17.6.16.
+
+### Section line numbering
+
+Set `SectionProperties.line_numbering` to `LineNumbering`. The record supports
+`count_by` (1–100), `start` (0–32767), `distance` (unsigned twips), and
+`restart` (`newPage`, `newSection`, or `continuous` in Python). The starting
+value is stored as supplied. Word interprets it as the number of lines to skip
+before starting or restarting. Rust uses `LineNumberRestart` for the restart
+mode. Python resolves deferred records and nested fields.
+
+Explicit settings merge into `sectPr/lnNumType` with the same preceding-section
+and template behavior as other section settings. An omitted record preserves
+the existing node, and omitted fields preserve existing attributes. The
+consumer lays out and displays line numbers. Source: P1 (2016) §17.6.8 and
+Annex A.1 CT_LineNumber. The count and start bounds follow
+[MS-OI29500 §2.1.215](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c4252e13-48d2-4ac9-9fb5-3b276d02be30).
+
+Set `suppress_line_numbers` on a paragraph format, paragraph style, or
+paragraph defaults to request `pPr/suppressLineNumbers` (P1 2016 Annex A.1
+CT_PPrBase). True suppresses line numbering, and explicit false requests
+that the section's line numbering apply. Omission leaves the local setting
+unspecified. The numbering level paragraph codec also accepts this property.
+
+Use `LineNumbering(clear=True)` in Python or
+`LineNumbering::default().with_clear(true)` in Rust to remove inherited or
+template section line numbering. The clear request must omit other line
+numbering fields. A later section can configure line numbering again.
+
+### Header and footer edge distances
+
+Set `PageMargins.header` and `PageMargins.footer` in Rust or use the
+`header` and `footer` keys in Python's `SectionProperties.page_margins`.
+Each accepts a nonnegative EMU value, including zero. The codec converts each
+distance to twips and writes it to the corresponding `sectPr/pgMar` attribute.
+Omitted values retain the template or preceding section's distances. Editing
+these fields leaves body margins and story references intact. Source: P1
+(2016) §17.6.11 and Annex A.1 CT_PageMar.
+
+### Page borders
+
+Set `SectionProperties.page_borders` to a `PageBorders` record with optional
+`top`, `left`, `bottom`, and `right` borders. Each physical edge accepts a
+`PageBorder` with line style `single` or `dashed`, optional RGB color,
+width (2–96 eighth-points), and offset (0–31 points). These are the supported
+line-border authoring bounds. The codec writes supplied edges in schema order.
+Replacing one edge preserves other edges and the parent options. Omitted
+records preserve template or previous-section borders. Source: P1 (2016)
+§17.6.10 and Annex A.1 CT_PageBorders.
+
+The `PageBorders` record also accepts `offset_from` (`page` or `text`),
+`display` (`allPages`, `firstPage`, or `notFirstPage`), and `z_order`
+(`front` or `back`). Rust exposes these as `PageBorderOffset`,
+`PageBorderDisplay`, and `PageBorderZOrder`. An omitted option preserves the
+existing setting. The consumer positions and displays the borders.
+
+### Section document grids
+
+`SectionProperties.document_grid` accepts a `DocumentGrid` record. Modes are
+`default`, `lines`, `linesAndChars`, and `snapToChars` in Python and the
+corresponding `DocumentGridMode` variants in Rust. The line pitch is positive
+and uses twips. The signed character-pitch delta uses units of 1/4096 point
+relative to the Normal-font pitch. The compiler writes `sectPr/docGrid`.
+Supplied attributes merge with the existing template or preceding section
+settings. The consumer determines effective text layout. Source: P1 (2016)
+§17.6.5 and Annex A.1 CT_DocGrid.
+
+`snap_to_grid` requests line-grid snapping on paragraph formats and
+character-grid snapping on run formats, including styles and defaults.
+True and false emit explicit requests. Omission leaves the current level of
+formatting unspecified. The compiler writes `snapToGrid` in the paragraph
+or run properties. See P1 (2016) Annex A.1 CT_PPrBase and CT_RPr.
+
+### Contextual spacing and mirrored paragraph indents
+
+`contextual_spacing` requests that the consumer suppress spacing between
+paragraphs using the same paragraph style. `mirror_indents` requests that
+paragraph left and right indent values act as inside and outside indents.
+They are independent optional flags on paragraph formats, paragraph styles
+and paragraph defaults. Omitted flags keep the current property level
+unspecified. Explicit false emits `0`. The codec retains the original indent
+values and writes `contextualSpacing` and `mirrorIndents` (P1 2016 Annex A.1
+CT_PPrBase).
+
+### Document page-layout requests
+
+`DocumentDefaults.mirror_margins` and `gutter_at_top` write
+`settings/mirrorMargins` and `settings/gutterAtTop`. These flags let the
+consumer interpret mirrored margins and top gutter placement. Omitted
+values retain settings from the template. False writes an explicit off
+value. These requests leave section geometry and unrelated settings intact.
+Source: P1 (2016) §§17.15.1.50 and 17.15.1.57.
+
+### Picture geometry and floating placement
+
+Set `ImageTransformation.crop` to an `ImageCrop` with physical-edge insets
+in percent, and set `rotation` in clockwise degrees. Python uses the
+corresponding `transformation` dictionary keys. Crop insets must leave a
+positive source rectangle after rounding. Both requests preserve the target
+extents and stored image bytes.
+
+An optional `ImageAnchor` requests floating placement from the page or
+margins independently on each axis. Signed offsets use points and must fit
+a signed DrawingML coordinate after conversion to EMUs. The anchor supports
+none, square, or top-and-bottom wrapping, a relative stacking height, and
+placement behind text. Square wrapping defaults to both sides and accepts
+left, right, or the largest side. Square wrap distances use nonnegative
+points on each edge. Top-and-bottom wrapping accepts top and bottom distances.
+Optional anchor locking, in-cell placement, and overlap flags default to
+unlocked, layout in cell, and overlap allowed. The consumer performs page layout.
+
+Each axis accepts an offset or alignment. Common reference frames include
+the page, margins, inside margin and outside margin. Horizontal positioning
+also accepts column, character, left margin and right margin. Vertical
+positioning also accepts paragraph, line, top margin and bottom margin.
+
+Tight and through wrapping take at least three ordered polygon vertices in
+DrawingML wrap-path coordinates and require nonzero signed area. The codec
+writes the first vertex as the start and the rest as line segments. The
+consumer closes the polygon if needed. Both modes support left and right
+wrap distances and the same side choices as square wrapping. Source:
+[P1 wrapping polygon contract](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.wordprocessing.wrappolygon?view=openxml-3.0.1).
+
+Picture transformations also accept optional `flip_horizontal` and
+`flip_vertical` flags. Explicit false is preserved and the image bytes
+and target extents remain the same.
+
+### Inline geometric shapes
+
+`ShapeRun` creates an inline rectangle or ellipse with positive dimensions
+in points and an optional RGB fill. Rust takes a `ShapeProperties` record
+and Python takes keyword arguments. Shapes are supported in body paragraphs.
+The codec emits a standard DrawingML locked canvas and creates no image
+media part. Geometry is serialized independently of the consuming app's
+drawing behavior. Source: ECMA-376 P1 (2016), §§20.1 and 20.3.
+
+An optional shape `text` value is stored in a separate DrawingML text
+body. Line separators create DrawingML paragraphs, including empty lines.
+The text stays inside the shape and uses its geometry as the text rectangle.
+
+An optional `ShapeOutline` supplies a line width in points and an RGB
+color. The width is checked against DrawingML's 0–20,116,800 EMU range.
+Shape and canvas identifiers are reserved alongside existing drawing IDs.

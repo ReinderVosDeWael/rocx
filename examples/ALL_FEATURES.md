@@ -56,6 +56,26 @@ It also labels tab/space/nothing suffix requests on abstract/replacement levels
 and explains omitted defaults. Separators are consumer-generated, not text edits.
 It labels level-restart requests separately from start overrides: zero means
 never restart; trigger 1 is one-based; omitted levels retain consumer defaults.
+Concrete instances 61 and 62 share abstract bullet definition 100. Instance 62
+adds its own start override. The checks verify both references and a single
+Abstract and replacement levels also show distinct bold and italic label requests.
+The same levels show distinct left and hanging indent requests in points.
+They also associate different registered heading styles with the two levels.
+The Catalog Bullets numbering style points to concrete instance 61, with a reciprocal link on abstract definition 100.
+Concrete instance 63 inherits from Catalog Bullets through a level-free abstract definition.
+Topic 06 also labels separate document-wide placement, formats, starts and restart modes for footnotes and endnotes.
+It also labels tracked text insertions and deletions with review metadata and an explicitly disabled future-edit tracking flag.
+The template stage accepts imported text changes and a paired move before adding new revisions.
+The authored move sample labels the common source and destination name.
+The inline rich-text control sample shows its alias, tag, lock and formatted content.
+A separate block control groups one paragraph and one table. Both controls label their explicit IDs.
+A third control labels plain text with multiline enabled.
+The drop-down sample labels its choices and selected value.
+The table sample labels separate wrappers for a row and one of its cells.
+The generated template also includes a plain-text control whose cached value
+is updated by tag while its bold formatting is preserved.
+abstract definition.
+
 It also labels five numbering-label alignments on abstract levels, start/end on
 replacement levels, and omission elsewhere. Label alignment does not set paragraph
 text alignment; the viewer performs label positioning.
@@ -135,3 +155,21 @@ bad border/conditional-order mutations. `tests/showcase.rs` runs the Rust catalo
 without Python and checks combined property order. Nothing is normalized,
 unpacked/repacked or rewritten before byte comparison; ZIP diagnostics are only
 used after a failure.
+
+Section samples in topic 09 label all three line number restart modes and
+show preservation and explicit removal of previous settings. The samples also
+label paragraph suppression enabled and explicitly disabled.
+The first section also labels independently authored header and footer edge distances.
+The document settings sample labels mirrored margins and an explicitly disabled top gutter.
+It shows single top/bottom and dashed left/right page borders, offset from
+the page edges and placed behind the text on the first page.
+The later sections label all four document grid modes, with line pitch in
+twips and a signed character-pitch delta. They also label paragraph snapping
+enabled and run snapping explicitly disabled.
+The numbered sections also label contextual spacing on and mirrored paragraph
+indents explicitly off.
+
+Topic 07 labels a cropped, rotated and flipped inline picture and a floating picture
+with explicit page/margin offsets, square wrapping with distances, and placement flags.
+A second floating picture shows tight wrapping with an explicit contour.
+The inline shape sample labels a solid blue rectangle with text and a solid green ellipse with an outline.

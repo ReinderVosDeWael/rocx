@@ -16,10 +16,13 @@ mod story;
 pub use story::{StoryContent, StoryDescriptor, StoryRegistry};
 mod notes;
 mod ranges;
+mod revisions;
 pub(crate) struct Compiler<'a> {
     package: Package,
     main: String,
     drawing: DrawingId,
+    revisions: Option<revisions::RevisionIds>,
+    content_control_ids: Option<std::collections::BTreeSet<u32>>,
     media: resources::MediaRegistry,
     stories: StoryRegistry,
     header_stories: std::collections::BTreeMap<String, StoryId>,
@@ -86,17 +89,27 @@ pub(crate) fn compile(
     };
     for kind in kinds {
         for (id, _) in package.relationships(&main, kind)? {
-            if let Some((_, path)) = package.related(&main, &format!("#{id}"))? {
+            if let Some((_, path)) = package.related(&main, &format!("#{id}"))?
+                && !stories.contains(&path)
+            {
                 stories.push(path);
             }
         }
     }
     if let Some(t) = template {
+        let mut controls =
+            crate::template::ContentControlEdits::new(&t.content_control_replacements)?;
         for path in &stories {
             let mut root = package.word(path)?;
             crate::template::replacements(&mut root, &t.replacements)?;
+            controls.apply(&mut root).map_err(|error| error.at(path))?;
+            if let Some(action) = t.text_revision_action {
+                crate::template::edit_text_revisions(&mut root, action)
+                    .map_err(|error| error.at(path))?;
+            }
             package.put_word(path, root)?;
         }
+        controls.finish()?;
     }
     let styles = crate::ooxml::wordprocessing::styles::apply(
         &mut package,
@@ -105,6 +118,9 @@ pub(crate) fn compile(
         &doc.numbering,
         doc.defaults.as_ref(),
     )?;
+    if let Some(defaults) = &doc.defaults {
+        defaults::apply_settings(&mut package, &main, defaults)?;
+    }
     properties::metadata(
         &mut package,
         doc,
@@ -124,6 +140,8 @@ pub(crate) fn compile(
         document: doc,
         main: main.clone(),
         drawing: DrawingId::new(drawing),
+        revisions: None,
+        content_control_ids: None,
     };
     let mut root = renderer.package.word(&main)?;
     root.namespaces();

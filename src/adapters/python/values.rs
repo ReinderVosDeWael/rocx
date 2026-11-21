@@ -15,6 +15,7 @@ pub(super) fn run_format(o: &Bound<'_, PyAny>) -> PyResult<RunFormat> {
         strike: field!(o, "strike", Option<bool>),
         all_caps: field!(o, "all_caps", Option<bool>),
         small_caps: field!(o, "small_caps", Option<bool>),
+        snap_to_grid: field!(o, "snap_to_grid", Option<bool>),
         language: optional_record(o, "language", run_language)?,
         bold_complex_script: field!(o, "bold_complex_script", Option<bool>),
         italic_complex_script: field!(o, "italic_complex_script", Option<bool>),
@@ -33,10 +34,51 @@ pub(super) fn character_style(o: &Bound<'_, PyAny>) -> PyResult<crate::Character
         linked_style: field!(o, "linked_style", Option<String>),
     })
 }
+fn note_numbering(o: &Bound<'_, PyAny>) -> PyResult<crate::NoteNumbering> {
+    let restart = match field!(o, "restart", Option<String>).as_deref() {
+        None => None,
+        Some("continuous") => Some(crate::NoteNumberRestart::Continuous),
+        Some("eachSect") => Some(crate::NoteNumberRestart::EachSection),
+        Some("eachPage") => Some(crate::NoteNumberRestart::EachPage),
+        _ => return Err(PyValueError::new_err("unknown note numbering restart")),
+    };
+    let format = match field!(o, "format", Option<String>).as_deref() {
+        None => None,
+        Some("decimal") => Some(crate::NoteNumberFormat::Decimal),
+        Some("lowerRoman") => Some(crate::NoteNumberFormat::LowerRoman),
+        Some("upperRoman") => Some(crate::NoteNumberFormat::UpperRoman),
+        Some("lowerLetter") => Some(crate::NoteNumberFormat::LowerLetter),
+        Some("upperLetter") => Some(crate::NoteNumberFormat::UpperLetter),
+        _ => return Err(PyValueError::new_err("unknown note numbering format")),
+    };
+    Ok(crate::NoteNumbering {
+        format,
+        start: field!(o, "start", Option<u32>),
+        restart,
+    })
+}
+
 pub(super) fn document_defaults(o: &Bound<'_, PyAny>) -> PyResult<crate::DocumentDefaults> {
     Ok(crate::DocumentDefaults {
         run: optional_record(o, "run", run_format)?,
         paragraph: optional_record(o, "paragraph", paragraph_format)?,
+        footnote_numbering: optional_record(o, "footnote_numbering", note_numbering)?,
+        endnote_numbering: optional_record(o, "endnote_numbering", note_numbering)?,
+        mirror_margins: field!(o, "mirror_margins", Option<bool>),
+        gutter_at_top: field!(o, "gutter_at_top", Option<bool>),
+        track_revisions: field!(o, "track_revisions", Option<bool>),
+        footnote_position: match field!(o, "footnote_position", Option<String>).as_deref() {
+            None => None,
+            Some("pageBottom") => Some(crate::FootnotePosition::PageBottom),
+            Some("beneathText") => Some(crate::FootnotePosition::BeneathText),
+            _ => return Err(PyValueError::new_err("unknown footnote position")),
+        },
+        endnote_position: match field!(o, "endnote_position", Option<String>).as_deref() {
+            None => None,
+            Some("sectEnd") => Some(crate::EndnotePosition::SectionEnd),
+            Some("docEnd") => Some(crate::EndnotePosition::DocumentEnd),
+            _ => return Err(PyValueError::new_err("unknown endnote position")),
+        },
     })
 }
 pub(super) fn paragraph_format(o: &Bound<'_, PyAny>) -> PyResult<ParagraphFormat> {
@@ -55,6 +97,10 @@ pub(super) fn paragraph_format(o: &Bound<'_, PyAny>) -> PyResult<ParagraphFormat
         keep_with_next: field!(o, "keep_with_next", Option<bool>),
         page_break_before: field!(o, "page_break_before", Option<bool>),
         widow_control: field!(o, "widow_control", Option<bool>),
+        suppress_line_numbers: field!(o, "suppress_line_numbers", Option<bool>),
+        contextual_spacing: field!(o, "contextual_spacing", Option<bool>),
+        mirror_indents: field!(o, "mirror_indents", Option<bool>),
+        snap_to_grid: field!(o, "snap_to_grid", Option<bool>),
         ..Default::default()
     })
 }
@@ -180,6 +226,8 @@ pub(super) fn pagemargins(o: &Bound<'_, PyAny>) -> PyResult<PageMargins> {
         bottom: dict_field!(d, "bottom", i64),
         left: dict_field!(d, "left", i64),
         right: dict_field!(d, "right", i64),
+        header: dict_field!(d, "header", i64),
+        footer: dict_field!(d, "footer", i64),
     })
 }
 pub(super) fn pagenumbering(o: &Bound<'_, PyAny>) -> PyResult<PageNumbering> {
@@ -197,9 +245,101 @@ pub(super) fn columns(o: &Bound<'_, PyAny>) -> PyResult<Columns> {
         separator: dict_field!(d, "separator", bool),
     })
 }
+fn image_anchor(a: &Bound<'_, PyAny>) -> PyResult<crate::ImageAnchor> {
+    let reference = |value: &str| match value {
+        "page" => Ok(crate::ImageAnchorReference::Page),
+        "margin" => Ok(crate::ImageAnchorReference::Margin),
+        "column" => Ok(crate::ImageAnchorReference::Column),
+        "character" => Ok(crate::ImageAnchorReference::Character),
+        "leftMargin" => Ok(crate::ImageAnchorReference::LeftMargin),
+        "rightMargin" => Ok(crate::ImageAnchorReference::RightMargin),
+        "paragraph" => Ok(crate::ImageAnchorReference::Paragraph),
+        "line" => Ok(crate::ImageAnchorReference::Line),
+        "topMargin" => Ok(crate::ImageAnchorReference::TopMargin),
+        "bottomMargin" => Ok(crate::ImageAnchorReference::BottomMargin),
+        "insideMargin" => Ok(crate::ImageAnchorReference::InsideMargin),
+        "outsideMargin" => Ok(crate::ImageAnchorReference::OutsideMargin),
+        _ => Err(PyValueError::new_err("unknown picture anchor reference")),
+    };
+    Ok(crate::ImageAnchor {
+        horizontal_reference: reference(&field!(a, "horizontal_reference", String))?,
+        vertical_reference: reference(&field!(a, "vertical_reference", String))?,
+        horizontal_alignment: match field!(a, "horizontal_alignment", Option<String>).as_deref() {
+            None => None,
+            Some("left") => Some(crate::ImageAnchorHorizontalAlignment::Left),
+            Some("center") => Some(crate::ImageAnchorHorizontalAlignment::Center),
+            Some("right") => Some(crate::ImageAnchorHorizontalAlignment::Right),
+            Some("inside") => Some(crate::ImageAnchorHorizontalAlignment::Inside),
+            Some("outside") => Some(crate::ImageAnchorHorizontalAlignment::Outside),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "unknown picture anchor horizontal alignment",
+                ));
+            }
+        },
+        vertical_alignment: match field!(a, "vertical_alignment", Option<String>).as_deref() {
+            None => None,
+            Some("top") => Some(crate::ImageAnchorVerticalAlignment::Top),
+            Some("center") => Some(crate::ImageAnchorVerticalAlignment::Center),
+            Some("bottom") => Some(crate::ImageAnchorVerticalAlignment::Bottom),
+            Some("inside") => Some(crate::ImageAnchorVerticalAlignment::Inside),
+            Some("outside") => Some(crate::ImageAnchorVerticalAlignment::Outside),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "unknown picture anchor vertical alignment",
+                ));
+            }
+        },
+        x: field!(a, "x", f64),
+        y: field!(a, "y", f64),
+        wrap: match field!(a, "wrap", String).as_str() {
+            "none" => crate::ImageWrap::None,
+            "square" => crate::ImageWrap::Square,
+            "topAndBottom" => crate::ImageWrap::TopAndBottom,
+            "tight" => crate::ImageWrap::Tight,
+            "through" => crate::ImageWrap::Through,
+            _ => return Err(PyValueError::new_err("unknown picture anchor wrap")),
+        },
+        wrap_side: match field!(a, "wrap_side", Option<String>).as_deref() {
+            None => None,
+            Some("bothSides") => Some(crate::ImageWrapSide::BothSides),
+            Some("left") => Some(crate::ImageWrapSide::Left),
+            Some("right") => Some(crate::ImageWrapSide::Right),
+            Some("largest") => Some(crate::ImageWrapSide::Largest),
+            _ => return Err(PyValueError::new_err("unknown picture wrap side")),
+        },
+        wrap_polygon: field!(a, "wrap_polygon", Vec<(i32, i32)>),
+        distance_top: field!(a, "distance_top", Option<f64>),
+        distance_bottom: field!(a, "distance_bottom", Option<f64>),
+        distance_left: field!(a, "distance_left", Option<f64>),
+        distance_right: field!(a, "distance_right", Option<f64>),
+        relative_height: field!(a, "relative_height", u32),
+        behind_text: field!(a, "behind_text", bool),
+        locked: field!(a, "locked", Option<bool>),
+        layout_in_cell: field!(a, "layout_in_cell", Option<bool>),
+        allow_overlap: field!(a, "allow_overlap", Option<bool>),
+    })
+}
 pub(super) fn imagetransformation(o: &Bound<'_, PyAny>) -> PyResult<ImageTransformation> {
     let d = o;
     Ok(ImageTransformation {
+        anchor: dict_field!(d, "anchor", Bound<'_, PyAny>)
+            .as_ref()
+            .map(image_anchor)
+            .transpose()?,
+        rotation: dict_field!(d, "rotation", f64),
+        flip_horizontal: dict_field!(d, "flip_horizontal", bool),
+        flip_vertical: dict_field!(d, "flip_vertical", bool),
+        crop: dict_field!(d, "crop", Bound<'_, PyAny>)
+            .map(|crop| {
+                Ok::<_, PyErr>(crate::ImageCrop {
+                    left: field!(crop, "left", f64),
+                    top: field!(crop, "top", f64),
+                    right: field!(crop, "right", f64),
+                    bottom: field!(crop, "bottom", f64),
+                })
+            })
+            .transpose()?,
         width: dict_field!(d, "width", f64),
         height: dict_field!(d, "height", f64),
     })
@@ -238,6 +378,10 @@ pub(super) fn paragraphstyledefinition(o: &Bound<'_, PyAny>) -> PyResult<Paragra
         keep_with_next: field!(o, "keep_with_next", Option<bool>),
         page_break_before: field!(o, "page_break_before", Option<bool>),
         widow_control: field!(o, "widow_control", Option<bool>),
+        suppress_line_numbers: field!(o, "suppress_line_numbers", Option<bool>),
+        contextual_spacing: field!(o, "contextual_spacing", Option<bool>),
+        mirror_indents: field!(o, "mirror_indents", Option<bool>),
+        snap_to_grid: field!(o, "snap_to_grid", Option<bool>),
         language: optional_record(o, "language", run_language)?,
         bold_complex_script: field!(o, "bold_complex_script", Option<bool>),
         italic_complex_script: field!(o, "italic_complex_script", Option<bool>),
@@ -366,12 +510,78 @@ pub(super) fn tablestyledefinition(o: &Bound<'_, PyAny>) -> PyResult<TableStyleD
         bottom_right_cell: optional_record(o, "bottom_right_cell", tablesectionformat)?,
     })
 }
+fn page_border(o: &Bound<'_, PyAny>) -> PyResult<crate::PageBorder> {
+    Ok(crate::PageBorder {
+        style: borderline(&o.getattr("style")?)?,
+        size: field!(o, "size", Option<u32>),
+        space: field!(o, "space", Option<u32>),
+        color: field!(o, "color", Option<[u8; 3]>),
+    })
+}
 pub(super) fn sectionproperties(o: &Bound<'_, PyAny>) -> PyResult<SectionProperties> {
     Ok(SectionProperties {
         page_size: optional_record(o, "page_size", pagesize)?,
         page_orientation: optional_enum(o, "page_orientation", orientation)?,
         page_margins: optional_record(o, "page_margins", pagemargins)?,
+        page_borders: optional_record(o, "page_borders", |borders| {
+            Ok(crate::PageBorders {
+                offset_from: match field!(borders, "offset_from", Option<String>).as_deref() {
+                    None => None,
+                    Some("page") => Some(crate::PageBorderOffset::Page),
+                    Some("text") => Some(crate::PageBorderOffset::Text),
+                    _ => return Err(PyValueError::new_err("unknown page border offset_from")),
+                },
+                display: match field!(borders, "display", Option<String>).as_deref() {
+                    None => None,
+                    Some("allPages") => Some(crate::PageBorderDisplay::AllPages),
+                    Some("firstPage") => Some(crate::PageBorderDisplay::FirstPage),
+                    Some("notFirstPage") => Some(crate::PageBorderDisplay::NotFirstPage),
+                    _ => return Err(PyValueError::new_err("unknown page border display")),
+                },
+                z_order: match field!(borders, "z_order", Option<String>).as_deref() {
+                    None => None,
+                    Some("front") => Some(crate::PageBorderZOrder::Front),
+                    Some("back") => Some(crate::PageBorderZOrder::Back),
+                    _ => return Err(PyValueError::new_err("unknown page border z_order")),
+                },
+                top: optional_record(borders, "top", page_border)?,
+                left: optional_record(borders, "left", page_border)?,
+                bottom: optional_record(borders, "bottom", page_border)?,
+                right: optional_record(borders, "right", page_border)?,
+            })
+        })?,
         page_numbering: optional_record(o, "page_numbering", pagenumbering)?,
+        line_numbering: optional_record(o, "line_numbering", |line| {
+            let restart = match field!(line, "restart", Option<String>).as_deref() {
+                None => None,
+                Some("newPage") => Some(crate::LineNumberRestart::NewPage),
+                Some("newSection") => Some(crate::LineNumberRestart::NewSection),
+                Some("continuous") => Some(crate::LineNumberRestart::Continuous),
+                _ => return Err(PyValueError::new_err("unknown line numbering restart")),
+            };
+            Ok(crate::LineNumbering {
+                clear: field!(line, "clear", bool),
+                count_by: field!(line, "count_by", Option<u32>),
+                start: field!(line, "start", Option<u32>),
+                distance: field!(line, "distance", Option<u32>),
+                restart,
+            })
+        })?,
+        document_grid: optional_record(o, "document_grid", |grid| {
+            let mode = match field!(grid, "mode", Option<String>).as_deref() {
+                None => None,
+                Some("default") => Some(crate::DocumentGridMode::Default),
+                Some("lines") => Some(crate::DocumentGridMode::Lines),
+                Some("linesAndChars") => Some(crate::DocumentGridMode::LinesAndChars),
+                Some("snapToChars") => Some(crate::DocumentGridMode::SnapToChars),
+                _ => return Err(PyValueError::new_err("unknown document grid mode")),
+            };
+            Ok(crate::DocumentGrid {
+                mode,
+                line_pitch: field!(grid, "line_pitch", Option<u32>),
+                character_pitch_delta: field!(grid, "character_pitch_delta", Option<i32>),
+            })
+        })?,
         columns: optional_record(o, "columns", columns)?,
         vertical_align: optional_enum(o, "vertical_align", verticalalignment)?,
         title_page: field!(o, "title_page", Option<bool>),
@@ -447,6 +657,8 @@ pub(super) fn numbering_reference(o: &Bound<'_, PyAny>) -> PyResult<crate::Numbe
 pub(super) fn numbering_definition(o: &Bound<'_, PyAny>) -> PyResult<crate::NumberingDefinition> {
     Ok(crate::NumberingDefinition {
         id: field!(o, "id", u32),
+        abstract_id: field!(o, "abstract_id", Option<u32>),
+        inherit_style: field!(o, "inherit_style", Option<String>),
         levels: list(&o.getattr("levels")?, numbering_level)?,
         start_overrides: list(&o.getattr("start_overrides")?, |entry| {
             Ok(Some(crate::NumberingStartOverride {
@@ -494,6 +706,9 @@ fn numbering_level(o: &Bound<'_, PyAny>) -> PyResult<Option<crate::NumberingLeve
         is_legal: field!(o, "is_legal", Option<bool>),
         suffix,
         restart: field!(o, "restart", Option<u32>),
+        label_format: optional_record(o, "label_format", run_format)?,
+        paragraph_format: optional_record(o, "paragraph_format", paragraph_format)?,
+        paragraph_style: field!(o, "paragraph_style", Option<String>),
         alignment,
     }))
 }

@@ -19,6 +19,11 @@ pub(super) fn document(o: &Bound<'_, PyAny>) -> PyResult<ResolvedDocument> {
             Ok(Some(match kind(v)?.as_str() {
                 "ParagraphStyleDefinition" => paragraphstyledefinition(v)?.into(),
                 "CharacterStyleDefinition" => character_style(v)?.into(),
+                "NumberingStyleDefinition" => crate::NumberingStyleDefinition {
+                    name: field!(v, "name", String),
+                    numbering_id: field!(v, "numbering_id", u32),
+                }
+                .into(),
                 "TableStyleDefinition" => tablestyledefinition(v)?.into(),
                 _ => return Err(PyTypeError::new_err("Unknown style definition")),
             }))

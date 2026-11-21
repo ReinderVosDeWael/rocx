@@ -118,6 +118,7 @@ pub fn blocks(out: &mut BlockChildren) {
     .into();
     let mut row = TableRow::new(vec![top.into(), cell("Top aligned cell")]);
     row.properties = TableRowProperties {
+        content_control: None,
         height: Some(RowHeight::AtLeast(28.)),
         repeat_header: Some(true),
         cant_split: Some(true),
@@ -131,6 +132,7 @@ pub fn blocks(out: &mut BlockChildren) {
     .into();
     let mut second = TableRow::new(vec![continuation.into(), bottom.into()]);
     second.properties = TableRowProperties {
+        content_control: None,
         height: Some(RowHeight::Exact(48.)),
         repeat_header: Some(false),
         cant_split: Some(false),
@@ -245,6 +247,7 @@ pub fn blocks(out: &mut BlockChildren) {
             cell("Minimum 20 pt; cannot split"),
         ]);
         row.properties = TableRowProperties {
+            content_control: None,
             height: Some(RowHeight::AtLeast(20.)),
             repeat_header: Some(i == 0),
             cant_split: Some(true),

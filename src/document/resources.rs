@@ -9,6 +9,11 @@ pub struct ResolvedImage {
     pub(crate) height: i64,
     pub(crate) name: String,
     pub(crate) alt_text: Option<AltText>,
+    pub(crate) anchor: Option<Box<ImageAnchor>>,
+    pub(crate) crop: Option<[u32; 4]>,
+    pub(crate) rotation: Option<i32>,
+    pub(crate) flip_horizontal: Option<bool>,
+    pub(crate) flip_vertical: Option<bool>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComment {

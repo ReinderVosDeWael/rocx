@@ -225,5 +225,16 @@ pub(crate) fn resolve(
         height: height.round() as i64,
         name: name.unwrap_or(format!("image.{ext}")),
         alt_text,
+        anchor: t.anchor.map(Box::new),
+        crop: t
+            .crop
+            .as_ref()
+            .map(crate::ImageCrop::wire_values)
+            .transpose()?,
+        flip_horizontal: t.flip_horizontal,
+        flip_vertical: t.flip_vertical,
+        rotation: t
+            .rotation
+            .map(|degrees| (degrees * 60000.).round_ties_even() as i32),
     })
 }

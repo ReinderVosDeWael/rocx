@@ -12,6 +12,14 @@ if TYPE_CHECKING:
 
 
 @dataclasses.dataclass
+class NumberingStyleDefinition:
+    """Name an authored list definition through a concrete numbering ID."""
+
+    name: str
+    numbering_id: int
+
+
+@dataclasses.dataclass
 class CharacterStyleDefinition:
     """Named character style using the same properties as TextRun formatting.
 
@@ -62,6 +70,7 @@ class CharacterStyleDefinition:
     complex_script: bool | None = None
     font_east_asia: str | None = None
     font_complex_script: str | None = None
+    snap_to_grid: bool | None = None
     linked_style: str | None = None
 
 
@@ -209,6 +218,7 @@ class ParagraphStyleDefinition:
         keep_together: Keep all lines of paragraph on same page.
         keep_with_next: Keep paragraph with next paragraph.
         page_break_before: Start paragraph on new page.
+        suppress_line_numbers: Optional line-number suppression.
         widow_control: Enable widow/orphan control.
     """
 
@@ -243,4 +253,8 @@ class ParagraphStyleDefinition:
     font_east_asia: str | None = None
     font_complex_script: str | None = None
     bidi: bool | None = None
+    suppress_line_numbers: bool | None = None
+    snap_to_grid: bool | None = None
+    contextual_spacing: bool | None = None
+    mirror_indents: bool | None = None
     linked_style: str | None = None

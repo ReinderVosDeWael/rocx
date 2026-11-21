@@ -96,6 +96,7 @@ impl TableCell {
             vertical_alignment: properties.vertical_alignment,
             margins: properties.margins,
             text_direction: properties.text_direction,
+            content_control: properties.content_control,
         }))
     }
 }
@@ -341,6 +342,7 @@ impl Paragraph {
                             text,
                             format: RunFormat::default(),
                             comment: None,
+                            revision: None,
                         }]
                     }
                 }
@@ -421,6 +423,25 @@ impl crate::Hyperlink {
         Ok(Some(ResolvedInline::Hyperlink(link)))
     }
 }
+impl crate::InlineContentControl {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let children = async {
+            let children = field(self.children, format!("{path}.children")).await?;
+            resolve_inlines(children, format!("{path}.children"), false).await
+        };
+        let (children, properties) = futures_util::future::try_join(
+            children,
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
+        let control = crate::ResolvedInlineContentControl::new(children, properties)
+            .map_err(|error| Error::from(error).at(path))?;
+        Ok(Some(ResolvedInline::ContentControl(control)))
+    }
+}
 fn resolve_inlines(
     children: crate::InlineChildren,
     path: String,
@@ -449,10 +470,12 @@ fn resolve_inlines(
                             .into())
                         }
                         Inline::Hyperlink(link) => link.resolve_at(path).await,
+                        Inline::ContentControl(control) => control.resolve_at(path).await,
                         Inline::TextRun(run) => run.resolve_at(path).await,
                         Inline::Tab(tab) => tab.resolve_at(path).await,
                         Inline::Break(br) => br.resolve_at(path).await,
                         Inline::ImageRun(image) => image.resolve_at(path).await,
+                        Inline::ShapeRun(shape) => shape.resolve_at(path).await,
                     }
                 }
             }))
@@ -462,6 +485,22 @@ fn resolve_inlines(
             .collect(),
         )
     })
+}
+impl crate::ShapeRun {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let shape = field(self.properties, format!("{path}.properties")).await?;
+        shape
+            .validate()
+            .map_err(|error| Error::from(error).at(&path))?;
+        if let Some(text) = &shape.text {
+            crate::xml::validate_text(text)
+                .map_err(|error| error.at(format!("{path}.properties.text")))?;
+        }
+        Ok(Some(ResolvedInline::Shape(shape)))
+    }
 }
 impl TextRun {
     pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
@@ -474,7 +513,7 @@ impl TextRun {
             crate::xml::validate_text(&text).map_err(|e| e.at(&text_path))?;
             Ok::<_, Error>(text)
         };
-        let (text, comment, format) = futures_util::future::try_join3(
+        let (text, comment, format, revision) = futures_util::future::try_join4(
             text_work,
             resolve_comment(self.comment_text, self.comment_author, &path),
             async {
@@ -483,12 +522,27 @@ impl TextRun {
                     .await
                     .map_err(|e| e.at(format!("{path}.format")))
             },
+            async {
+                let revision_path = format!("{path}.revision");
+                let revision = self
+                    .revision
+                    .resolve()
+                    .await
+                    .map_err(|e| e.at(&revision_path))?;
+                if let Some(value) = &revision {
+                    value
+                        .validate()
+                        .map_err(|e| Error::from(e).at(&revision_path))?;
+                }
+                Ok(revision)
+            },
         )
         .await?;
         format
             .validate()
             .map_err(|e| Error::from(e).at(format!("{path}.format")))?;
         Ok(Some(ResolvedInline::Text {
+            revision,
             text,
             comment,
             format,
@@ -523,6 +577,25 @@ pub(crate) async fn resolve_comment(
     }
     Ok((!text.is_empty()).then_some(ResolvedComment { text, author }))
 }
+impl crate::BlockContentControl {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedBlock>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let children = async {
+            let children = field(self.children, format!("{path}.children")).await?;
+            resolve_blocks(children, format!("{path}.children")).await
+        };
+        let (children, properties) = futures_util::future::try_join(
+            children,
+            field(self.properties, format!("{path}.properties")),
+        )
+        .await?;
+        let control = crate::ResolvedBlockContentControl::new(children, properties)
+            .map_err(|error| Error::from(error).at(path))?;
+        Ok(Some(ResolvedBlock::ContentControl(control)))
+    }
+}
 pub(crate) fn resolve_blocks(
     children: BlockChildren,
     path: String,
@@ -533,6 +606,7 @@ pub(crate) fn resolve_blocks(
             async move {
                 match b.resolve().await.map_err(|e| e.at(&path))? {
                     Block::Resolved(block) => Ok(Some(block)),
+                    Block::ContentControl(control) => control.resolve_at(path).await,
                     Block::Paragraph(p) => {
                         Ok::<_, Error>(p.resolve_at(path).await?.map(ResolvedBlock::Paragraph))
                     }

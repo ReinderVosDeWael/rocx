@@ -36,11 +36,13 @@ pub struct TableRowProperties {
     pub height: Option<RowHeight>,
     pub repeat_header: Option<bool>,
     pub cant_split: Option<bool>,
+    pub content_control: Option<ContentControlProperties>,
 }
 setters!(TableRowProperties {
     with_height => height: optional<RowHeight>,
     with_repeat_header => repeat_header: optional<bool>,
     with_cant_split => cant_split: optional<bool>,
+    with_content_control => content_control: optional<ContentControlProperties>,
 });
 /// Conditional table-style activation requests, not effective formatting.
 /// Omitted fields retain the library's existing table-look defaults.
@@ -98,6 +100,7 @@ pub struct TableCellProperties {
     pub vertical_alignment: Option<VerticalAlignment>,
     pub margins: Option<CellMargins>,
     pub text_direction: Option<CellTextDirection>,
+    pub content_control: Option<ContentControlProperties>,
 }
 setters!(TableCellProperties {
     with_grid_span => grid_span: optional<u32>,
@@ -107,9 +110,11 @@ setters!(TableCellProperties {
     with_vertical_alignment => vertical_alignment: optional<VerticalAlignment>,
     with_margins => margins: optional<CellMargins>,
     with_text_direction => text_direction: optional<CellTextDirection>,
+    with_content_control => content_control: optional<ContentControlProperties>,
 });
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedBlock {
+    ContentControl(super::ResolvedBlockContentControl),
     Paragraph(ResolvedParagraph),
     Table(ResolvedTable),
 }
@@ -139,6 +144,7 @@ pub struct ResolvedTableCell {
     pub(crate) vertical_alignment: Option<VerticalAlignment>,
     pub(crate) margins: Option<CellMargins>,
     pub(crate) text_direction: Option<CellTextDirection>,
+    pub(crate) content_control: Option<ContentControlProperties>,
 }
 impl ResolvedTable {
     pub fn alignment(&self) -> Option<TableAlignment> {
@@ -175,6 +181,9 @@ impl ResolvedTableRow {
     }
 }
 impl ResolvedTableCell {
+    pub fn content_control(&self) -> Option<&ContentControlProperties> {
+        self.content_control.as_ref()
+    }
     pub fn margins(&self) -> Option<&CellMargins> {
         self.margins.as_ref()
     }

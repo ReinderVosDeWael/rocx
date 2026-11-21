@@ -151,17 +151,20 @@ pub enum Inline {
     RangeStart(RangeStart),
     RangeEnd(RangeEnd),
     Hyperlink(Hyperlink),
+    ContentControl(InlineContentControl),
     /// Reuse immutable content without cloning authoring futures or guards.
     Resolved(ResolvedInline),
     TextRun(TextRun),
     Tab(crate::Tab),
     Break(crate::Break),
     ImageRun(crate::ImageRun),
+    ShapeRun(ShapeRun),
 }
 
 /// A formatted text run with independently deferred text, comments and a condition.
 #[derive(Debug, Default)]
 pub struct TextRun {
+    pub revision: Value<Option<crate::TextRevision>>,
     pub format: Value<RunFormat>,
     pub comment_text: Option<Value<String>>,
     pub comment_author: Option<Value<String>>,
@@ -169,6 +172,7 @@ pub struct TextRun {
     pub condition: Condition,
 }
 setters!(TextRun {
+    with_revision => revision: into<Value<Option<crate::TextRevision>>>,
     with_comment_text => comment_text: optional_into<Value<String>>,
     with_comment_author => comment_author: optional_into<Value<String>>,
 });
@@ -211,6 +215,7 @@ impl From<TextRun> for Value<Inline> {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Block {
+    ContentControl(BlockContentControl),
     /// Reuse immutable content without cloning authoring futures or guards.
     Resolved(ResolvedBlock),
     Paragraph(Paragraph),
@@ -250,6 +255,10 @@ impl From<ResolvedInline> for Value<Inline> {
 }
 
 mod components;
+mod shape;
+pub use shape::ShapeRun;
+mod content_control;
+pub use content_control::{BlockContentControl, InlineContentControl};
 mod field;
 mod hyperlink;
 pub use field::Field;

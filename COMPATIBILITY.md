@@ -19,19 +19,22 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Formatting | Selected paragraph/run properties, RGB/theme/automatic run colors, underline styles, explicit false overrides; typed line heights and signed custom tab stops/leaders/clears on paragraphs/styles ([coverage](docs/FORMATTING.md)) |
 | Styles | Document run/paragraph defaults, paragraph/character/table definitions and selected conditional table regions (including line heights/tabs/bidi and run script controls), direct character run references, forward base/next/opposite-kind linked references, reachable inheritance-cycle/kind checks and per-compilation catalog ([contract](docs/STYLES.md)) |
 | Tables | Nested tables, fixed/autofit widths, spans/vertical merges, borders, shading and vertical alignment; exact/minimum row heights, repeated-header/cannot-split, inline alignment and explicit conditional table-look activation requests ([contract](docs/TABLES.md)) |
-| Sections | Geometry, margins, columns, page numbering, break type, title-page, vertical alignment, optional section page direction and right-side gutter request ([contract](docs/FORMATTING.md)) |
+| Sections | Geometry, margins, page borders, header and footer distances, columns, page and line numbering, document grids, break type, title-page, vertical alignment, optional section page direction and right-side gutter request ([contract](docs/FORMATTING.md)) |
 | Stories | Main body, default/first/even headers and footers; comment generation currently restricted to body context |
 | Comments | Text conveniences or structured paragraph/table/image/link content on paired body ranges; author/date/initials metadata; no threaded comments |
-| Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline pictures, density-aware dimensions and accessibility fields; deferred data/transformation/alt text in both APIs; header inspection without pixel decoding |
-| Numbering | Native definitions/levels/references, concrete per-level start overrides and level replacements, optional legal-numbering, suffix, level-restart and label-alignment requests in Rust and Python; checked level references, no counter evaluation ([coverage](docs/NUMBERING.md)) |
+| Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline or anchored pictures, density-aware dimensions and accessibility fields; deferred data/transformation/alt text in both APIs; header inspection without pixel decoding |
+| Shapes | Inline DrawingML rectangles and ellipses in body paragraphs, with checked dimensions and optional RGB fill |
+| Numbering | Native definitions/levels/references, shared authored abstract IDs and authored numbering styles, concrete per-level start overrides and level replacements, optional legal-numbering, suffix, level-restart, label-alignment, label-formatting and level paragraph formatting and style links in Rust and Python; checked level references, no counter evaluation ([coverage](docs/NUMBERING.md)) |
 | Fields | Simple/balanced complex paragraph-local fields, nested cached results, typed PAGE/NUMPAGES/REF/TOC and raw instructions; no evaluation or multi-paragraph TOC generation; see [fields](docs/FIELDS.md) |
+| Revisions | Authored run insertions and deletions with metadata and optional future-edit tracking ([contract](docs/REVISIONS.md)) |
+| Content controls | Inline, block, row and cell text controls with alias, tag, lock, optional ID and rich-text, plain-text and drop-down modes. Selected imported plain-text controls can be edited by tag ([contract](docs/CONTENT_CONTROLS.md)) |
 | Metadata | Core properties and snapshot timestamp |
 | Templates | Relationship-driven part discovery, namespace-safe rewriting, opaque payload retention, structural text replacement and insertion |
 | Packaging | Typed names/targets/IDs, defaults/overrides, read budgets, internal relationship/reference graph checks and inspectable package plan |
 
-Typed generation for revisions,
-content controls, floating drawings, charts, diagrams, equations and broader
-Word extensions remains future work. Retaining imported data is not a claim of
+Additional revision contexts and content control types, broader floating
+drawings, charts, diagrams, equations and broader Word extensions remain
+further work. Retaining imported data is not a claim of
 typed support. Strict output is explicitly unsupported; the writer uses the
 Transitional vocabulary. No Word layout or field-calculation engine is included.
 

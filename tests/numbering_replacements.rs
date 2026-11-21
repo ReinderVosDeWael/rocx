@@ -115,8 +115,13 @@ fn replacements_must_target_unique_defined_levels() {
 fn empty_replacements_do_not_change_start_only_serialization() {
     let mut document = Document::new(vec![]);
     document.numbering = vec![NumberingDefinition {
+        abstract_id: None,
+        inherit_style: None,
         id: 42,
         levels: vec![NumberingLevel {
+            label_format: None,
+            paragraph_style: None,
+            paragraph_format: None,
             level: 0,
             start: 1,
             format: "decimal".into(),

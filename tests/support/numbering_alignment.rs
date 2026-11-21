@@ -17,6 +17,9 @@ pub fn document() -> Document {
             Some(NumberingAlignment::End),
         ];
         let level = |(index, alignment): (usize, Option<NumberingAlignment>)| NumberingLevel {
+            label_format: None,
+            paragraph_style: None,
+            paragraph_format: None,
             level: index as u8,
             start: 1,
             format: "upperRoman".into(),

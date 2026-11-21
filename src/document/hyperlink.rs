@@ -84,10 +84,23 @@ impl ResolvedHyperlink {
         properties: HyperlinkProperties,
     ) -> Result<Self, Diagnostic> {
         for (index, child) in children.iter().enumerate() {
+            if child
+                .revision()
+                .is_some_and(|revision| revision.kind.move_name().is_some())
+            {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "text moves within inline containers are unsupported",
+                )
+                .at(format!("children[{index}]")));
+            }
+
             if matches!(
                 child,
                 ResolvedInline::Hyperlink(_)
                     | ResolvedInline::Field(_)
+                    | ResolvedInline::Shape(_)
+                    | ResolvedInline::ContentControl(_)
                     | ResolvedInline::RangeStart { .. }
                     | ResolvedInline::RangeEnd(_)
             ) {

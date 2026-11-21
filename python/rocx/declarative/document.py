@@ -1,5 +1,6 @@
 """Declarative document entrypoints backed by immutable snapshots and Rust."""
 import dataclasses
+from typing import Literal
 
 from .base import DeferredProperty
 from rocx.resolution import identity, resolve_component
@@ -10,6 +11,8 @@ class DocumentTemplate:
     replacements: dict[str, str] | None = None
     paragraph_index: int | None = None
     scope: str = "body_headers_footers"
+    content_control_replacements: dict[str, str] | None = None
+    text_revision_action: Literal["accept", "reject"] | None = None
 
 class Document:
     _deferred_fields = (

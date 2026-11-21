@@ -10,6 +10,7 @@ fn main() -> Result<()> {
             Some(ImageTransformation {
                 width: Some(36.),
                 height: None,
+                ..Default::default()
             })
         }),
     );

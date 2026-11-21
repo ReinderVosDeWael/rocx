@@ -6,6 +6,39 @@ use crate::xml::{Content, Node};
 use crate::{Diagnostic, NoteKind, ResolvedDocument, ResolvedInline, Result, Rule, StoryKind};
 use std::collections::BTreeMap;
 
+// P1 (2016) §§17.11.4, 17.11.12, 17.11.19–20 and Annex A.1.
+pub(super) fn apply_defaults(root: &mut Node, defaults: &crate::DocumentDefaults) {
+    let settings = [
+        (
+            "w:footnotePr",
+            defaults.footnote_numbering.as_ref(),
+            defaults.footnote_position.map(crate::FootnotePosition::xml),
+        ),
+        (
+            "w:endnotePr",
+            defaults.endnote_numbering.as_ref(),
+            defaults.endnote_position.map(crate::EndnotePosition::xml),
+        ),
+    ];
+    for (tag, numbering, position) in settings {
+        if let Some(position) = position {
+            root.ensure(tag).replace(crate::xml::val("pos", position));
+        }
+        let Some(numbering) = numbering else { continue };
+        if let Some(format) = numbering.format {
+            root.ensure(tag)
+                .replace(crate::xml::val("numFmt", format.xml()));
+        }
+        if let Some(start) = numbering.start {
+            root.ensure(tag).replace(crate::xml::val("numStart", start));
+        }
+        if let Some(restart) = numbering.restart {
+            root.ensure(tag)
+                .replace(crate::xml::val("numRestart", restart.xml()));
+        }
+    }
+}
+
 struct NotePart {
     path: String,
     root: Node,

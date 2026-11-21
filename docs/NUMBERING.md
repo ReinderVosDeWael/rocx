@@ -216,3 +216,88 @@ requests and start/end replacements. Existing template numbering alignments are
 not rewritten; checks select authored abstract identities rather than assuming
 the template contains no `lvlJc`. No manual rendering is claimed. Source: P1
 (2016) §17.9.7 and Annex A.1 CT_Lvl.
+
+## R6w: shared abstract numbering identities
+
+Set `NumberingDefinition.abstract_id` (Rust `Option<u32>`, Python `int | None`)
+to reuse one authored `abstractNum` across multiple concrete instances. All
+definitions using the same explicit ID must supply identical ordered levels.
+Concrete starts and level replacements remain per instance.
+
+```python
+levels = [d.NumberingLevel()]
+first = d.NumberingDefinition(42, levels, abstract_id=100)
+second = d.NumberingDefinition(43, levels, abstract_id=100,
+    start_overrides=[d.NumberingStartOverride(0, 7)])
+```
+
+An omitted ID allocates a private abstract definition. Automatic allocation
+skips all requested explicit IDs and starts above the largest imported ID, if
+present. Explicit collisions with imported abstract IDs fail. Imported
+numbering is preserved when adding new definitions through the template's
+numbering relationship. Rust accepts a deferred numbering collection and Python
+also accepts deferred IDs through the generic resolver. Python appends the
+argument. Exhaustive Rust literals need `abstract_id` or `..Default::default()`.
+
+Source: ECMA-376 Part 1 (2016) §§17.9.1–2 and Annex A.1. Topic 06 of both
+catalogs shows shared IDs with separate concrete start requests.
+
+## R6x: numbering label run formatting
+
+Set a level's `label_format` to a Rust `RunFormat` or Python `RunDefaults`
+record to request direct run properties on the generated label. This is
+available on abstract and replacement levels independently. Omission leaves
+out `rPr`; explicit false values survive. Existing measurement checks apply,
+and Rust style references are rejected in this context. Python accepts nested
+deferred values. Exhaustive Rust level literals need the new field or a
+default update.
+
+The codec writes `lvl/rPr` after level alignment and paragraph properties
+when present (P1 2016 Annex A.1 CT_Lvl). Paragraph text runs use their own
+formatting.
+
+## R6y: numbering level paragraph properties
+
+Set `paragraph_format` to Rust `ParagraphFormat` or Python `ParagraphDefaults`
+on an abstract or replacement level. Lengths use points, including signed
+first-line indents and tab positions. Negative first-line indents produce
+hanging indents. The existing paragraph validator checks measurements and
+duplicates. Rust style references and headings are rejected. Python accepts
+deferred records and nested properties.
+
+The codec writes `lvl/pPr` before `lvl/rPr` (P1 2016 Annex A.1 CT_Lvl).
+Omission leaves out `pPr`. Paragraphs retain their direct formatting.
+The library leaves effective formatting to the consumer.
+
+## R6z: numbering level paragraph style links
+
+Set `paragraph_style` on an abstract or replacement level to associate a
+registered paragraph style. The compiler resolves style names and IDs using
+the same registry as other style references. It accepts authored and imported
+paragraph styles and rejects missing targets and other style kinds. Python
+supports deferred style names. The codec writes the resolved style ID in
+`lvl/pStyle` before `isLgl` (P1 2016 Annex A.1 CT_Lvl). Omission leaves
+out `pStyle`. Abstract-level numbering-style associations remain separate.
+
+## R6aa: authored numbering styles
+
+Add `NumberingStyleDefinition { name, numbering_id }` to the document's styles
+or pass `d.NumberingStyleDefinition(name, numbering_id)`. It creates a style of
+type `numbering` with `pPr/numPr/numId`. The concrete target must be an authored,
+nonzero definition. Its abstract definition receives the matching `styleLink`.
+One abstract definition can own one style, even when multiple concrete IDs
+share it. Existing style names and IDs cannot be replaced by a numbering style.
+Python supports deferred fields.
+
+The relationship follows P1 2016 Annex A.1 CT_AbstractNum and CT_Style. The
+catalog's `Catalog Bullets` style targets concrete ID 61 of abstract ID 100.
+
+## R6ab: inherited numbering styles
+
+Set `NumberingDefinition.inherit_style` to an authored numbering style name or
+ID. A level-free abstract definition contains `numStyleLink`, and its concrete
+instance references that definition. The target numbering style points to a
+definition with local levels. This subset rejects local levels and overrides on
+an inheriting definition and disallows chaining through another inheriting
+definition. Imported numbering styles are preserved. Python accepts deferred
+style names. See P1 2016 Annex A.1 CT_AbstractNum.

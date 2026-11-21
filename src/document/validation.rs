@@ -28,8 +28,44 @@ impl RunFormat {
         Ok(())
     }
 }
+impl NumberingLevel {
+    fn validate_formats(&self) -> Result<(), Diagnostic> {
+        if let Some(format) = &self.label_format {
+            if format.style.is_some() {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "numbering label formats cannot contain run style references",
+                )
+                .at("label_format.style"));
+            }
+            at(format.validate(), "label_format")?;
+        }
+        if let Some(format) = &self.paragraph_format {
+            if format.style.is_some() || format.heading.is_some() {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "numbering level paragraph formats cannot contain style references or headings",
+                )
+                .at("paragraph_format"));
+            }
+            at(format.validate(), "paragraph_format")?;
+        }
+        Ok(())
+    }
+}
 impl NumberingDefinition {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if self.inherit_style.is_some()
+            && !(self.levels.is_empty()
+                && self.level_overrides.is_empty()
+                && self.start_overrides.is_empty())
+        {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "inherited numbering definitions cannot contain levels or overrides",
+            )
+            .at("inherit_style"));
+        }
         let mut levels = std::collections::BTreeSet::new();
         for (index, level) in self.levels.iter().enumerate() {
             if level.level > 8 || !levels.insert(level.level) {
@@ -39,6 +75,7 @@ impl NumberingDefinition {
                 )
                 .at(format!("levels[{index}].level")));
             }
+            at(level.validate_formats(), format!("levels[{index}]"))?;
         }
         let mut overridden = std::collections::BTreeSet::new();
         for (index, entry) in self.start_overrides.iter().enumerate() {
@@ -59,6 +96,10 @@ impl NumberingDefinition {
                 )
                 .at(format!("level_overrides[{index}].level")));
             }
+            at(
+                entry.validate_formats(),
+                format!("level_overrides[{index}]"),
+            )?;
         }
         Ok(())
     }
@@ -131,6 +172,79 @@ impl SectionProperties {
                 }
             }
         }
+        if let Some(margins) = &self.page_margins {
+            for (field, value) in [("header", margins.header), ("footer", margins.footer)] {
+                if value.is_some_and(|value| value < 0) {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidMeasurement,
+                        "header and footer distances must be nonnegative",
+                    )
+                    .at(format!("page_margins.{field}")));
+                }
+            }
+        }
+        if let Some(borders) = &self.page_borders {
+            for (side, border) in [
+                ("top", &borders.top),
+                ("left", &borders.left),
+                ("bottom", &borders.bottom),
+                ("right", &borders.right),
+            ] {
+                let Some(border) = border else { continue };
+                if border.size.is_some_and(|size| !(2..=96).contains(&size)) {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidMeasurement,
+                        "page border size must be in 2..=96 eighth-points",
+                    )
+                    .at(format!("page_borders.{side}.size")));
+                }
+                if border.space.is_some_and(|space| space > 31) {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidMeasurement,
+                        "page border space must be in 0..=31 points",
+                    )
+                    .at(format!("page_borders.{side}.space")));
+                }
+            }
+        }
+        if let Some(line) = &self.line_numbering {
+            if line.clear
+                && (line.count_by.is_some()
+                    || line.start.is_some()
+                    || line.distance.is_some()
+                    || line.restart.is_some())
+            {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "clearing line numbering cannot be combined with explicit settings",
+                )
+                .at("line_numbering.clear"));
+            }
+            if line
+                .count_by
+                .is_some_and(|value| !(1..=100).contains(&value))
+            {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "line numbering count_by must be in 1..=100",
+                )
+                .at("line_numbering.count_by"));
+            }
+            if line.start.is_some_and(|value| value > 32767) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "line numbering start must be in 0..=32767",
+                )
+                .at("line_numbering.start"));
+            }
+        }
+        if self.document_grid.as_ref().and_then(|grid| grid.line_pitch) == Some(0) {
+            return Err(Diagnostic::new(
+                Rule::InvalidMeasurement,
+                "grid line pitch must be positive",
+            )
+            .at("document_grid.line_pitch"));
+        }
         if self.columns.as_ref().and_then(|c| c.count) == Some(0) {
             return Err(
                 Diagnostic::new(Rule::InvalidContent, "column count must be positive")
@@ -140,8 +254,170 @@ impl SectionProperties {
         Ok(())
     }
 }
+impl ImageCrop {
+    pub(crate) fn wire_values(&self) -> Result<[u32; 4], Diagnostic> {
+        let mut values = [0; 4];
+        for (value, (name, inset)) in values.iter_mut().zip([
+            ("left", self.left),
+            ("top", self.top),
+            ("right", self.right),
+            ("bottom", self.bottom),
+        ]) {
+            if !(0. ..=100.).contains(&inset) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidMeasurement,
+                    "image crop percentages must be in 0..=100",
+                )
+                .at(format!("crop.{name}")));
+            }
+            *value = (inset * 1000.).round_ties_even() as u32;
+        }
+        if values[0] + values[2] >= 100000 || values[1] + values[3] >= 100000 {
+            return Err(Diagnostic::new(
+                Rule::InvalidMeasurement,
+                "image crop must leave a positive source rectangle",
+            )
+            .at("crop"));
+        }
+        Ok(values)
+    }
+}
+impl ImageAnchor {
+    pub(crate) fn wrap_distances_emu(&self) -> Result<[Option<u32>; 4], Diagnostic> {
+        let distances = [
+            self.distance_top,
+            self.distance_bottom,
+            self.distance_left,
+            self.distance_right,
+        ];
+        let polygon_wrap = matches!(self.wrap, ImageWrap::Tight | ImageWrap::Through);
+        if polygon_wrap {
+            let points = &self.wrap_polygon;
+            let area = points
+                .iter()
+                .zip(points.iter().cycle().skip(1))
+                .map(|(&(x1, y1), &(x2, y2))| {
+                    i128::from(x1) * i128::from(y2) - i128::from(x2) * i128::from(y1)
+                })
+                .sum::<i128>();
+            if points.len() < 3 || area == 0 {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "picture wrap polygon requires at least three vertices and nonzero signed area",
+                )
+                .at("anchor.wrap_polygon"));
+            }
+        } else if !self.wrap_polygon.is_empty() {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "picture wrap polygon requires tight or through wrapping",
+            )
+            .at("anchor.wrap_polygon"));
+        }
+        if (self.wrap_side.is_some() && !polygon_wrap && self.wrap != ImageWrap::Square)
+            || (polygon_wrap && (self.distance_top.is_some() || self.distance_bottom.is_some()))
+            || (self.wrap == ImageWrap::None && distances.iter().any(Option::is_some))
+            || (self.wrap == ImageWrap::TopAndBottom
+                && (self.distance_left.is_some() || self.distance_right.is_some()))
+        {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "wrap sides and distances must match the wrap mode",
+            )
+            .at("anchor.wrap"));
+        }
+        let mut result = [None; 4];
+        for ((output, value), name) in result.iter_mut().zip(distances).zip([
+            "anchor.distance_top",
+            "anchor.distance_bottom",
+            "anchor.distance_left",
+            "anchor.distance_right",
+        ]) {
+            if let Some(value) = value {
+                measurement(value, 12700., true, name)?;
+                *output = Some(
+                    u32::try_from(Points::new(value)?.emu()?.get()).map_err(|_| {
+                        Diagnostic::new(
+                            Rule::InvalidMeasurement,
+                            "wrap distance exceeds the DrawingML range",
+                        )
+                        .at(name)
+                    })?,
+                );
+            }
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn offsets_emu(&self) -> Result<[i32; 2], Diagnostic> {
+        if matches!(
+            self.horizontal_reference,
+            ImageAnchorReference::Paragraph
+                | ImageAnchorReference::Line
+                | ImageAnchorReference::TopMargin
+                | ImageAnchorReference::BottomMargin
+        ) {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "invalid horizontal picture reference frame",
+            )
+            .at("anchor.horizontal_reference"));
+        }
+        if matches!(
+            self.vertical_reference,
+            ImageAnchorReference::Column
+                | ImageAnchorReference::Character
+                | ImageAnchorReference::LeftMargin
+                | ImageAnchorReference::RightMargin
+        ) {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "invalid vertical picture reference frame",
+            )
+            .at("anchor.vertical_reference"));
+        }
+        if (self.horizontal_alignment.is_some() && self.x != 0.)
+            || (self.vertical_alignment.is_some() && self.y != 0.)
+        {
+            return Err(Diagnostic::new(Rule::InvalidContent,
+                "picture anchor alignment cannot be combined with a nonzero offset on the same axis")
+                .at("anchor"));
+        }
+        let offset = |value, name| {
+            Points::new(value)
+                .and_then(Points::emu)
+                .and_then(|emu| {
+                    i32::try_from(emu.get()).map_err(|_| {
+                        Diagnostic::new(
+                            Rule::InvalidMeasurement,
+                            "picture anchor offset must fit a signed DrawingML coordinate",
+                        )
+                    })
+                })
+                .map_err(|error| error.at(name))
+        };
+        Ok([offset(self.x, "anchor.x")?, offset(self.y, "anchor.y")?])
+    }
+}
 impl ImageTransformation {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Some(anchor) = &self.anchor {
+            anchor.offsets_emu()?;
+            anchor.wrap_distances_emu()?;
+        }
+        if self
+            .rotation
+            .is_some_and(|value| !(-360. ..=360.).contains(&value))
+        {
+            return Err(Diagnostic::new(
+                Rule::InvalidMeasurement,
+                "image rotation must be in -360..=360 degrees",
+            )
+            .at("rotation"));
+        }
+        if let Some(crop) = &self.crop {
+            crop.wire_values()?;
+        }
         for (name, value) in [("width", self.width), ("height", self.height)] {
             if let Some(value) = value {
                 let emu = Points::new(value)
@@ -162,6 +438,10 @@ impl ImageTransformation {
 }
 impl TableCellProperties {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Some(control) = &self.content_control {
+            control.validate_table_context()?;
+        }
+
         if self.grid_span == Some(0) {
             return Err(
                 Diagnostic::new(Rule::InvalidContent, "grid_span must be positive").at("grid_span"),
@@ -190,6 +470,10 @@ impl CellMargins {
 }
 impl TableRowProperties {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Some(control) = &self.content_control {
+            control.validate_table_context()?;
+        }
+
         if let Some(height) = self.height {
             let (RowHeight::Exact(points) | RowHeight::AtLeast(points)) = height;
             measurement(points, 20., true, "height")?;
@@ -240,6 +524,9 @@ fn blocks(values: &[ResolvedBlock], path: &DeclarationPath) -> Result<(), Diagno
     for (index, block) in values.iter().enumerate() {
         let path = path.index(index);
         match block {
+            ResolvedBlock::ContentControl(control) => {
+                blocks(control.children(), &path.field("children"))?;
+            }
             ResolvedBlock::Paragraph(p) => at(p.validate(), &path)?,
             ResolvedBlock::Table(t) => {
                 for (row_index, row) in t.rows.iter().enumerate() {
@@ -257,6 +544,7 @@ fn blocks(values: &[ResolvedBlock], path: &DeclarationPath) -> Result<(), Diagno
                             TableCellProperties {
                                 grid_span: Some(cell.grid_span),
                                 margins: cell.margins.clone(),
+                                content_control: cell.content_control.clone(),
                                 ..Default::default()
                             }
                             .validate(),
@@ -277,8 +565,20 @@ impl ResolvedDocument {
             at(defaults.validate(), "defaults")?;
         }
         validate_ranges(self)?;
+        let mut abstracts = std::collections::BTreeMap::new();
         for (index, definition) in self.numbering.iter().enumerate() {
             at(definition.validate(), format!("numbering[{index}]"))?;
+            if let Some(id) = definition.abstract_id
+                && let Some(previous) =
+                    abstracts.insert(id, (&definition.levels, &definition.inherit_style))
+                && previous != (&definition.levels, &definition.inherit_style)
+            {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "shared abstract numbering IDs require identical levels and inherited style",
+                )
+                .at(format!("numbering[{index}].levels")));
+            }
         }
         let mut notes = std::collections::BTreeSet::new();
         for (i, note) in self.notes().iter().enumerate() {
@@ -290,9 +590,23 @@ impl ResolvedDocument {
             }
             at(note.validate(), format!("notes[{i}]"))?;
         }
-        for (kind, runs) in story_inlines(self) {
+        let stories = story_inlines(self);
+        for (kind, runs) in &stories {
             for (run, path) in runs {
-                if matches!(run, ResolvedInline::NoteReference(_)) && kind != StoryKind::Body {
+                if let Some(revision) = run.revision() {
+                    at(revision.validate(), format!("{path}.revision"))?;
+                }
+                if let ResolvedInline::Shape(shape) = run {
+                    at(shape.validate(), path)?;
+                    if *kind != StoryKind::Body {
+                        return Err(Diagnostic::new(
+                            Rule::InvalidContent,
+                            "DrawingML shapes are supported only in body paragraphs",
+                        )
+                        .at(path));
+                    }
+                }
+                if matches!(run, ResolvedInline::NoteReference(_)) && *kind != StoryKind::Body {
                     return Err(Diagnostic::new(
                         Rule::InvalidContent,
                         "note references are supported only in the body story",
@@ -301,6 +615,7 @@ impl ResolvedDocument {
                 }
             }
         }
+        super::revision::validate_moves(&stories)?;
         for (index, section) in self.sections.iter().enumerate() {
             let path = DeclarationPath::root("sections").index(index);
             if let Some(properties) = &section.properties {

@@ -1,5 +1,6 @@
 """Explicit document defaults; no effective formatting is calculated."""
 import dataclasses
+from typing import Literal
 
 from rocx.declarative import formatting
 
@@ -49,6 +50,7 @@ class RunDefaults:
     complex_script: bool | None = None
     font_east_asia: str | None = None
     font_complex_script: str | None = None
+    snap_to_grid: bool | None = None
 
 
 @dataclasses.dataclass
@@ -70,6 +72,7 @@ class ParagraphDefaults:
         keep_together: Optional keep-lines request.
         keep_with_next: Optional keep-next request.
         page_break_before: Optional page-break request.
+        suppress_line_numbers: Optional line-number suppression.
         widow_control: Optional widow/orphan control.
         bidi: Optional paragraph direction, independent of run RTL.
     """
@@ -88,6 +91,19 @@ class ParagraphDefaults:
     page_break_before: bool | None = None
     widow_control: bool | None = None
     bidi: bool | None = None
+    suppress_line_numbers: bool | None = None
+    snap_to_grid: bool | None = None
+    contextual_spacing: bool | None = None
+    mirror_indents: bool | None = None
+
+
+@dataclasses.dataclass
+class NoteNumbering:
+    """Document-wide start and restart policy for one kind of note."""
+
+    start: int | None = None
+    restart: Literal["continuous", "eachSect", "eachPage"] | None = None
+    format: Literal["decimal", "lowerRoman", "upperRoman", "lowerLetter", "upperLetter"] | None = None
 
 
 @dataclasses.dataclass
@@ -102,3 +118,10 @@ class DocumentDefaults:
 
     run: RunDefaults | None = None
     paragraph: ParagraphDefaults | None = None
+    footnote_numbering: NoteNumbering | None = None
+    endnote_numbering: NoteNumbering | None = None
+    footnote_position: Literal["pageBottom", "beneathText"] | None = None
+    endnote_position: Literal["sectEnd", "docEnd"] | None = None
+    mirror_margins: bool | None = None
+    gutter_at_top: bool | None = None
+    track_revisions: bool | None = None

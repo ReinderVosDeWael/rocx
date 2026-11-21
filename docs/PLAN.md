@@ -1,5 +1,59 @@
 # Remaining implementation plan and agent handoff
 
+## Current handoff (2026-11-21)
+
+**Resume after R8k.** The engineer requested this handoff. The working tree
+contains the implementation since the pushed authoring-builder checkpoint
+`ab59df3`, including tracked edits and new Rust/Python files. Preserve all of
+it, including the unrelated untracked `docs/DEPENDENCY-AUDIT.md`. No commit
+or push was made in this implementation pass.
+
+The latest work added picture wrap sides, distances and polygons, positioning
+and alignment, placement flags and flips (R8c–R8h). R8i–R8k added inline
+DrawingML rectangles and ellipses, RGB fill, plain multiline shape text, and
+RGB outlines with checked widths. They also reserve imported canvas IDs when
+allocating new drawing IDs.
+
+- Shape contract and validation: `src/document/shape.rs`.
+- Rust and Python entry points: `src/authoring/shape.rs`,
+  `python/rocx/declarative/shape.py`, and the native conversion in
+  `src/adapters/python/content.rs`.
+- Rendering and identity: `src/ooxml/drawing/shapes.rs` and
+  `src/ooxml/defaults.rs`. Shapes use standard DrawingML locked canvases in
+  body paragraphs. Shape text uses `a:txBody`, separate from WordprocessingML
+  paragraph text. Schema and XML readback passed. Office rendering was
+  not manually verified.
+- Latest R8k verification: **61 focused Python tests passed** across shape,
+  picture geometry and official-schema coverage. Both final catalogs passed
+  schema validation for 17 parts plus OPC relationships. The Rust and Python
+  final catalogs and their intermediate templates matched byte for byte.
+  Final catalog size **58,385 bytes**, SHA-256
+  `4586610ddeae10aab73af81b114db357eaf81f7445165039bcf27226b125b8e3`.
+  Clippy with warnings denied, formatting, and diff checks passed.
+- The last full suites were at R8h: **246 Rust tests passed** and
+  **630 Python tests passed with one skip**, with schemas required. Full
+  suites still need rerunning for R8k. No verification job remains active
+  from this implementation pass.
+
+**Next slice:** Add optional text styling to the existing shape text body.
+Reuse `ShapeRun` and the shared DrawingML codec. Start with font size, bold,
+RGB color, and horizontal/vertical alignment. Validate size against
+`ST_TextFontSize` and keep DrawingML body/paragraph/run properties in schema
+order. No text styling implementation has started. Keep both catalogs and
+their inventory, schema checks, readback and exact byte-parity verification
+current. Standalone text boxes and the chart/math work remain open, as do
+unfinished R6–R10 areas.
+
+For local Python tests, `.venv/bin/python` is available. After Rust binding
+changes, rebuild with
+`cargo build --locked --features python-bindings,pyo3/extension-module`,
+copy `target/debug/librocx.so` to a sibling temporary file, and rename it over
+`python/rocx/_native.abi3.so` so running readers never see a partially copied
+extension. The schemas are at `/tmp/opencode/rv-docx-schemas`. Use
+`ROCX_SCHEMA_DIR=/tmp/opencode/rv-docx-schemas ROCX_REQUIRE_SCHEMAS=1` for
+schema-required Python tests. `UV_NO_SYNC=1 UV_NO_CACHE=1` lets the Rust
+readback suite use the prepared uv environment.
+
 ## Purpose and starting point
 
 **Authoring builders complete:** the engineer expanded the RunFormat request to all
@@ -46,11 +100,262 @@ content and mutation checks, README and the formatting contract are updated.
 The engineer requested committing this checkpoint and pushing the current branch.
 Preserve untracked `docs/DEPENDENCY-AUDIT.md`.
 
-Next roadmap slice: continue R6 numbering with shared abstract numbering
-identities. Use `docs/NUMBERING.md` and the R6 numbering checkpoints for the
-existing contracts, and cover shared references and imported numbering
-preservation before moving on to richer level properties and numbering style
-links. R7–R10 remain open.
+**R6w implementation and verification:** explicit abstract numbering IDs share
+identical ordered authored levels across concrete instances. Imported IDs remain
+reserved, and automatic allocation skips explicit requests and checks exhaustion.
+Topic 06 demonstrates shared identity and independent start overrides. Exact
+Rust/Python parity passed for final and intermediate template DOCX files. The
+final files are **55,507 bytes**, SHA-256
+`e2cbc081b4b616678c8e2ddca9d646154a81a874a8b75686418ec645374a64b8`.
+Both final files passed validation of **17 schema-covered parts plus OPC
+relationships**. The full all-feature/all-target Rust suite passed **233 tests**.
+Four focused Python tests cover deferred IDs, conflicting levels, imported
+collisions, preservation at a nonstandard part path, and allocation exhaustion.
+The catalog mutation test rejects a retargeted concrete instance. The full
+schema-required Python run passed 501 tests with one skip before the final
+exhaustion and catalog mutation tests were added. The final focused suites
+passed all 15 tests. Clippy with warnings denied, formatting and diff checks
+passed. R6w remains in the working tree.
+
+**R6x implemented:** numbering label run formatting uses the existing validator
+and codec in both level contexts. Focused Python readback checks deferred inputs,
+explicit false and invalid sizes. Exact final and template catalog bytes match
+(final **55,552 bytes**, SHA-256
+`e7daced6e995538b6a05dc25dd656b282be7c1bbd7f6d9a8b9095a65dc195428`).
+Both final catalogs passed schema validation.
+
+**R6y implemented:** numbering level paragraph properties cover point indents
+and tabs on abstract and replacement levels. Exact final and template catalogs
+match (final **55,603 bytes**, SHA-256
+`c69c9dda07a88483c23979326411ed4c1f6c1c999d6d508c26355aaf54abd201`).
+The Rust suite passed 233 tests. The subsequent combined R6z schema-required
+Python suite covered both slices.
+
+**R6z implemented:** numbering level links resolve paragraph style names and
+IDs and reject missing or wrong-kind targets. Catalog byte parity passed (final
+**55,645 bytes**, SHA-256
+`bf80c9a1c369a6ecafda55c049c44bb2523ec6d3eda595737e0b8c06b39e9cf7`).
+Final combined all-feature Rust suite passed 233 tests. The required-schema
+Python suite passed 513 tests with one skip.
+
+**R6aa implemented:** authored numbering styles link an authored concrete ID
+to its abstract definition. Four focused tests passed, both catalogs passed
+schema validation and exact final/template parity passed (final **55,738
+bytes**, SHA-256
+`8ec0345c06e3df73a9ede64f77b3e32e31c80df0438b4f7738eecd1e07cc1ac1`).
+
+**R6ab implemented:** numbering-style inheritance uses a level-free abstract
+definition and an authored numbering-style target. Seven focused tests passed.
+Exact final/template catalog bytes match (final **55,786 bytes**, SHA-256
+`5fcc343d1c6759c06ce4c5c0cf875c11f99737cba3b3692a7654a85758a66b21`), and both
+catalogs passed schema validation. The all-feature Rust suite passed 234 tests,
+and the schema-required Python suite passed 520 tests with one skip.
+
+**R6ac implemented:** typed section line numbering supports count, start,
+distance and all three restart modes. The focused run passed 26 tests, including
+template merging. Exact final/template catalog parity passed (final **55,903
+bytes**, SHA-256
+`53afb03d1eddc5551caac43482951c4befcde3170aa79b3d9be750f681a7fae7`).
+Both catalogs passed schema validation.
+
+**R6ad implemented:** optional paragraph-level line-number suppression supports
+explicit true, false and omission in paragraphs, styles and defaults. The seven
+focused line numbering tests passed. Final and template catalog bytes match and
+both final catalogs passed schema validation (final **55,955 bytes**, SHA-256
+`f767b05c425fbdcb723d871c85eb15bfb81992030fa4e0a99a6dfadc7b22cfb7`).
+
+**R6ae implemented:** explicit section line-numbering removal preserves page
+numbering. Nine focused tests passed. Exact final/template catalog parity passed
+(final **55,959 bytes**, SHA-256
+`d3193277a741de8c0d13b2ab5524a1f07107af7612ddf420ce3bd1682df59467`).
+Both final catalogs passed schema validation.
+
+**R6af implemented:** header and footer distances merge independently into page
+margins. Three focused tests passed, including template updates and negative
+values. Exact final/template byte parity and validation of both catalogs passed
+(final **55,988 bytes**, SHA-256
+`651515204c5bb5e3390a6de844a9d45d1ebdfef0ef709cd00032cac8fa19d875`).
+
+**R6ag implemented:** physical section page borders support single/dashed
+edges, RGB and checked measurements. Four focused tests passed. Both catalogs
+passed schemas and exact final/template byte parity (final **56,114 bytes**,
+SHA-256 `af0c76b88e066135c4614f2c636d1ee6c87ecdb86d213797d338d52e434ebbb7`).
+
+**R6ah implemented:** page border offset, display and stacking options merge
+independently of border edges. The focused schema-required run passed 37 tests,
+including altered border order, restart and level-property-order controls.
+Exact final/template byte parity and both validations passed (final **56,173
+bytes**, SHA-256
+`ad74500cbace701ef6a4148ae679a9da9dd912ba905042cd4146f8eb0ddb7b57`).
+
+**R6ai implemented:** section document grid mode and pitch settings. Three focused
+tests passed. Exact final/template catalog parity and both validations passed
+(final **56,289 bytes**, SHA-256
+`7442aa09014afabe2e0a2e0b001c96fed00b933f96e24a622f78c090d655f4b9`).
+
+**R6aj implemented:** paragraph and run grid snapping preserves explicit true
+and false in direct formatting, styles and defaults. Four focused tests
+passed, both catalogs passed validation and exact final/template parity passed
+(final **56,333 bytes**, SHA-256
+`2cb1789a26a18efa957976697936623bb08b0ee731fb9177ffadf1697ba55c20`).
+
+**R6ak implemented:** contextual spacing and mirrored paragraph indents remain
+independent in direct formatting, styles and defaults. Exact final/template
+catalog parity and both validations passed (final **56,396 bytes**, SHA-256
+`bf6f602819fcd5cc4e06a08d651c5d36c2c978330368eaffeb6120046736822e`).
+
+**R6al implemented:** document-wide footnote and endnote starts and restart
+modes preserve special-entry references. Two focused tests passed. Both final
+catalogs passed validation and exact final/template parity passed (final
+**56,465 bytes**, SHA-256
+`50284b1e60903257c6bc21fd46e8f072ac2cc3a76a0b39715cc1756f956b878b`).
+The preceding R6ak combined suite passed 238 Rust and 545 schema-required
+Python tests (one skip). Clippy and all three doctests passed.
+
+**R6am implemented:** the typed note numbering formats preserve settings order.
+Eight focused tests passed, plus validation and exact final/template parity
+(final **56,504 bytes**, SHA-256
+`c45be0d6fa7d8a3cf11aa5e918ce18ee21d41ef144ca0ca6386019b8d0c00371`).
+
+**R6an implemented:** independent document-wide footnote and endnote placement.
+Twelve focused note-settings tests passed. Exact final/template byte parity
+and both validations passed (final **56,550 bytes**, SHA-256
+`e69e5aa63eb4efc9693956531216627765f14e6afd714dbcf5ec0f383e604270`).
+
+**R6ao implemented:** document-wide mirror margins and top gutter requests
+preserve section geometry and other settings. Thirteen focused settings tests
+passed, plus validation and exact final/template parity (final **56,594 bytes**,
+SHA-256 `fb15aff066c2e2ee9015457b6680c1f51a41fd834094d32d2fd89217d49b94a0`).
+
+**R7a implemented:** text-run insertion and deletion preserves author/date
+metadata, deleted text, and imported revision IDs. Four focused Python tests
+passed. Both catalogs passed schema validation and exact final/template parity
+(final **56,712 bytes**, SHA-256
+`9bb98afa7e69950c7e3c84cfe6dd4af66ef5effec126f3b08c34fc99a4e96428`).
+
+**R7b implemented:** the optional track-revisions setting preserves authored
+and imported tracked changes. Five focused tests passed. Exact final/template
+parity and schema validation passed (final **56,739 bytes**, SHA-256
+`e41df367d0df70c8b39c7a80cab21d4a6d48c65210d7f68c8cc50bce4686732d`).
+
+**R7c implemented:** inline rich-text content controls preserve metadata,
+deferred children and imported structured boundaries. Seven focused tests
+passed, plus validation and exact final/template parity (final **56,862 bytes**,
+SHA-256 `bd6c579bae910a0732a6a3c9cc444677e25fc9c68474c7dcdf126bc2e1715f17`).
+The preceding R7b suite passed 242 Rust tests and 563 schema-required Python
+tests (one skip), plus Clippy and three doctests.
+
+**R7d implemented:** block rich-text controls group complete paragraphs and
+tables and preserve the trailing cell paragraph. Nine focused control tests
+passed. Exact final/template parity and both validations passed (final
+**56,969 bytes**, SHA-256
+`ab8080465ab38c36171bb7edde76f86c89ef58c35eb367e3d82777aeafc1ec1a`).
+
+**R7e implemented:** explicit optional control IDs are checked across inline,
+block and imported controls. Seventeen focused revision/control tests passed.
+Exact final/template parity and both validations passed (final **56,991 bytes**,
+SHA-256 `bbe796ad96a373ef3c094f3af2a49718990f12c290d14b0def65b4ba97c1df02`).
+
+**R7f implemented:** plain-text controls check the single-run and paragraph
+constraints and optional multiline policy. Nineteen focused tests passed.
+Exact final/template parity and both validations passed (final **57,067 bytes**,
+SHA-256 `c79fadad0056ba45a166f715b31ed10692ece604aed6fe9d3c9738179c6bf00e`).
+
+**R7g implemented:** drop-down controls encode ordered choices and check the
+selected value against cached display text. Twenty-three focused control tests
+passed. Exact final/template parity and both validations passed (final
+**57,184 bytes**, SHA-256
+`7e6ddaf72b3c65ea96d4921653c5053ba1602ebbc41279a9833e68b52ce72c95`).
+
+**R7h implemented:** scoped template edits replace cached text by unique
+plain-text control tag while preserving formatting. Five focused tests passed,
+plus schema validation and exact final/template parity (final **57,234 bytes**,
+SHA-256 `6062d1b54b0260ab642b31ab2c0202c3b3c532ab35f7abc2414e19ea6603d4e2`).
+
+**R7i implemented:** accept/reject transforms imported direct tracked text runs
+while keeping formatting and new authored revisions. Thirteen focused tests
+passed. Both catalogs passed validation and exact final/template parity (final
+**57,260 bytes**, SHA-256
+`6bf22b1c020c90558fc29fbad2a835ac7f8769e473e313c0a9d4f37d461d3647`).
+The R7g full suite passed 244 Rust tests and 586 schema-required Python tests
+(one skip), plus Clippy and doctests.
+
+**R7j implemented:** authored text moves encode one paired source and destination
+with shared names, checked metadata and distinct range/revision IDs. Seventeen
+focused tests passed. Exact final/template parity and both validations passed
+(final **57,375 bytes**, SHA-256
+`15c28c3b6ae944ddb93f7d559ca98d5c7d91c9072d33932e82598515179ea305`).
+
+**R7k implemented:** the template revision action accepts or rejects paired
+direct body text moves after checking shape and matching content. Twenty focused
+tests passed. Exact final/template parity and schema validation passed (final
+**57,400 bytes**, SHA-256
+`e4f1ee31ff25ad7fd9b78f478f9627bc519ea2d076a180345b21ca4f2c6f43b3`).
+
+**R7l implemented:** rich-text row and cell controls retain grid spans and row
+properties. Two focused tests passed. Exact final/template parity and both
+validations passed (final **57,484 bytes**, SHA-256
+`74a3bda5f37831736f5fbc7e8c957bbe96b1a31cdf949930f05b8c86a732491c`).
+
+**R8a implemented:** inline picture crop and rotation preserve shared image
+data and authored extents. Four focused tests passed. Both catalogs passed
+validation and exact final/template parity (final **57,603 bytes**, SHA-256
+`a676815be4bc407b3d2c3156b88ac40805d992adecabf41f50d4497b61cf3404`).
+
+**R8b implemented:** anchored pictures support signed page/margin offsets,
+none/square wrapping, stacking height and behind-text placement. The all-feature
+Rust suite passed 246 tests. The schema-required Python suite passed 609 tests
+with one skip. Clippy passed with warnings denied. The focused schema and picture suite passed 35 tests,
+including a rejected anchor-order mutation. Both catalogs passed validation and
+exact final/template parity (final **57,810 bytes**, SHA-256
+`d5111381574286158fd1dcb19140de5c3fe65919656f1b7b0a2679f8450eb790`).
+
+**R8c implemented:** square wrap sides, top-and-bottom wrapping, and checked
+wrap distances. Thirteen picture tests passed. Both catalogs and intermediate
+templates matched byte for byte. Final size **57,871 bytes**, SHA-256
+`70882dc7748b7ed3e5d2bc2c1a37fffab07fdaea91d7c6ddb4e9acd7c5438461`.
+Both final catalogs passed schema validation.
+
+**R8d implemented:** anchor locking, in-cell placement, and overlap flags.
+Fifteen picture tests passed. Both catalogs passed validation and matched their
+counterparts exactly, including intermediate templates (final **57,896 bytes**,
+SHA-256 `a8d24cc18bb54de5fbf57ea64af70df5abd5ce0595a21cfbb7034616bbdb4c74`).
+
+**R8e implemented:** axis-specific alignment for floating pictures, with a
+check against nonzero offsets on the same axis. Final and template byte parity
+and both schema validations passed (final **57,898 bytes**, SHA-256
+`1a564da3f7c030c6c60dd79a780b68146242836993b57f30af59160bc2c607e6`).
+
+**R8f implemented:** both axes accept their schema reference frames and reject
+cross-axis tokens. Exact final/template byte parity and schema validation
+passed (final **57,902 bytes**, SHA-256
+`6bc580d4e2c2d422612f762a8d6fa521f1845aa5aa8e2ab1a632af6ffde0d684`).
+
+**R8g implemented:** tight and through wrapping accept explicit polygons,
+side selection and horizontal distances. Both catalogs and intermediate
+templates matched exactly, and both final catalogs passed validation
+(final **58,038 bytes**, SHA-256
+`70017d6f8809df31131b130ff007563c8cd4971cc1aefff0e7431880de1d4e9f`).
+
+**R8h implemented:** horizontal and vertical picture flips preserve omitted
+and explicit false values. Final and template catalog byte parity passed
+(final **58,065 bytes**, SHA-256
+`7979dab1c4b9ea9bc1f95b467de8a9ffa40af6fdd45c71bd266c0ccac0153c7b`), and both
+final catalogs passed validation. The all-feature Rust suite passed 246 tests. The required-schema Python suite passed 630 tests with one skip.
+
+**R8i implemented:** inline rectangles and ellipses use standard DrawingML
+locked canvases. Two targeted tests passed. Both catalogs passed validation
+and final/template exact-byte parity (final **58,298 bytes**, SHA-256
+`bff0f7f7612cd3ec0e2983efb81a6eb6eb87a1543702b1efe88881d84220e97e`).
+
+**R8j implemented:** plain DrawingML text stays inside the shape and preserves
+blank lines. Three focused tests passed. Both catalogs passed schema validation
+and exact final/template parity (final **58,347 bytes**, SHA-256
+`ce4b71b14fd1e09432cd2e4a018024f4154426c8f7b65b987b562aef7963c022`).
+
+**R8k implemented:** shape outlines and drawing ID reservation for imported canvases.
+See the current handoff above for final evidence and the next slice.
+R6–R10 remain open.
 
 **Expanded commit checkpoint (2026-11-20):** the engineer confirmed the rename
 to rocx is intentional and must be included. `d3ed743` commits the renamed
@@ -1888,8 +2193,8 @@ verification is recorded at R6v above.
 engineer's ongoing authorization. Do not silently mark R6 or R7–R10 complete.
 The requested all-features catalogs are now built/verified (see the top of this
 plan). Maintain both examples, inventory and exact-byte checks for every new
-feature. Numbering-level replacement is implemented as R6p; shared abstract
-identities, richer level properties and numbering style links remain.
+feature. Numbering-level replacement is implemented as R6p and shared abstract
+identities as R6w. R6x–R6ab add level formatting and numbering style links.
 Use [FORMATTING.md](FORMATTING.md), [TABLES.md](TABLES.md), [STYLES.md](STYLES.md), [NUMBERING.md](NUMBERING.md),
 [RANGES.md](RANGES.md), [NOTES.md](NOTES.md), [FIELDS.md](FIELDS.md), the current
 deferred-field inventory and migration guide rather than baseline API shapes.

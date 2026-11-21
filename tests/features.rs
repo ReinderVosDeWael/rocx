@@ -227,6 +227,7 @@ fn image_scaling_alt_text_and_conditional_data() {
     image.transformation = Some(ImageTransformation {
         width: None,
         height: Some(36.),
+        ..Default::default()
     })
     .into();
     image.alt_text = Some(AltText {
@@ -274,6 +275,9 @@ fn image_scaling_alt_text_and_conditional_data() {
 fn sections_support_all_declared_properties_and_inherit_unspecified_values() {
     let mut section = Section::new(vec![Paragraph::new("one").into()]);
     section.properties = Some(SectionProperties {
+        line_numbering: None,
+        page_borders: None,
+        document_grid: None,
         page_size: Some(PageSize {
             width: Some(7772400),
             height: Some(10058400),
@@ -458,10 +462,15 @@ fn custom_numbering_is_linked_to_paragraphs_and_ids_cannot_collide() {
     p.numbering = Some(NumberingReference { id: 42, level: 0 }).into();
     let mut document = doc(vec![p.into()]);
     document.numbering = vec![NumberingDefinition {
+        abstract_id: None,
+        inherit_style: None,
         id: 42,
         start_overrides: Vec::new(),
         level_overrides: Vec::new(),
         levels: vec![NumberingLevel {
+            label_format: None,
+            paragraph_style: None,
+            paragraph_format: None,
             level: 0,
             start: 1,
             format: "decimal".into(),

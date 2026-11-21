@@ -1,7 +1,7 @@
 //! ECMA-376 Part 1 (2016): P1 §17.3, paragraph/run structure.
 use crate::ooxml::Compiler;
 use crate::xml::{Content, Node, val};
-use crate::{ResolvedInline, ResolvedParagraph, Result};
+use crate::{ResolvedInline, ResolvedParagraph, Result, RevisionKind};
 impl Compiler<'_> {
     pub(crate) fn paragraph(
         &mut self,
@@ -44,6 +44,10 @@ impl Compiler<'_> {
         context: &crate::ooxml::PartContext,
     ) -> Result<Vec<Node>> {
         match run {
+            ResolvedInline::Shape(shape) => return Ok(vec![self.shape(shape)?]),
+            ResolvedInline::ContentControl(control) => {
+                return Ok(vec![self.inline_content_control(control, context)?]);
+            }
             ResolvedInline::Field(field) => return self.field(field, context),
             ResolvedInline::NoteReference(target) => {
                 return Ok(vec![self.note_reference(*target, context)?]);
@@ -81,13 +85,24 @@ impl Compiler<'_> {
             return Ok(vec![node]);
         }
         let mut n = match run {
-            ResolvedInline::Text { text, .. } => text_run(text),
+            ResolvedInline::Text { text, revision, .. } => {
+                if revision
+                    .as_ref()
+                    .is_some_and(|r| r.kind == RevisionKind::Deletion)
+                {
+                    deleted_text_run(text)
+                } else {
+                    text_run(text)
+                }
+            }
             ResolvedInline::Tab { .. } => Node::new("w:r").with(Node::new("w:tab")),
             ResolvedInline::Break { kind, .. } => {
                 Node::new("w:r").with(Node::new("w:br").attr("w:type", kind.xml()))
             }
             ResolvedInline::Image { image, .. } => self.image(image, context)?,
             ResolvedInline::Field(_)
+            | ResolvedInline::Shape(_)
+            | ResolvedInline::ContentControl(_)
             | ResolvedInline::Hyperlink(_)
             | ResolvedInline::RangeStart { .. }
             | ResolvedInline::RangeEnd(_) => unreachable!("handled structural inline above"),
@@ -104,8 +119,13 @@ impl Compiler<'_> {
         if !rpr.children.is_empty() {
             n.children.insert(0, Content::Element(rpr));
         }
-        self.comment(vec![n], &run.comment().cloned(), context)
+        let nodes = if let Some(revision) = run.revision() {
+            self.wrap_revision(n, revision)?
+        } else {
+            vec![n]
+        };
+        self.comment(nodes, &run.comment().cloned(), context)
     }
 }
 
-use super::text::text_run;
+use super::text::{deleted_text_run, text_run};

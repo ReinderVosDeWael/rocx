@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import MutableSequence
-from typing import TYPE_CHECKING
+from typing import Literal, TYPE_CHECKING
 
 from rocx.declarative import base
 from rocx.declarative import formatting
@@ -14,22 +14,32 @@ if TYPE_CHECKING:
 
     from docx.enum import text as docx_text
 
-    from rocx.declarative import image, hyperlink, range as ranges, notes, field
+    from rocx.declarative import image, hyperlink, range as ranges, notes, field, content_control, shape
 
-type InlineElement = TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink | ranges.RangeStart | ranges.RangeEnd | notes.NoteReference | field.Field
+type InlineElement = TextRun | image.ImageRun | shape.ShapeRun | Tab | Break | hyperlink.Hyperlink | ranges.RangeStart | ranges.RangeEnd | notes.NoteReference | field.Field | content_control.InlineContentControl
 
 type InlineChildren = MutableSequence[
     TextRun
-    | image.ImageRun
+    | image.ImageRun | shape.ShapeRun
     | Tab
     | Break
     | hyperlink.Hyperlink
     | ranges.RangeStart
     | ranges.RangeEnd
     | notes.NoteReference
-    | field.Field
-    | Coroutine[None, None, TextRun | image.ImageRun | Tab | Break | hyperlink.Hyperlink]
+    | field.Field | content_control.InlineContentControl
+    | Coroutine[None, None, TextRun | image.ImageRun | shape.ShapeRun | Tab | Break | hyperlink.Hyperlink]
 ]
+
+
+@dataclasses.dataclass
+class TextRevision:
+    """Metadata for an authored insertion or deletion of one text run."""
+
+    kind: Literal["insertion", "deletion", "move_source", "move_destination"]
+    author: str
+    date: str | None = None
+    move_name: str | None = None
 
 
 @dataclasses.dataclass
@@ -88,6 +98,8 @@ class TextRun(base.Component):
     font_east_asia: str | None = None
     font_complex_script: str | None = None
     style: str | None = None
+    snap_to_grid: bool | None = None
+    revision: TextRevision | None = None
 
 
 @dataclasses.dataclass
@@ -138,6 +150,7 @@ class Paragraph(base.Component):
         keep_together: Keep all lines of paragraph on same page.
         keep_with_next: Keep paragraph with next paragraph.
         page_break_before: Start paragraph on new page.
+        suppress_line_numbers: Optional line-number suppression.
         widow_control: Enable widow/orphan control.
     """
 
@@ -162,6 +175,10 @@ class Paragraph(base.Component):
     line_height: formatting.LineHeight | None = None
     tab_stops: list[formatting.TabStop] = dataclasses.field(default_factory=list)
     bidi: bool | None = None
+    suppress_line_numbers: bool | None = None
+    snap_to_grid: bool | None = None
+    contextual_spacing: bool | None = None
+    mirror_indents: bool | None = None
 
     def __post_init__(self) -> None:
         """Validate that either text or children is provided, not both.

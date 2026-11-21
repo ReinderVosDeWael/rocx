@@ -37,6 +37,45 @@ async def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fa
         borders[:] = list(reversed(borders))
     with pytest.raises(validation.ValidationError, match="word/document.xml"):
         validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_order))
+    def invalid_anchor_order(root):
+        namespace = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
+        anchor = root.find(f".//{namespace}anchor")
+        position = anchor.find(f"{namespace}positionV")
+        anchor.remove(position)
+        anchor.insert(0, position)
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_anchor_order))
+    def invalid_wrap_polygon(root):
+        namespace = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
+        polygon = root.find(f".//{namespace}wrapPolygon")
+        polygon.remove(polygon.findall(f"{namespace}lineTo")[-1])
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_wrap_polygon))
+    def invalid_page_border_order(root):
+        borders = root.find(f".//{{{validation.W}}}pgBorders")
+        borders[:] = list(reversed(borders))
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_page_border_order))
+    def invalid_line_restart(root):
+        line = root.find(f".//{{{validation.W}}}lnNumType")
+        line.set(f"{{{validation.W}}}restart", "invalid")
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_line_restart))
+    def invalid_level_properties_order(root):
+        namespace = f"{{{validation.W}}}"
+        level = next(level for level in root.iter(f"{namespace}lvl")
+                     if level.find(f"{namespace}pPr") is not None
+                     and level.find(f"{namespace}rPr") is not None)
+        run = level.find(f"{namespace}rPr")
+        level.remove(run)
+        level.insert(0, run)
+    with pytest.raises(validation.ValidationError, match="word/numbering.xml"):
+        validator.validate(test_notes.rewrite(data, "word/numbering.xml", invalid_level_properties_order))
+    def missing_revision_author(root):
+        insertion = root.find(f".//{{{validation.W}}}ins")
+        del insertion.attrib[f"{{{validation.W}}}author"]
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", missing_revision_author))
     def invalid_conditional_order(root):
         style = next(n for n in root if n.get(f"{{{validation.W}}}styleId") == "Regionfirst_row")
         properties = style.find(f"{{{validation.W}}}tblStylePr")

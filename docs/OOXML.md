@@ -144,6 +144,28 @@ validation cover generation; they do not establish browser/Word navigation safet
 | Legal numbering display | P1 §17.9.4 | Optional isLgl on abstract/replacement levels; explicit false/true, no label calculation or numFmt mutation. |
 | Numbering suffix | P1 §17.9.28 | Optional suff on abstract/replacement levels: tab/space/nothing; no separator insertion or tab layout. |
 | Numbering level restart | P1 §17.9.10 | Optional lvlRestart on abstract/replacement levels; zero/one-based requests, no effective counter calculation. |
+| Text content controls | P1 §17.5.2 and Annex A.1 | Separate inline-run, block, row and cell models with alias, tag, lock and checked optional IDs, plain-text and drop-down modes. |
+| Template control editing | P1 §17.5.2 and Annex A.1 | Tag-scoped editing of one eligible imported plain-text control while retaining its run properties. |
+| Picture geometry and anchors | P1 §§20.1–20.4 and Annex A.4 | Crop, rotation and flipping, optional page/margin-relative floating placement, none, square, top-and-bottom, tight or through wrapping, edge distances, side selection and placement flags. |
+| Inline shapes | P1 §§20.1, 20.3 | Rectangle and ellipse geometry in a standard DrawingML locked canvas, with checked size, RGB fill, outline and plain shape text. |
+| Tracked text revisions | P1 §17.13.5 and Annex A.1 | Text-run insertion, deletion and paired moves with author and optional UTC timestamp, preserving imported revision IDs. |
+| Track future revisions | P1 §17.15.1 | Optional trackRevisions flag in the document settings. |
+| Accept and reject text revisions | P1 §17.13.5 | Scoped template transformation for direct single text-run insertions, deletions and paired moves. |
+| Note numbering defaults | P1 §§17.11.4, 17.11.12, 17.11.19–20 | Independent settings-part note placement, formats, starts and restart requests with special-entry preservation. |
+| Document page layout defaults | P1 §§17.15.1.50, 17.15.1.57 | Optional mirrorMargins and gutterAtTop requests in the settings part. |
+| Header and footer distances | P1 §17.6.11 | Optional independent nonnegative pgMar header and footer distances. |
+| Page borders | P1 §17.6.10 | Optional single and dashed physical page edges with checked measurements, RGB color and placement options. |
+| Section document grid | P1 §17.6.5 | Optional docGrid mode, linePitch and signed charSpace. |
+| Grid snapping | P1 Annex A.1 CT_PPrBase and CT_RPr | Optional snapToGrid for paragraph and run formats. |
+| Contextual spacing and mirrored indents | P1 Annex A.1 CT_PPrBase | Optional contextualSpacing and mirrorIndents flags on paragraph properties. |
+| Section line numbering | P1 §17.6.8 | Optional lnNumType settings with count, start, distance, restart mode and explicit removal. |
+| Paragraph line number suppression | P1 Annex A.1 CT_PPrBase | Optional suppressLineNumbers on paragraph properties. |
+| Shared abstract numbering | P1 §§17.9.1–2 | Multiple concrete instances can reference one authored abstract ID with identical ordered levels. Imported IDs are reserved. |
+| Numbering label run formatting | P1 Annex A.1 CT_Lvl | Optional direct lvl/rPr on abstract and replacement levels. |
+| Numbering level paragraph properties | P1 Annex A.1 CT_Lvl | Optional lvl/pPr on abstract and replacement levels, with indents and tabs in points. |
+| Numbering level paragraph style links | P1 Annex A.1 CT_Lvl | Optional lvl/pStyle references a registered paragraph style on abstract and replacement levels. |
+| Authored numbering styles | P1 Annex A.1 CT_AbstractNum and CT_Style | Numbering style references an authored concrete definition whose abstract definition contains styleLink. |
+| Inherited numbering styles | P1 Annex A.1 CT_AbstractNum | Level-free numStyleLink targets an authored numbering style. |
 | Numbering-label alignment | P1 §17.9.7 | Optional lvlJc: left/center/right/start/end on abstract/replacement levels; independent of paragraph alignment. |
 | Half-point font sizes | P1 §17.3.2.38 (`sz`); §17.18.42 (`ST_HpsMeasure`) | `format::run` multiplies point sizes by two. Keep the authoring unit separate from the wire unit. |
 | Twip measurements | P1 §22.9.2.14 (`ST_TwipsMeasure`); §17.18.81 (`ST_SignedTwipsMeasure`) | Numeric conveniences retain documented units; checked domain value objects centralize conversion. |

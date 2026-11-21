@@ -120,11 +120,13 @@ pub fn document() -> Document {
     image.transformation = Some(ImageTransformation {
         width: Some(72.),
         height: None,
+        ..Default::default()
     })
     .into();
     let nested = Table::new(vec![TableRow::new(vec![cell("nested")]).into()]);
     let mut first = TableCell::new(vec![Paragraph::new("merged").into()]);
     first.properties = TableCellProperties {
+        content_control: None,
         grid_span: Some(2),
         vmerge: Some(VerticalMerge::Restart),
         background_color: Some([255, 238, 221]),
@@ -181,6 +183,7 @@ pub fn document() -> Document {
             bottom: Some(914400),
             left: Some(1143000),
             right: Some(1143000),
+            ..Default::default()
         }),
         ..SectionProperties::default()
     })

@@ -42,21 +42,33 @@ macro_rules! setters {
 pub(crate) use setters;
 
 mod content;
+mod content_control;
+pub use content_control::{
+    ContentControlListItem, ContentControlLock, ContentControlProperties, ContentControlText,
+    ResolvedBlockContentControl, ResolvedInlineContentControl,
+};
 mod field;
 pub use field::{FieldForm, FieldInstruction, FieldProperties, RawFieldInstruction, ResolvedField};
 mod hyperlink;
 mod notes;
 mod range;
+mod revision;
 pub use hyperlink::{HyperlinkProperties, HyperlinkTarget, ResolvedHyperlink, inline_text};
 pub use notes::{CommentMetadata, NoteKind, NoteTarget, ResolvedCommentBody, ResolvedNote};
 pub use range::{BookmarkName, RangeId, RangeKind};
 pub(crate) use range::{story_inlines, validate_ranges};
+pub use revision::{RevisionKind, TextRevision};
 mod resources;
+mod shape;
+pub use shape::{ShapeGeometry, ShapeOutline, ShapeProperties};
 mod table;
 mod validation;
 mod values;
 pub use content::Metadata;
 pub use content::{ResolvedDocument, ResolvedInline, ResolvedParagraph, ResolvedSection};
+pub use notes::{
+    EndnotePosition, FootnotePosition, NoteNumberFormat, NoteNumberRestart, NoteNumbering,
+};
 pub use resources::{ResolvedComment, ResolvedHeaderFooter, ResolvedImage};
 pub use table::TableAlignment;
 pub use table::TableLook;
@@ -64,7 +76,6 @@ pub use table::{CellMargins, CellTextDirection};
 pub use table::{ResolvedBlock, ResolvedTable, ResolvedTableCell, ResolvedTableRow};
 pub use table::{RowHeight, TableRowProperties};
 pub use table::{TableCellProperties, TableProperties};
-pub use values::CharacterStyleDefinition;
 pub use values::DocumentDefaults;
 pub use values::NumberingAlignment;
 pub use values::NumberingStartOverride;
@@ -72,11 +83,17 @@ pub use values::NumberingSuffix;
 pub use values::RunLanguage;
 pub use values::{
     Alignment, AltText, BorderLine, BorderSide, BreakType, CellBorder, CellBorderSide, Columns,
-    HeaderFooterType, ImageTransformation, LineHeight, NumberingDefinition, NumberingLevel,
-    NumberingReference, Orientation, PageMargins, PageNumbering, PageSize, ParagraphFormat,
-    ParagraphStyleDefinition, RunFormat, SectionProperties, SectionType, StyleDefinition,
-    TabAlignment, TabLeader, TabStop, TableBorder, TableLayout, TableSectionFormat,
-    TableStyleDefinition, VerticalAlignment, VerticalMerge,
+    HeaderFooterType, ImageAnchor, ImageAnchorHorizontalAlignment, ImageAnchorReference,
+    ImageAnchorVerticalAlignment, ImageCrop, ImageTransformation, ImageWrap, ImageWrapSide,
+    LineHeight, NumberingDefinition, NumberingLevel, NumberingReference, Orientation, PageMargins,
+    PageNumbering, PageSize, ParagraphFormat, ParagraphStyleDefinition, RunFormat,
+    SectionProperties, SectionType, StyleDefinition, TabAlignment, TabLeader, TabStop, TableBorder,
+    TableLayout, TableSectionFormat, TableStyleDefinition, VerticalAlignment, VerticalMerge,
+};
+pub use values::{
+    CharacterStyleDefinition, DocumentGrid, DocumentGridMode, LineNumberRestart, LineNumbering,
+    NumberingStyleDefinition, PageBorder, PageBorderDisplay, PageBorderOffset, PageBorderZOrder,
+    PageBorders,
 };
 
 mod diagnostic;

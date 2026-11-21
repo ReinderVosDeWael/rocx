@@ -2,24 +2,31 @@
 
 from rocx.declarative.base import Component, Deferred, DeferredProperty, PropertyRef
 from rocx.declarative.document import Document, DocumentTemplate
-from rocx.declarative.defaults import DocumentDefaults, RunDefaults, ParagraphDefaults
-from rocx.declarative.image import ImageRun
+from rocx.declarative.defaults import DocumentDefaults, RunDefaults, ParagraphDefaults, NoteNumbering
+from rocx.declarative.content_control import BlockContentControl, ContentControlListItem, ContentControlMetadata, InlineContentControl
+from rocx.declarative.shape import ShapeOutline, ShapeRun
+from rocx.declarative.image import ImageAnchor, ImageCrop, ImageRun
 from rocx.declarative.hyperlink import Hyperlink
 from rocx.declarative.field import Field, FieldInstruction
 from rocx.declarative.formatting import LineHeight, TabStop, RunLanguage
 from rocx.declarative.range import BookmarkTarget, RangeStart, RangeEnd
 from rocx.declarative.notes import Note, NoteReference, Comment
 from rocx.declarative.numbering import NumberingDefinition, NumberingLevel, NumberingReference, NumberingStartOverride
-from rocx.declarative.paragraph import Break, Paragraph, Tab, TextRun
+from rocx.declarative.paragraph import Break, Paragraph, Tab, TextRevision, TextRun
 from rocx.declarative.section import (
     BlockChildren,
+    DocumentGrid,
     Footer,
     Header,
+    LineNumbering,
+    PageBorder,
+    PageBorders,
     Section,
     SectionProperties,
 )
 from rocx.declarative.styles import (
     CharacterStyleDefinition,
+    NumberingStyleDefinition,
     ParagraphStyleDefinition,
     TableSectionFormat,
     TableStyleDefinition,
@@ -46,11 +53,24 @@ __all__ = [
     "Document",
     "DocumentTemplate",
     "DocumentDefaults",
+    "NoteNumbering",
     "RunDefaults",
     "ParagraphDefaults",
     "Footer",
     "Header",
+    "LineNumbering",
+    "DocumentGrid",
+    "PageBorder",
+    "PageBorders",
     "ImageRun",
+    "ShapeRun",
+    "ShapeOutline",
+    "ImageCrop",
+    "ImageAnchor",
+    "InlineContentControl",
+    "BlockContentControl",
+    "ContentControlListItem",
+    "ContentControlMetadata",
     "Hyperlink",
     "Field",
     "FieldInstruction",
@@ -60,6 +80,7 @@ __all__ = [
     "CellMargins",
     "RunLanguage",
     "CharacterStyleDefinition",
+    "NumberingStyleDefinition",
     "NumberingStartOverride",
     "BookmarkTarget",
     "RangeStart",
@@ -83,6 +104,7 @@ __all__ = [
     "TableSectionFormat",
     "TableStyleDefinition",
     "TextRun",
+    "TextRevision",
 ]
 
 # Stable tags keep subclasses compatible with the native conversion layer.

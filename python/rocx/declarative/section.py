@@ -4,15 +4,52 @@ import dataclasses
 from collections.abc import Callable, Coroutine, MutableSequence
 from typing import Literal
 
-from rocx.declarative import base, paragraph, table
+from rocx.declarative import base, content_control, paragraph, table
 
-type BlockElement = paragraph.Paragraph | table.Table
-type BlockChildren = MutableSequence[
-    paragraph.Paragraph
-    | table.Table
-    | Coroutine[None, None, paragraph.Paragraph | table.Table]
-]
+type BlockElement = paragraph.Paragraph | table.Table | content_control.BlockContentControl
+type BlockChildren = MutableSequence[BlockElement | Coroutine[None, None, BlockElement]]
 type HeaderFooterType = Literal["default", "first", "even"]
+
+
+@dataclasses.dataclass
+class LineNumbering:
+    """Section line numbering. Distance uses twips."""
+
+    count_by: int | None = None
+    start: int | None = None
+    distance: int | None = None
+    restart: Literal["newPage", "newSection", "continuous"] | None = None
+    clear: bool = False
+
+
+@dataclasses.dataclass
+class PageBorder:
+    """A physical page-edge line border. Size is in eighth-points and space in points."""
+
+    style: Literal["single", "dashed"]
+    size: int | None = None
+    space: int | None = None
+    color: tuple[int, int, int] | None = None
+
+
+@dataclasses.dataclass
+class PageBorders:
+    top: PageBorder | None = None
+    left: PageBorder | None = None
+    bottom: PageBorder | None = None
+    right: PageBorder | None = None
+    offset_from: Literal["page", "text"] | None = None
+    display: Literal["allPages", "firstPage", "notFirstPage"] | None = None
+    z_order: Literal["front", "back"] | None = None
+
+
+@dataclasses.dataclass
+class DocumentGrid:
+    """Section grid pitch. Lines use twips and character deltas use 1/4096 points."""
+
+    mode: Literal["default", "lines", "linesAndChars", "snapToChars"] | None = None
+    line_pitch: int | None = None
+    character_pitch_delta: int | None = None
 
 
 @dataclasses.dataclass
@@ -25,6 +62,7 @@ class SectionProperties:
         page_margins: Page margin sizes. Keys are 'top', 'bottom', 'left', 'right';
             values are in EMU (English Metric Units). All keys are optional.
         page_numbering: Page numbering configuration.
+        line_numbering: Optional section line-numbering settings.
         columns: Column configuration (dict with 'count', 'space', 'separator').
         vertical_align: Vertical alignment ('top', 'center', 'bottom', 'both').
         title_page: Use different header/footer on first page.
@@ -41,7 +79,7 @@ class SectionProperties:
 
     page_size: dict[Literal["width", "height"], int] | None = None
     page_orientation: Literal["portrait", "landscape"] | None = None
-    page_margins: dict[Literal["top", "bottom", "left", "right"], int] | None = None
+    page_margins: dict[Literal["top", "bottom", "left", "right", "header", "footer"], int] | None = None
     page_numbering: dict[Literal["start", "format"], int | str] | None = None
     columns: dict[Literal["count", "space", "separator"], int | bool] | None = None
     vertical_align: Literal["top", "center", "bottom", "both"] | None = None
@@ -51,6 +89,9 @@ class SectionProperties:
     ) = None
     bidi: bool | None = None
     rtl_gutter: bool | None = None
+    line_numbering: LineNumbering | None = None
+    page_borders: PageBorders | None = None
+    document_grid: DocumentGrid | None = None
 
 
 @dataclasses.dataclass

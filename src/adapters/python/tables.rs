@@ -44,8 +44,17 @@ pub(super) fn tablerow(o: &Bound<'_, PyAny>) -> PyResult<ResolvedTableRow> {
             height: optional_record(o, "height", row_height)?,
             repeat_header: field!(o, "repeat_header", Option<bool>),
             cant_split: field!(o, "cant_split", Option<bool>),
+            content_control: optional_record(o, "content_control", table_content_control)?,
         },
     })
+}
+fn table_content_control(o: &Bound<'_, PyAny>) -> PyResult<crate::ContentControlProperties> {
+    if kind(o)? != "ContentControlMetadata" {
+        return Err(PyTypeError::new_err(
+            "row and cell controls require ContentControlMetadata",
+        ));
+    }
+    super::content::content_control_metadata(o)
 }
 fn row_height(o: &Bound<'_, PyAny>) -> PyResult<crate::RowHeight> {
     let points = field!(o, "value", f64);
@@ -78,6 +87,7 @@ pub(super) fn tablecell(o: &Bound<'_, PyAny>) -> PyResult<ResolvedTableCell> {
         vertical_alignment: optional_enum(o, "vertical_alignment", verticalalignment)?,
         margins,
         text_direction: optional_record(o, "text_direction", cell_text_direction)?,
+        content_control: optional_record(o, "content_control", table_content_control)?,
     })
 }
 fn cell_margins(o: &Bound<'_, PyAny>) -> PyResult<crate::CellMargins> {

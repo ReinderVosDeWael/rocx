@@ -54,6 +54,8 @@ fn concrete_numbering_start_override_does_not_rewrite_abstract_start() {
 #[test]
 fn numbering_start_override_requires_a_unique_defined_level() {
     let mut definition = NumberingDefinition {
+        abstract_id: None,
+        inherit_style: None,
         id: 42,
         levels: vec![NumberingLevel::default()],
         start_overrides: vec![NumberingStartOverride { level: 1, start: 7 }],

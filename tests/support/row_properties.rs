@@ -3,11 +3,13 @@ use rocx::*;
 pub fn document() -> Document {
     let rows = [
         TableRowProperties {
+            content_control: None,
             height: Some(RowHeight::Exact(14.25)),
             repeat_header: Some(true),
             cant_split: Some(true),
         },
         TableRowProperties {
+            content_control: None,
             height: Some(RowHeight::AtLeast(18.)),
             repeat_header: Some(false),
             cant_split: Some(false),

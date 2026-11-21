@@ -35,18 +35,79 @@ pub(crate) fn section_properties(
         }
         size.set("w:w", w);
         size.set("w:h", h);
+        // P1 (2016) §17.6.11: header and footer distances are independent of body margins.
         if let Some(m) = &p.page_margins {
             for (k, v) in [
                 ("top", m.top),
                 ("bottom", m.bottom),
                 ("left", m.left),
                 ("right", m.right),
+                ("header", m.header),
+                ("footer", m.footer),
             ] {
                 if let Some(v) = v {
                     previous
                         .ensure("w:pgMar")
                         .set(format!("w:{k}"), crate::Emu::new(v).twips().get());
                 }
+            }
+        }
+        // P1 (2016) §17.6.10 and Annex A.1 CT_PageBorders.
+        if let Some(borders) = &p.page_borders {
+            for (name, request) in [
+                (
+                    "w:offsetFrom",
+                    borders.offset_from.map(crate::PageBorderOffset::xml),
+                ),
+                (
+                    "w:display",
+                    borders.display.map(crate::PageBorderDisplay::xml),
+                ),
+                (
+                    "w:zOrder",
+                    borders.z_order.map(crate::PageBorderZOrder::xml),
+                ),
+            ] {
+                if let Some(value) = request {
+                    previous.ensure("w:pgBorders").set(name, value);
+                }
+            }
+            for (side, border) in [
+                ("w:top", &borders.top),
+                ("w:left", &borders.left),
+                ("w:bottom", &borders.bottom),
+                ("w:right", &borders.right),
+            ] {
+                let Some(border) = border else { continue };
+                let mut node = Node::new(side).attr("w:val", border.style.xml());
+                if let Some(size) = border.size {
+                    node.set("w:sz", size);
+                }
+                if let Some(space) = border.space {
+                    node.set("w:space", space);
+                }
+                if let Some(rgb) = border.color {
+                    node.set("w:color", super::format::color(rgb));
+                }
+                previous.ensure("w:pgBorders").replace(node);
+            }
+        }
+        // P1 (2016) §17.6.8 and Annex A.1 CT_LineNumber.
+        if p.line_numbering.as_ref().is_some_and(|line| line.clear) {
+            previous.remove("w:lnNumType");
+        } else if let Some(line) = &p.line_numbering {
+            let node = previous.ensure("w:lnNumType");
+            for (key, value) in [
+                ("w:countBy", line.count_by),
+                ("w:start", line.start),
+                ("w:distance", line.distance),
+            ] {
+                if let Some(value) = value {
+                    node.set(key, value);
+                }
+            }
+            if let Some(restart) = line.restart {
+                node.set("w:restart", restart.xml());
             }
         }
         if let Some(n) = &p.page_numbering {
@@ -56,6 +117,19 @@ pub(crate) fn section_properties(
             }
             if let Some(format) = &n.format {
                 node.set("w:fmt", format);
+            }
+        }
+        // P1 (2016) §17.6.5 and Annex A.1 CT_DocGrid.
+        if let Some(grid) = &p.document_grid {
+            let node = previous.ensure("w:docGrid");
+            if let Some(mode) = grid.mode {
+                node.set("w:type", mode.xml());
+            }
+            if let Some(pitch) = grid.line_pitch {
+                node.set("w:linePitch", pitch);
+            }
+            if let Some(delta) = grid.character_pitch_delta {
+                node.set("w:charSpace", delta);
             }
         }
         if let Some(c) = &p.columns {

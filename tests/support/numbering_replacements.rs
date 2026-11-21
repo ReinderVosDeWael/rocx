@@ -6,9 +6,14 @@ pub fn document() -> Document {
     let mut document = Document::new(vec![Section::new(vec![paragraph.into()]).into()]);
     document.numbering = Value::future(async {
         vec![NumberingDefinition {
+            abstract_id: None,
+            inherit_style: None,
             id: 42,
             levels: (0..3)
                 .map(|level| NumberingLevel {
+                    label_format: None,
+                    paragraph_style: None,
+                    paragraph_format: None,
                     level,
                     start: 1,
                     format: "decimal".into(),
@@ -25,6 +30,9 @@ pub fn document() -> Document {
             ],
             level_overrides: vec![
                 NumberingLevel {
+                    label_format: None,
+                    paragraph_style: None,
+                    paragraph_format: None,
                     level: 1,
                     start: 0,
                     format: "bullet".into(),
@@ -35,6 +43,9 @@ pub fn document() -> Document {
                     alignment: None,
                 },
                 NumberingLevel {
+                    label_format: None,
+                    paragraph_style: None,
+                    paragraph_format: None,
                     level: 0,
                     start: 4,
                     format: "upperRoman".into(),

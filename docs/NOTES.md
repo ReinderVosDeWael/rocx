@@ -111,3 +111,27 @@ References: ECMA-376 P1 (2016) §§11.3.4, 11.3.7 (parts), §17.11 and specifica
 relationships). P1 distinguishes note roles by type and explicitly permits an
 ordinary note with ID zero. Glossary note authoring and Microsoft threaded
 comment extensions remain separate future work.
+
+### Document-wide numbering defaults
+
+Set `DocumentDefaults.footnote_numbering` and
+`DocumentDefaults.endnote_numbering` independently. Each `NoteNumbering` has
+an optional nonnegative `start` and a restart mode of `continuous`,
+`eachSect`, or `eachPage` in Python. Rust uses `NoteNumberRestart`.
+Nested deferred values are supported in Python and Rust can defer the
+defaults record. The codec merges the requests into the settings part's
+`footnotePr` or `endnotePr`, preserving special-entry references. Note
+identities and content remain independent of displayed numbering.
+Sources: P1 (2016) §§17.11.4, 17.11.12, 17.11.19–20 and Annex A.1.
+
+`NoteNumbering.format` accepts `decimal`, `lowerRoman`, `upperRoman`,
+`lowerLetter` or `upperLetter` in Python and the corresponding
+`NoteNumberFormat` variants in Rust. The compiler writes `numFmt` before
+the start and restart settings. The consumer formats the resulting labels.
+
+The document defaults also accept `footnote_position` (`pageBottom` or
+`beneathText`) and `endnote_position` (`sectEnd` or `docEnd`) independently.
+Rust uses `FootnotePosition` and `EndnotePosition`. These requests merge into
+`pos` within the corresponding note settings, before format, start and
+restart. These are document-wide defaults. See P1 (2016) §§17.11.4, 17.11.12
+and Annex A.1 CT_FtnDocProps and CT_EdnDocProps.

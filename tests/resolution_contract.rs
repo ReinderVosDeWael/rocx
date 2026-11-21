@@ -29,6 +29,7 @@ fn image_fields_accept_references_before_the_source_and_snapshots_do_not_rerun_t
             Some(ImageTransformation {
                 width: Some(36.),
                 height: Some(18.),
+                ..Default::default()
             })
         }),
     );

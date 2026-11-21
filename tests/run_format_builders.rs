@@ -20,6 +20,7 @@ fn builders_set_every_property_without_changing_struct_literal_semantics() {
         .with_strike(false)
         .with_all_caps(true)
         .with_small_caps(false)
+        .with_snap_to_grid(false)
         .with_language(language.clone())
         .with_bold_complex_script(true)
         .with_italic_complex_script(false)
@@ -43,6 +44,7 @@ fn builders_set_every_property_without_changing_struct_literal_semantics() {
             strike: Some(false),
             all_caps: Some(true),
             small_caps: Some(false),
+            snap_to_grid: Some(false),
             language: Some(language),
             bold_complex_script: Some(true),
             italic_complex_script: Some(false),

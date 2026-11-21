@@ -106,6 +106,8 @@ impl ResolvedParagraph {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ResolvedInline {
+    Shape(ShapeProperties),
+    ContentControl(super::ResolvedInlineContentControl),
     Field(ResolvedField),
     NoteReference(NoteTarget),
     RangeStart {
@@ -118,6 +120,7 @@ pub enum ResolvedInline {
         text: String,
         format: RunFormat,
         comment: Option<ResolvedComment>,
+        revision: Option<super::TextRevision>,
     },
     Tab {
         format: RunFormat,
@@ -143,6 +146,8 @@ impl ResolvedInline {
             | Self::Break { format, .. }
             | Self::Image { format, .. } => Some(format),
             Self::Field(_)
+            | Self::Shape(_)
+            | Self::ContentControl(_)
             | Self::Hyperlink(_)
             | Self::RangeStart { .. }
             | Self::RangeEnd(_)
@@ -156,6 +161,8 @@ impl ResolvedInline {
             | Self::Break { comment, .. }
             | Self::Image { comment, .. } => comment.as_ref(),
             Self::Field(_)
+            | Self::Shape(_)
+            | Self::ContentControl(_)
             | Self::Hyperlink(_)
             | Self::RangeStart { .. }
             | Self::RangeEnd(_)
@@ -169,12 +176,28 @@ impl ResolvedInline {
             None
         }
     }
+    pub fn revision(&self) -> Option<&super::TextRevision> {
+        match self {
+            Self::Text { revision, .. } => revision.as_ref(),
+            _ => None,
+        }
+    }
     /// Display text only: borrowed for leaves, projected for containers.
     pub fn text(&self) -> std::borrow::Cow<'_, str> {
         match self {
             Self::Field(field) => return field.text().into(),
+            Self::ContentControl(control) => return control.text().into(),
             Self::Hyperlink(link) => return link.text().into(),
-            Self::Text { text, .. } => text,
+            Self::Text { text, revision, .. }
+                if !revision.as_ref().is_some_and(|r| {
+                    matches!(
+                        r.kind,
+                        super::RevisionKind::Deletion | super::RevisionKind::MoveSource(_)
+                    )
+                }) =>
+            {
+                text
+            }
             Self::Tab { .. } => "\t",
             Self::Break {
                 kind: BreakType::Line | BreakType::TextWrapping,

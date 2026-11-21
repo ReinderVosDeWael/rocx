@@ -40,6 +40,7 @@ pub fn document() -> Document {
                 }],
                 ..Default::default()
             }),
+            ..Default::default()
         })
     });
     document

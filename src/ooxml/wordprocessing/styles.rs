@@ -177,7 +177,7 @@ pub(crate) fn apply(
             if let Some(ind) = target.child_mut("w:ind") {
                 // Character-unit attributes take precedence over point lengths.
                 ind.attrs.retain(|(name, _)| {
-                    !(paragraph.first_line_indent.is_some()
+                    let replaces_first_line = paragraph.first_line_indent.is_some()
                         && [
                             "w:firstLine",
                             "w:hanging",
@@ -185,9 +185,12 @@ pub(crate) fn apply(
                             "w:hangingChars",
                         ]
                         .iter()
-                        .any(|key| name == key))
-                        && !(paragraph.left_indent.is_some() && name == "w:leftChars")
-                        && !(paragraph.right_indent.is_some() && name == "w:rightChars")
+                        .any(|key| name == key);
+                    let replaces_left_chars =
+                        paragraph.left_indent.is_some() && name == "w:leftChars";
+                    let replaces_right_chars =
+                        paragraph.right_indent.is_some() && name == "w:rightChars";
+                    !(replaces_first_line || replaces_left_chars || replaces_right_chars)
                 });
             }
             crate::ooxml::wordprocessing::format::merge_properties(
@@ -202,6 +205,7 @@ pub(crate) fn apply(
     for definition in definitions {
         let (name, typ) = match definition {
             StyleDefinition::Character(s) => (&s.name, "character"),
+            StyleDefinition::Numbering(s) => (&s.name, "numbering"),
             StyleDefinition::Paragraph(s) => (&s.name, "paragraph"),
             StyleDefinition::Table(s) => (&s.name, "table"),
         };
@@ -209,9 +213,9 @@ pub(crate) fn apply(
             return Err(Error::Validation("style name cannot be empty".into()));
         }
         let existing = style_id(&styles, name).ok();
-        if typ == "table" && existing.is_some() {
+        if matches!(typ, "table" | "numbering") && existing.is_some() {
             return Err(Error::Validation(format!(
-                "table style {name:?} already exists"
+                "{typ} style {name:?} already exists"
             )));
         }
         if existing.is_some() {
@@ -236,6 +240,7 @@ pub(crate) fn apply(
         }
         allocated.push((id, existing.is_none()));
     }
+    let mut numbering_styles = std::collections::BTreeMap::new();
     for (index, (definition, (id, created))) in definitions.iter().zip(&allocated).enumerate() {
         let (base, kind) = match definition {
             StyleDefinition::Character(s) => (
@@ -255,6 +260,7 @@ pub(crate) fn apply(
                 "paragraph",
             ),
             StyleDefinition::Table(s) => (s.base_style.as_ref(), "table"),
+            StyleDefinition::Numbering(_) => (None, "numbering"),
         };
         let base = base
             .map(|name| typed_style_id(&styles, name, kind))
@@ -276,7 +282,7 @@ pub(crate) fn apply(
             StyleDefinition::Character(s) => {
                 s.linked_style.as_ref().map(|name| (name, "paragraph"))
             }
-            StyleDefinition::Table(_) => None,
+            StyleDefinition::Table(_) | StyleDefinition::Numbering(_) => None,
         }
         .map(|(name, kind)| typed_style_id(&styles, name, kind))
         .transpose()
@@ -329,12 +335,38 @@ pub(crate) fn apply(
                     keep_with_next: s.keep_with_next,
                     page_break_before: s.page_break_before,
                     widow_control: s.widow_control,
+                    suppress_line_numbers: s.suppress_line_numbers,
+                    contextual_spacing: s.contextual_spacing,
+                    mirror_indents: s.mirror_indents,
+                    snap_to_grid: s.snap_to_grid,
                     ..ParagraphFormat::default()
                 };
                 crate::ooxml::wordprocessing::format::merge_properties(
                     style.ensure("w:pPr"),
                     crate::ooxml::wordprocessing::format::paragraph(&p, 1440.)?,
                 );
+            }
+            StyleDefinition::Numbering(s) => {
+                if s.numbering_id == 0
+                    || !numbering.iter().any(|def| {
+                        def.id == s.numbering_id
+                            && def.inherit_style.is_none()
+                            && !def.levels.is_empty()
+                    })
+                    || numbering_styles
+                        .insert(s.numbering_id, id.as_str())
+                        .is_some()
+                {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidContent,
+                        "numbering style requires a unique nonzero authored concrete numbering ID with local levels",
+                    )
+                    .at(format!("styles[{index}].numbering_id"))
+                    .into());
+                }
+                style
+                    .ensure("w:pPr")
+                    .push(Node::new("w:numPr").with(val("numId", s.numbering_id)));
             }
             StyleDefinition::Table(s) => {
                 if let Some(fmt) = &s.whole_table {
@@ -374,6 +406,14 @@ pub(crate) fn apply(
             .map(|(_, p)| p)
             .unwrap_or("word/numbering.xml".into());
         let mut nums = package.word(&numbering_path)?;
+        let imported: std::collections::BTreeSet<u32> = nums
+            .elements()
+            .filter_map(|n| n.get("w:abstractNumId")?.trim().parse().ok())
+            .collect();
+        let reserved: std::collections::BTreeSet<_> =
+            numbering.iter().filter_map(|def| def.abstract_id).collect();
+        let mut written = std::collections::BTreeSet::new();
+        let mut automatic = imported.last().copied().unwrap_or(0);
         for def in numbering {
             def.validate()?;
             if nums
@@ -382,18 +422,42 @@ pub(crate) fn apply(
             {
                 return Err(Error::Validation("numbering ID already exists".into()));
             }
-            let absid = nums
-                .elements()
-                .filter_map(|n| n.get("w:abstractNumId"))
-                .filter_map(|s| s.parse::<u32>().ok())
-                .max()
-                .unwrap_or(0)
-                + 1;
-            let mut abs = Node::new("w:abstractNum").attr("w:abstractNumId", absid);
-            for l in &def.levels {
-                abs.push(numbering_level(l));
+            // P1 (2016) §17.9.1–2: multiple concrete instances may reference one abstract.
+            let absid = if let Some(id) = def.abstract_id {
+                if imported.contains(&id) {
+                    return Err(Error::Validation(
+                        "abstract numbering ID already exists".into(),
+                    ));
+                }
+                id
+            } else {
+                loop {
+                    automatic = automatic.checked_add(1).ok_or_else(|| {
+                        Error::Validation("automatic abstract numbering IDs exhausted".into())
+                    })?;
+                    if !reserved.contains(&automatic) {
+                        break automatic;
+                    }
+                }
+            };
+            if written.insert(absid) {
+                let mut abs = Node::new("w:abstractNum").attr("w:abstractNumId", absid);
+                if let Some(name) = &def.inherit_style {
+                    let id = typed_style_id(&styles, name, "numbering")
+                        .map_err(|error| error.at("inherit_style"))?;
+                    if !numbering_styles.values().any(|authored| *authored == id) {
+                        return Err(Error::Validation(
+                            "inherit_style must target an authored numbering style".into(),
+                        ));
+                    }
+                    // P1 (2016) Annex A.1 CT_AbstractNum: a level-free style reference.
+                    abs.push(val("numStyleLink", id));
+                }
+                for level in &def.levels {
+                    abs.push(numbering_level(level, &styles)?);
+                }
+                nums.push(abs);
             }
-            nums.push(abs);
             let mut concrete = Node::new("w:num")
                 .attr("w:numId", def.id)
                 .with(val("abstractNumId", absid));
@@ -410,25 +474,48 @@ pub(crate) fn apply(
                 overrides
                     .entry(entry.level)
                     .or_insert_with(|| Node::new("w:lvlOverride").attr("w:ilvl", entry.level))
-                    .push(numbering_level(entry));
+                    .push(numbering_level(entry, &styles)?);
             }
             for entry in overrides.into_values() {
                 concrete.push(entry);
             }
             nums.push(concrete);
+            if let Some(style_id) = numbering_styles.get(&def.id) {
+                let abstract_node = nums
+                    .elements_mut()
+                    .find(|node| {
+                        node.name == "w:abstractNum"
+                            && node.get("w:abstractNumId") == Some(absid.to_string().as_str())
+                    })
+                    .expect("authored abstract numbering node");
+                if abstract_node.child("w:styleLink").is_some() {
+                    return Err(Error::Validation(
+                        "an abstract numbering definition can own only one numbering style".into(),
+                    ));
+                }
+                abstract_node.push(val("styleLink", *style_id));
+            }
         }
         package.put_word(&numbering_path, nums)?;
     }
     Ok(styles)
 }
 
-fn numbering_level(level: &crate::NumberingLevel) -> Node {
+fn numbering_level(level: &crate::NumberingLevel, styles: &Node) -> Result<Node> {
     let mut node = Node::new("w:lvl")
         .attr("w:ilvl", level.level)
         .with(val("start", level.start))
         .with(val("numFmt", &level.format));
     if let Some(restart) = level.restart {
         node.push(val("lvlRestart", restart));
+    }
+    // P1 (2016) Annex A.1 CT_Lvl: pStyle precedes isLgl and label text.
+    if let Some(name) = &level.paragraph_style {
+        node.push(val(
+            "pStyle",
+            typed_style_id(styles, name, "paragraph")
+                .map_err(|error| error.at("paragraph_style"))?,
+        ));
     }
     if let Some(enabled) = level.is_legal {
         node.push(val("isLgl", u8::from(enabled)));
@@ -440,7 +527,16 @@ fn numbering_level(level: &crate::NumberingLevel) -> Node {
     if let Some(alignment) = level.alignment {
         node.push(val("lvlJc", alignment.xml()));
     }
-    node
+    // P1 (2016) Annex A.1 CT_Lvl: paragraph properties precede label run properties.
+    if let Some(format) = &level.paragraph_format {
+        node.push(crate::ooxml::wordprocessing::format::paragraph(
+            format, 20.,
+        )?);
+    }
+    if let Some(format) = &level.label_format {
+        node.push(crate::ooxml::wordprocessing::format::run(format)?);
+    }
+    Ok(node)
 }
 
 use crate::ooxml::WordParts;

@@ -71,6 +71,9 @@ pub(crate) fn story_inlines(
             if let ResolvedInline::Hyperlink(link) = run {
                 inlines(link.children(), &format!("{path}.children"), out);
             }
+            if let ResolvedInline::ContentControl(control) = run {
+                inlines(control.children(), &format!("{path}.children"), out);
+            }
             if let ResolvedInline::Field(field) = run {
                 inlines(field.children(), &format!("{path}.children"), out);
             }
@@ -84,6 +87,9 @@ pub(crate) fn story_inlines(
         for (i, block) in values.iter().enumerate() {
             let path = format!("{path}[{i}]");
             match block {
+                ResolvedBlock::ContentControl(control) => {
+                    blocks(control.children(), &format!("{path}.children"), out);
+                }
                 ResolvedBlock::Paragraph(p) => inlines(p.runs(), &format!("{path}.children"), out),
                 ResolvedBlock::Table(t) => {
                     for (r, row) in t.rows().iter().enumerate() {
@@ -216,7 +222,9 @@ pub(crate) fn validate_ranges(doc: &ResolvedDocument) -> Result<(), Diagnostic> 
                         .at(path));
                     }
                 }
-                ResolvedInline::Hyperlink(_) | ResolvedInline::Field(_) => (),
+                ResolvedInline::Hyperlink(_)
+                | ResolvedInline::Field(_)
+                | ResolvedInline::ContentControl(_) => (),
                 _ => position += 1,
             }
         }

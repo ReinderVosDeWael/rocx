@@ -12,6 +12,22 @@ pub(super) fn template(o: &Bound<'_, PyAny>) -> PyResult<DocumentTemplate> {
                 .push((k.extract()?, v.extract()?));
         }
     }
+    let controls = o.getattr("content_control_replacements")?;
+    if !controls.is_none() {
+        for (key, value) in items(&controls)? {
+            template
+                .edits
+                .content_control_replacements
+                .insert(key.extract()?, value.extract()?);
+        }
+    }
+    template.edits.text_revision_action =
+        match field!(o, "text_revision_action", Option<String>).as_deref() {
+            None => None,
+            Some("accept") => Some(crate::TextRevisionAction::Accept),
+            Some("reject") => Some(crate::TextRevisionAction::Reject),
+            _ => return Err(PyValueError::new_err("invalid text revision action")),
+        };
     template.edits.scope = match field!(o, "scope", String).as_str() {
         "body" => EditScope::Body,
         "body_headers_footers" => EditScope::BodyHeadersFooters,

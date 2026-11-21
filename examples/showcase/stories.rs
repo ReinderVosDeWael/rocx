@@ -31,6 +31,9 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
     out.push(p("Numbering suffix requests: abstract level 2 explicitly uses tab; replacement level 0 uses space; replacement level 1 uses nothing. Other levels omit suff (consumer default: tab). Separators are not inserted into paragraph text by the library."));
     out.push(p("Level restart requests: abstract level 2 and replacement level 0 use 0 (never restart); replacement level 1 uses trigger 1 (one-based first level). Other levels omit lvlRestart (restart after the preceding level). This is independent of concrete startOverride; the viewer calculates counters."));
     out.push(p("Numbering-label alignment: abstract levels 0..4 request left, center, right, start, end; replacement levels 0/1 request end/start. Remaining levels omit lvlJc (direction-dependent consumer default). Paragraph text alignment is independent; the viewer positions generated labels."));
+    out.push(p("Numbering label formatting: abstract level 0 requests bold; replacement level 0 requests bold off and italic on."));
+    out.push(p("Numbering level paragraph properties: abstract level 0 requests 24 pt left and 12 pt hanging; replacement level 0 requests 36 pt left."));
+    out.push(p("Numbering level style links: abstract level 0 links to Heading 1; replacement level 0 links to Heading 2."));
     for level in 0..9 {
         let mut paragraph = Paragraph::new(format!(
             "Numbered list: concrete numId=60 level={level}; abstract start=1; concrete level 0 restart=7, level 8 restart=0. Labels are computed by your viewer."
@@ -41,6 +44,18 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
     let mut bullet = Paragraph::new("Bullet list: numId=61, literal bullet label.");
     bullet.numbering = Some(NumberingReference { id: 61, level: 0 }).into();
     out.push(bullet.into());
+    let mut shared = Paragraph::new(
+        "Shared abstract numbering: numId=62 reuses the bullet levels of numId=61 with its own start override.",
+    );
+    shared.numbering = Some(NumberingReference { id: 62, level: 0 }).into();
+    out.push(shared.into());
+    out.push(p(
+        "Numbering style: Catalog Bullets links concrete numId=61 to abstract definition 100.",
+    ));
+    let mut inherited =
+        Paragraph::new("Inherited numbering style: numId=63 gets its levels from Catalog Bullets.");
+    inherited.numbering = Some(NumberingReference { id: 63, level: 0 }).into();
+    out.push(inherited.into());
     out.push(
         Paragraph::from_children(vec![link(
             "External hyperlink: example.com (tooltip and history=true)",
@@ -100,6 +115,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
                 Some(ImageTransformation {
                     width: Some(18.),
                     height: None,
+                    ..Default::default()
                 }),
             )
             .into(),
@@ -138,6 +154,168 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
             NoteReference::footnote(NoteId::new(0)).into(),
             TextRun::new("; endnote reference").into(),
             NoteReference::endnote(NoteId::new(0)).into(),
+        ])
+        .into(),
+    );
+    out.push(p(
+        "Note numbering: lower-Roman footnotes start at 3 each page; uppercase-letter endnotes start at 7 each section. Footnotes are requested beneath text and endnotes at section end.",
+    ));
+    out.push(p(
+        "Tracked text revisions: inserted text and deleted text retain review metadata. Tracking future edits is explicitly off.",
+    ));
+    out.push(
+        Paragraph::from_children(vec![
+            TextRun::new("Current: ").into(),
+            TextRun::new("inserted wording")
+                .with_revision(Some(TextRevision {
+                    kind: RevisionKind::Insertion,
+                    author: "Catalog editor".into(),
+                    date: Some("2026-11-20T00:00:00Z".into()),
+                }))
+                .into(),
+            TextRun::new("old wording")
+                .with_revision(Some(TextRevision {
+                    kind: RevisionKind::Deletion,
+                    author: "Catalog editor".into(),
+                    date: None,
+                }))
+                .into(),
+        ])
+        .into(),
+    );
+    out.push(p("Inline content control: rich text, alias Review caption, tag review-caption, ID 5001, content locked."));
+    out.push(
+        Paragraph::from_children(vec![
+            TextRun::new("Review: ").into(),
+            InlineContentControl::new(vec![
+                TextRun::new("controlled caption")
+                    .with_format(RunFormat::default().with_bold(true))
+                    .into(),
+            ])
+            .with_properties(
+                ContentControlProperties::default()
+                    .with_alias("Review caption")
+                    .with_tag("review-caption")
+                    .with_id(5001)
+                    .with_lock(ContentControlLock::ContentLocked),
+            )
+            .into(),
+        ])
+        .into(),
+    );
+    out.push(p(
+        "Block content control: a controlled paragraph and table share an alias, tag and ID 5002.",
+    ));
+    out.push(
+        BlockContentControl::new(vec![
+            p("Controlled block paragraph"),
+            Table::new(vec![
+                TableRow::new(vec![cell("Controlled table cell")]).into(),
+            ])
+            .into(),
+        ])
+        .with_properties(
+            ContentControlProperties::default()
+                .with_alias("Review block")
+                .with_tag("review-block")
+                .with_id(5002)
+                .with_lock(ContentControlLock::ControlLocked),
+        )
+        .into(),
+    );
+    out.push(p("Plain-text control: one run, multiline enabled."));
+    out.push(
+        Paragraph::from_children(vec![
+            InlineContentControl::new(vec![TextRun::new("first line\nsecond line").into()])
+                .with_properties(
+                    ContentControlProperties::default()
+                        .with_tag("plain-review")
+                        .with_text(ContentControlText::Plain {
+                            multi_line: Some(true),
+                        }),
+                )
+                .into(),
+        ])
+        .into(),
+    );
+    out.push(p(
+        "Drop-down control: Review status offers Pending and Accepted, with Accepted selected.",
+    ));
+    out.push(
+        Paragraph::from_children(vec![
+            InlineContentControl::new(vec![TextRun::new("Accepted").into()])
+                .with_properties(
+                    ContentControlProperties::default()
+                        .with_alias("Review status")
+                        .with_tag("review-status")
+                        .with_text(ContentControlText::DropDown {
+                            items: vec![
+                                ContentControlListItem {
+                                    display_text: "Pending".into(),
+                                    value: "pending".into(),
+                                },
+                                ContentControlListItem {
+                                    display_text: "Accepted".into(),
+                                    value: "accepted".into(),
+                                },
+                            ],
+                            selected: "accepted".into(),
+                        }),
+                )
+                .into(),
+        ])
+        .into(),
+    );
+    out.push(p(
+        "Tracked text move: CatalogMove pairs a source and a destination.",
+    ));
+    let move_name = BookmarkName::new("CatalogMove")?;
+    for (caption, kind) in [
+        ("Move source: ", RevisionKind::MoveSource(move_name.clone())),
+        (
+            "Move destination: ",
+            RevisionKind::MoveDestination(move_name),
+        ),
+    ] {
+        out.push(
+            Paragraph::from_children(vec![
+                TextRun::new(caption).into(),
+                TextRun::new("relocated wording")
+                    .with_revision(Some(TextRevision {
+                        kind,
+                        author: "Catalog editor".into(),
+                        date: Some("2026-11-20T00:00:00Z".into()),
+                    }))
+                    .into(),
+            ])
+            .into(),
+        );
+    }
+    out.push(p(
+        "Table content controls: one row and its cell have separate tags.",
+    ));
+    out.push(
+        Table::new(vec![
+            TableRow::new(vec![cell("Uncontrolled table cell")]).into(),
+            TableRow::new(vec![
+                TableCell::new(vec![p("Controlled row and cell")])
+                    .with_properties(
+                        TableCellProperties::default().with_content_control(
+                            ContentControlProperties::default()
+                                .with_tag("review-cell")
+                                .with_id(5004),
+                        ),
+                    )
+                    .into(),
+            ])
+            .with_properties(
+                TableRowProperties::default().with_content_control(
+                    ContentControlProperties::default()
+                        .with_tag("review-row")
+                        .with_id(5003),
+                ),
+            )
+            .into(),
         ])
         .into(),
     );
@@ -200,6 +378,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
             Some(ImageTransformation {
                 width: Some(48.),
                 height: None,
+                ..Default::default()
             }),
         ),
         (
@@ -208,6 +387,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
             Some(ImageTransformation {
                 width: None,
                 height: Some(36.),
+                ..Default::default()
             }),
         ),
         (
@@ -216,6 +396,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
             Some(ImageTransformation {
                 width: Some(48.),
                 height: Some(24.),
+                ..Default::default()
             }),
         ),
         ("bmp", "BMP native density-derived size", None),
@@ -237,6 +418,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
                         Some(ImageTransformation {
                             width: Some(24.),
                             height: None,
+                            ..Default::default()
                         }),
                     )
                     .into(),
@@ -250,6 +432,108 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
         ])
         .into(),
     );
+    out.push(p("Image crop and rotation: 10% left, 5% top, 20% right and 15% bottom; 30 degrees clockwise, horizontal flip on and vertical flip off."));
+    out.push(
+        Paragraph::from_children(vec![
+            image(
+                "png",
+                Some(
+                    ImageTransformation::default()
+                        .with_width(60.)
+                        .with_height(40.)
+                        .with_rotation(30.)
+                        .with_flip_horizontal(true)
+                        .with_flip_vertical(false)
+                        .with_crop(
+                            ImageCrop::default()
+                                .with_left(10.)
+                                .with_top(5.)
+                                .with_right(20.)
+                                .with_bottom(15.),
+                        ),
+                ),
+            )
+            .into(),
+        ])
+        .into(),
+    );
+    out.push(p("Floating picture: column-relative horizontal offset 250 pt, page-relative bottom alignment, square wrapping on the largest side; gaps top 0, bottom 2, left 3, right 4 pt. Anchor locked; in-cell layout and overlap off."));
+    out.push(
+        Paragraph::from_children(vec![
+            image(
+                "png",
+                Some(
+                    ImageTransformation::default().with_width(42.).with_anchor(
+                        ImageAnchor::default()
+                            .with_horizontal_reference(ImageAnchorReference::Column)
+                            .with_x(250.)
+                            .with_vertical_alignment(ImageAnchorVerticalAlignment::Bottom)
+                            .with_wrap(ImageWrap::Square)
+                            .with_wrap_side(ImageWrapSide::Largest)
+                            .with_distance_top(0.)
+                            .with_distance_bottom(2.)
+                            .with_distance_left(3.)
+                            .with_distance_right(4.)
+                            .with_relative_height(4)
+                            .with_locked(true)
+                            .with_layout_in_cell(false)
+                            .with_allow_overlap(false),
+                    ),
+                ),
+            )
+            .into(),
+        ])
+        .into(),
+    );
+    out.push(p(
+        "Floating picture: tight text wrapping around an authored triangular contour.",
+    ));
+    out.push(
+        Paragraph::from_children(vec![
+            image(
+                "png",
+                Some(
+                    ImageTransformation::default().with_width(42.).with_anchor(
+                        ImageAnchor::default()
+                            .with_x(360.)
+                            .with_y(160.)
+                            .with_wrap(ImageWrap::Tight)
+                            .with_wrap_polygon(vec![(0, 0), (21600, 21600), (0, 21600)]),
+                    ),
+                ),
+            )
+            .into(),
+        ])
+        .into(),
+    );
+    out.push(p(
+        "Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline.",
+    ));
+    out.push(
+        Paragraph::from_children(vec![
+            ShapeRun::new(
+                ShapeProperties::default()
+                    .with_width(56.)
+                    .with_height(32.)
+                    .with_fill([32, 80, 176])
+                    .with_text("Blue"),
+            )
+            .into(),
+            ShapeRun::new(
+                ShapeProperties::default()
+                    .with_width(44.)
+                    .with_height(32.)
+                    .with_geometry(ShapeGeometry::Ellipse)
+                    .with_fill([32, 144, 80])
+                    .with_outline(ShapeOutline {
+                        width: 1.5,
+                        color: [16, 48, 32],
+                    }),
+            )
+            .into(),
+        ])
+        .into(),
+    );
     out.push(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."));
     let mut path_image = ImageRun::from_path(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images/sample.png"),
@@ -258,6 +542,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
     path_image.transformation = Some(ImageTransformation {
         width: Some(24.),
         height: None,
+        ..Default::default()
     })
     .into();
     let mut async_image = ImageRun::deferred(Value::future(async {
@@ -267,6 +552,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
         Some(ImageTransformation {
             width: None,
             height: Some(24.),
+            ..Default::default()
         })
     });
     async_image.alt_text = Value::future(async {
@@ -294,11 +580,26 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
     Ok(())
 }
 pub fn numbering() -> Vec<NumberingDefinition> {
+    let bullet_levels = vec![
+        NumberingLevel::default()
+            .with_start(1)
+            .with_format("bullet")
+            .with_text("•"),
+    ];
     vec![
         NumberingDefinition {
+            abstract_id: None,
+            inherit_style: None,
             id: 60,
             levels: (0..9)
                 .map(|level| NumberingLevel {
+                    label_format: (level == 0).then(|| RunFormat::default().with_bold(true)),
+                    paragraph_style: (level == 0).then(|| "Heading 1".into()),
+                    paragraph_format: (level == 0).then(|| {
+                        ParagraphFormat::default()
+                            .with_left_indent(24.)
+                            .with_first_line_indent(-12.)
+                    }),
                     level,
                     start: 1,
                     format: if level == 1 { "lowerRoman" } else { "decimal" }.into(),
@@ -326,6 +627,9 @@ pub fn numbering() -> Vec<NumberingDefinition> {
             ],
             level_overrides: vec![
                 NumberingLevel {
+                    label_format: None,
+                    paragraph_style: None,
+                    paragraph_format: None,
                     level: 1,
                     start: 4,
                     format: "upperRoman".into(),
@@ -336,6 +640,9 @@ pub fn numbering() -> Vec<NumberingDefinition> {
                     alignment: Some(NumberingAlignment::Start),
                 },
                 NumberingLevel {
+                    label_format: Some(RunFormat::default().with_bold(false).with_italic(true)),
+                    paragraph_style: Some("Heading 2".into()),
+                    paragraph_format: Some(ParagraphFormat::default().with_left_indent(36.)),
                     level: 0,
                     start: 3,
                     format: "lowerLetter".into(),
@@ -347,20 +654,19 @@ pub fn numbering() -> Vec<NumberingDefinition> {
                 },
             ],
         },
-        NumberingDefinition {
-            id: 61,
-            levels: vec![NumberingLevel {
-                level: 0,
-                start: 1,
-                format: "bullet".into(),
-                text: "•".into(),
-                is_legal: None,
-                suffix: None,
-                restart: None,
-                alignment: None,
-            }],
-            ..Default::default()
-        },
+        NumberingDefinition::default()
+            .with_id(61)
+            .with_abstract_id(100)
+            .with_levels(bullet_levels.clone()),
+        NumberingDefinition::default()
+            .with_id(62)
+            .with_abstract_id(100)
+            .with_levels(bullet_levels)
+            .with_start_overrides(vec![NumberingStartOverride { level: 0, start: 4 }]),
+        NumberingDefinition::default()
+            .with_id(63)
+            .with_abstract_id(101)
+            .with_inherit_style("Catalog Bullets"),
     ]
 }
 pub fn notes() -> Vec<Value<Note>> {
@@ -376,6 +682,7 @@ pub fn notes() -> Vec<Value<Note>> {
                         Some(ImageTransformation {
                             width: Some(18.),
                             height: None,
+                            ..Default::default()
                         }),
                     )
                     .into(),
@@ -411,6 +718,7 @@ pub fn headers(section: &mut Section) -> Result<()> {
                         Some(ImageTransformation {
                             width: Some(12.),
                             height: None,
+                            ..Default::default()
                         }),
                     )
                     .into(),

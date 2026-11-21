@@ -42,6 +42,7 @@ pub(crate) fn run(f: &RunFormat) -> Result<Node> {
         ("cs", f.complex_script),
         ("caps", f.all_caps),
         ("smallCaps", f.small_caps),
+        ("snapToGrid", f.snap_to_grid),
         ("strike", f.strike),
     ] {
         if let Some(v) = v {
@@ -113,6 +114,11 @@ pub(crate) fn paragraph(f: &ParagraphFormat, indent_factor: f64) -> Result<Node>
         ("keepLines", f.keep_together),
         ("pageBreakBefore", f.page_break_before),
         ("widowControl", f.widow_control),
+        // P1 (2016) Annex A.1 CT_PPrBase.
+        ("suppressLineNumbers", f.suppress_line_numbers),
+        ("contextualSpacing", f.contextual_spacing),
+        ("mirrorIndents", f.mirror_indents),
+        ("snapToGrid", f.snap_to_grid),
         ("bidi", f.bidi),
     ] {
         if let Some(v) = v {

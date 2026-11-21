@@ -10,6 +10,9 @@ pub fn document() -> Document {
     document.numbering = Value::future(async {
         let requests = [None, Some(0), Some(1), Some(2), Some(u32::MAX)];
         let level = |(index, restart): (usize, Option<u32>)| NumberingLevel {
+            label_format: None,
+            paragraph_style: None,
+            paragraph_format: None,
             level: index as u8,
             start: 3,
             format: "upperRoman".into(),
@@ -20,6 +23,8 @@ pub fn document() -> Document {
             alignment: None,
         };
         vec![NumberingDefinition {
+            abstract_id: None,
+            inherit_style: None,
             id: 80,
             levels: requests.into_iter().enumerate().map(level).collect(),
             level_overrides: requests.into_iter().rev().enumerate().map(level).collect(),

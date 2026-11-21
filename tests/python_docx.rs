@@ -911,6 +911,7 @@ fn save_images_fixture(path: &Path) {
         Some(ImageTransformation {
             width: Some(36.),
             height: None,
+            ..Default::default()
         })
     });
     png.alt_text = Value::future(async {
@@ -927,12 +928,14 @@ fn save_images_fixture(path: &Path) {
     tiff.transformation = Some(ImageTransformation {
         width: None,
         height: Some(24.),
+        ..Default::default()
     })
     .into();
     let mut repeated_png = ImageRun::new(include_bytes!("fixtures/images/sample.png").to_vec());
     repeated_png.transformation = Some(ImageTransformation {
         width: Some(72.),
         height: None,
+        ..Default::default()
     })
     .into();
     let images = vec![
@@ -976,6 +979,7 @@ fn python_reads_rust_section_layout_and_custom_numbering() {
             bottom: Some(914400),
             left: Some(457200),
             right: Some(685800),
+            ..Default::default()
         }),
         page_numbering: Some(PageNumbering {
             start: Some(7),
@@ -994,10 +998,15 @@ fn python_reads_rust_section_layout_and_custom_numbering() {
     .into();
     let mut document = Document::new(vec![section.into()]);
     document.numbering = vec![NumberingDefinition {
+        abstract_id: None,
+        inherit_style: None,
         id: 42,
         start_overrides: Vec::new(),
         level_overrides: Vec::new(),
         levels: vec![NumberingLevel {
+            label_format: None,
+            paragraph_style: None,
+            paragraph_format: None,
             level: 0,
             start: 3,
             format: "decimal".into(),
@@ -1047,6 +1056,7 @@ fn save_template_fixture(temp: &Temp) -> (PathBuf, PathBuf) {
     image.transformation = Some(ImageTransformation {
         width: Some(48.),
         height: None,
+        ..Default::default()
     })
     .into();
     let mut section = Section::new(vec![

@@ -11,6 +11,9 @@ impl Compiler<'_> {
         blocks
             .iter()
             .map(|b| match b {
+                ResolvedBlock::ContentControl(control) => {
+                    self.block_content_control(control, context)
+                }
                 ResolvedBlock::Paragraph(p) => self.paragraph(p, context),
                 ResolvedBlock::Table(t) => self.table(t, context),
             })
@@ -18,6 +21,7 @@ impl Compiler<'_> {
     }
 }
 mod comments;
+mod content_control;
 mod fields;
 pub(crate) mod format;
 mod paragraph;

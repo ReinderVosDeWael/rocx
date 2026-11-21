@@ -12,10 +12,24 @@
 pub struct DocumentDefaults {
     pub run: Option<RunFormat>,
     pub paragraph: Option<ParagraphFormat>,
+    pub footnote_numbering: Option<super::NoteNumbering>,
+    pub endnote_numbering: Option<super::NoteNumbering>,
+    pub footnote_position: Option<super::FootnotePosition>,
+    pub endnote_position: Option<super::EndnotePosition>,
+    pub mirror_margins: Option<bool>,
+    pub gutter_at_top: Option<bool>,
+    pub track_revisions: Option<bool>,
 }
 setters!(DocumentDefaults {
     with_run => run: optional<RunFormat>,
     with_paragraph => paragraph: optional<ParagraphFormat>,
+    with_footnote_numbering => footnote_numbering: optional<super::NoteNumbering>,
+    with_endnote_numbering => endnote_numbering: optional<super::NoteNumbering>,
+    with_footnote_position => footnote_position: optional<super::FootnotePosition>,
+    with_endnote_position => endnote_position: optional<super::EndnotePosition>,
+    with_mirror_margins => mirror_margins: optional<bool>,
+    with_gutter_at_top => gutter_at_top: optional<bool>,
+    with_track_revisions => track_revisions: optional<bool>,
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -140,6 +154,7 @@ pub struct RunFormat {
     pub strike: Option<bool>,
     pub all_caps: Option<bool>,
     pub small_caps: Option<bool>,
+    pub snap_to_grid: Option<bool>,
     pub language: Option<RunLanguage>,
     pub bold_complex_script: Option<bool>,
     pub italic_complex_script: Option<bool>,
@@ -162,6 +177,7 @@ setters!(RunFormat {
     with_strike => strike: optional<bool>,
     with_all_caps => all_caps: optional<bool>,
     with_small_caps => small_caps: optional<bool>,
+    with_snap_to_grid => snap_to_grid: optional<bool>,
     with_language => language: optional<RunLanguage>,
     with_bold_complex_script => bold_complex_script: optional<bool>,
     with_italic_complex_script => italic_complex_script: optional<bool>,
@@ -241,6 +257,10 @@ pub struct ParagraphFormat {
     pub keep_with_next: Option<bool>,
     pub page_break_before: Option<bool>,
     pub widow_control: Option<bool>,
+    pub suppress_line_numbers: Option<bool>,
+    pub contextual_spacing: Option<bool>,
+    pub mirror_indents: Option<bool>,
+    pub snap_to_grid: Option<bool>,
     /// Empty means no local tab overrides; use explicit clear stops to inherit less.
     pub tab_stops: Vec<TabStop>,
 }
@@ -260,6 +280,10 @@ setters!(ParagraphFormat {
     with_keep_with_next => keep_with_next: optional<bool>,
     with_page_break_before => page_break_before: optional<bool>,
     with_widow_control => widow_control: optional<bool>,
+    with_suppress_line_numbers => suppress_line_numbers: optional<bool>,
+    with_contextual_spacing => contextual_spacing: optional<bool>,
+    with_mirror_indents => mirror_indents: optional<bool>,
+    with_snap_to_grid => snap_to_grid: optional<bool>,
     with_tab_stops => tab_stops: value<Vec<TabStop>>,
 });
 
@@ -279,12 +303,18 @@ pub struct PageMargins {
     pub bottom: Option<i64>,
     pub left: Option<i64>,
     pub right: Option<i64>,
+    /// Page edge to header distance, in EMUs.
+    pub header: Option<i64>,
+    /// Page edge to footer distance, in EMUs.
+    pub footer: Option<i64>,
 }
 setters!(PageMargins {
     with_top => top: optional<i64>,
     with_bottom => bottom: optional<i64>,
     with_left => left: optional<i64>,
     with_right => right: optional<i64>,
+    with_header => header: optional<i64>,
+    with_footer => footer: optional<i64>,
 });
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -295,6 +325,40 @@ pub struct PageNumbering {
 setters!(PageNumbering {
     with_start => start: optional<u32>,
     with_format => format: optional_into<String>,
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineNumberRestart {
+    NewPage,
+    NewSection,
+    Continuous,
+}
+impl LineNumberRestart {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::NewPage => "newPage",
+            Self::NewSection => "newSection",
+            Self::Continuous => "continuous",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LineNumbering {
+    /// Remove the section line-numbering settings.
+    pub clear: bool,
+    pub count_by: Option<u32>,
+    pub start: Option<u32>,
+    /// Gap between the line number and text, in twips.
+    pub distance: Option<u32>,
+    pub restart: Option<LineNumberRestart>,
+}
+setters!(LineNumbering {
+    with_clear => clear: value<bool>,
+    with_count_by => count_by: optional<u32>,
+    with_start => start: optional<u32>,
+    with_distance => distance: optional<u32>,
+    with_restart => restart: optional<LineNumberRestart>,
 });
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -309,12 +373,128 @@ setters!(Columns {
     with_separator => separator: optional<bool>,
 });
 
+/// A line border on one physical edge of a page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageBorder {
+    pub style: BorderLine,
+    /// Line width in eighths of a point.
+    pub size: Option<u32>,
+    /// Offset in points.
+    pub space: Option<u32>,
+    pub color: Option<[u8; 3]>,
+}
+setters!(PageBorder {
+    with_style => style: value<BorderLine>,
+    with_size => size: optional<u32>,
+    with_space => space: optional<u32>,
+    with_color => color: optional<[u8; 3]>,
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageBorderOffset {
+    Page,
+    Text,
+}
+impl PageBorderOffset {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::Page => "page",
+            Self::Text => "text",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageBorderDisplay {
+    AllPages,
+    FirstPage,
+    NotFirstPage,
+}
+impl PageBorderDisplay {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::AllPages => "allPages",
+            Self::FirstPage => "firstPage",
+            Self::NotFirstPage => "notFirstPage",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageBorderZOrder {
+    Front,
+    Back,
+}
+impl PageBorderZOrder {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::Front => "front",
+            Self::Back => "back",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PageBorders {
+    pub offset_from: Option<PageBorderOffset>,
+    pub display: Option<PageBorderDisplay>,
+    pub z_order: Option<PageBorderZOrder>,
+    pub top: Option<PageBorder>,
+    pub left: Option<PageBorder>,
+    pub bottom: Option<PageBorder>,
+    pub right: Option<PageBorder>,
+}
+setters!(PageBorders {
+    with_offset_from => offset_from: optional<PageBorderOffset>,
+    with_display => display: optional<PageBorderDisplay>,
+    with_z_order => z_order: optional<PageBorderZOrder>,
+    with_top => top: optional<PageBorder>,
+    with_left => left: optional<PageBorder>,
+    with_bottom => bottom: optional<PageBorder>,
+    with_right => right: optional<PageBorder>,
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentGridMode {
+    Default,
+    Lines,
+    LinesAndChars,
+    SnapToChars,
+}
+impl DocumentGridMode {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Lines => "lines",
+            Self::LinesAndChars => "linesAndChars",
+            Self::SnapToChars => "snapToChars",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DocumentGrid {
+    pub mode: Option<DocumentGridMode>,
+    /// Distance between grid lines, in twips.
+    pub line_pitch: Option<u32>,
+    /// Signed difference from Normal-font character pitch, in 1/4096 point units.
+    pub character_pitch_delta: Option<i32>,
+}
+setters!(DocumentGrid {
+    with_mode => mode: optional<DocumentGridMode>,
+    with_line_pitch => line_pitch: optional<u32>,
+    with_character_pitch_delta => character_pitch_delta: optional<i32>,
+});
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SectionProperties {
     pub page_size: Option<PageSize>,
     pub page_orientation: Option<Orientation>,
     pub page_margins: Option<PageMargins>,
+    pub page_borders: Option<PageBorders>,
+    pub document_grid: Option<DocumentGrid>,
     pub page_numbering: Option<PageNumbering>,
+    pub line_numbering: Option<LineNumbering>,
     pub columns: Option<Columns>,
     pub vertical_align: Option<VerticalAlignment>,
     pub title_page: Option<bool>,
@@ -328,7 +508,10 @@ setters!(SectionProperties {
     with_page_size => page_size: optional<PageSize>,
     with_page_orientation => page_orientation: optional<Orientation>,
     with_page_margins => page_margins: optional<PageMargins>,
+    with_page_borders => page_borders: optional<PageBorders>,
+    with_document_grid => document_grid: optional<DocumentGrid>,
     with_page_numbering => page_numbering: optional<PageNumbering>,
+    with_line_numbering => line_numbering: optional<LineNumbering>,
     with_columns => columns: optional<Columns>,
     with_vertical_align => vertical_align: optional<VerticalAlignment>,
     with_title_page => title_page: optional<bool>,
@@ -425,6 +608,10 @@ pub struct ParagraphStyleDefinition {
     pub keep_with_next: Option<bool>,
     pub page_break_before: Option<bool>,
     pub widow_control: Option<bool>,
+    pub suppress_line_numbers: Option<bool>,
+    pub contextual_spacing: Option<bool>,
+    pub mirror_indents: Option<bool>,
+    pub snap_to_grid: Option<bool>,
     pub tab_stops: Vec<TabStop>,
     pub language: Option<RunLanguage>,
     pub bold_complex_script: Option<bool>,
@@ -460,6 +647,10 @@ setters!(ParagraphStyleDefinition {
     with_keep_with_next => keep_with_next: optional<bool>,
     with_page_break_before => page_break_before: optional<bool>,
     with_widow_control => widow_control: optional<bool>,
+    with_suppress_line_numbers => suppress_line_numbers: optional<bool>,
+    with_contextual_spacing => contextual_spacing: optional<bool>,
+    with_mirror_indents => mirror_indents: optional<bool>,
+    with_snap_to_grid => snap_to_grid: optional<bool>,
     with_tab_stops => tab_stops: value<Vec<TabStop>>,
     with_language => language: optional<RunLanguage>,
     with_bold_complex_script => bold_complex_script: optional<bool>,
@@ -559,8 +750,24 @@ setters!(TableStyleDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StyleDefinition {
     Character(Box<CharacterStyleDefinition>),
+    Numbering(NumberingStyleDefinition),
     Paragraph(Box<ParagraphStyleDefinition>),
     Table(Box<TableStyleDefinition>),
+}
+/// A named numbering style associated with an authored concrete instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NumberingStyleDefinition {
+    pub name: String,
+    pub numbering_id: u32,
+}
+setters!(NumberingStyleDefinition {
+    with_name => name: into<String>,
+    with_numbering_id => numbering_id: value<u32>,
+});
+impl From<NumberingStyleDefinition> for StyleDefinition {
+    fn from(value: NumberingStyleDefinition) -> Self {
+        Self::Numbering(value)
+    }
 }
 /// A character style reuses run formatting; inheritance uses `base_style`.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -592,12 +799,181 @@ impl From<TableStyleDefinition> for StyleDefinition {
         Self::Table(Box::new(v))
     }
 }
+/// Insets as percentages of the original picture, from each physical edge.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ImageCrop {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
+setters!(ImageCrop {
+    with_left => left: value<f64>,
+    with_top => top: value<f64>,
+    with_right => right: value<f64>,
+    with_bottom => bottom: value<f64>,
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageAnchorReference {
+    #[default]
+    Page,
+    Margin,
+    Column,
+    Character,
+    LeftMargin,
+    RightMargin,
+    Paragraph,
+    Line,
+    TopMargin,
+    BottomMargin,
+    InsideMargin,
+    OutsideMargin,
+}
+impl ImageAnchorReference {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::Page => "page",
+            Self::Margin => "margin",
+            Self::Column => "column",
+            Self::Character => "character",
+            Self::LeftMargin => "leftMargin",
+            Self::RightMargin => "rightMargin",
+            Self::Paragraph => "paragraph",
+            Self::Line => "line",
+            Self::TopMargin => "topMargin",
+            Self::BottomMargin => "bottomMargin",
+            Self::InsideMargin => "insideMargin",
+            Self::OutsideMargin => "outsideMargin",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageWrap {
+    #[default]
+    None,
+    Square,
+    TopAndBottom,
+    Tight,
+    Through,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageWrapSide {
+    BothSides,
+    Left,
+    Right,
+    Largest,
+}
+impl ImageWrapSide {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::BothSides => "bothSides",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Largest => "largest",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageAnchorHorizontalAlignment {
+    Left,
+    Center,
+    Right,
+    Inside,
+    Outside,
+}
+impl ImageAnchorHorizontalAlignment {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Center => "center",
+            Self::Right => "right",
+            Self::Inside => "inside",
+            Self::Outside => "outside",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageAnchorVerticalAlignment {
+    Top,
+    Center,
+    Bottom,
+    Inside,
+    Outside,
+}
+impl ImageAnchorVerticalAlignment {
+    pub const fn xml(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Center => "center",
+            Self::Bottom => "bottom",
+            Self::Inside => "inside",
+            Self::Outside => "outside",
+        }
+    }
+}
+/// Position offsets use points. Relative height controls drawing stacking order.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ImageAnchor {
+    pub horizontal_reference: ImageAnchorReference,
+    pub vertical_reference: ImageAnchorReference,
+    pub horizontal_alignment: Option<ImageAnchorHorizontalAlignment>,
+    pub vertical_alignment: Option<ImageAnchorVerticalAlignment>,
+    pub x: f64,
+    pub y: f64,
+    pub wrap: ImageWrap,
+    pub wrap_side: Option<ImageWrapSide>,
+    /// Ordered polygon vertices in DrawingML wrap-path coordinates.
+    pub wrap_polygon: Vec<(i32, i32)>,
+    /// Wrap distances from the picture edges in points.
+    pub distance_top: Option<f64>,
+    pub distance_bottom: Option<f64>,
+    pub distance_left: Option<f64>,
+    pub distance_right: Option<f64>,
+    pub relative_height: u32,
+    pub behind_text: bool,
+    pub locked: Option<bool>,
+    pub layout_in_cell: Option<bool>,
+    pub allow_overlap: Option<bool>,
+}
+setters!(ImageAnchor {
+    with_horizontal_reference => horizontal_reference: value<ImageAnchorReference>,
+    with_vertical_reference => vertical_reference: value<ImageAnchorReference>,
+    with_horizontal_alignment => horizontal_alignment: optional<ImageAnchorHorizontalAlignment>,
+    with_vertical_alignment => vertical_alignment: optional<ImageAnchorVerticalAlignment>,
+    with_x => x: value<f64>,
+    with_y => y: value<f64>,
+    with_wrap => wrap: value<ImageWrap>,
+    with_wrap_side => wrap_side: optional<ImageWrapSide>,
+    with_wrap_polygon => wrap_polygon: value<Vec<(i32, i32)>>,
+    with_distance_top => distance_top: optional<f64>,
+    with_distance_bottom => distance_bottom: optional<f64>,
+    with_distance_left => distance_left: optional<f64>,
+    with_distance_right => distance_right: optional<f64>,
+    with_relative_height => relative_height: value<u32>,
+    with_behind_text => behind_text: value<bool>,
+    with_locked => locked: optional<bool>,
+    with_layout_in_cell => layout_in_cell: optional<bool>,
+    with_allow_overlap => allow_overlap: optional<bool>,
+});
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ImageTransformation {
+    pub anchor: Option<ImageAnchor>,
+    pub crop: Option<ImageCrop>,
+    /// Clockwise rotation in degrees.
+    pub rotation: Option<f64>,
+    pub flip_horizontal: Option<bool>,
+    pub flip_vertical: Option<bool>,
     pub width: Option<f64>,
     pub height: Option<f64>,
 }
 setters!(ImageTransformation {
+    with_anchor => anchor: optional<ImageAnchor>,
+    with_crop => crop: optional<ImageCrop>,
+    with_rotation => rotation: optional<f64>,
+    with_flip_horizontal => flip_horizontal: optional<bool>,
+    with_flip_vertical => flip_vertical: optional<bool>,
     with_width => width: optional<f64>,
     with_height => height: optional<f64>,
 });
@@ -644,6 +1020,12 @@ pub struct NumberingLevel {
     /// One-based restart trigger; zero requests never restarting. Not a counter.
     pub restart: Option<u32>,
     pub alignment: Option<NumberingAlignment>,
+    /// Direct run properties for the generated numbering label.
+    pub label_format: Option<RunFormat>,
+    /// Paragraph properties applied through the numbering level. Lengths use points.
+    pub paragraph_format: Option<ParagraphFormat>,
+    /// Paragraph style name or ID associated with this level.
+    pub paragraph_style: Option<String>,
 }
 setters!(NumberingLevel {
     with_level => level: value<u8>,
@@ -654,11 +1036,18 @@ setters!(NumberingLevel {
     with_suffix => suffix: optional<NumberingSuffix>,
     with_restart => restart: optional<u32>,
     with_alignment => alignment: optional<NumberingAlignment>,
+    with_label_format => label_format: optional<RunFormat>,
+    with_paragraph_format => paragraph_format: optional<ParagraphFormat>,
+    with_paragraph_style => paragraph_style: optional_into<String>,
 });
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NumberingDefinition {
     pub id: u32,
+    /// Explicit abstract identity shared by instances with identical levels.
+    pub abstract_id: Option<u32>,
+    /// Inherit levels through an authored numbering style.
+    pub inherit_style: Option<String>,
     pub levels: Vec<NumberingLevel>,
     pub start_overrides: Vec<NumberingStartOverride>,
     /// Concrete-instance replacements using the same supported level subset.
@@ -667,6 +1056,8 @@ pub struct NumberingDefinition {
 }
 setters!(NumberingDefinition {
     with_id => id: value<u32>,
+    with_abstract_id => abstract_id: optional<u32>,
+    with_inherit_style => inherit_style: optional_into<String>,
     with_levels => levels: value<Vec<NumberingLevel>>,
     with_start_overrides => start_overrides: value<Vec<NumberingStartOverride>>,
     with_level_overrides => level_overrides: value<Vec<NumberingLevel>>,

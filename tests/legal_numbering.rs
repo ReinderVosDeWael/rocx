@@ -12,6 +12,9 @@ fn deferred_legal_numbering_preserves_three_states_in_abstract_and_concrete_leve
                 .into_iter()
                 .enumerate()
                 .map(|(i, is_legal)| NumberingLevel {
+                    label_format: None,
+                    paragraph_style: None,
+                    paragraph_format: None,
                     level: i as u8,
                     start: 1,
                     format: "upperRoman".into(),
@@ -23,6 +26,9 @@ fn deferred_legal_numbering_preserves_three_states_in_abstract_and_concrete_leve
                 })
                 .collect(),
             level_overrides: vec![NumberingLevel {
+                label_format: None,
+                paragraph_style: None,
+                paragraph_format: None,
                 level: 2,
                 start: 1,
                 format: "lowerLetter".into(),

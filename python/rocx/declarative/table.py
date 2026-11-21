@@ -8,11 +8,13 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING
 
-from rocx.declarative import base, paragraph
+from rocx.declarative import base
+from rocx.declarative.content_control import ContentControlMetadata
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, MutableSequence, Sequence
     from typing import Literal
+    from rocx.declarative.section import BlockChildren
 
 
 @dataclasses.dataclass(frozen=True)
@@ -107,7 +109,7 @@ class TableCell(base.Component):
     """A table cell containing paragraphs or nested tables.
 
     Attributes:
-        children: List of Paragraph or Table components, or coroutines that
+        children: List of paragraph, table or block control components, or coroutines that
             resolve to these types. May be a zero-argument callable for lazy
             evaluation (useful with ``condition``).
         grid_span: Number of columns this cell spans (horizontal merge).
@@ -127,22 +129,7 @@ class TableCell(base.Component):
             independent of paragraph bidi; accepts generic deferred inputs.
     """
 
-    children: (
-        MutableSequence[
-            paragraph.Paragraph
-            | Table
-            | Coroutine[None, None, paragraph.Paragraph | Table]
-        ]
-        | Callable[
-            [],
-            MutableSequence[
-                paragraph.Paragraph
-                | Table
-                | Coroutine[None, None, paragraph.Paragraph | Table]
-            ],
-        ]
-        | None
-    ) = None
+    children: BlockChildren | Callable[[], BlockChildren] | None = None
     grid_span: int | None = None
     vmerge: Literal["restart", "continue"] | None = None
     borders: MutableSequence[CellBorder] | None = None
@@ -150,6 +137,7 @@ class TableCell(base.Component):
     vertical_alignment: Literal["top", "center", "bottom"] | None = None
     margins: CellMargins | None = None
     text_direction: str | None = None
+    content_control: ContentControlMetadata | None = None
 
 
 @dataclasses.dataclass
@@ -174,6 +162,7 @@ class TableRow(base.Component):
     height: RowHeight | None = None
     repeat_header: bool | None = None
     cant_split: bool | None = None
+    content_control: ContentControlMetadata | None = None
 
 
 @dataclasses.dataclass

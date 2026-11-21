@@ -1,6 +1,12 @@
 //! Structural text edits. P1 §§17.3, 17.5, 17.13, 17.16; boundaries are library policy.
 use crate::xml::{Content, Node, W};
 use crate::{Diagnostic, Error, Result, Rule};
+use std::collections::BTreeMap;
+
+mod content_control;
+mod revisions;
+pub(crate) use content_control::ContentControlEdits;
+pub(crate) use revisions::edit_text_revisions;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EditScope {
@@ -10,9 +16,16 @@ pub enum EditScope {
     /// Also visit related comments, footnotes and endnotes. Unknown parts stay opaque.
     SupportedStories,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextRevisionAction {
+    Accept,
+    Reject,
+}
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TemplateEdits {
     pub replacements: Vec<(String, String)>,
+    pub content_control_replacements: BTreeMap<String, String>,
+    pub text_revision_action: Option<TextRevisionAction>,
     pub paragraph_index: Option<usize>,
     pub scope: EditScope,
 }
@@ -57,10 +70,12 @@ fn collect(
         position.group += 1;
         return;
     }
-    let container =
-        ["w:hyperlink", "w:fldSimple", "w:sdt", "w:ins", "w:del"].contains(&node.name.as_str());
-    let protected =
-        protected || ["w:fldSimple", "w:sdt", "w:ins", "w:del"].contains(&node.name.as_str());
+    let structured = matches!(
+        node.name.as_str(),
+        "w:fldSimple" | "w:sdt" | "w:ins" | "w:del" | "w:moveFrom" | "w:moveTo"
+    );
+    let container = structured || node.name == "w:hyperlink";
+    let protected = protected || structured;
     if container {
         position.group += 1;
     }

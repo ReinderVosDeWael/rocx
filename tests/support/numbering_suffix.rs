@@ -15,6 +15,9 @@ pub fn document() -> Document {
             Some(NumberingSuffix::Nothing),
         ];
         let level = |(index, suffix): (usize, Option<NumberingSuffix>)| NumberingLevel {
+            label_format: None,
+            paragraph_style: None,
+            paragraph_format: None,
             level: index as u8,
             start: 1,
             format: "upperRoman".into(),

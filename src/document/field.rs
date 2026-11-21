@@ -75,6 +75,31 @@ impl ResolvedField {
         properties: FieldProperties,
     ) -> Result<Self, Diagnostic> {
         for (index, child) in children.iter().enumerate() {
+            if child
+                .revision()
+                .is_some_and(|revision| revision.kind.move_name().is_some())
+            {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "text moves within inline containers are unsupported",
+                )
+                .at(format!("children[{index}]")));
+            }
+
+            if matches!(child, ResolvedInline::Shape(_)) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "DrawingML shapes in cached field results are unsupported",
+                )
+                .at(format!("children[{index}]")));
+            }
+            if matches!(child, ResolvedInline::ContentControl(_)) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "content controls within cached field results are unsupported",
+                )
+                .at(format!("children[{index}]")));
+            }
             if matches!(
                 child,
                 ResolvedInline::RangeStart { .. } | ResolvedInline::RangeEnd(_)

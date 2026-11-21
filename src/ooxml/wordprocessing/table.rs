@@ -212,7 +212,7 @@ impl Compiler<'_> {
                 if tc.elements().last().is_none_or(|n| n.name != "w:p") {
                     tc.push(Node::new("w:p"));
                 }
-                tr.push(tc);
+                tr.push(self.table_content_control(tc, cell.content_control.as_ref())?);
             }
             while column < t.columns {
                 tr.push(
@@ -228,7 +228,7 @@ impl Compiler<'_> {
                 );
                 column += 1;
             }
-            node.push(tr);
+            node.push(self.table_content_control(tr, row.properties.content_control.as_ref())?);
         }
         Ok(node)
     }

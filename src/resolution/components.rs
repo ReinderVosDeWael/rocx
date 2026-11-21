@@ -37,6 +37,16 @@ component!(Section, ResolvedSection, "section");
 component!(Paragraph, ResolvedParagraph, "paragraph");
 component!(TextRun, ResolvedInline, "text_run");
 component!(Hyperlink, ResolvedInline, "hyperlink");
+component!(
+    crate::BlockContentControl,
+    crate::ResolvedBlock,
+    "content_control"
+);
+component!(
+    crate::InlineContentControl,
+    ResolvedInline,
+    "content_control"
+);
 component!(crate::Field, ResolvedInline, "field");
 component!(crate::RangeStart, ResolvedInline, "range_start");
 component!(crate::RangeEnd, ResolvedInline, "range_end");
@@ -44,6 +54,7 @@ component!(crate::Note, crate::ResolvedNote, "note");
 component!(crate::NoteReference, ResolvedInline, "note_reference");
 component!(crate::Comment, crate::ResolvedCommentBody, "comment");
 component!(ImageRun, ResolvedInline, "image_run");
+component!(crate::ShapeRun, ResolvedInline, "shape_run");
 component!(Tab, ResolvedInline, "tab");
 component!(Break, ResolvedInline, "break");
 component!(Table, ResolvedTable, "table");

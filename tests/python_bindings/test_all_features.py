@@ -84,7 +84,10 @@ def test_content_check_detects_a_missing_feature_even_if_both_languages_agree(ca
         checks.verify_content(output.getvalue(), rust.with_suffix(".template.docx").read_bytes())
 
 
-@pytest.mark.parametrize("element, value", [("isLgl", "1"), ("suff", "nothing"), ("lvlRestart", "1"), ("lvlJc", "left")])
+@pytest.mark.parametrize("element, value", [
+    ("isLgl", "1"), ("suff", "nothing"), ("lvlRestart", "1"), ("lvlJc", "left"),
+    ("abstractNumId", "1"), ("rPr/w:b", "1"), ("pStyle", "Heading1"),
+])
 def test_content_check_rejects_a_changed_numbering_request(catalogs, element: str, value: str) -> None:
     rust, _ = catalogs
     output = io.BytesIO()
@@ -93,7 +96,9 @@ def test_content_check_rejects_a_changed_numbering_request(catalogs, element: st
             data = source.read(name)
             if name == "word/numbering.xml":
                 root = etree.fromstring(data)
-                node = root.xpath(f"w:num[@w:numId='60']/w:lvlOverride[@w:ilvl='0']/w:lvl/w:{element}", namespaces=checks.NS)[0]
+                path = ("w:num[@w:numId='62']/w:abstractNumId" if element == "abstractNumId"
+                        else f"w:num[@w:numId='60']/w:lvlOverride[@w:ilvl='0']/w:lvl/w:{element}")
+                node = root.xpath(path, namespaces=checks.NS)[0]
                 node.set(f"{{{checks.NS['w']}}}val", value)
                 data = etree.tostring(root)
             target.writestr(name, data)

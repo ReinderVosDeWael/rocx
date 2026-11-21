@@ -17,6 +17,7 @@ pub(super) fn paragraph(o: &Bound<'_, PyAny>) -> PyResult<ResolvedParagraph> {
                     text,
                     format: RunFormat::default(),
                     comment: None,
+                    revision: None,
                 }]
             }
         }
@@ -53,6 +54,32 @@ pub(super) fn textrun(o: &Bound<'_, PyAny>) -> PyResult<ResolvedInline> {
     let mut format = run_format(o)?;
     format.style = field!(o, "style", Option<String>);
     Ok(ResolvedInline::Text {
+        revision: optional_record(o, "revision", |item| {
+            let move_name = field!(item, "move_name", Option<String>);
+            let name = || {
+                crate::BookmarkName::new(
+                    move_name
+                        .as_deref()
+                        .ok_or_else(|| PyValueError::new_err("text move requires move_name"))?,
+                )
+                .map_err(|error| rust_error(error.at("move_name").into()))
+            };
+            let kind = match field!(item, "kind", String).as_str() {
+                "insertion" => crate::RevisionKind::Insertion,
+                "deletion" => crate::RevisionKind::Deletion,
+                "move_source" => crate::RevisionKind::MoveSource(name()?),
+                "move_destination" => crate::RevisionKind::MoveDestination(name()?),
+                _ => return Err(PyValueError::new_err("unknown text revision kind")),
+            };
+            if kind.move_name().is_none() && move_name.is_some() {
+                return Err(PyValueError::new_err("move_name requires a text move"));
+            }
+            Ok(crate::TextRevision {
+                kind,
+                author: field!(item, "author", String),
+                date: field!(item, "date", Option<String>),
+            })
+        })?,
         text: field!(o, "text", String),
         comment: comment(o)?,
         format,
@@ -112,6 +139,32 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
             )
         }
         "NoteReference" => ResolvedInline::NoteReference(note_target(o)?),
+        "InlineContentControl" => {
+            let mut children = Vec::new();
+            for (index, child) in o.getattr("children")?.try_iter()?.enumerate() {
+                let child = child?;
+                if !matches!(
+                    kind(&child)?.as_str(),
+                    "TextRun" | "Tab" | "Break" | "ImageRun"
+                ) {
+                    return Err(rust_error(
+                        crate::Diagnostic::new(
+                            crate::Rule::InvalidContent,
+                            "inline content control children must be text, tabs, breaks or images",
+                        )
+                        .at(format!("children[{index}]"))
+                        .into(),
+                    ));
+                }
+                if let Some(child) = inline(&child)? {
+                    children.push(child);
+                }
+            }
+            ResolvedInline::ContentControl(
+                crate::ResolvedInlineContentControl::new(children, content_control_properties(o)?)
+                    .map_err(|error| rust_error(error.into()))?,
+            )
+        }
         "Hyperlink" => {
             let target = o.getattr("target")?;
             let target = if let Ok(value) = target.extract::<String>() {
@@ -133,7 +186,7 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
                 // nested container must not cause unbounded native descent.
                 if matches!(
                     kind(&child)?.as_str(),
-                    "Hyperlink" | "Field" | "RangeStart" | "RangeEnd"
+                    "Hyperlink" | "Field" | "RangeStart" | "RangeEnd" | "InlineContentControl"
                 ) {
                     return Err(rust_error(
                         crate::Diagnostic::new(
@@ -196,6 +249,23 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
             format: RunFormat::default(),
             comment: None,
         },
+        "ShapeRun" => ResolvedInline::Shape(crate::ShapeProperties {
+            outline: optional_record(o, "outline", |outline| {
+                Ok(crate::ShapeOutline {
+                    width: field!(outline, "width", f64),
+                    color: field!(outline, "color", [u8; 3]),
+                })
+            })?,
+            width: field!(o, "width", f64),
+            height: field!(o, "height", f64),
+            fill: field!(o, "fill", Option<[u8; 3]>),
+            text: field!(o, "text", Option<String>),
+            geometry: match field!(o, "geometry", String).as_str() {
+                "rectangle" => crate::ShapeGeometry::Rectangle,
+                "ellipse" => crate::ShapeGeometry::Ellipse,
+                _ => return Err(PyValueError::new_err("unknown DrawingML shape geometry")),
+            },
+        }),
         "ImageRun" => {
             let bytes = field!(o, "data", Vec<u8>);
             let name = field!(o, "_filename", Option<String>);
@@ -220,8 +290,90 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
     };
     Ok(Some(value))
 }
+fn content_control_properties(o: &Bound<'_, PyAny>) -> PyResult<crate::ContentControlProperties> {
+    let multi_line = field!(o, "multi_line", Option<bool>);
+    let selected = field!(o, "selected", Option<String>);
+    let items = list(&o.getattr("items")?, |item| {
+        Ok(Some(crate::ContentControlListItem {
+            display_text: field!(item, "display_text", String),
+            value: field!(item, "value", String),
+        }))
+    })?;
+    let text_type = field!(o, "text_type", String);
+    if text_type != "dropdown" && (!items.is_empty() || selected.is_some()) {
+        return Err(PyValueError::new_err(
+            "items and selected require a drop-down control",
+        ));
+    }
+    let text = match text_type.as_str() {
+        "rich" if multi_line.is_none() => crate::ContentControlText::Rich,
+        "rich" => {
+            return Err(PyValueError::new_err(
+                "multi_line requires a plain-text control",
+            ));
+        }
+        "plain" => crate::ContentControlText::Plain { multi_line },
+        "dropdown" if multi_line.is_some() => {
+            return Err(PyValueError::new_err(
+                "multi_line requires a plain-text control",
+            ));
+        }
+        "dropdown" => crate::ContentControlText::DropDown {
+            items,
+            selected: selected
+                .ok_or_else(|| PyValueError::new_err("drop-down control requires selected"))?,
+        },
+        _ => return Err(PyValueError::new_err("unknown content control text type")),
+    };
+    Ok(crate::ContentControlProperties {
+        text,
+        ..content_control_metadata(o)?
+    })
+}
+pub(super) fn content_control_metadata(
+    o: &Bound<'_, PyAny>,
+) -> PyResult<crate::ContentControlProperties> {
+    let lock = match field!(o, "lock", Option<String>).as_deref() {
+        None => None,
+        Some("unlocked") => Some(crate::ContentControlLock::Unlocked),
+        Some("sdtLocked") => Some(crate::ContentControlLock::ControlLocked),
+        Some("contentLocked") => Some(crate::ContentControlLock::ContentLocked),
+        Some("sdtContentLocked") => Some(crate::ContentControlLock::ControlAndContentLocked),
+        _ => return Err(PyValueError::new_err("unknown content control lock")),
+    };
+    Ok(crate::ContentControlProperties {
+        alias: field!(o, "alias", Option<String>),
+        tag: field!(o, "tag", Option<String>),
+        id: field!(o, "id", Option<u32>),
+        lock,
+        ..Default::default()
+    })
+}
 pub(super) fn block(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedBlock>> {
     match kind(o)?.as_str() {
+        "BlockContentControl" => {
+            let mut children = Vec::new();
+            for (index, child) in o.getattr("children")?.try_iter()?.enumerate() {
+                let child = child?;
+                if kind(&child)? == "BlockContentControl" {
+                    return Err(rust_error(
+                        crate::Diagnostic::new(
+                            crate::Rule::InvalidContent,
+                            "nested block content controls are unsupported",
+                        )
+                        .at(format!("children[{index}]"))
+                        .into(),
+                    ));
+                }
+                if let Some(child) = block(&child)? {
+                    children.push(child);
+                }
+            }
+            Ok(Some(ResolvedBlock::ContentControl(
+                crate::ResolvedBlockContentControl::new(children, content_control_properties(o)?)
+                    .map_err(|error| rust_error(error.into()))?,
+            )))
+        }
         "Paragraph" => Ok(Some(ResolvedBlock::Paragraph(paragraph(o)?))),
         "Table" => Ok(table(o)?.map(ResolvedBlock::Table)),
         other => Err(PyTypeError::new_err(format!(
