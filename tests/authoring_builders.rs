@@ -217,6 +217,14 @@ check!(shape_properties, ShapeProperties, ShapeProperties::default();
     with_geometry => geometry: value(ShapeGeometry::Ellipse), with_fill => fill: optional([1u8, 2, 3]),
     with_text => text: optional("Label"),
     with_outline => outline: optional(ShapeOutline { width: 1., color: [0; 3] }),
+    with_text_format => text_format: optional(ShapeTextFormat::default().with_bold(false)),
+);
+check!(shape_text_format, ShapeTextFormat, ShapeTextFormat::default();
+    with_font_size => font_size: optional(14.),
+    with_bold => bold: optional(false),
+    with_color => color: optional([1u8, 2, 3]),
+    with_alignment => alignment: optional(ShapeTextAlignment::Center),
+    with_vertical_alignment => vertical_alignment: optional(ShapeTextVerticalAlignment::Bottom),
 );
 check!(image_anchor, ImageAnchor, ImageAnchor::default();
     with_horizontal_reference => horizontal_reference: value(ImageAnchorReference::Margin),

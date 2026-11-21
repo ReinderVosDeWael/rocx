@@ -143,3 +143,12 @@ and checks collection replacement, existing validation and deferred component
 inputs. The catalog inventory guard checks field/setter/test coverage; paired
 catalog samples independently assert omitted/true/false bold, including an
 explicit-false-removal negative control.
+## Shape text styling
+
+`shape_text_format.rs` checks DrawingML property placement, blank lines, explicit
+false, font-size bounds and byte equality for omitted/empty styles. Python
+`test_shape_text_format.py` independently checks readback, all supported alignment
+tokens, font-size rounding/bounds, nested deferred input, snapshot repeatability
+and invalid tokens. Both catalogs carry matching labeled samples. Their schema
+checks reject invalid font sizes and paragraph-property order; an independent
+catalog mutation rejects changed shape bold requests.

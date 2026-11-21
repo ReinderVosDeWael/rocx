@@ -53,11 +53,45 @@ impl Compiler<'_> {
             .with(shape_properties);
         if let Some(text) = &shape.text {
             crate::xml::validate_text(text).map_err(|error| error.at("shape.text"))?;
-            let mut body = Node::new("a:txBody").with(Node::new("a:bodyPr"));
+            let format = shape.text_format.as_ref().cloned().unwrap_or_default();
+            let mut body_properties = Node::new("a:bodyPr");
+            if let Some(alignment) = format.vertical_alignment {
+                body_properties = body_properties.attr("anchor", alignment.xml());
+            }
+            let mut run_properties = Node::new("a:rPr");
+            if let Some(size) = format.font_size_hundredths()? {
+                run_properties = run_properties.attr("sz", size);
+            }
+            if let Some(bold) = format.bold {
+                run_properties = run_properties.attr("b", if bold { "1" } else { "0" });
+            }
+            if let Some(color) = format.color {
+                run_properties.push(
+                    Node::new("a:solidFill").with(
+                        Node::new("a:srgbClr")
+                            .attr("val", crate::ooxml::wordprocessing::format::color(color)),
+                    ),
+                );
+            }
+            let has_run_properties =
+                format.font_size.is_some() || format.bold.is_some() || format.color.is_some();
+            let mut body = Node::new("a:txBody").with(body_properties);
             for line in text.replace("\r\n", "\n").replace('\r', "\n").split('\n') {
                 let mut paragraph = Node::new("a:p");
+                if let Some(alignment) = format.alignment {
+                    paragraph.push(Node::new("a:pPr").attr("algn", alignment.xml()));
+                }
                 if !line.is_empty() {
-                    paragraph.push(Node::new("a:r").with(Node::new("a:t").text(line)));
+                    let mut run = Node::new("a:r");
+                    if has_run_properties {
+                        run.push(run_properties.clone());
+                    }
+                    paragraph.push(run.with(Node::new("a:t").text(line)));
+                }
+                if has_run_properties {
+                    let mut end_properties = run_properties.clone();
+                    end_properties.name = Name::from("a:endParaRPr");
+                    paragraph.push(end_properties);
                 }
                 body.push(paragraph);
             }

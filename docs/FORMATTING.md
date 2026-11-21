@@ -433,3 +433,49 @@ The text stays inside the shape and uses its geometry as the text rectangle.
 An optional `ShapeOutline` supplies a line width in points and an RGB
 color. The width is checked against DrawingML's 0–20,116,800 EMU range.
 Shape and canvas identifiers are reserved alongside existing drawing IDs.
+
+### Shape text styling (R8l)
+
+Optional `ShapeTextFormat` applies uniform styling to the shape's plain text:
+
+```rust
+use rocx::{ShapeProperties, ShapeRun, ShapeTextAlignment, ShapeTextFormat,
+    ShapeTextVerticalAlignment};
+let shape = ShapeRun::new(ShapeProperties::default().with_text("Label\n\nValue")
+    .with_text_format(ShapeTextFormat::default().with_font_size(14.25)
+        .with_bold(false).with_color([255, 255, 255])
+        .with_alignment(ShapeTextAlignment::Center)
+        .with_vertical_alignment(ShapeTextVerticalAlignment::Bottom)));
+```
+
+```python
+shape = d.ShapeRun(text="Label\n\nValue", text_format=d.ShapeTextFormat(
+    font_size=14.25, bold=False, color=(255, 255, 255),
+    alignment="center", vertical_alignment="bottom"))
+```
+
+The supported horizontal subset is left/center/right; vertical alignment is
+top/center/bottom. Rust uses dedicated DrawingML enums, not WordprocessingML
+paragraph alignment. Python uses the lowercase tokens above and supports nested
+deferred property values. Unsupported tokens are rejected.
+
+Font size is in points and must be finite and within **1–4000 inclusive before
+rounding**. It rounds to the nearest hundredth of a point for `ST_TextFontSize`
+(100–400000). RGB color applies to text, independently of shape fill/outline.
+`bold=None` omits the request; `False` explicitly disables bold.
+
+The codec emits `bodyPr/@anchor`, per-line `pPr/@algn`, and run `rPr` with `sz`,
+`b` and `solidFill/srgbClr`. Character requests also go on `endParaRPr`, so empty
+lines retain the requested styling. Paragraph and run properties stay in schema
+order. Missing individual values are not materialized; an omitted or empty
+format preserves prior output bytes. If text is absent, no text body is emitted,
+but invalid format values are still rejected during validation. Empty text is
+distinct from absent text and produces one empty DrawingML paragraph.
+
+This does not change surrounding WordprocessingML text, calculate line layout,
+select fonts, fit text, paginate or position the shape. No manual Office rendering
+was verified. Sources: P1 (2016) §20.1 text-body, paragraph and character
+properties; Annex A.4 `CT_TextBodyProperties`, `CT_TextParagraph`,
+`CT_TextCharacterProperties`, `ST_TextFontSize`, `ST_TextAlignType` and
+`ST_TextAnchoringType`. Tests: `shape_text_format.rs`, `test_shape_text_format.py`,
+the paired catalogs and schema/content negative controls.

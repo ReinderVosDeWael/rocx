@@ -36,8 +36,13 @@ After native changes, rebuild the editable Python extension first using the
 repository's locked native rebuild command. A stale native extension can cause
 an actual parity failure.
 
-Verified local baseline including authoring builders: both final files are 55,454 bytes, SHA-256
-`61244a58b369757762d88891da46aafdc10c1b70be4d20b4e618363212876691`.
+Verified local baseline through R8l: both final files are 58,547 bytes, SHA-256
+`5f5e99a79e5519b5f4ecf618105ef048a9d4d983e812a4ce96ba9976fb64a5c9`.
+
+The inline-shape gallery labels the rectangle's 14.25-point white text, explicit
+bold=false, horizontal centering and bottom anchoring. It preserves a blank
+middle line. The adjacent ellipse has no text body; neither sample claims text
+fitting or manually verified placement in Office.
 
 Topic 02 labels a chainable-setter sample: bold omitted, bold enabled, and bold
 explicitly disabled with italic enabled. Rust uses `RunFormat`/`ParagraphFormat`

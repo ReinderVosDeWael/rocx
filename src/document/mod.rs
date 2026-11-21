@@ -60,7 +60,10 @@ pub(crate) use range::{story_inlines, validate_ranges};
 pub use revision::{RevisionKind, TextRevision};
 mod resources;
 mod shape;
-pub use shape::{ShapeGeometry, ShapeOutline, ShapeProperties};
+pub use shape::{
+    ShapeGeometry, ShapeOutline, ShapeProperties, ShapeTextAlignment, ShapeTextFormat,
+    ShapeTextVerticalAlignment,
+};
 mod table;
 mod validation;
 mod values;

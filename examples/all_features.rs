@@ -1,4 +1,5 @@
 //! Matching Rust/Python visual inspection catalog. See examples/ALL_FEATURES.md.
+//! Includes labeled DrawingML shape text styling and its omission boundaries.
 //! Includes chainable authoring builders and omitted/true/false formatting.
 //! Demonstrates two concrete lists sharing an authored abstract numbering ID and separate formatting, paragraph style links, and an inherited numbering style.
 //! Shows an inline image with crop, rotation and flipping, plus floating-picture wrap sides, distances, alignment, reference frames, placement flags and a wrapping polygon.

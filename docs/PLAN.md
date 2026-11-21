@@ -2,7 +2,39 @@
 
 ## Current handoff (2026-11-21)
 
-**Resume after R8k.** The engineer requested this handoff. The working tree
+**R8l complete:** optional `ShapeProperties.text_format` and Python
+`ShapeRun.text_format`. Add ShapeTextFormat with optional font_size (points), bold,
+RGB color, left/center/right alignment and top/center/bottom vertical_alignment.
+Use dedicated DrawingML alignment enums; do not repurpose WordprocessingML
+paragraph formatting. Keep adjacent Rust builders and generic deferred Python
+records. Validate raw font size in 1..=4000 points, round to hundredths for
+ST_TextFontSize (100..400000). Apply run properties to all authored lines,
+including empty lines via endParaRPr, paragraph alignment via pPr and vertical
+alignment via bodyPr/anchor. Missing format/properties retain prior bytes and
+consumer defaults; text absent still emits no txBody. No measurement, autofit,
+font selection, text shaping or manual-rendering claim. Add Rust acceptance,
+independent Python readback/deferred/negative controls, schema cases and both
+labeled catalogs/inventory/content checks with exact DOCX byte parity. Current
+tree started clean at ba00aec. The engineer subsequently requested a commit;
+include this R8l implementation, tests, catalogs and documentation in one feature
+commit. No push, tag or publication is authorized.
+
+Acceptance first failed on the missing Python ShapeTextFormat export. After the
+native rebuild, 21 focused shape/text tests passed. The broader schema/catalog
+and shape subset passed 64 tests. Rust builder/domain/text acceptance passed 58
+tests, then the full all-feature/all-target suite passed **251 tests**. Clippy
+with warnings denied, formatting/diff checks passed. Exact final and intermediate
+template catalog byte checks passed; final documents are **58,547 bytes**, SHA-256
+`5f5e99a79e5519b5f4ecf618105ef048a9d4d983e812a4ce96ba9976fb64a5c9`.
+Both final catalogs directly validate 17 schema-covered parts and OPC
+relationships. Full required-schema Python verification completed successfully:
+**652 passed, 1 intentional skip**. No verification job remains active.
+Contracts, catalog guide/inventory and independent mutations are updated. No
+dependencies or lockfiles changed. Clippy with warnings denied, 3 doctests and
+private-item rustdoc with warnings denied passed. Full Rust/Python and focused
+verification above passed. No push, publication or manual-rendering claim is made.
+
+**Previous R8k handoff (historical).** The engineer requested this handoff. The working tree
 contains the implementation since the pushed authoring-builder checkpoint
 `ab59df3`, including tracked edits and new Rust/Python files. Preserve all of
 it, including the unrelated untracked `docs/DEPENDENCY-AUDIT.md`. No commit
@@ -35,11 +67,11 @@ allocating new drawing IDs.
   suites still need rerunning for R8k. No verification job remains active
   from this implementation pass.
 
-**Next slice:** Add optional text styling to the existing shape text body.
+**Previously proposed next slice (now R8l above):** Add optional text styling to the existing shape text body.
 Reuse `ShapeRun` and the shared DrawingML codec. Start with font size, bold,
 RGB color, and horizontal/vertical alignment. Validate size against
 `ST_TextFontSize` and keep DrawingML body/paragraph/run properties in schema
-order. No text styling implementation has started. Keep both catalogs and
+order. At that handoff, no text styling implementation had started. Keep both catalogs and
 their inventory, schema checks, readback and exact byte-parity verification
 current. Standalone text boxes and the chart/math work remain open, as do
 unfinished R6–R10 areas.

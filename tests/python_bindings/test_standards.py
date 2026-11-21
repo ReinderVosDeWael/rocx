@@ -45,6 +45,20 @@ async def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fa
         anchor.insert(0, position)
     with pytest.raises(validation.ValidationError, match="word/document.xml"):
         validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_anchor_order))
+    def invalid_shape_font_size(root):
+        namespace = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+        properties = root.find(f".//{namespace}txBody/{namespace}p/{namespace}r/{namespace}rPr")
+        properties.set("sz", "99")
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_shape_font_size))
+    def invalid_shape_property_order(root):
+        namespace = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+        paragraph = root.find(f".//{namespace}txBody/{namespace}p")
+        properties = paragraph.find(f"{namespace}pPr")
+        paragraph.remove(properties)
+        paragraph.append(properties)
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_shape_property_order))
     def invalid_wrap_polygon(root):
         namespace = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
         polygon = root.find(f".//{namespace}wrapPolygon")

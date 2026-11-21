@@ -77,7 +77,10 @@ pub use document::{
     FieldForm, FieldInstruction, FieldProperties, RawFieldInstruction, ResolvedField,
 };
 pub use document::{RowHeight, TableRowProperties};
-pub use document::{ShapeGeometry, ShapeOutline, ShapeProperties};
+pub use document::{
+    ShapeGeometry, ShapeOutline, ShapeProperties, ShapeTextAlignment, ShapeTextFormat,
+    ShapeTextVerticalAlignment,
+};
 pub use document::{TabAlignment, TabLeader, TabStop};
 pub use error::{Error, Result};
 pub use resolution::{Component, Condition, Deferred, Property, PropertyId, PropertyRef, Value};
@@ -126,7 +129,10 @@ pub mod declarative {
     pub use crate::{Field, FieldForm, FieldInstruction, FieldProperties};
     pub use crate::{RevisionKind, TextRevision};
     pub use crate::{RowHeight, TableRowProperties};
-    pub use crate::{ShapeGeometry, ShapeOutline, ShapeProperties, ShapeRun};
+    pub use crate::{
+        ShapeGeometry, ShapeOutline, ShapeProperties, ShapeRun, ShapeTextAlignment,
+        ShapeTextFormat, ShapeTextVerticalAlignment,
+    };
     pub use crate::{TabAlignment, TabLeader, TabStop};
 }
 

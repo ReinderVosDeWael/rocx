@@ -250,6 +250,33 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
             comment: None,
         },
         "ShapeRun" => ResolvedInline::Shape(crate::ShapeProperties {
+            text_format: optional_record(o, "text_format", |format| {
+                Ok(crate::ShapeTextFormat {
+                    font_size: field!(format, "font_size", Option<f64>),
+                    bold: field!(format, "bold", Option<bool>),
+                    color: field!(format, "color", Option<[u8; 3]>),
+                    alignment: match field!(format, "alignment", Option<String>).as_deref() {
+                        None => None,
+                        Some("left") => Some(crate::ShapeTextAlignment::Left),
+                        Some("center") => Some(crate::ShapeTextAlignment::Center),
+                        Some("right") => Some(crate::ShapeTextAlignment::Right),
+                        _ => return Err(PyValueError::new_err("unknown shape text alignment")),
+                    },
+                    vertical_alignment: match field!(format, "vertical_alignment", Option<String>)
+                        .as_deref()
+                    {
+                        None => None,
+                        Some("top") => Some(crate::ShapeTextVerticalAlignment::Top),
+                        Some("center") => Some(crate::ShapeTextVerticalAlignment::Center),
+                        Some("bottom") => Some(crate::ShapeTextVerticalAlignment::Bottom),
+                        _ => {
+                            return Err(PyValueError::new_err(
+                                "unknown shape text vertical alignment",
+                            ));
+                        }
+                    },
+                })
+            })?,
             outline: optional_record(o, "outline", |outline| {
                 Ok(crate::ShapeOutline {
                     width: field!(outline, "width", f64),

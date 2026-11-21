@@ -387,3 +387,11 @@ document = Document([Section(children=[paragraph])], numbering=numbering)
 
 See [the standards map](OOXML.md), [module boundaries](MODULES.md), and
 [testing guide](../tests/README.md) for implemented scope and validation limits.
+## Shape text style requests
+
+`ShapeProperties` adds optional `text_format` with adjacent
+`with_text_format(ShapeTextFormat)`; exhaustive Rust literals need the new field
+or `..Default::default()`. Python appends `ShapeRun.text_format` and exports
+`ShapeTextFormat`. Existing omitted styling produces unchanged bytes. Shape text
+uses dedicated DrawingML alignment enums/tokens rather than paragraph formatting;
+see [the contract](FORMATTING.md#shape-text-styling-r8l).

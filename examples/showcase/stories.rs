@@ -509,14 +509,23 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
     out.push(p(
         "Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline.",
     ));
+    out.push(p("Shape text style: blue rectangle, 14.25 pt white text, bold explicitly false, centered horizontally and bottom anchored. Blank middle line preserved; ellipse has no text body."));
     out.push(
         Paragraph::from_children(vec![
             ShapeRun::new(
                 ShapeProperties::default()
-                    .with_width(56.)
-                    .with_height(32.)
+                    .with_width(96.)
+                    .with_height(64.)
                     .with_fill([32, 80, 176])
-                    .with_text("Blue"),
+                    .with_text("Blue\n\nText")
+                    .with_text_format(
+                        ShapeTextFormat::default()
+                            .with_font_size(14.25)
+                            .with_bold(false)
+                            .with_color([255, 255, 255])
+                            .with_alignment(ShapeTextAlignment::Center)
+                            .with_vertical_alignment(ShapeTextVerticalAlignment::Bottom),
+                    ),
             )
             .into(),
             ShapeRun::new(

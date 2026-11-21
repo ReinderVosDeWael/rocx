@@ -274,8 +274,10 @@ def story_blocks() -> list:
         x=360, y=160, wrap="tight", wrap_polygon=[(0, 0), (21600, 21600), (0, 21600)],
     )})]))
     blocks.append(p("Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline."))
+    blocks.append(p("Shape text style: blue rectangle, 14.25 pt white text, bold explicitly false, centered horizontally and bottom anchored. Blank middle line preserved; ellipse has no text body."))
     blocks.append(d.Paragraph(children=[
-        d.ShapeRun(56, 32, fill=(32, 80, 176), text="Blue"),
+        d.ShapeRun(96, 64, fill=(32, 80, 176), text="Blue\n\nText", text_format=d.ShapeTextFormat(
+            font_size=14.25, bold=False, color=(255, 255, 255), alignment="center", vertical_alignment="bottom")),
         d.ShapeRun(44, 32, geometry="ellipse", fill=(32, 144, 80), outline=d.ShapeOutline(1.5, (16, 48, 32))),
     ]))
     blocks.append(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."))

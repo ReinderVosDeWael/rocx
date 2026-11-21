@@ -43,6 +43,71 @@ impl ShapeOutline {
             .map_err(|_| invalid())
     }
 }
+/// Supported DrawingML paragraph alignments, independent of WordprocessingML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShapeTextAlignment {
+    Left,
+    Center,
+    Right,
+}
+impl ShapeTextAlignment {
+    pub(crate) const fn xml(self) -> &'static str {
+        match self {
+            Self::Left => "l",
+            Self::Center => "ctr",
+            Self::Right => "r",
+        }
+    }
+}
+/// Supported DrawingML text-body anchors; this does not position the shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShapeTextVerticalAlignment {
+    Top,
+    Center,
+    Bottom,
+}
+impl ShapeTextVerticalAlignment {
+    pub(crate) const fn xml(self) -> &'static str {
+        match self {
+            Self::Top => "t",
+            Self::Center => "ctr",
+            Self::Bottom => "b",
+        }
+    }
+}
+/// Uniform requests for the shape's plain text, not computed effective styling.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ShapeTextFormat {
+    /// Font size in points (1..=4000), rounded to hundredths of a point.
+    pub font_size: Option<f64>,
+    pub bold: Option<bool>,
+    pub color: Option<[u8; 3]>,
+    pub alignment: Option<ShapeTextAlignment>,
+    pub vertical_alignment: Option<ShapeTextVerticalAlignment>,
+}
+setters!(ShapeTextFormat {
+    with_font_size => font_size: optional<f64>,
+    with_bold => bold: optional<bool>,
+    with_color => color: optional<[u8; 3]>,
+    with_alignment => alignment: optional<ShapeTextAlignment>,
+    with_vertical_alignment => vertical_alignment: optional<ShapeTextVerticalAlignment>,
+});
+impl ShapeTextFormat {
+    pub(crate) fn font_size_hundredths(&self) -> Result<Option<i64>, Diagnostic> {
+        self.font_size
+            .map(|size| {
+                if !(1. ..=4000.).contains(&size) {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidMeasurement,
+                        "shape text font size must be between 1 and 4000 points",
+                    )
+                    .at("shape.text_format.font_size"));
+                }
+                Points::new(size)?.scaled(100.)
+            })
+            .transpose()
+    }
+}
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapeProperties {
     pub width: f64,
@@ -51,6 +116,7 @@ pub struct ShapeProperties {
     pub fill: Option<[u8; 3]>,
     pub text: Option<String>,
     pub outline: Option<ShapeOutline>,
+    pub text_format: Option<ShapeTextFormat>,
 }
 setters!(ShapeProperties {
     with_width => width: value<f64>,
@@ -59,6 +125,7 @@ setters!(ShapeProperties {
     with_fill => fill: optional<[u8; 3]>,
     with_text => text: optional_into<String>,
     with_outline => outline: optional<ShapeOutline>,
+    with_text_format => text_format: optional<ShapeTextFormat>,
 });
 impl Default for ShapeProperties {
     fn default() -> Self {
@@ -69,6 +136,7 @@ impl Default for ShapeProperties {
             fill: None,
             text: None,
             outline: None,
+            text_format: None,
         }
     }
 }
@@ -77,6 +145,9 @@ impl ShapeProperties {
         self.dimensions_emu()?;
         if let Some(outline) = &self.outline {
             outline.width_emu()?;
+        }
+        if let Some(format) = &self.text_format {
+            format.font_size_hundredths()?;
         }
         Ok(())
     }
