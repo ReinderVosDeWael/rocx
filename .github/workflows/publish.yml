@@ -1,0 +1,180 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ROCX_SCHEMA_DIR: ${{ github.workspace }}/.validation-schemas
+      ROCX_REQUIRE_SCHEMAS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Check tag and package versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python tools/check_release.py
+      - run: uv sync --locked --group test
+      - run: cargo fmt --check
+      - run: cargo test --locked --all-features --all-targets
+      - run: cargo test --locked --all-features --doc
+      - run: cargo clippy --locked --all-features --all-targets -- -D warnings
+      - name: Verify the crate package
+        run: cargo publish --dry-run --locked
+      - uses: actions/cache@v4
+        id: schemas
+        with:
+          path: ${{ env.ROCX_SCHEMA_DIR }}
+          key: official-schemas-${{ hashFiles('tools/validate_ooxml.py') }}
+      - if: steps.schemas.outputs.cache-hit != 'true'
+        run: uv run --no-sync python tools/validate_ooxml.py --download-schemas
+      - run: uv run --no-sync pytest
+      - run: cargo run --locked --example feature_parity -- "${{ runner.temp }}/features.docx"
+      - run: uv run --no-sync python tools/validate_ooxml.py "${{ runner.temp }}/features.docx"
+      - run: uv run --no-sync python tools/check_wheel.py
+      - name: Check for unintended changes
+        run: git diff --exit-code
+  wheels:
+    name: Wheels (${{ matrix.label }})
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            runner: ubuntu-latest
+            manylinux: "2_17"
+            args: --release --locked --out dist --compatibility pypi -i python3.12
+          - label: windows-x86_64
+            runner: windows-latest
+            args: --release --locked --out dist --compatibility pypi
+          - label: macos-universal2
+            runner: macos-latest
+            args: --release --locked --out dist --target universal2-apple-darwin --compatibility pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Add macOS universal2 targets
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.16.0
+          manylinux: ${{ matrix.manylinux }}
+          args: ${{ matrix.args }}
+      - uses: astral-sh/setup-uv@v6
+        if: runner.os != 'Windows'
+      - name: Smoke-test the wheel
+        if: runner.os != 'Windows'
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/wheel-test"
+          uv pip install --python "$RUNNER_TEMP/wheel-test/bin/python" --no-deps dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-test/bin/python" -c \
+            'import rocx, rocx._native; assert rocx._native.BACKEND == "rust"'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.label }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          maturin-version: v1.16.0
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish Python package
+    needs: [validate, wheels, sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/rocx/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - name: List distributions
+        run: ls -lh dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true
+
+  publish-crate:
+    name: Publish Rust crate
+    needs: [validate, wheels, sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/rocx
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CARGO_TOKEN_MISSING: ${{ secrets.CARGO_REGISTRY_TOKEN == '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Authenticate with crates.io
+        id: auth
+        if: env.CARGO_TOKEN_MISSING == 'true'
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish crate
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
