@@ -18,7 +18,7 @@ mod notes;
 mod ranges;
 mod revisions;
 mod editor;
-pub(crate) use editor::encode_editor_tables;
+pub(crate) use editor::{encode_editor_tables, encode_header_image};
 pub(crate) struct Compiler<'a> {
     package: Package,
     main: String,

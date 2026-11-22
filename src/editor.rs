@@ -10,7 +10,12 @@ use crate::{Alignment, Diagnostic, Error, ResolvedTable, Result, Rule};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod header;
 mod insertion;
+pub use header::{
+    HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
+    ImportedHeader,
+};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]

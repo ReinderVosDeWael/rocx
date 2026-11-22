@@ -35,15 +35,17 @@ impl MediaRegistry {
     }
     pub fn register(&mut self, package: &mut Package, image: &ResolvedImage) -> Result<String> {
         let key = fingerprint(&image.data);
-        if let Some(candidates) = self.by_hash.get(&key)
-            && let Some((_, path)) = candidates.iter().find(|(_, path)| {
-                package
+        if let Some(candidates) = self.by_hash.get(&key) {
+            for (_, path) in candidates {
+                if package
                     .parts
                     .get(path)
                     .is_some_and(|bytes| *bytes == image.data)
-            })
-        {
-            return Ok(path.clone());
+                    && package.content_type_for(path)?.as_deref() == Some(&image.content_type)
+                {
+                    return Ok(path.clone());
+                }
+            }
         }
         let path = package.unique("word/media/image", &image.extension);
         package.parts.insert(path.clone(), image.data.clone());

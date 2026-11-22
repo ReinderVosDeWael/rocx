@@ -557,5 +557,33 @@ pub async fn generate(output: &Path) -> Result<()> {
         }],
     )?;
     std::fs::write(output.with_extension("edited.docx"), preview.to_docx()?)?;
+
+    // Both previews start from the same snapshot: two sections share one header part.
+    let mut first = Section::new(vec![p("Header image scope: first section.")]);
+    first.headers.insert(
+        HeaderFooterType::Default,
+        Header::new(vec![p("Header image scope: shared source header.")]).into(),
+    );
+    let second = Section::new(vec![p("Header image scope: second section shares the same header.")]);
+    let mut source = Document::new(vec![first.into(), second.into()]);
+    source.timestamp = Some(STAMP.into()).into();
+    let source = source.resolve().await?.to_docx()?;
+    std::fs::write(output.with_extension("header-source.docx"), &source)?;
+    let imported = editor::ImportedDocument::open(&source)?;
+    let headers = imported.default_headers()?;
+    assert_eq!(headers[0].part_name, headers[1].part_name);
+    let target = &headers[1];
+    let resolved = image("png", None).await?.expect("showcase image");
+    for (mode, suffix) in [
+        (editor::HeaderEditMode::Shared, "header-shared.docx"),
+        (editor::HeaderEditMode::SectionLocal, "header-local.docx"),
+    ] {
+        let preview = imported.preview_header_image(&editor::HeaderImageEdit {
+            target: target.anchor.clone(),
+            mode,
+            image: resolved.image().expect("resolved image").clone(),
+        })?;
+        std::fs::write(output.with_extension(suffix), preview.to_docx()?)?;
+    }
     Ok(())
 }

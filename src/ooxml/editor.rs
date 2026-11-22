@@ -3,8 +3,8 @@
 
 use super::{Compiler, StoryContent, WordParts, style_catalog::StyleCatalog};
 use crate::{
-    Diagnostic, ResolvedBlock, ResolvedDocument, ResolvedInline, ResolvedSection, ResolvedTable,
-    Result, Rule, StoryKind,
+    Diagnostic, DrawingId, ResolvedBlock, ResolvedDocument, ResolvedImage, ResolvedInline,
+    ResolvedSection, ResolvedTable, Result, Rule, StoryKind,
     opc::{Package, PartName},
     xml::Node,
 };
@@ -19,21 +19,7 @@ pub(crate) fn encode_editor_tables(
         .into_iter()
         .map(|(table, width)| (ResolvedBlock::Table(table), width))
         .unzip();
-    let doc = ResolvedDocument {
-        sections: vec![ResolvedSection {
-            blocks,
-            properties: None,
-            headers: Default::default(),
-            footers: Default::default(),
-        }],
-        metadata: Default::default(),
-        styles: Vec::new(),
-        numbering: Vec::new(),
-        notes: Vec::new(),
-        defaults: None,
-        comment_author: None,
-        timestamp: String::new(),
-    };
+    let doc = fragment(blocks);
     let mut style_refs = BTreeSet::new();
     check_payload(doc.sections()[0].blocks(), &mut style_refs)?;
     let style_part = if style_refs.is_empty() {
@@ -54,9 +40,75 @@ pub(crate) fn encode_editor_tables(
     }
     doc.validate()?;
 
-    // Table payloads in this slice may use existing styles and external links.
-    // Parts and ID catalogs not involved in those operations are not scanned.
-    let mut renderer = Compiler {
+    let mut renderer = fragment_compiler(package, main, styles, &doc);
+    let story =
+        renderer
+            .stories
+            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+    let mut output = Vec::with_capacity(widths.len());
+    for (block, width) in doc.sections()[0].blocks().iter().zip(widths) {
+        let context = renderer.context(story, width);
+        output.extend(renderer.blocks(std::slice::from_ref(block), &context)?);
+    }
+    Ok((renderer.package, output))
+}
+
+pub(crate) fn encode_header_image(
+    package: Package,
+    main: &str,
+    header: &str,
+    image: &ResolvedImage,
+) -> Result<(Package, Node)> {
+    if image.anchor.is_some() {
+        return Err(Diagnostic::new(
+            Rule::UnsupportedEdit,
+            "header image insertion requires an inline image",
+        )
+        .at("editor.header")
+        .into());
+    }
+    let doc = fragment(Vec::new());
+    let styles = StyleCatalog::new(&Node::new("w:styles"))?;
+    let drawing = DrawingId::new(super::defaults::drawing_ceiling(&package));
+    let media = super::resources::MediaRegistry::from_package(&package)?;
+    let mut renderer = fragment_compiler(package, main, styles, &doc);
+    renderer.drawing = drawing;
+    renderer.media = media;
+    let story = renderer.stories.register(
+        StoryKind::Header,
+        PartName::new(header)?,
+        StoryContent::Blocks,
+    )?;
+    let context = renderer.context(story, 1); // Inline pictures use resolved dimensions.
+    let node = Node::new("w:p").with(renderer.image(image, &context)?);
+    Ok((renderer.package, node))
+}
+
+fn fragment(blocks: Vec<ResolvedBlock>) -> ResolvedDocument {
+    ResolvedDocument {
+        sections: vec![ResolvedSection {
+            blocks,
+            properties: None,
+            headers: Default::default(),
+            footers: Default::default(),
+        }],
+        metadata: Default::default(),
+        styles: Vec::new(),
+        numbering: Vec::new(),
+        notes: Vec::new(),
+        defaults: None,
+        comment_author: None,
+        timestamp: String::new(),
+    }
+}
+
+fn fragment_compiler<'a>(
+    package: Package,
+    main: &str,
+    styles: StyleCatalog,
+    document: &'a ResolvedDocument,
+) -> Compiler<'a> {
+    Compiler {
         package,
         main: main.into(),
         drawing: Default::default(),
@@ -68,18 +120,8 @@ pub(crate) fn encode_editor_tables(
         ranges: Default::default(),
         notes: Default::default(),
         styles,
-        document: &doc,
-    };
-    let story =
-        renderer
-            .stories
-            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
-    let mut output = Vec::with_capacity(widths.len());
-    for (block, width) in doc.sections()[0].blocks().iter().zip(widths) {
-        let context = renderer.context(story, width);
-        output.extend(renderer.blocks(std::slice::from_ref(block), &context)?);
+        document,
     }
-    Ok((renderer.package, output))
 }
 
 fn unsupported(message: &str) -> Diagnostic {

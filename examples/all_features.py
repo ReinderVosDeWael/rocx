@@ -9,7 +9,7 @@ import sys
 
 import rocx
 from rocx import declarative as d
-from rocx.editor import ImportedDocument, ParagraphAlignmentEdit, TableInsertion
+from rocx.editor import HeaderImageEdit, ImportedDocument, ParagraphAlignmentEdit, TableInsertion
 
 STAMP = "2026-11-19T00:00:00Z"
 IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
@@ -449,6 +449,23 @@ async def generate(output: pathlib.Path) -> bytes:
     preview = imported.preview([ParagraphAlignmentEdit(targets[0].anchor, "center")],
                                table_insertions=[insertion])
     output.with_suffix(".edited.docx").write_bytes(preview.to_docx())
+
+    # Independent previews where both sections share one simple header.
+    source = d.Document([
+        d.Section([p("Header image scope: first section.")],
+                  headers={"default": d.Header([p("Header image scope: shared source header.")])}),
+        d.Section([p("Header image scope: second section shares the same header.")]),
+    ], timestamp=STAMP)
+    source_bytes = await (await source.resolve()).to_bytes()
+    output.with_suffix(".header-source.docx").write_bytes(source_bytes)
+    header_doc = ImportedDocument.open(source_bytes)
+    target = next(header for header in header_doc.default_headers
+                  if header.section_index == 1)
+    resolved_image = await image("png").resolve()
+    for mode, suffix in [("shared", ".header-shared.docx"),
+                         ("section_local", ".header-local.docx")]:
+        edit = HeaderImageEdit(target.anchor, resolved_image, mode=mode)
+        output.with_suffix(suffix).write_bytes(header_doc.preview_header_image(edit).to_docx())
     return data
 
 

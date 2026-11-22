@@ -28,6 +28,21 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     edited = rust.with_suffix(".edited.docx").read_bytes()
     checks.exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
     checks.verify_edited(rust.read_bytes(), edited)
+    suffixes = [".header-source.docx", ".header-shared.docx", ".header-local.docx"]
+    for suffix in suffixes:
+        checks.exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
+    checks.verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in suffixes))
+
+
+def test_header_scope_coverage_rejects_wrong_preview(catalogs) -> None:
+    rust, _ = catalogs
+    source, shared, local = (rust.with_suffix(suffix).read_bytes() for suffix in [
+        ".header-source.docx", ".header-shared.docx", ".header-local.docx"
+    ])
+    with pytest.raises(AssertionError):
+        checks.verify_header_scopes(source, local, shared)
+    with pytest.raises(AssertionError):
+        checks.verify_header_scopes(source, source, local)
 
 
 def test_edit_coverage_rejects_unchanged_catalog(catalogs) -> None:

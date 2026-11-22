@@ -116,12 +116,20 @@ pub(crate) fn prepare(p: &mut Package, main: &str) -> Result<u32> {
             p.content_type(path, mime)?;
         }
     }
+    Ok(drawing_ceiling(p))
+}
+
+pub(super) fn drawing_ceiling(p: &Package) -> u32 {
     let mut drawing = 0;
     for (name, data) in &p.parts {
-        if name.ends_with(".xml")
+        if name
+            .rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("xml"))
             && (data.windows(5).any(|w| w == b"docPr" || w == b"cNvPr")
                 || data.starts_with(&[0xff, 0xfe])
-                || data.starts_with(&[0xfe, 0xff]))
+                || data.starts_with(&[0xfe, 0xff])
+                || data.starts_with(&[0x3c, 0])
+                || data.starts_with(&[0, 0x3c]))
             && let Ok(node) = Node::parse(data)
         {
             fn max_id(n: &Node) -> u32 {
@@ -129,7 +137,7 @@ pub(crate) fn prepare(p: &mut Package, main: &str) -> Result<u32> {
                     .map(max_id)
                     .chain(
                         matches!(n.name.as_str(), "wp:docPr" | "a:cNvPr" | "pic:cNvPr")
-                            .then(|| n.get("id").and_then(|i| i.parse().ok()))
+                            .then(|| n.get("id").and_then(|i| i.trim().parse().ok()))
                             .flatten(),
                     )
                     .max()
@@ -138,5 +146,5 @@ pub(crate) fn prepare(p: &mut Package, main: &str) -> Result<u32> {
             drawing = drawing.max(max_id(&node));
         }
     }
-    Ok(drawing)
+    drawing
 }

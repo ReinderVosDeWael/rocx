@@ -45,6 +45,10 @@ fn fixture_with_body(xml: &str) -> Vec<u8> {
     .unwrap();
     let mut entries = parts(&original);
     entries.insert("word/document.xml".into(), xml.as_bytes().to_vec());
+    package_bytes(entries)
+}
+
+fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (name, bytes) in entries {
         writer
@@ -530,4 +534,360 @@ fn table_after_section_terminator_uses_next_section_width() {
         .map(|n| n.attribute((W, "w")).unwrap())
         .collect();
     assert_eq!(widths, ["5000", "5000"]);
+}
+
+// These packages are synthetic; they do not claim Word-authored provenance.
+fn header_fixture(content: &str, hyperlink: bool) -> Vec<u8> {
+    let mut entries = parts(&fixture());
+    let body = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>
+<w:p><w:pPr><w:sectPr><w:headerReference w:type="default" r:id="headerTest"/></w:sectPr></w:pPr></w:p>
+<w:p><w:pPr><w:sectPr/></w:pPr></w:p>
+<w:p/><w:sectPr/></w:body></w:document>"#;
+    entries.insert("word/document.xml".into(), body.as_bytes().to_vec());
+    let rel_name = "word/_rels/document.xml.rels";
+    let rels = String::from_utf8(entries[rel_name].clone()).unwrap();
+    let rels = rels.replace("</Relationships>", r#"<Relationship Id="headerTest" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="headerTest.xml"/></Relationships>"#);
+    entries.insert(rel_name.into(), rels.into_bytes());
+    let types_name = "[Content_Types].xml";
+    let types = String::from_utf8(entries[types_name].clone()).unwrap();
+    let types = types.replace("</Types>", r#"<Override PartName="/word/headerTest.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>"#);
+    entries.insert(types_name.into(), types.into_bytes());
+    let header = format!(
+        r#"<w:hdr xmlns:w="{W}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">{content}</w:hdr>"#
+    );
+    entries.insert("word/headerTest.xml".into(), header.into_bytes());
+    if hyperlink {
+        entries.insert("word/_rels/headerTest.xml.rels".into(), br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="link1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.invalid/header" TargetMode="External"/></Relationships>"#.to_vec());
+    }
+    package_bytes(entries)
+}
+
+fn header_image() -> rocx::ResolvedImage {
+    use rocx::{Component, ImageRun};
+    block_on(Component::resolve(ImageRun::new(
+        include_bytes!("fixtures/images/sample.png").to_vec(),
+    )))
+    .unwrap()
+    .unwrap()
+    .image()
+    .unwrap()
+    .clone()
+}
+
+fn assert_header_image_relationship(output: &BTreeMap<String, Vec<u8>>, part: &str) {
+    const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const REL: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
+    const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    let part = part.trim_start_matches('/');
+    let (dir, filename) = part.rsplit_once('/').unwrap();
+    let rel_name = format!("{dir}/_rels/{filename}.rels");
+    let header = roxmltree::Document::parse(std::str::from_utf8(&output[part]).unwrap()).unwrap();
+    let id = header
+        .descendants()
+        .find(|n| n.has_tag_name((A, "blip")))
+        .unwrap()
+        .attribute((R, "embed"))
+        .unwrap();
+    let rels =
+        roxmltree::Document::parse(std::str::from_utf8(&output[&rel_name]).unwrap()).unwrap();
+    let rel = rels
+        .descendants()
+        .find(|n| n.has_tag_name((REL, "Relationship")) && n.attribute("Id") == Some(id))
+        .unwrap();
+    assert!(rel.attribute("Type").unwrap().ends_with("/image"));
+    let target = rel.attribute("Target").unwrap();
+    let image_part = rocx::opc::PartName::resolve(part, target).unwrap();
+    assert_eq!(
+        output[image_part.zip_name()],
+        include_bytes!("fixtures/images/sample.png")
+    );
+}
+
+#[test]
+fn shared_header_edit_reports_all_consumers_and_owns_image_relationship() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let input = header_fixture("<w:p><w:r><w:t>original</w:t></w:r></w:p>", false);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let headers = doc.default_headers().unwrap();
+    assert_eq!(headers.len(), 3);
+    assert_eq!(
+        headers.iter().map(|h| h.section_index).collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(
+        headers.iter().map(|h| h.inherited).collect::<Vec<_>>(),
+        [false, true, true]
+    );
+    assert!(headers.iter().all(|h| h.part_name == headers[0].part_name));
+    let edit = HeaderImageEdit {
+        target: headers[1].anchor.clone(),
+        mode: HeaderEditMode::Shared,
+        image: header_image(),
+    };
+    let preview = doc.preview_header_image(&edit).unwrap();
+    let change = preview.change();
+    assert_eq!(change.source_part, headers[0].part_name);
+    assert_eq!(change.output_part, change.source_part);
+    assert_eq!(change.affected_sections, [0, 1, 2]);
+    assert_eq!(change.restored_section, None);
+    assert_eq!(change.mode, HeaderEditMode::Shared);
+    let output = parts(&preview.to_docx().unwrap());
+    assert_header_image_relationship(&output, &change.output_part);
+    let original = parts(&input);
+    for (name, bytes) in &original {
+        if name != "word/headerTest.xml" && name != "[Content_Types].xml" {
+            assert_eq!(output.get(name), Some(bytes), "{name}");
+        }
+    }
+}
+
+#[test]
+fn local_header_edit_restores_later_inheritors_and_preserves_link() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let input = header_fixture(
+        r#"<w:p><w:hyperlink r:id="link1"><w:r><w:t>linked</w:t></w:r></w:hyperlink></w:p>"#,
+        true,
+    );
+    for section in [0, 1] {
+        let doc = ImportedDocument::open(&input).unwrap();
+        let headers = doc.default_headers().unwrap();
+        let edit = HeaderImageEdit {
+            target: headers[section].anchor.clone(),
+            mode: HeaderEditMode::SectionLocal,
+            image: header_image(),
+        };
+        let preview = doc.preview_header_image(&edit).unwrap();
+        let change = preview.change();
+        assert_eq!(change.source_part, headers[section].part_name);
+        assert_ne!(change.output_part, change.source_part);
+        assert_eq!(change.affected_sections, [section]);
+        assert_eq!(change.restored_section, Some(section + 1));
+        assert_eq!(change.mode, HeaderEditMode::SectionLocal);
+        let bytes = preview.to_docx().unwrap();
+        let output = parts(&bytes);
+        assert_header_image_relationship(&output, &change.output_part);
+        assert_eq!(
+            output["word/headerTest.xml"],
+            parts(&input)["word/headerTest.xml"]
+        );
+        assert_eq!(
+            output["word/_rels/headerTest.xml.rels"],
+            parts(&input)["word/_rels/headerTest.xml.rels"]
+        );
+        let reopened = ImportedDocument::open(&bytes).unwrap();
+        let after = reopened.default_headers().unwrap();
+        for (index, header) in after.iter().enumerate() {
+            assert_eq!(
+                header.part_name,
+                if index == section {
+                    &change.output_part
+                } else {
+                    &change.source_part
+                }
+                .as_str(),
+                "section {index}"
+            );
+        }
+        let part = change.output_part.trim_start_matches('/');
+        let (dir, filename) = part.rsplit_once('/').unwrap();
+        let rels = format!("{dir}/_rels/{filename}.rels");
+        let header = std::str::from_utf8(&output[part]).unwrap();
+        let header = roxmltree::Document::parse(header).unwrap();
+        let id = header
+            .descendants()
+            .find(|n| n.has_tag_name((W, "hyperlink")))
+            .unwrap()
+            .attribute((
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                "id",
+            ))
+            .unwrap();
+        let rels =
+            roxmltree::Document::parse(std::str::from_utf8(&output[&rels]).unwrap()).unwrap();
+        let link = rels
+            .descendants()
+            .find(|n| n.attribute("Id") == Some(id))
+            .unwrap();
+        assert_eq!(
+            link.attribute("Target"),
+            Some("https://example.invalid/header")
+        );
+        assert_eq!(link.attribute("TargetMode"), Some("External"));
+    }
+}
+
+#[test]
+fn local_header_rejects_identity_bearing_and_unknown_content_and_stale_anchors() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    for content in [
+        r#"<w:p><w:r><w:drawing/></w:r></w:p>"#,
+        r#"<w:p><w:bookmarkStart w:id="1" w:name="identity"/></w:p>"#,
+        r#"<w:p><w:customXml w:element="unknown"/></w:p>"#,
+    ] {
+        let input = header_fixture(content, false);
+        let doc = ImportedDocument::open(&input).unwrap();
+        let headers = doc.default_headers().unwrap();
+        let edit = HeaderImageEdit {
+            target: headers[1].anchor.clone(),
+            mode: HeaderEditMode::SectionLocal,
+            image: header_image(),
+        };
+        assert!(doc.preview_header_image(&edit).is_err(), "{content}");
+    }
+    let input = header_fixture("<w:p/>", false);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let other = ImportedDocument::open(&input).unwrap();
+    let edit = HeaderImageEdit {
+        target: other.default_headers().unwrap()[0].anchor.clone(),
+        mode: HeaderEditMode::Shared,
+        image: header_image(),
+    };
+    assert!(doc.preview_header_image(&edit).is_err());
+}
+
+#[test]
+fn local_header_forks_beside_relocated_source_with_prefixed_relationships() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let original = header_fixture(
+        r#"<w:p><w:hyperlink r:id="link1"><w:r><w:t>linked</w:t></w:r></w:hyperlink></w:p>"#,
+        true,
+    );
+    let mut entries = parts(&original);
+    let header = entries.remove("word/headerTest.xml").unwrap();
+    entries.insert("content/headers/source.xml".into(), header);
+    let links = entries.remove("word/_rels/headerTest.xml.rels").unwrap();
+    entries.insert("content/headers/_rels/source.xml.rels".into(), links);
+    let replace = |xml: &mut Vec<u8>, substitutions: &[(&str, &str)]| {
+        let mut text = String::from_utf8(std::mem::take(xml)).unwrap();
+        for (from, to) in substitutions {
+            text = text.replace(from, to);
+        }
+        *xml = text.into_bytes();
+    };
+    for rels in [
+        "word/_rels/document.xml.rels",
+        "content/headers/_rels/source.xml.rels",
+    ] {
+        replace(
+            entries.get_mut(rels).unwrap(),
+            &[
+                ("<Relationships xmlns=", "<p:Relationships xmlns:p="),
+                ("</Relationships>", "</p:Relationships>"),
+                ("<Relationship ", "<p:Relationship "),
+                (
+                    r#"Target="headerTest.xml""#,
+                    r#"Target="../content/headers/source.xml""#,
+                ),
+            ],
+        );
+    }
+    replace(
+        entries.get_mut("[Content_Types].xml").unwrap(),
+        &[
+            ("<Types xmlns=", "<p:Types xmlns:p="),
+            ("</Types>", "</p:Types>"),
+            ("<Default ", "<p:Default "),
+            ("<Override ", "<p:Override "),
+            ("/word/headerTest.xml", "/content/headers/source.xml"),
+        ],
+    );
+    let input = package_bytes(entries);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let preview = doc
+        .preview_header_image(&HeaderImageEdit {
+            target: doc.default_headers().unwrap()[1].anchor.clone(),
+            mode: HeaderEditMode::SectionLocal,
+            image: header_image(),
+        })
+        .unwrap();
+    assert_eq!(preview.change().source_part, "content/headers/source.xml");
+    assert!(preview.change().output_part.starts_with("content/headers/"));
+    let output = parts(&preview.to_docx().unwrap());
+    assert_header_image_relationship(&output, &preview.change().output_part);
+    assert_eq!(
+        output["content/headers/_rels/source.xml.rels"],
+        parts(&input)["content/headers/_rels/source.xml.rels"]
+    );
+}
+
+#[test]
+fn shared_edit_reserves_drawing_ids_from_bomless_utf16_parts() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let input = header_fixture(
+        r#"<w:p xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:r><w:drawing><wp:inline><wp:docPr id="91" name="old"/></wp:inline></w:drawing></w:r></w:p>"#,
+        false,
+    );
+    let mut entries = parts(&input);
+    let header = entries.get_mut("word/headerTest.xml").unwrap();
+    *header = std::str::from_utf8(header)
+        .unwrap()
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let doc = ImportedDocument::open(&package_bytes(entries)).unwrap();
+    let preview = doc
+        .preview_header_image(&HeaderImageEdit {
+            target: doc.default_headers().unwrap()[0].anchor.clone(),
+            mode: HeaderEditMode::Shared,
+            image: header_image(),
+        })
+        .unwrap();
+    let output = parts(&preview.to_docx().unwrap());
+    let header =
+        roxmltree::Document::parse(std::str::from_utf8(&output["word/headerTest.xml"]).unwrap())
+            .unwrap();
+    let ids: Vec<_> = header
+        .descendants()
+        .filter(|n| n.tag_name().name() == "docPr")
+        .map(|n| n.attribute("id").unwrap())
+        .collect();
+    assert_eq!(ids, ["91", "92"]);
+}
+
+#[test]
+fn shared_edit_counts_aliases_on_first_page_headers() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let mut entries = parts(&header_fixture("<w:p/>", false));
+    let mut rewrite = |path: &str, old: &str, new: &str| {
+        let xml = entries.get_mut(path).unwrap();
+        let source = std::str::from_utf8(xml).unwrap();
+        assert!(source.contains(old));
+        *xml = source.replace(old, new).into_bytes();
+    };
+    rewrite(
+        "word/document.xml",
+        "<w:sectPr/></w:pPr>",
+        r#"<w:sectPr><w:headerReference w:type="default" r:id="otherHeader"/></w:sectPr></w:pPr>"#,
+    );
+    rewrite(
+        "word/document.xml",
+        "<w:sectPr/></w:body>",
+        r#"<w:sectPr><w:headerReference w:type="first" r:id="aliasForHeaderTest"/><w:titlePg/></w:sectPr></w:body>"#,
+    );
+    rewrite(
+        "word/_rels/document.xml.rels",
+        "</Relationships>",
+        r#"<Relationship Id="otherHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="other.xml"/><Relationship Id="aliasForHeaderTest" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="headerTest.xml"/></Relationships>"#,
+    );
+    rewrite(
+        "[Content_Types].xml",
+        "</Types>",
+        r#"<Override PartName="/word/other.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>"#,
+    );
+    entries.insert(
+        "word/other.xml".into(),
+        entries["word/headerTest.xml"].clone(),
+    );
+    let doc = ImportedDocument::open(&package_bytes(entries)).unwrap();
+    let headers = doc.default_headers().unwrap();
+    assert_eq!(headers[1].part_name, headers[2].part_name);
+    assert_ne!(headers[0].part_name, headers[1].part_name);
+    let preview = doc
+        .preview_header_image(&HeaderImageEdit {
+            target: headers[0].anchor.clone(),
+            mode: HeaderEditMode::Shared,
+            image: header_image(),
+        })
+        .unwrap();
+    assert_eq!(preview.change().affected_sections, [0, 2]);
 }

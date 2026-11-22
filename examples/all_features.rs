@@ -8,6 +8,7 @@
 //! The template-edit sample also updates string and boolean custom document properties.
 //! The catalog labels the mandatory namespace policy for edited template parts.
 //! A separate edited catalog demonstrates a batched alignment patch and anchored table insertion.
+//! Separate labeled header artifacts compare shared and section-local image edits.
 //! Document properties also include the company and manager.
 //! Includes chainable authoring builders and omitted/true/false formatting.
 //! Demonstrates two concrete lists sharing an authored abstract numbering ID and separate formatting, paragraph style links, and an inherited numbering style.

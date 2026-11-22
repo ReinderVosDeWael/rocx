@@ -87,11 +87,22 @@ automatic tables only in simple single-column sections and rejects insertion
 inside active or ambiguous supported ranges. Other inline objects, numbering,
 comments, revisions, and content controls in inserted tables remain open.
 
+The editor also inspects existing default-header references and appends an
+inline image through a separate preview. Shared mode lists all sections that
+reference or inherit that part, including first/even aliases. Section-local
+mode forks a supported text-and-link header, keeps the original part and its
+relationships, and reports any following section explicitly redirected back
+to the original to preserve inheritance. Section-local copies with existing
+drawings, fields, controls, or unknown content are refused rather than
+duplicating source identities.
+
 The paired catalogs exercise the batch. Exact final, template, and edited
 Rust/Python DOCX byte parity passed, and both edited artifacts validated 20
-schema-covered parts plus OPC relationships. Preservation and section-boundary
-tests use synthetic WordprocessingML; the Word-authored fixture milestone and
-shared-header editing are still open.
+schema-covered parts plus OPC relationships. The separate header source and
+both header edit modes passed exact Rust/Python byte parity and schema
+validation (10 covered parts for the source and shared output, 11 for local).
+Preservation, section-boundary, and inheritance tests use synthetic or
+rocx-authored sources; the Word-authored fixture milestone is still open.
 
 ## Deferred backlog
 

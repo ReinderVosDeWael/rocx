@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import pathlib
+import posixpath
 import re
 import subprocess
 import sys
@@ -120,6 +121,73 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             assert cells[0].xpath(".//w:r[w:t=$label]/w:rPr/w:b/@w:val",
                                   namespaces=NS, label=EDIT_TABLE_LABEL) == ["1"]
             assert cells[1].xpath(".//w:t/text()", namespaces=NS) == ["Fixed-width second column"]
+
+
+def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
+    """Check effective header identity, image scope and untouched package payloads."""
+    def headers(package):
+        document = etree.fromstring(package.read("word/document.xml"))
+        relationships = etree.fromstring(package.read("word/_rels/document.xml.rels"))
+        targets = {r.get("Id"): posixpath.normpath(posixpath.join("word", r.get("Target"))).lstrip("/")
+                   for r in relationships}
+        sections = document.xpath("//w:sectPr", namespaces=NS)
+        assert len(sections) == 2
+        effective = []
+        current = None
+        for section in sections:
+            refs = section.xpath("w:headerReference[@w:type='default']/@odr:id", namespaces=NS)
+            if refs:
+                assert len(refs) == 1
+                current = targets[refs[0]]
+            assert current
+            effective.append(current)
+        return effective
+
+    def drawing_count(package, part):
+        root = etree.fromstring(package.read(part))
+        assert root.xpath("//w:t/text()", namespaces=NS) == [
+            "Header image scope: shared source header."
+        ]
+        drawings = root.xpath("//w:drawing", namespaces=NS)
+        if drawings:
+            ids = root.xpath("//w:drawing//a:blip/@odr:embed", namespaces=NS)
+            assert len(ids) == len(drawings) == 1
+            directory, filename = posixpath.split(part)
+            rels = etree.fromstring(package.read(f"{directory}/_rels/{filename}.rels"))
+            relationship = [r for r in rels if r.get("Id") == ids[0]]
+            assert len(relationship) == 1
+            assert relationship[0].get("Type") == f"{NS['odr']}/image"
+            target = relationship[0].get("Target")
+            image_part = posixpath.normpath(posixpath.join(directory, target)).lstrip("/")
+            assert package.read(image_part) == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
+        return len(drawings)
+
+    with zipfile.ZipFile(io.BytesIO(original)) as source, \
+            zipfile.ZipFile(io.BytesIO(shared)) as shared_zip, \
+            zipfile.ZipFile(io.BytesIO(local)) as local_zip:
+        original_headers = headers(source)
+        assert original_headers[0] == original_headers[1]
+        assert drawing_count(source, original_headers[0]) == 0
+        shared_headers = headers(shared_zip)
+        local_headers = headers(local_zip)
+        assert shared_headers == original_headers
+        assert local_headers[0] == original_headers[0] and local_headers[1] != local_headers[0]
+        assert drawing_count(shared_zip, shared_headers[0]) == 1
+        assert drawing_count(local_zip, local_headers[0]) == 0
+        assert drawing_count(local_zip, local_headers[1]) == 1
+
+        for result, mutable in [
+            (shared_zip, {original_headers[0], "[Content_Types].xml"}),
+            (local_zip, {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml"}),
+        ]:
+            source_names, result_names = set(source.namelist()), set(result.namelist())
+            assert source_names <= result_names
+            for name in source_names - mutable:
+                assert source.read(name) == result.read(name), name
+            for name in result_names - source_names:
+                assert name.startswith("word/media/") or re.fullmatch(
+                    r"word/(?:rocx-header\d+\.xml|_rels/(?:rocx-)?header\d+\.xml\.rels)", name
+                ), name
 
 
 def verify_content(data: bytes, template: bytes) -> None:
@@ -578,6 +646,11 @@ def main() -> None:
     edited_digest = exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
     verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
     verify_edited(rust.read_bytes(), edited)
+    for suffix in [".header-source.docx", ".header-shared.docx", ".header-local.docx"]:
+        exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
+    verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in [
+        ".header-source.docx", ".header-shared.docx", ".header-local.docx"
+    ]))
     print(f"Byte-identical DOCX: {len(rust.read_bytes())} bytes; SHA-256 {digest}")
     print(f"Byte-identical edited DOCX: {len(edited)} bytes; SHA-256 {edited_digest}")
     print(f"Rust:   {rust}\nPython: {python}")

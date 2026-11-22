@@ -160,6 +160,12 @@ impl BoundaryState {
     }
 }
 
+pub(super) fn can_append(story: &Node) -> bool {
+    let mut boundaries = BoundaryState::default();
+    boundaries.advance(story);
+    boundaries.safe()
+}
+
 fn range_marker(name: &str) -> Option<(&'static str, bool)> {
     let (prefix, start) = if let Some(prefix) = name.strip_suffix("Start") {
         (prefix, true)

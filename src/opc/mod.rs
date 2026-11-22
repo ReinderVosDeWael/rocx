@@ -14,6 +14,9 @@ use std::{
     collections::BTreeMap,
     io::{Cursor, Read, Write},
 };
+const RELATIONSHIPS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
+const RELATIONSHIPS_MIME: &str = "application/vnd.openxmlformats-package.relationships+xml";
+const CONTENT_TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 #[derive(Clone, Debug)]
 pub(crate) struct Package {
     pub parts: BTreeMap<String, Vec<u8>>,
@@ -190,14 +193,21 @@ impl Package {
             index += 1;
         }
         let id = format!("rId{index}");
-        let mut relationship = Node::new("Relationship")
-            .attr("Id", &id)
-            .attr("Type", typ)
-            .attr("Target", target);
+        let mut relationship = Node::new(crate::xml::Name::expanded(
+            Some(RELATIONSHIPS_NS),
+            "Relationship",
+            None,
+        ))
+        .attr("Id", &id)
+        .attr("Type", typ)
+        .attr("Target", target);
         if external {
             relationship.set("TargetMode", "External");
         }
         rels.push(relationship);
+        if self.content_type_for(&relpath)?.is_none() {
+            self.content_type(&relpath, RELATIONSHIPS_MIME)?;
+        }
         self.put(relpath, rels)?;
         Ok(id)
     }
@@ -265,9 +275,13 @@ impl Package {
             n.set("ContentType", mime);
         } else {
             types.push(
-                Node::new("Override")
-                    .attr("PartName", part)
-                    .attr("ContentType", mime),
+                Node::new(crate::xml::Name::expanded(
+                    Some(CONTENT_TYPES_NS),
+                    "Override",
+                    None,
+                ))
+                .attr("PartName", part)
+                .attr("ContentType", mime),
             );
         }
         self.put("[Content_Types].xml", types)
@@ -281,6 +295,36 @@ impl Package {
             }
             i += 1;
         }
+    }
+    /// Keep relationship IDs and targets when copying a part within its own directory.
+    pub(crate) fn copy_sibling_relationships(&mut self, from: &str, to: &str) -> Result<()> {
+        let from = PartName::new(from)?;
+        let to = PartName::new(to)?;
+        let directory = |part: &str| part.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
+        let destination = relationships_path(to.zip_name());
+        if directory(from.zip_name()) != directory(to.zip_name())
+            || self
+                .parts
+                .keys()
+                .any(|path| path.eq_ignore_ascii_case(&destination))
+        {
+            return Err(Error::Validation(
+                "cannot copy relationships to this part".into(),
+            ));
+        }
+        let source = relationships_path(from.zip_name());
+        if let Some((_, bytes)) = self
+            .parts
+            .iter()
+            .find(|(path, _)| path.eq_ignore_ascii_case(&source))
+        {
+            let bytes = bytes.clone();
+            if self.content_type_for(&destination)?.is_none() {
+                self.content_type(&destination, RELATIONSHIPS_MIME)?;
+            }
+            self.parts.insert(destination, bytes);
+        }
+        Ok(())
     }
     pub fn link(&mut self, owner: &str, kind: &str, target: &str) -> Result<String> {
         self.relation(owner, kind, &PartName::new(target)?.relative_to(owner)?)
