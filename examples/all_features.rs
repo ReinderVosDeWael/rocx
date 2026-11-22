@@ -7,7 +7,7 @@
 //! The template-edit sample uses an unsigned template and labels the signature policy.
 //! The template-edit sample also updates string and boolean custom document properties.
 //! The catalog labels the mandatory namespace policy for edited template parts.
-//! A separate edited catalog demonstrates a previewed, anchored paragraph alignment patch.
+//! A separate edited catalog demonstrates a batched alignment patch and anchored table insertion.
 //! Document properties also include the company and manager.
 //! Includes chainable authoring builders and omitted/true/false formatting.
 //! Demonstrates two concrete lists sharing an authored abstract numbering ID and separate formatting, paragraph style links, and an inherited numbering style.

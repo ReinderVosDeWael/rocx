@@ -1,6 +1,6 @@
 # Editor declarative parity inventory
 
-This is the milestone 1 target inventory for the [editor plan](PLAN.md#next-feature-after-030-agent-editing-with-declarative-parity), not a statement that these editor operations are shipped. The current work builds a first slice for root body projection and paragraph alignment; it is not full parity. Declarative authoring and existing template operations remain separate, supported APIs.
+This is the target inventory for the [editor plan](PLAN.md#next-feature-after-030-agent-editing-with-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection, paragraph alignment patches, and insertion of declarative tables with supported content at direct body paragraphs. Declarative authoring and existing template operations remain separate, supported APIs.
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 

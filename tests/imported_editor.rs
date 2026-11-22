@@ -249,3 +249,285 @@ fn rejects_ambiguous_alignment_without_staging_other_changes() {
         parts(&input)
     );
 }
+
+fn insertion_table() -> rocx::ResolvedTable {
+    use rocx::{Table, TableCell, TableRow};
+    let table = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![Paragraph::new("inserted A").into()]).into(),
+            TableCell::new(vec![Paragraph::new("inserted B").into()]).into(),
+        ])
+        .into(),
+    ]);
+    resolve_insertion_table(table)
+}
+
+fn resolve_insertion_table(table: rocx::Table) -> rocx::ResolvedTable {
+    use rocx::ResolvedBlock;
+    let resolved =
+        block_on(Document::new(vec![Section::new(vec![table.into()]).into()]).resolve()).unwrap();
+    match &resolved.sections()[0].blocks()[0] {
+        ResolvedBlock::Table(table) => table.clone(),
+        _ => panic!("expected table"),
+    }
+}
+
+#[test]
+fn inserts_formatted_content_nested_table_and_fraction() {
+    use rocx::editor::TableInsertion;
+    use rocx::{InlineFraction, RunFormat, Table, TableCell, TableRow, TextRun};
+    let nested = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![Paragraph::new("nested").into()]).into(),
+        ])
+        .into(),
+    ]);
+    let content = Paragraph::from_children(vec![
+        TextRun::new("bold")
+            .with_format(RunFormat {
+                bold: Some(true),
+                ..Default::default()
+            })
+            .into(),
+        InlineFraction::new("1", "2").into(),
+    ]);
+    let table = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![content.into(), nested.into()]).into(),
+        ])
+        .into(),
+    ]);
+    let doc = ImportedDocument::open(&fixture()).unwrap();
+    let preview = doc
+        .preview_batch(
+            &[],
+            &[TableInsertion {
+                target: paragraph(&doc, 3).anchor.clone(),
+                table: resolve_insertion_table(table),
+            }],
+        )
+        .unwrap();
+    let output = parts(&preview.to_docx().unwrap());
+    let parsed =
+        roxmltree::Document::parse(std::str::from_utf8(&output["word/document.xml"]).unwrap())
+            .unwrap();
+    let body = parsed
+        .descendants()
+        .find(|n| n.has_tag_name((W, "body")))
+        .unwrap();
+    let table = body
+        .children()
+        .rfind(|n| n.has_tag_name((W, "tbl")))
+        .unwrap();
+    assert_eq!(
+        table
+            .descendants()
+            .filter(|n| n.has_tag_name((W, "tbl")))
+            .count(),
+        2
+    );
+    assert!(table.descendants().any(|n| n.has_tag_name((W, "b"))));
+    assert!(table.descendants().any(|n| n.tag_name().namespace()
+        == Some("http://schemas.openxmlformats.org/officeDocument/2006/math")
+        && n.tag_name().name() == "f"));
+    assert!(
+        table
+            .descendants()
+            .any(|n| n.has_tag_name((W, "t")) && n.text() == Some("nested"))
+    );
+}
+
+#[test]
+fn inserted_external_hyperlink_uses_document_relationship() {
+    use rocx::editor::TableInsertion;
+    use rocx::{Hyperlink, HyperlinkTarget, Table, TableCell, TableRow, TextRun};
+    const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const REL: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
+    let url = "https://example.invalid/inserted";
+    let link = Hyperlink::new(
+        HyperlinkTarget::external(url).unwrap(),
+        vec![TextRun::new("linked").into()],
+    );
+    let table = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![Paragraph::from_children(vec![link.into()]).into()]).into(),
+        ])
+        .into(),
+    ]);
+    let input = fixture();
+    let doc = ImportedDocument::open(&input).unwrap();
+    let preview = doc
+        .preview_batch(
+            &[],
+            &[TableInsertion {
+                target: paragraph(&doc, 3).anchor.clone(),
+                table: resolve_insertion_table(table),
+            }],
+        )
+        .unwrap();
+    let output = parts(&preview.to_docx().unwrap());
+    let document =
+        roxmltree::Document::parse(std::str::from_utf8(&output["word/document.xml"]).unwrap())
+            .unwrap();
+    let id = document
+        .descendants()
+        .find(|n| n.has_tag_name((W, "hyperlink")))
+        .unwrap()
+        .attribute((R, "id"))
+        .unwrap();
+    let relationships = roxmltree::Document::parse(
+        std::str::from_utf8(&output["word/_rels/document.xml.rels"]).unwrap(),
+    )
+    .unwrap();
+    let relationship = relationships
+        .descendants()
+        .find(|n| n.has_tag_name((REL, "Relationship")) && n.attribute("Id") == Some(id))
+        .unwrap();
+    assert_eq!(relationship.attribute("Target"), Some(url));
+    assert_eq!(relationship.attribute("TargetMode"), Some("External"));
+    assert!(
+        relationship
+            .attribute("Type")
+            .unwrap()
+            .ends_with("/hyperlink")
+    );
+    let original = parts(&input);
+    for (name, payload) in &original {
+        if name != "word/document.xml" && name != "word/_rels/document.xml.rels" {
+            assert_eq!(output.get(name), Some(payload), "part {name}");
+        }
+    }
+}
+
+#[test]
+fn inserts_exactly_after_anchor_in_mixed_batch_and_preserves_untouched_parts() {
+    use rocx::editor::TableInsertion;
+    let input = fixture();
+    let doc = ImportedDocument::open(&input).unwrap();
+    let preview = doc
+        .preview_batch(
+            &[ParagraphAlignmentEdit {
+                target: paragraph(&doc, 3).anchor.clone(),
+                alignment: Alignment::Right,
+            }],
+            &[TableInsertion {
+                target: paragraph(&doc, 0).anchor.clone(),
+                table: insertion_table(),
+            }],
+        )
+        .unwrap();
+    assert_eq!(preview.changes().len(), 1);
+    assert_eq!(preview.insertions().len(), 1);
+    assert_eq!(preview.insertions()[0].after_body_index, 0);
+    assert_eq!(preview.insertions()[0].rows, 1);
+    assert_eq!(preview.insertions()[0].columns, 2);
+    assert_eq!(paragraph(&doc, 3).alignment, None);
+    let original = parts(&input);
+    let output = parts(&preview.to_docx().unwrap());
+    for (name, payload) in &original {
+        if name != "word/document.xml" {
+            assert_eq!(output.get(name), Some(payload), "part {name}");
+        }
+    }
+    let parsed =
+        roxmltree::Document::parse(std::str::from_utf8(&output["word/document.xml"]).unwrap())
+            .unwrap();
+    let body = parsed
+        .descendants()
+        .find(|n| n.has_tag_name((W, "body")))
+        .unwrap();
+    let children: Vec<_> = body.children().filter(|n| n.is_element()).collect();
+    assert_eq!(
+        children
+            .iter()
+            .map(|n| n.tag_name().name())
+            .collect::<Vec<_>>(),
+        ["p", "tbl", "tbl", "sdt", "p", "sectPr"]
+    );
+    assert!(
+        children[1]
+            .descendants()
+            .any(|n| n.has_tag_name((W, "t")) && n.text() == Some("inserted A"))
+    );
+    assert!(
+        children[2]
+            .descendants()
+            .any(|n| n.has_tag_name((W, "t")) && n.text() == Some("in table"))
+    );
+    assert!(
+        children[4]
+            .descendants()
+            .any(|n| n.has_tag_name((W, "jc")) && n.attribute((W, "val")) == Some("right"))
+    );
+}
+
+#[test]
+fn rejects_stale_duplicate_and_crossing_range_insertions_atomically() {
+    use rocx::editor::TableInsertion;
+    let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:bookmarkStart w:id="1" w:name="cross"/><w:r><w:t>first</w:t></w:r></w:p><w:p><w:bookmarkEnd w:id="1"/><w:r><w:t>second</w:t></w:r></w:p><w:sectPr/></w:body></w:document>"#;
+    let input = fixture_with_body(xml);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let other = ImportedDocument::open(&input).unwrap();
+    let insert = |target| TableInsertion {
+        target,
+        table: insertion_table(),
+    };
+    let edit = || ParagraphAlignmentEdit {
+        target: paragraph(&doc, 1).anchor.clone(),
+        alignment: Alignment::Center,
+    };
+    assert!(
+        doc.preview_batch(&[edit()], &[insert(paragraph(&other, 1).anchor.clone())])
+            .is_err()
+    );
+    assert!(
+        doc.preview_batch(
+            &[edit()],
+            &[
+                insert(paragraph(&doc, 1).anchor.clone()),
+                insert(paragraph(&doc, 1).anchor.clone())
+            ]
+        )
+        .is_err()
+    );
+    assert!(
+        doc.preview_batch(&[edit()], &[insert(paragraph(&doc, 0).anchor.clone())])
+            .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&input)
+    );
+}
+
+#[test]
+fn table_after_section_terminator_uses_next_section_width() {
+    use rocx::editor::TableInsertion;
+    let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:sectPr><w:pgSz w:w="10000" w:h="15840"/><w:pgMar w:left="1000" w:right="1000" w:top="1440" w:bottom="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:pPr><w:r><w:t>section one</w:t></w:r></w:p><w:p><w:r><w:t>section two</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="14000" w:h="15840"/><w:pgMar w:left="2000" w:right="2000" w:top="1440" w:bottom="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>"#;
+    let doc = ImportedDocument::open(&fixture_with_body(xml)).unwrap();
+    let preview = doc
+        .preview_batch(
+            &[],
+            &[TableInsertion {
+                target: paragraph(&doc, 0).anchor.clone(),
+                table: insertion_table(),
+            }],
+        )
+        .unwrap();
+    let output = parts(&preview.to_docx().unwrap());
+    let parsed =
+        roxmltree::Document::parse(std::str::from_utf8(&output["word/document.xml"]).unwrap())
+            .unwrap();
+    let body = parsed
+        .descendants()
+        .find(|n| n.has_tag_name((W, "body")))
+        .unwrap();
+    let children: Vec<_> = body.children().filter(|n| n.is_element()).collect();
+    assert_eq!(children[1].tag_name().name(), "tbl");
+    let widths: Vec<_> = children[1]
+        .descendants()
+        .filter(|n| n.has_tag_name((W, "gridCol")))
+        .map(|n| n.attribute((W, "w")).unwrap())
+        .collect();
+    assert_eq!(widths, ["5000", "5000"]);
+}

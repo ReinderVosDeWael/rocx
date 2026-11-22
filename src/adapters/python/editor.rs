@@ -2,7 +2,7 @@
 use std::sync::Mutex;
 
 use pyo3::{
-    exceptions::PyRuntimeError,
+    exceptions::{PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
     types::{PyBytes, PyModule},
 };
@@ -69,6 +69,43 @@ impl PyParagraphAlignmentEdit {
     }
 }
 
+#[pyclass(name = "TableInsertion", frozen, module = "rocx.editor")]
+struct PyTableInsertion {
+    target: editor::ParagraphAnchor,
+    table: crate::ResolvedTable,
+}
+
+#[pymethods]
+impl PyTableInsertion {
+    #[new]
+    fn new(
+        target: PyRef<'_, PyParagraphAnchor>,
+        resolved_table: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let node_type = resolved_table
+            .py()
+            .import("rocx.resolution.snapshot")?
+            .getattr("ResolvedNode")?;
+        if !resolved_table.is_instance(&node_type)?
+            || resolved_table
+                .getattr("_native_kind")?
+                .extract::<String>()?
+                != "Table"
+        {
+            return Err(PyTypeError::new_err("expected a resolved Table"));
+        }
+        let table = super::tables::table(resolved_table)?
+            .ok_or_else(|| PyValueError::new_err("table must not be empty"))?;
+        if table.rows().iter().all(|row| row.cells().is_empty()) {
+            return Err(PyValueError::new_err("table must not be empty"));
+        }
+        Ok(Self {
+            target: target.inner.clone(),
+            table,
+        })
+    }
+}
+
 #[pyclass(name = "AlignmentChange", frozen, module = "rocx.editor")]
 struct PyAlignmentChange {
     #[pyo3(get)]
@@ -79,6 +116,16 @@ struct PyAlignmentChange {
     after: String,
 }
 
+#[pyclass(name = "TableInsertionChange", frozen, module = "rocx.editor")]
+struct PyTableInsertionChange {
+    #[pyo3(get)]
+    after_body_index: usize,
+    #[pyo3(get)]
+    rows: usize,
+    #[pyo3(get)]
+    columns: usize,
+}
+
 #[pyclass(name = "EditPreview", module = "rocx.editor")]
 struct PyEditPreview {
     inner: Mutex<editor::EditPreview>,
@@ -86,6 +133,23 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    #[getter]
+    fn insertions(&self) -> PyResult<Vec<PyTableInsertionChange>> {
+        let preview = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?;
+        Ok(preview
+            .insertions()
+            .iter()
+            .map(|change| PyTableInsertionChange {
+                after_body_index: change.after_body_index,
+                rows: change.rows,
+                columns: change.columns,
+            })
+            .collect())
+    }
+
     #[getter]
     fn changes(&self) -> PyResult<Vec<PyAlignmentChange>> {
         let preview = self
@@ -160,7 +224,12 @@ impl PyImportedDocument {
             .collect()
     }
 
-    fn preview(&self, edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>) -> PyResult<PyEditPreview> {
+    #[pyo3(signature = (edits, *, table_insertions=None))]
+    fn preview(
+        &self,
+        edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
+        table_insertions: Option<Vec<PyRef<'_, PyTableInsertion>>>,
+    ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
             .map(|edit| editor::ParagraphAlignmentEdit {
@@ -168,12 +237,20 @@ impl PyImportedDocument {
                 alignment: edit.alignment,
             })
             .collect();
+        let insertions: Vec<_> = table_insertions
+            .unwrap_or_default()
+            .iter()
+            .map(|insertion| editor::TableInsertion {
+                target: insertion.target.clone(),
+                table: insertion.table.clone(),
+            })
+            .collect();
         let doc = self
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
-            inner: Mutex::new(doc.preview(&edits).map_err(rust_error)?),
+            inner: Mutex::new(doc.preview_batch(&edits, &insertions).map_err(rust_error)?),
         })
     }
 }
@@ -184,7 +261,9 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyBodyOpaque>()?;
     module.add_class::<PyParagraphAlignmentEdit>()?;
+    module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyAlignmentChange>()?;
+    module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;
     module.add_class::<PyImportedDocument>()?;
     Ok(())

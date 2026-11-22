@@ -30,6 +30,7 @@ NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
       "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
       "r": "http://schemas.openxmlformats.org/package/2006/relationships"}
 EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the edited catalog."
+EDIT_TABLE_LABEL = "Imported editor table: bold label"
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -101,6 +102,24 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             )
             assert len(paragraphs) == 1
             assert paragraphs[0].xpath("w:pPr/w:jc/@w:val", namespaces=NS) == [expected]
+            tables = document.xpath("/w:document/w:body/w:tbl[.//w:t[text()=$label]]",
+                                    namespaces=NS, label=EDIT_TABLE_LABEL)
+            if expected == "left":
+                assert not tables
+                continue
+            assert len(tables) == 1
+            table = tables[0]
+            assert paragraphs[0].getnext() is table
+            assert table.xpath("w:tblPr/w:tblLayout/@w:type", namespaces=NS) == ["fixed"]
+            assert table.xpath("w:tblGrid/w:gridCol/@w:w", namespaces=NS) == ["2160", "2160"]
+            rows = table.xpath("w:tr", namespaces=NS)
+            assert len(rows) == 1
+            cells = rows[0].xpath("w:tc", namespaces=NS)
+            assert len(cells) == 2
+            assert cells[0].xpath(".//w:t/text()", namespaces=NS) == [EDIT_TABLE_LABEL]
+            assert cells[0].xpath(".//w:r[w:t=$label]/w:rPr/w:b/@w:val",
+                                  namespaces=NS, label=EDIT_TABLE_LABEL) == ["1"]
+            assert cells[1].xpath(".//w:t/text()", namespaces=NS) == ["Fixed-width second column"]
 
 
 def verify_content(data: bytes, template: bytes) -> None:

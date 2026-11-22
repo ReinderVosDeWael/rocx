@@ -9,7 +9,7 @@ import sys
 
 import rocx
 from rocx import declarative as d
-from rocx.editor import ImportedDocument, ParagraphAlignmentEdit
+from rocx.editor import ImportedDocument, ParagraphAlignmentEdit, TableInsertion
 
 STAMP = "2026-11-19T00:00:00Z"
 IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
@@ -441,7 +441,13 @@ async def generate(output: pathlib.Path) -> bytes:
     imported = ImportedDocument.open(data)
     targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]
     assert len(targets) == 1
-    preview = imported.preview([ParagraphAlignmentEdit(targets[0].anchor, "center")])
+    table = d.Table([d.TableRow([
+        d.TableCell([run("Imported editor table: bold label", bold=True)]),
+        cell("Fixed-width second column"),
+    ])], column_widths=[2160, 2160], layout="fixed")
+    insertion = TableInsertion(targets[0].anchor, await table.resolve())
+    preview = imported.preview([ParagraphAlignmentEdit(targets[0].anchor, "center")],
+                               table_insertions=[insertion])
     output.with_suffix(".edited.docx").write_bytes(preview.to_docx())
     return data
 

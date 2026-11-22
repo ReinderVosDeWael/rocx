@@ -9,6 +9,7 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Default)]
 pub(super) struct RangeCatalog {
     next_bookmark: u64,
     next_comment: u64,

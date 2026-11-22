@@ -15,7 +15,7 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync pyth
 ```
 
 This builds/runs both examples, compares complete DOCX ZIP bytes for the final,
-template and alignment-edited catalogs, verifies content and prints SHA-256 hashes.
+template and batch-edited catalogs, verifies content and prints SHA-256 hashes.
 Output:
 
 - `examples/all_features-rust.docx`
@@ -60,7 +60,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | Extended document properties | Inspect the document's metadata: Company is `Atlas & Co.` and Manager is `Taylor`. |
 | Defaults and Properties dialog | Run defaults (Calibri 11 pt), paragraph defaults (4 pt after, 1.1 lines); creator/title/subject/description/keywords/category/comments/version; fixed snapshot/render timestamps. Defaults remain separate from direct content properties. |
 | 01 Paragraphs/headings | Heading 0/no heading through 9; all nine alignments; multiplier/exact/minimum line heights and legacy line spacing; before/after spacing; left/right/first-line/hanging point indents; keep-lines/next, widow control, page-break-before and explicit false values. |
-| 01 Imported editor | Both APIs inspect the generated body, find the labeled left-aligned paragraph by its text, and preview an anchored center-alignment patch into a separate edited catalog. Other package parts retain their exact payload bytes. |
+| 01 Imported editor | Both APIs inspect the generated body, find the labeled left-aligned paragraph by its text, and preview an anchored center-alignment patch and a declarative two-column fixed-width table immediately after it in one batch. The inserted table has a bold label and appears only in the separate edited catalog. Other package parts retain their exact payload bytes. |
 | 01 Tabs | All eight alignments including start/end/bar/clear; all six leaders; signed positions and explicit clear at −12 pt. |
 | 02 Runs | Bold/italic/strike/caps/small-caps/super/subscript; false overrides; literal fonts and point sizes; RGB/automatic color; all 16 theme slots with tint/shade; all seven underline styles; Unicode, preserved spaces, empty runs, literal tabs/newlines. A labeled chainable-setter sample shows omitted, enabled and explicitly disabled bold (with italic enabled); builders alter Rust authoring syntax only, not OOXML features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters). |
 | 02 Script requests | Independent paragraph bidi, run RTL/complex-script flags, complex-script bold/italic/size, three language slots and literal East Asian/complex-script fonts; true/false cases. |

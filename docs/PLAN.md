@@ -79,14 +79,19 @@ existing declarative and template APIs intact.
    parity and coverage checks. Require exact Rust/Python DOCX byte parity
    for equivalent edit batches, not just normalized XML equality.
 
-The first slice opens a Transitional DOCX in Rust and Python, exposes direct
-body paragraphs and placeholders for other blocks, and previews anchored
-paragraph alignment patches without modifying the source. The paired
-catalogs exercise it end to end: exact final, template, and edited DOCX byte
-parity passed, and both edited artifacts validated 20 schema-covered parts
-plus OPC relationships. The preservation fixture uses synthetic WordprocessingML;
-the Word-authored fixture milestone, structural insertion, and shared-header
-editing are still open.
+The editor opens a Transitional DOCX in Rust and Python, exposes direct body
+paragraphs and placeholders for other blocks, and previews alignment patches
+and declarative table insertions in one batch. Tables can contain formatted
+paragraphs, nested tables, fractions, and external links. The editor sizes
+automatic tables only in simple single-column sections and rejects insertion
+inside active or ambiguous supported ranges. Other inline objects, numbering,
+comments, revisions, and content controls in inserted tables remain open.
+
+The paired catalogs exercise the batch. Exact final, template, and edited
+Rust/Python DOCX byte parity passed, and both edited artifacts validated 20
+schema-covered parts plus OPC relationships. Preservation and section-boundary
+tests use synthetic WordprocessingML; the Word-authored fixture milestone and
+shared-header editing are still open.
 
 ## Deferred backlog
 

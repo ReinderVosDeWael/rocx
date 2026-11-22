@@ -9,6 +9,8 @@ from ._native import (
     ImportedDocument,
     ParagraphAlignmentEdit,
     ParagraphAnchor,
+    TableInsertion,
+    TableInsertionChange,
 )
 
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "ImportedDocument",
     "ParagraphAlignmentEdit",
     "ParagraphAnchor",
+    "TableInsertion",
+    "TableInsertionChange",
 ]

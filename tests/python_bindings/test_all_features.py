@@ -36,6 +36,46 @@ def test_edit_coverage_rejects_unchanged_catalog(catalogs) -> None:
         checks.verify_edited(rust.read_bytes(), rust.read_bytes())
 
 
+@pytest.mark.parametrize("change", ["position", "shape", "width", "bold", "source"])
+def test_edit_coverage_rejects_changed_inserted_table(catalogs, change) -> None:
+    rust, _ = catalogs
+    original = rust.read_bytes()
+    edited = rust.with_suffix(".edited.docx").read_bytes()
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(edited if change != "source" else original)) as source, zipfile.ZipFile(output, "w") as target:
+        for name in source.namelist():
+            data = source.read(name)
+            if name == "word/document.xml":
+                root = etree.fromstring(data)
+                if change == "source":
+                    with zipfile.ZipFile(io.BytesIO(edited)) as edited_package:
+                        edited_root = etree.fromstring(edited_package.read(name))
+                    table = edited_root.xpath("/w:document/w:body/w:tbl[.//w:t[text()=$label]]",
+                                              namespaces=checks.NS, label=checks.EDIT_TABLE_LABEL)[0]
+                    root.xpath("/w:document/w:body", namespaces=checks.NS)[0].insert(0, table)
+                else:
+                    table = root.xpath("/w:document/w:body/w:tbl[.//w:t[text()=$label]]",
+                                       namespaces=checks.NS, label=checks.EDIT_TABLE_LABEL)[0]
+                if change == "position":
+                    table.getparent().insert(0, table)
+                elif change == "shape":
+                    row = table.xpath("w:tr", namespaces=checks.NS)[0]
+                    row.remove(row.xpath("w:tc", namespaces=checks.NS)[1])
+                elif change == "width":
+                    table.xpath("w:tblGrid/w:gridCol", namespaces=checks.NS)[0].set(
+                        f"{{{checks.NS['w']}}}w", "100")
+                elif change == "bold":
+                    bold = table.xpath(".//w:rPr/w:b", namespaces=checks.NS)[0]
+                    bold.getparent().remove(bold)
+                data = etree.tostring(root)
+            target.writestr(name, data)
+    with pytest.raises(AssertionError):
+        if change == "source":
+            checks.verify_edited(output.getvalue(), edited)
+        else:
+            checks.verify_edited(original, output.getvalue())
+
+
 def test_builder_inventory_rejects_a_missing_setter(tmp_path, monkeypatch) -> None:
     source_dir = tmp_path / "src/document"
     source_dir.mkdir(parents=True)

@@ -17,6 +17,8 @@ pub use story::{StoryContent, StoryDescriptor, StoryRegistry};
 mod notes;
 mod ranges;
 mod revisions;
+mod editor;
+pub(crate) use editor::encode_editor_tables;
 pub(crate) struct Compiler<'a> {
     package: Package,
     main: String,

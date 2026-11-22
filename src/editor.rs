@@ -1,14 +1,16 @@
 //! Read and edit an existing Transitional DOCX without rebuilding it.
 //!
-//! The initial surface covers direct body blocks and paragraph alignment.
+//! Inspect direct body blocks, patch paragraph alignment, and insert declarative tables.
 //! The package, not the typed inspection view, is the source of output.
 
 use crate::ooxml::{WordParts, open_word_source};
 use crate::opc::{Package, PackagePlan, ReadLimits};
 use crate::xml::{Content, Node};
-use crate::{Alignment, Diagnostic, Error, Result, Rule};
+use crate::{Alignment, Diagnostic, Error, ResolvedTable, Result, Rule};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+mod insertion;
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -47,6 +49,22 @@ pub struct ParagraphAlignmentEdit {
     pub alignment: Alignment,
 }
 
+/// Insert a resolved declarative table immediately after a direct body paragraph.
+#[derive(Clone, Debug)]
+pub struct TableInsertion {
+    pub target: ParagraphAnchor,
+    pub table: ResolvedTable,
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct TableInsertionChange {
+    /// Zero-based index of the anchor in the original body.
+    pub after_body_index: usize,
+    pub rows: usize,
+    pub columns: usize,
+}
+
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct AlignmentChange {
@@ -61,6 +79,7 @@ pub struct AlignmentChange {
 #[derive(Debug)]
 pub struct EditPreview {
     changes: Vec<AlignmentChange>,
+    insertions: Vec<TableInsertionChange>,
     output: PackagePlan,
 }
 
@@ -68,6 +87,11 @@ impl EditPreview {
     /// Actual changes in document order. No-op edits are omitted.
     pub fn changes(&self) -> &[AlignmentChange] {
         &self.changes
+    }
+
+    /// Table insertions in source document order.
+    pub fn insertions(&self) -> &[TableInsertionChange] {
+        &self.insertions
     }
 
     pub fn to_docx(&self) -> Result<Vec<u8>> {
@@ -138,13 +162,19 @@ impl ImportedDocument {
 
     /// Validate and stage the whole batch; neither the snapshot nor the source is modified.
     pub fn preview(&self, edits: &[ParagraphAlignmentEdit]) -> Result<EditPreview> {
+        self.preview_batch(edits, &[])
+    }
+
+    /// All targets refer to the original body. A paragraph may receive one
+    /// alignment edit and one table insertion in the same batch.
+    pub fn preview_batch(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+    ) -> Result<EditPreview> {
         let mut by_index = BTreeMap::new();
         for edit in edits {
-            if !Arc::ptr_eq(&self.snapshot, &edit.target.snapshot) {
-                return Err(unsupported(
-                    "target belongs to a different document snapshot",
-                ));
-            }
+            self.validate_target(&edit.target)?;
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
                 .is_some()
@@ -152,9 +182,22 @@ impl ImportedDocument {
                 return Err(unsupported("multiple alignment edits target one paragraph"));
             }
         }
+        let mut table_targets = BTreeMap::new();
+        for insertion in tables {
+            self.validate_target(&insertion.target)?;
+            if table_targets
+                .insert(insertion.target.body_index, &insertion.table)
+                .is_some()
+            {
+                return Err(unsupported(
+                    "multiple table insertions target one paragraph",
+                ));
+            }
+        }
         let mut package = self.package.clone();
         let mut changes = Vec::new();
-        if !by_index.is_empty() {
+        let mut insertions = Vec::new();
+        if !by_index.is_empty() || !table_targets.is_empty() {
             let mut root = package.word(&self.main)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             for (body_index, paragraph) in body
@@ -179,16 +222,57 @@ impl ImportedDocument {
             if !by_index.is_empty() {
                 return Err(unsupported("target paragraph not found"));
             }
-            if !changes.is_empty() {
+            if !table_targets.is_empty() {
+                let sites = insertion::table_sites(body, &table_targets)?;
+                let mut payloads = Vec::with_capacity(sites.len());
+                let mut slots = Vec::with_capacity(sites.len());
+                for (body_index, slot, width) in sites {
+                    let table = table_targets[&body_index];
+                    insertions.push(TableInsertionChange {
+                        after_body_index: body_index,
+                        rows: table.rows().len(),
+                        columns: table.columns(),
+                    });
+                    slots.push(slot);
+                    payloads.push((table.clone(), width));
+                }
+                let (staged, nodes) =
+                    crate::ooxml::encode_editor_tables(package, &self.main, payloads)?;
+                package = staged;
+                let original = std::mem::take(&mut body.children);
+                body.children.reserve(original.len() + slots.len());
+                let mut original = original.into_iter();
+                let mut offset = 0;
+                for (slot, node) in slots.into_iter().zip(nodes) {
+                    body.children.extend(original.by_ref().take(slot - offset));
+                    body.children.push(Content::Element(node));
+                    offset = slot;
+                }
+                body.children.extend(original);
+            }
+            if !changes.is_empty() || !insertions.is_empty() {
                 package.put_word(&self.main, root)?;
             }
         }
         Ok(EditPreview {
             changes,
+            insertions,
             output: PackagePlan::new(package)?,
         })
     }
+
+    fn validate_target(&self, target: &ParagraphAnchor) -> Result<()> {
+        if !Arc::ptr_eq(&self.snapshot, &target.snapshot) {
+            return Err(unsupported(
+                "target belongs to a different document snapshot",
+            ));
+        }
+        Ok(())
+    }
 }
+
+const ALTERNATE: &str =
+    "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent";
 
 fn missing_body() -> Error {
     Error::Validation("document has no body".into())
@@ -250,8 +334,6 @@ fn read_inline(node: &Node, text: &mut String, opaque: &mut bool) {
 
 /// Outer `None` means no write; inner `None` means no previous value.
 fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Option<String>>> {
-    const ALTERNATE: &str =
-        "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent";
     if paragraph.elements().filter(|n| n.name == "w:pPr").count() > 1
         || paragraph.child(ALTERNATE).is_some()
         || paragraph.child("w:pPr").is_some_and(|props| {

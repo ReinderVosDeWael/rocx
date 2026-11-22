@@ -530,10 +530,32 @@ pub async fn generate(output: &Path) -> Result<()> {
         })
         .collect();
     assert_eq!(targets.len(), 1);
-    let preview = imported.preview(&[editor::ParagraphAlignmentEdit {
-        target: targets[0].anchor.clone(),
-        alignment: Alignment::Center,
-    }])?;
+    let mut table = Table::new(vec![TableRow::new(vec![
+        TableCell::new(vec![run(
+            "Imported editor table: bold label",
+            RunFormat::default().with_bold(true),
+        )])
+        .into(),
+        cell("Fixed-width second column"),
+    ])
+    .into()]);
+    table.properties = TableProperties {
+        column_widths: Some(vec![2160, 2160]),
+        layout: Some(TableLayout::Fixed),
+        ..Default::default()
+    }
+    .into();
+    let table = table.await?.expect("nonempty showcase table");
+    let preview = imported.preview_batch(
+        &[editor::ParagraphAlignmentEdit {
+            target: targets[0].anchor.clone(),
+            alignment: Alignment::Center,
+        }],
+        &[editor::TableInsertion {
+            target: targets[0].anchor.clone(),
+            table,
+        }],
+    )?;
     std::fs::write(output.with_extension("edited.docx"), preview.to_docx()?)?;
     Ok(())
 }
