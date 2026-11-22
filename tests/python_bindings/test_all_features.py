@@ -25,6 +25,15 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     assert checks.exact_bytes(rust.read_bytes(), python.read_bytes())
     checks.exact_bytes(rust.with_suffix(".template.docx").read_bytes(), python.with_suffix(".template.docx").read_bytes())
     checks.verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
+    edited = rust.with_suffix(".edited.docx").read_bytes()
+    checks.exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
+    checks.verify_edited(rust.read_bytes(), edited)
+
+
+def test_edit_coverage_rejects_unchanged_catalog(catalogs) -> None:
+    rust, _ = catalogs
+    with pytest.raises(AssertionError):
+        checks.verify_edited(rust.read_bytes(), rust.read_bytes())
 
 
 def test_builder_inventory_rejects_a_missing_setter(tmp_path, monkeypatch) -> None:

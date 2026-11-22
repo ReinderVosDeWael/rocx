@@ -29,6 +29,7 @@ NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
       "vt": "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes",
       "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
       "r": "http://schemas.openxmlformats.org/package/2006/relationships"}
+EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the edited catalog."
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -84,6 +85,22 @@ def exact_bytes(rust: bytes, python: bytes) -> str:
             changed = [name for name in sorted(names) if name not in a.namelist() or name not in b.namelist() or a.read(name) != b.read(name)]
         raise AssertionError(f"DOCX bytes differ: Rust={len(rust)}, Python={len(python)}; changed parts={changed or 'ZIP container metadata/compression only'}")
     return hashlib.sha256(rust).hexdigest()
+
+
+def verify_edited(original: bytes, edited: bytes) -> None:
+    """Check the labeled body edit and byte preservation of every other part."""
+    with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(edited)) as result:
+        assert set(source.namelist()) == set(result.namelist())
+        for name in source.namelist():
+            if name != "word/document.xml":
+                assert source.read(name) == result.read(name), name
+        for package, expected in [(source, "left"), (result, "center")]:
+            document = etree.fromstring(package.read("word/document.xml"))
+            paragraphs = document.xpath(
+                "/w:document/w:body/w:p[w:r/w:t=$label]", namespaces=NS, label=EDIT_LABEL
+            )
+            assert len(paragraphs) == 1
+            assert paragraphs[0].xpath("w:pPr/w:jc/@w:val", namespaces=NS) == [expected]
 
 
 def verify_content(data: bytes, template: bytes) -> None:
@@ -538,8 +555,12 @@ def main() -> None:
     rust, python = generate(args.output_dir)
     digest = exact_bytes(rust.read_bytes(), python.read_bytes())
     exact_bytes(rust.with_suffix(".template.docx").read_bytes(), python.with_suffix(".template.docx").read_bytes())
+    edited = rust.with_suffix(".edited.docx").read_bytes()
+    edited_digest = exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
     verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
+    verify_edited(rust.read_bytes(), edited)
     print(f"Byte-identical DOCX: {len(rust.read_bytes())} bytes; SHA-256 {digest}")
+    print(f"Byte-identical edited DOCX: {len(edited)} bytes; SHA-256 {edited_digest}")
     print(f"Rust:   {rust}\nPython: {python}")
 
 

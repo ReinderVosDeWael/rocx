@@ -9,9 +9,11 @@ import sys
 
 import rocx
 from rocx import declarative as d
+from rocx.editor import ImportedDocument, ParagraphAlignmentEdit
 
 STAMP = "2026-11-19T00:00:00Z"
 IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
+EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the edited catalog."
 REGIONS = ["whole_table", "first_row", "last_row", "first_column", "last_column",
            "banding_1_row", "banding_2_row", "banding_1_column", "banding_2_column",
            "top_left_cell", "top_right_cell", "bottom_left_cell", "bottom_right_cell"]
@@ -47,6 +49,7 @@ def image(ext: str, size: dict | None = None) -> d.ImageRun:
 def formatting_blocks() -> list:
     """Paragraph, run and style galleries, in the same order as Rust."""
     blocks = [heading("01 Paragraphs and headings")]
+    blocks.append(d.Paragraph(text=EDIT_LABEL, alignment="left"))
     for level in range(10):
         blocks.append(d.Paragraph(text=f"This is a Heading {level}" + (" (heading=0: no heading style)" if level == 0 else ""), heading=level))
     for alignment, name in zip([0, 1, 2, 3, 4, 5, 7, 8, 9],
@@ -435,6 +438,11 @@ async def generate(output: pathlib.Path) -> bytes:
     data = await snapshot.to_bytes(template, options=options)
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)
+    imported = ImportedDocument.open(data)
+    targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]
+    assert len(targets) == 1
+    preview = imported.preview([ParagraphAlignmentEdit(targets[0].anchor, "center")])
+    output.with_suffix(".edited.docx").write_bytes(preview.to_docx())
     return data
 
 

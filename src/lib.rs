@@ -25,6 +25,7 @@ mod adapters;
 pub mod application;
 pub mod authoring;
 pub mod document;
+pub mod editor;
 mod error;
 pub mod resolution;
 

@@ -1,7 +1,8 @@
 # Active plan — 0.3.0 release preparation
 
 rocx is feature-complete for its current support profile, not for all OOXML.
-Keep the feature freeze in place. The backlog below is not a release blocker.
+Keep the feature freeze in place. The editor plan and deferred backlog below
+are not release blockers.
 
 ## Release checklist
 
@@ -29,6 +30,63 @@ Keep the feature freeze in place. The backlog below is not a release blocker.
   for local preflight.
 - Hosted release preflight has not run. No tag was created or pushed, and no
   deployment or publication was performed.
+
+## Next feature after 0.3.0: agent editing with declarative parity
+
+An agent should be able to open an existing DOCX, inspect it as typed rocx
+content, and apply anything rocx can author declaratively at a valid target.
+Text replacement is one operation, not the scope of the editor. Keep the
+existing declarative and template APIs intact.
+
+### Import and edit the original package
+
+- `open` should return an imported document with a typed view of sections,
+  stories, blocks, inline content, and document resources. Reuse resolved rocx
+  types where they fit; do not try to reconstruct the callbacks, conditions, or
+  inputs that produced the file. Keep snapshot-scoped anchors into the source,
+  opaque nodes for unsupported content, and the identities of shared parts.
+- Use existing declarations for new content and typed edit operations to say
+  where it goes: insert, replace, remove, patch selected properties, or add
+  or update a named resource where valid. A property patch preserves unmodeled
+  properties on the same node; whole-node replacement may discard opaque
+  content inside that explicitly selected target, but must not break
+  references outside it.
+- Edit the original package rather than rendering the imported view as a new
+  `ResolvedDocument`. Reuse the existing resolver, Word codecs, and OPC
+  relationship handling. Preserve untouched part payloads byte for byte;
+  edited XML and the ZIP container may be reserialized. Keep the existing
+  signature and compatibility guards.
+- Expose one Rust core through the Rust and Python APIs and a thin JSON CLI.
+  The workflow is inspect, submit an anchored batch, preview, then save a new
+  copy. Preview the intended changes and any effects on shared resources.
+  Make edits to a shared header explicit: change the shared part or make a
+  section-local copy. Reject stale targets, conflicting operations, and unsafe
+  edits without applying part of the batch.
+
+### Milestones and acceptance
+
+1. Use the [declarative parity inventory](EDITOR-PARITY.md) to track inspection,
+   addition, patching, replacement, and removal, including styles, numbering,
+   defaults, and metadata. Appending content alone does not count as parity.
+2. Prove the architecture on Word-authored fixtures: insert a declarative
+   table at a body anchor, patch a paragraph property without losing unrelated
+   markup, and add an image to a header shared by two sections, testing both
+   a shared edit and a section-local copy.
+3. Close the feature inventory. Read the all-features DOCX back into typed
+   values and check them against expected content. Test preservation of
+   opaque markup, unchanged part payloads, and rejection of unsafe batches.
+   Update both all-features examples, `examples/ALL_FEATURES.md`, and the
+   parity and coverage checks. Require exact Rust/Python DOCX byte parity
+   for equivalent edit batches, not just normalized XML equality.
+
+The first slice opens a Transitional DOCX in Rust and Python, exposes direct
+body paragraphs and placeholders for other blocks, and previews anchored
+paragraph alignment patches without modifying the source. The paired
+catalogs exercise it end to end: exact final, template, and edited DOCX byte
+parity passed, and both edited artifacts validated 20 schema-covered parts
+plus OPC relationships. The preservation fixture uses synthetic WordprocessingML;
+the Word-authored fixture milestone, structural insertion, and shared-header
+editing are still open.
 
 ## Deferred backlog
 

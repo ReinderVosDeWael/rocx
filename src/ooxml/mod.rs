@@ -31,22 +31,17 @@ pub(crate) struct Compiler<'a> {
     styles: style_catalog::StyleCatalog,
     document: &'a ResolvedDocument,
 }
-pub(crate) fn compile(
-    doc: &ResolvedDocument,
+const DOCX_MAIN: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+const DOTX_MAIN: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml";
+
+pub(crate) fn open_word_source(
     bytes: &[u8],
-    template: Option<&crate::template::TemplateEdits>,
-    options: &crate::application::RenderOptions,
-) -> Result<crate::opc::PackagePlan> {
-    doc.validate()?;
-    if options.profile != OutputProfile::Transitional {
-        return Err(crate::Diagnostic::new(
-            crate::Rule::UnsupportedProfile,
-            "Strict output is not implemented",
-        )
-        .at("options.profile")
-        .into());
-    }
-    let mut package = Package::load_with_limits(bytes, options.read_limits)?;
+    limits: crate::opc::ReadLimits,
+    allow_template: bool,
+) -> Result<(Package, String, Node)> {
+    let package = Package::load_with_limits(bytes, limits)?;
     // ECMA-376 Part 2: the package-level signature origin relationship
     // identifies the signing graph, regardless of its target part name.
     const SIGNATURE_ORIGIN: &str =
@@ -64,23 +59,14 @@ pub(crate) fn compile(
         .map(|(_, p)| p)
         .ok_or_else(|| Error::Validation("package has no officeDocument relationship".into()))?;
     let mime = package.content_type_for(&main)?;
-    if !matches!(
-        mime.as_deref(),
-        Some(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
-                | "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml"
-        )
-    ) {
+    if mime.as_deref() != Some(DOCX_MAIN) && !(allow_template && mime.as_deref() == Some(DOTX_MAIN)) {
+        let required = if allow_template { "DOCX/DOTX" } else { "DOCX" };
         return Err(crate::Diagnostic::new(
             crate::Rule::UnsupportedProfile,
-            "unsupported main document content type (DOCX/DOTX required)",
+            format!("unsupported main document content type ({required} required)"),
         )
         .into());
     }
-    package.content_type(
-        &main,
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
-    )?;
     let main_root = package.word(&main)?;
     if main_root.name != "w:document" {
         return Err(crate::Diagnostic::new(
@@ -89,6 +75,26 @@ pub(crate) fn compile(
         )
         .into());
     }
+    Ok((package, main, main_root))
+}
+
+pub(crate) fn compile(
+    doc: &ResolvedDocument,
+    bytes: &[u8],
+    template: Option<&crate::template::TemplateEdits>,
+    options: &crate::application::RenderOptions,
+) -> Result<crate::opc::PackagePlan> {
+    doc.validate()?;
+    if options.profile != OutputProfile::Transitional {
+        return Err(crate::Diagnostic::new(
+            crate::Rule::UnsupportedProfile,
+            "Strict output is not implemented",
+        )
+        .at("options.profile")
+        .into());
+    }
+    let (mut package, main, _) = open_word_source(bytes, options.read_limits, true)?;
+    package.content_type(&main, DOCX_MAIN)?;
     let drawing = crate::ooxml::defaults::prepare(&mut package, &main)?;
     let mut stories = vec![main.clone()];
     let scope = template.map(|edits| edits.scope).unwrap_or_default();

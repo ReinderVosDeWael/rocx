@@ -14,12 +14,12 @@ use std::{
     collections::BTreeMap,
     io::{Cursor, Read, Write},
 };
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Package {
     pub parts: BTreeMap<String, Vec<u8>>,
     xml_cache: std::cell::RefCell<BTreeMap<String, CachedXml>>,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct CachedXml {
     node: Node,
     dirty: bool,

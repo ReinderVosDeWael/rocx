@@ -81,6 +81,7 @@ mod template;
 use template::*;
 mod errors;
 use errors::*;
+mod editor;
 #[pyfunction(signature=(declaration, template_value=None, options=None))]
 fn render(
     py: Python<'_>,
@@ -136,6 +137,7 @@ fn render_options(
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(self::render, module)?)?;
+    editor::register(module)?;
     module.add("BACKEND", "rust")?;
     Ok(())
 }

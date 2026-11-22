@@ -6,6 +6,8 @@ mod stories;
 mod tables;
 
 pub const STAMP: &str = "2026-11-19T00:00:00Z";
+const EDIT_LABEL: &str =
+    "Imported editor: this paragraph changes from left to center in the edited catalog.";
 pub fn p(text: impl Into<String>) -> Value<Block> {
     Paragraph::new(text.into()).into()
 }
@@ -518,5 +520,20 @@ pub async fn generate(output: &Path) -> Result<()> {
     );
     assert_eq!(bytes, plan.to_bytes()?);
     snapshot.save_with_template_and_options(output, &template, &options)?;
+    let imported = editor::ImportedDocument::open(&bytes)?;
+    let targets: Vec<_> = imported
+        .body()
+        .iter()
+        .filter_map(|block| match block {
+            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == EDIT_LABEL => Some(paragraph),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(targets.len(), 1);
+    let preview = imported.preview(&[editor::ParagraphAlignmentEdit {
+        target: targets[0].anchor.clone(),
+        alignment: Alignment::Center,
+    }])?;
+    std::fs::write(output.with_extension("edited.docx"), preview.to_docx()?)?;
     Ok(())
 }

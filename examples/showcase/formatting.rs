@@ -2,6 +2,14 @@ use super::*;
 
 pub fn blocks(out: &mut BlockChildren) {
     out.push(heading("01 Paragraphs and headings"));
+    out.push(
+        Paragraph::new(EDIT_LABEL)
+            .with_format(ParagraphFormat {
+                alignment: Some(Alignment::Left),
+                ..Default::default()
+            })
+            .into(),
+    );
     for level in 0..=9 {
         out.push(
             Paragraph::new(format!(

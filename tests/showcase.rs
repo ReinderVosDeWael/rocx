@@ -56,6 +56,7 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
         ["pPr", "rPr", "tcPr"]
     );
     std::fs::remove_file(path.with_extension("template.docx")).unwrap();
+    std::fs::remove_file(path.with_extension("edited.docx")).unwrap();
     std::fs::remove_file(path).unwrap();
     std::fs::remove_dir(directory).unwrap();
 }
