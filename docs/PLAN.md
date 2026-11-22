@@ -1,6 +1,170 @@
 # Remaining implementation plan and agent handoff
 
+## Unified documentation website (2026-11-21)
+
+**Commit authorization:** the engineer requested a commit of the completed work.
+Include the uncommitted R8m/R8n additions, paired catalogs/tests and the unified
+documentation website with automatic main-push deployment. Preserve the separate
+engineer-authored AGENTS.md owner instruction as an uncommitted edit. Final
+pre-commit reruns passed: **676 Python tests, 1 intentional skip**, complete strict
+site build with **463 link-checked HTML pages**, formatting/diff checks, and final
+artifact assertions for automatic-deploy guidance, both API references, private-doc
+exclusion and byte-identical catalog downloads. No verification jobs remain active.
+No push, tag,
+remote Pages settings change or workflow execution is authorized by this request.
+
+One static documentation website for Rust and Python, with JavaScript added
+when its bindings are available. Use MkDocs with Material for MkDocs, built
+entirely from repository sources and deployed to GitHub Pages through GitHub
+Actions. The engineer requested documentation work after R8n and explicitly
+authorized adding/installing pinned documentation dependencies in the docs-only
+group and `.venv-opencode`, including pyproject/uv.lock updates. Website
+implementation is complete in the working tree. The engineer subsequently
+authorized automatic website deployment on every push to main; no deployment
+has been executed from this session. Preserve
+the uncommitted R8m/R8n feature work below.
+
+Implementation: `mkdocs.yml`, `docs/website/`, `tools/build_docs.py`,
+`.github/workflows/docs.yml`, `docs/DOCUMENTATION.md` and pinned docs-only
+dependencies (MkDocs 1.6.1, Material 9.6.14, mkdocstrings-python 1.16.12) in
+pyproject.toml/uv.lock. The engineer explicitly authorized dependency setup in
+`.venv-opencode`. Added a matching `examples/plain.py`, a fixed tutorial timestamp,
+and labeled regions in plain/fields Rust/Python examples. Guide snippets are
+extracted from these executed sources. Adjacent paired contract examples become
+synchronized language tabs without copying or discarding intervening guidance.
+
+The builder stages an explicit public-doc allowlist, excluding this plan, the
+dependency audit and historical reorganization handoffs. It builds native Rust
+references in an isolated temporary target (avoiding stale private/renamed crate
+artifacts), generates Python references through mkdocstrings, checks exact tutorial
+and catalog/template bytes, builds MkDocs strictly, and validates local links,
+assets/downloads and anchors at the configured project subpath. Native rustdoc
+encoded IDs/source-line ranges are checked with their actual conventions; a Rust
+API root landing fixes native settings/help links. External links are not fetched.
+
+Verification:
+- Repeated successful full site builds, including the final language-tab changes:
+  **463 checked HTML pages** at `target/docs-website/`. Both API references and
+  catalog downloads are present. Initial link-check failures exposed native
+  rustdoc conventions and the missing API root; fixed rather than skipping them.
+- Exact final/template catalogs remain **58,774 bytes**, SHA-256
+  `18e99b3262acd2bad24d83b92497127d6abbf2bf52d310f78ea3d8f4b5b38add`.
+  The two introductory programs also produce identical complete DOCX bytes.
+- **11 documentation tests passed**, covering source extraction, indentation,
+  traversal rejection, allowlisting, link rewriting, project paths, anchors,
+  missing downloads and native Rust reference fragments; pairing tests ensure
+  intervening language-specific guidance is not swallowed.
+- Full all-feature/all-target Rust suite reran: **252 passed**. Latest pre-commit
+  required-schema Python suite: **676 passed, 1 intentional skip**, including all
+  11 documentation tests and the final language-tab test.
+- Formatting/diff checks and the release manifest/lockfile version gate passed.
+  Fresh `actionlint` was unavailable (`command not found`); no hosted workflow or
+  deployment is claimed. No verification jobs remain active.
+
+The engineer requested automatic deployment on every main-branch push. The docs
+workflow now publishes after successful main push builds and manual main runs;
+PRs and manual non-main runs remain preview-only. Removed the deploy input and
+repository-variable opt-in. Main runs are not canceled in progress; PR previews
+may be superseded. Pages must use GitHub Actions, with an environment permitting
+automatic main deployments. Only the deploy job has pages/id-token write
+permissions. The local builder never deploys. No commit, push, tag, remote Pages
+configuration or publication was performed from this session.
+After this policy change, YAML parsing and explicit deployment-gate/permission/
+concurrency assertions passed, as did all 11 documentation tests and diff checks.
+The engineer's concurrent AGENTS.md owner instruction is preserved. Core roadmap
+work, including charts/math and richer drawing stories, remains incomplete.
+
+- Organize shared guides by feature, with synchronized Rust/Python code tabs.
+  Add JavaScript tabs only when the corresponding functionality is available.
+  Keep installation instructions and API references language-specific, and
+  document behavioral differences rather than assuming language parity.
+- Include getting started, feature guides, runnable recipes, the all-features
+  catalog and DOCX downloads, API references, compatibility/limitations and
+  migration guidance. Reuse existing public contract documents; exclude internal
+  handoffs such as this plan from the published site.
+- Generate Rust reference documentation with `cargo doc` under `/api/rust/` and
+  Python reference pages with `mkdocstrings-python` inside MkDocs. Add static
+  TypeDoc output under `/api/javascript/` when JavaScript bindings land. Accept
+  native reference styling and separate search initially; unified API rendering
+  or search is not required for the first version.
+- Extract labeled guide snippets from executable examples instead of maintaining
+  copied code. Use small focused examples for tutorials and retain the full
+  catalog as a reference. Compile/run documented examples in CI, preserve exact
+  DOCX byte-parity and coverage checks, and publish generated catalog downloads.
+- Keep configuration, Markdown, generation scripts and the Pages workflow in the
+  repository, with pinned documentation dependencies. Build any bindings needed
+  for Python API inspection, generate references, build MkDocs in strict mode,
+  check links and assemble all static output before deployment through GitHub's
+  Pages artifact/deployment actions. No runtime backend or manual site editing.
+- Acceptance: a reproducible local build and CI build produce a navigable static
+  site, working project-subpath links and downloads, checked example snippets,
+   and accessible Rust/Python API references. Deploy successful main pushes
+   automatically once repository Pages is configured for GitHub Actions, as
+   authorized by the engineer. Defer custom documentation
+  infrastructure and release-versioned sites until needed.
+
 ## Current handoff (2026-11-21)
+
+**R8n complete (working tree):** standalone inline DrawingML text boxes through the existing
+ShapeRun/ShapeProperties APIs: Rust ShapeGeometry::TextBox, Python
+geometry="text_box". Reuse dimensions, styling, generic deferred inputs and
+locked-canvas identity/story checks. Emit direct canvas/txSp with txBody followed
+by its own xfrm (off/ext), not a geometric sp or WordprocessingML text story.
+An omitted text value produces an empty text body in this new mode. Reject
+fill/outline requests because direct text shapes have no spPr; do not silently
+discard them. Preserve geometric-shape bytes and unsupported-story/container
+boundaries. No rich text, floating placement, padding/autofit or Office rendering
+claim. Sources: P1 (2016) §20.3 and Annex A.4 CT_GvmlGroupShape/CT_GvmlTextShape.
+Update both labeled catalogs, inventory/content/schema/readback mutations and
+exact final/template byte parity. Preserve the uncommitted R8m work; no commit or
+push requested.
+
+Acceptance first failed with unknown shape geometry. After the locked native
+rebuild, text-box/style/shape readback passed 31 tests. The shared codec refactor
+preserved the existing geometric catalog bytes exactly at R8m's SHA before adding
+the text-box sample. With that sample, 77 focused Python tests (including official
+schemas/catalog mutations) and 59 Rust builder/domain/text tests passed. Full
+all-feature/all-target Rust suite passed **252 tests**. Clippy with warnings denied,
+3 doctests, private-item rustdoc with warnings denied, formatting/diff checks
+passed. Both final catalogs directly validate 17 schema-covered parts plus OPC
+relationships, and final/template ZIP bytes match exactly. Final files are
+**58,774 bytes**, SHA-256
+`18e99b3262acd2bad24d83b92497127d6abbf2bf52d310f78ea3d8f4b5b38add`.
+Full required-schema Python suite completed: **665 passed, 1 intentional skip**.
+No verification job remains active.
+Both catalogs/entrypoints, content checks, schema mutations, contracts and migration
+guidance are updated. Existing class field inventories are unchanged for R8n;
+geometry content assertions now cover rectangle, ellipse and direct text boxes.
+The R8m inventory additions remain in the same working tree. No dependency or
+lockfile changes, commits, push, publication or manual Office rendering. Rich
+WordprocessingML text-box stories, floating shapes, charts and math remain open;
+R8 and the wider unfinished roadmap are not declared complete.
+
+**R8m complete (working tree):** extend the existing ShapeTextFormat with optional italic and
+font (DrawingML Latin typeface) requests in both APIs. Preserve omission versus
+explicit false, generic deferred inputs, adjacent builders and shared serialization
+for runs and empty-line endParaRPr. Emit latin after solidFill in character
+properties. Typeface is XML text under ST_TextTypeface (no invented installed-font
+check); no effective font selection, embedding, fallback or measurement. Update
+both labeled catalogs, inventory, readback/schema mutation checks and exact final/
+template byte parity. Start from committed R8l `5803c29`; no commit or push is
+requested for this continuation.
+
+Acceptance first failed on the missing Python font constructor argument. After
+the locked native rebuild, 21 shape-text tests and 45 catalog/schema tests passed.
+Rust builder/domain/text acceptance passed 58 tests; the full all-feature/all-target
+suite passed **251 tests**. Clippy with warnings denied, formatting/diff checks
+passed. Exact final and intermediate template bytes match; final catalogs are
+**58,578 bytes**, SHA-256
+`d950f0e7c82795ed5592d4bfdb14d1e07512e5b05c95eb2ba7fbb57e51a2f054`.
+Both directly validate 17 schema-covered parts plus OPC relationships. Tests cover
+true/false/omitted italic, Latin typeface special characters/Unicode/empty string,
+deferred font requests, invalid XML rejection, blank-line styling, schema order/
+missing-typeface mutations and independent catalog font/italic negative controls.
+Full required-schema Python suite completed: **659 passed, 1 intentional skip**.
+No verification job remains active.
+Contracts/migration, both catalogs and inventory checks updated. No dependency or
+lockfile changes, commit, push, publication or manual-rendering claims.
 
 **R8l complete:** optional `ShapeProperties.text_format` and Python
 `ShapeRun.text_format`. Add ShapeTextFormat with optional font_size (points), bold,

@@ -1,0 +1,56 @@
+# Assemble contracts, executable snippets and native references via tools/build_docs.py.
+site_name: rocx
+site_description: Declarative DOCX authoring in Rust and Python
+site_url: https://reindervosdewael.github.io/rv-docx-rs/
+repo_url: https://github.com/ReinderVosDeWael/rv-docx-rs
+docs_dir: docs/website
+site_dir: target/docs-website
+theme:
+  name: material
+  font: false
+  features:
+    - content.tabs.link
+    - content.code.copy
+    - navigation.sections
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [python]
+          options:
+            show_source: false
+            show_root_heading: true
+            docstring_style: google
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+nav:
+  - Overview: index.md
+  - Getting started: getting-started.md
+  - Guides:
+      - Formatting and drawings: contracts/FORMATTING.md
+      - Deferred values: contracts/DEFERRED-FIELDS.md
+      - Tables: contracts/TABLES.md
+      - Styles: contracts/STYLES.md
+      - Numbering: contracts/NUMBERING.md
+      - Ranges: contracts/RANGES.md
+      - Notes: contracts/NOTES.md
+      - Fields: contracts/FIELDS.md
+      - Revisions: contracts/REVISIONS.md
+      - Content controls: contracts/CONTENT_CONTROLS.md
+  - Recipes: recipes.md
+  - Visual catalog: catalog.md
+  - API reference:
+      - Rust: api/rust/rocx/index.html
+      - Python: api/python.md
+  - Compatibility: compatibility.md
+  - Migration: contracts/MIGRATION.md
+  - Contributor references:
+      - Documentation builds: contracts/DOCUMENTATION.md
+      - OOXML contracts: contracts/OOXML.md
+      - Architecture: contracts/ARCHITECTURE.md
+      - Module map: contracts/MODULES.md
+      - Release guide: contracts/RELEASING.md

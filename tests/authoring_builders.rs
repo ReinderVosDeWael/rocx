@@ -225,6 +225,8 @@ check!(shape_text_format, ShapeTextFormat, ShapeTextFormat::default();
     with_color => color: optional([1u8, 2, 3]),
     with_alignment => alignment: optional(ShapeTextAlignment::Center),
     with_vertical_alignment => vertical_alignment: optional(ShapeTextVerticalAlignment::Bottom),
+    with_italic => italic: optional(false),
+    with_font => font: optional("Arial"),
 );
 check!(image_anchor, ImageAnchor, ImageAnchor::default();
     with_horizontal_reference => horizontal_reference: value(ImageAnchorReference::Margin),

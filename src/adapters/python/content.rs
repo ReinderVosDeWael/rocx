@@ -252,6 +252,8 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
         "ShapeRun" => ResolvedInline::Shape(crate::ShapeProperties {
             text_format: optional_record(o, "text_format", |format| {
                 Ok(crate::ShapeTextFormat {
+                    italic: field!(format, "italic", Option<bool>),
+                    font: field!(format, "font", Option<String>),
                     font_size: field!(format, "font_size", Option<f64>),
                     bold: field!(format, "bold", Option<bool>),
                     color: field!(format, "color", Option<[u8; 3]>),
@@ -290,6 +292,7 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
             geometry: match field!(o, "geometry", String).as_str() {
                 "rectangle" => crate::ShapeGeometry::Rectangle,
                 "ellipse" => crate::ShapeGeometry::Ellipse,
+                "text_box" => crate::ShapeGeometry::TextBox,
                 _ => return Err(PyValueError::new_err("unknown DrawingML shape geometry")),
             },
         }),

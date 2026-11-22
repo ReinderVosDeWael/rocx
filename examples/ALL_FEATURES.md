@@ -36,11 +36,16 @@ After native changes, rebuild the editable Python extension first using the
 repository's locked native rebuild command. A stale native extension can cause
 an actual parity failure.
 
-Verified local baseline through R8l: both final files are 58,547 bytes, SHA-256
-`5f5e99a79e5519b5f4ecf618105ef048a9d4d983e812a4ce96ba9976fb64a5c9`.
+Verified local baseline through R8n: both final files are 58,774 bytes, SHA-256
+`18e99b3262acd2bad24d83b92497127d6abbf2bf52d310f78ea3d8f4b5b38add`.
 
-The inline-shape gallery labels the rectangle's 14.25-point white text, explicit
-bold=false, horizontal centering and bottom anchoring. It preserves a blank
+The gallery also labels a standalone 144-by-48-point inline text box. It uses a
+direct DrawingML text shape, plain multiline text, Arial 12 pt and explicit
+bold=false, with no geometric fill/outline. This does not demonstrate a rich
+WordprocessingML text-box story or floating placement.
+
+The inline-shape gallery labels the rectangle's 14.25-point white Arial text,
+explicit bold=false, italic=true, horizontal centering and bottom anchoring. It preserves a blank
 middle line. The adjacent ellipse has no text body; neither sample claims text
 fitting or manually verified placement in Office.
 

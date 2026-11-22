@@ -1,4 +1,5 @@
 """Author instructions and cached placeholders; consumers calculate fields."""
+# docs:start fields
 import asyncio
 import sys
 
@@ -24,3 +25,4 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+# docs:end fields

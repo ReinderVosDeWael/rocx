@@ -147,7 +147,8 @@ validation cover generation; they do not establish browser/Word navigation safet
 | Text content controls | P1 §17.5.2 and Annex A.1 | Separate inline-run, block, row and cell models with alias, tag, lock and checked optional IDs, plain-text and drop-down modes. |
 | Template control editing | P1 §17.5.2 and Annex A.1 | Tag-scoped editing of one eligible imported plain-text control while retaining its run properties. |
 | Picture geometry and anchors | P1 §§20.1–20.4 and Annex A.4 | Crop, rotation and flipping, optional page/margin-relative floating placement, none, square, top-and-bottom, tight or through wrapping, edge distances, side selection and placement flags. |
-| Inline shapes | P1 §§20.1, 20.3 | Rectangle and ellipse geometry in a standard DrawingML locked canvas, with checked size, RGB fill, outline, plain multiline text and optional uniform text size/bold/RGB/alignment requests. |
+| Inline shapes | P1 §§20.1, 20.3 | Rectangle and ellipse geometry in a standard DrawingML locked canvas, with checked size, RGB fill, outline, plain multiline text and optional uniform text size/bold/italic/Latin typeface/RGB/alignment requests. |
+| Standalone inline text boxes | P1 §20.3, CT_GvmlTextShape | Direct locked-canvas text shapes with independent transforms and shared plain-text styling; no geometric fill/outline or rich WordprocessingML text story. |
 | Tracked text revisions | P1 §17.13.5 and Annex A.1 | Text-run insertion, deletion and paired moves with author and optional UTC timestamp, preserving imported revision IDs. |
 | Track future revisions | P1 §17.15.1 | Optional trackRevisions flag in the document settings. |
 | Accept and reject text revisions | P1 §17.13.5 | Scoped template transformation for direct single text-run insertions, deletions and paired moves. |

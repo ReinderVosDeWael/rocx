@@ -10,6 +10,13 @@ package is also `rocx`, imported as **`rocx`**. Version 0.2 reorganizes
 the implementation and makes deliberate API changes; see the
 [migration guide](docs/MIGRATION.md).
 
+## Documentation website
+
+The unified Rust/Python site is built from repository sources, with executable
+guide snippets, native API references and catalog downloads. See
+[local build and deployment setup](docs/DOCUMENTATION.md). Successful main-branch
+pushes deploy through GitHub Pages; the local builder never deploys the site.
+
 ## Visual inspection catalog
 
 Matching [Rust](examples/all_features.rs) and [Python](examples/all_features.py)

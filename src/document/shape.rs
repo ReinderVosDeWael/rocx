@@ -1,4 +1,4 @@
-//! Checked geometry for a basic DrawingML shape.
+//! Checked dimensions and properties for geometric shapes and plain text boxes.
 use super::{Diagnostic, Points, Rule};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -6,12 +6,15 @@ pub enum ShapeGeometry {
     #[default]
     Rectangle,
     Ellipse,
+    /// Standalone DrawingML text rectangle, without geometric fill or outline.
+    TextBox,
 }
 impl ShapeGeometry {
-    pub(crate) const fn xml(self) -> &'static str {
+    pub(crate) const fn xml(self) -> Option<&'static str> {
         match self {
-            Self::Rectangle => "rect",
-            Self::Ellipse => "ellipse",
+            Self::Rectangle => Some("rect"),
+            Self::Ellipse => Some("ellipse"),
+            Self::TextBox => None,
         }
     }
 }
@@ -84,6 +87,9 @@ pub struct ShapeTextFormat {
     pub color: Option<[u8; 3]>,
     pub alignment: Option<ShapeTextAlignment>,
     pub vertical_alignment: Option<ShapeTextVerticalAlignment>,
+    pub italic: Option<bool>,
+    /// DrawingML Latin typeface request; no installed-font lookup is performed.
+    pub font: Option<String>,
 }
 setters!(ShapeTextFormat {
     with_font_size => font_size: optional<f64>,
@@ -91,6 +97,8 @@ setters!(ShapeTextFormat {
     with_color => color: optional<[u8; 3]>,
     with_alignment => alignment: optional<ShapeTextAlignment>,
     with_vertical_alignment => vertical_alignment: optional<ShapeTextVerticalAlignment>,
+    with_italic => italic: optional<bool>,
+    with_font => font: optional_into<String>,
 });
 impl ShapeTextFormat {
     pub(crate) fn font_size_hundredths(&self) -> Result<Option<i64>, Diagnostic> {
@@ -143,6 +151,15 @@ impl Default for ShapeProperties {
 impl ShapeProperties {
     pub(crate) fn validate(&self) -> Result<(), Diagnostic> {
         self.dimensions_emu()?;
+        if self.geometry == ShapeGeometry::TextBox
+            && (self.fill.is_some() || self.outline.is_some())
+        {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "standalone text boxes do not support geometric fill or outline",
+            )
+            .at("shape.geometry"));
+        }
         if let Some(outline) = &self.outline {
             outline.width_emu()?;
         }

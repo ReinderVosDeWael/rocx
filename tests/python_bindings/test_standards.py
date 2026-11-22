@@ -59,6 +59,24 @@ async def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fa
         paragraph.append(properties)
     with pytest.raises(validation.ValidationError, match="word/document.xml"):
         validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_shape_property_order))
+    def invalid_shape_typeface_order(root):
+        namespace = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+        properties = root.find(f".//{namespace}txBody/{namespace}p/{namespace}r/{namespace}rPr")
+        properties[:] = list(reversed(properties))
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_shape_typeface_order))
+    def missing_typeface(root):
+        namespace = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+        del root.find(f".//{namespace}txBody/{namespace}p/{namespace}r/{namespace}rPr/{namespace}latin").attrib["typeface"]
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", missing_typeface))
+    def missing_text_box_transform(root):
+        namespace = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+        canvas = next(n for n in root.iter() if etree.QName(n).localname == "lockedCanvas" and n.find(f"{namespace}txSp") is not None)
+        text = canvas.find(f"{namespace}txSp")
+        text.remove(text.find(f"{namespace}xfrm"))
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", missing_text_box_transform))
     def invalid_wrap_polygon(root):
         namespace = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
         polygon = root.find(f".//{namespace}wrapPolygon")

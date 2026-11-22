@@ -152,3 +152,13 @@ tokens, font-size rounding/bounds, nested deferred input, snapshot repeatability
 and invalid tokens. Both catalogs carry matching labeled samples. Their schema
 checks reject invalid font sizes and paragraph-property order; an independent
 catalog mutation rejects changed shape bold requests.
+R8m extends those checks to omitted/false/true italic and Latin typeface requests,
+including Unicode/empty strings, XML escaping/rejection, deferred font values,
+styling on blank lines and schema child order. Catalog mutations reject altered
+italic and font requests independently of bold.
+R8n adds `test_text_boxes.py` and Rust acceptance for direct canvas text shapes,
+independent transforms, plain text/style preservation, empty text, unique mixed
+drawing IDs, and rejected geometric properties/unsupported stories. The shared
+codec refactor preserved the previous geometric catalog bytes before the new
+sample was added. Schema and content mutations reject missing transforms and
+changed extents; final and intermediate template ZIP bytes are compared exactly.

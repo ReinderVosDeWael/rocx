@@ -443,14 +443,14 @@ use rocx::{ShapeProperties, ShapeRun, ShapeTextAlignment, ShapeTextFormat,
     ShapeTextVerticalAlignment};
 let shape = ShapeRun::new(ShapeProperties::default().with_text("Label\n\nValue")
     .with_text_format(ShapeTextFormat::default().with_font_size(14.25)
-        .with_bold(false).with_color([255, 255, 255])
+        .with_bold(false).with_italic(true).with_font("Arial").with_color([255, 255, 255])
         .with_alignment(ShapeTextAlignment::Center)
         .with_vertical_alignment(ShapeTextVerticalAlignment::Bottom)));
 ```
 
 ```python
 shape = d.ShapeRun(text="Label\n\nValue", text_format=d.ShapeTextFormat(
-    font_size=14.25, bold=False, color=(255, 255, 255),
+    font_size=14.25, bold=False, italic=True, font="Arial", color=(255, 255, 255),
     alignment="center", vertical_alignment="bottom"))
 ```
 
@@ -469,7 +469,7 @@ The codec emits `bodyPr/@anchor`, per-line `pPr/@algn`, and run `rPr` with `sz`,
 lines retain the requested styling. Paragraph and run properties stay in schema
 order. Missing individual values are not materialized; an omitted or empty
 format preserves prior output bytes. If text is absent, no text body is emitted,
-but invalid format values are still rejected during validation. Empty text is
+but invalid numeric format values are still rejected during validation. Empty text is
 distinct from absent text and produces one empty DrawingML paragraph.
 
 This does not change surrounding WordprocessingML text, calculate line layout,
@@ -479,3 +479,53 @@ properties; Annex A.4 `CT_TextBodyProperties`, `CT_TextParagraph`,
 `CT_TextCharacterProperties`, `ST_TextFontSize`, `ST_TextAlignType` and
 `ST_TextAnchoringType`. Tests: `shape_text_format.rs`, `test_shape_text_format.py`,
 the paired catalogs and schema/content negative controls.
+
+R8m adds optional `italic` and `font` fields to this same record. Italic follows
+bold's three-state contract: omitted, enabled, or explicitly disabled. `font`
+authors the requested Latin typeface as `a:latin/@typeface`, after solid fill in
+both run and end-paragraph properties. It does not set East Asian or complex-script
+typefaces or alter surrounding WordprocessingML runs. Typeface values follow
+`ST_TextTypeface` (an XML string): Unicode, special characters and an empty string
+are preserved, not checked against installed fonts. Invalid XML characters in an
+emitted typeface are rejected. Missing font/italic values do not materialize any
+attributes or elements. Python supports deferred values for these fields too.
+No installed-font lookup, embedding, fallback selection or measurement is added.
+Schema mutations reject missing typeface attributes and wrong child order;
+catalog mutations reject changed font or italic requests.
+
+### Standalone inline text boxes (R8n)
+
+Use the same authoring APIs with Rust `ShapeGeometry::TextBox` or Python
+`geometry="text_box"`:
+
+```rust
+use rocx::{ShapeGeometry, ShapeProperties, ShapeRun, ShapeTextFormat};
+let text_box = ShapeRun::new(ShapeProperties::default()
+    .with_geometry(ShapeGeometry::TextBox).with_width(144.).with_height(48.)
+    .with_text("Standalone\nText box")
+    .with_text_format(ShapeTextFormat::default().with_font("Arial").with_font_size(12.)));
+```
+
+```python
+text_box = d.ShapeRun(144, 48, geometry="text_box", text="Standalone\nText box",
+    text_format=d.ShapeTextFormat(font="Arial", font_size=12))
+```
+
+This mode emits a direct `lockedCanvas/a:txSp`, with `a:txBody` followed by its
+own `a:xfrm` offset/extent. It does not emit geometric `a:sp`, `a:spPr`,
+`a:prstGeom` or `a:useSpRect`. The existing point dimensions and DrawingML text
+codec are reused. An omitted text value creates one empty DrawingML paragraph;
+multiline text and uniform formatting retain the same contracts as shape text.
+`fill` and `outline` are rejected, not ignored: this text shape has no geometric
+properties container in which to serialize them. Other shape-mode defaults and
+output are unchanged.
+
+Text boxes are inline drawings in body paragraphs. The existing shape story and
+container restrictions still apply; no headers/footers, notes, hyperlink children
+or cached field results are enabled. Shape/canvas drawing IDs remain unique with
+mixed drawings and imported canvases. This is plain DrawingML text, not a rich
+WordprocessingML `txbxContent` story. Floating placement, rich child blocks,
+text-flow links, padding/autofit and manual Office rendering remain unimplemented
+or unverified. Source: P1 (2016) §20.3; Annex A.4 `CT_GvmlGroupShape` and
+`CT_GvmlTextShape`. Tests: `test_text_boxes.py`, `shape_text_format.rs`, official
+catalog schema checks and missing-transform/changed-extent mutations.

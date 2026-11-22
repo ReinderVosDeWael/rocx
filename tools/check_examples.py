@@ -396,10 +396,10 @@ def verify_content(data: bytes, template: bytes) -> None:
         assert "tight text wrapping around an authored triangular contour" in text
         canvases = document.xpath("//a:graphicData/*[local-name()='lockedCanvas']", namespaces=NS)
         assert [canvas.xpath("a:sp/a:spPr/a:prstGeom/@prst", namespaces=NS) for canvas in canvases] == [
-            ["rect"], ["ellipse"],
+            ["rect"], ["ellipse"], [],
         ]
         assert [canvas.xpath("a:sp/a:spPr/a:solidFill/a:srgbClr/@val", namespaces=NS) for canvas in canvases] == [
-            ["2050B0"], ["209050"],
+            ["2050B0"], ["209050"], [],
         ]
         assert canvases[1].xpath("a:sp/a:spPr/a:ln/@w", namespaces=NS) == ["19050"]
         assert canvases[1].xpath("a:sp/a:spPr/a:ln/a:solidFill/a:srgbClr/@val", namespaces=NS) == ["103020"]
@@ -409,10 +409,22 @@ def verify_content(data: bytes, template: bytes) -> None:
         assert body.xpath("a:p/a:pPr/@algn", namespaces=NS) == ["ctr"] * 3
         assert body.xpath("a:p/a:r/a:rPr/@sz", namespaces=NS) == ["1425"] * 2
         assert body.xpath("a:p/a:r/a:rPr/@b", namespaces=NS) == ["0"] * 2
+        assert body.xpath("a:p/a:r/a:rPr/@i", namespaces=NS) == ["1"] * 2
+        assert body.xpath("a:p/a:r/a:rPr/a:latin/@typeface", namespaces=NS) == ["Arial"] * 2
         assert body.xpath("a:p/a:r/a:rPr/a:solidFill/a:srgbClr/@val", namespaces=NS) == ["FFFFFF"] * 2
         assert body.xpath("a:p/a:endParaRPr/@sz", namespaces=NS) == ["1425"] * 3
+        assert body.xpath("a:p/a:endParaRPr/@i", namespaces=NS) == ["1"] * 3
+        assert body.xpath("a:p/a:endParaRPr/a:latin/@typeface", namespaces=NS) == ["Arial"] * 3
         assert not canvases[1].xpath(".//a:txBody", namespaces=NS)
-        assert "Shape text style: blue rectangle, 14.25 pt white text" in text
+        box, = canvases[2].xpath("a:txSp", namespaces=NS)
+        assert not canvases[2].xpath("a:sp", namespaces=NS)
+        assert [etree.QName(child).localname for child in box] == ["txBody", "xfrm"]
+        assert box.xpath("a:txBody/a:p/a:r/a:t/text()", namespaces=NS) == ["Standalone", "Text box"]
+        assert box.xpath("a:xfrm/a:ext/@cx | a:xfrm/a:ext/@cy", namespaces=NS) == ["1828800", "609600"]
+        assert box.xpath("a:txBody/a:p/a:r/a:rPr/a:latin/@typeface", namespaces=NS) == ["Arial"] * 2
+        assert box.xpath("a:txBody/a:p/a:r/a:rPr/@b", namespaces=NS) == ["0"] * 2
+        assert "Standalone inline text box: 144 by 48 points" in text
+        assert "Shape text style: blue rectangle, 14.25 pt white Arial text" in text
         assert "Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline." in text
         cropped = document.xpath("//wp:inline[.//a:srcRect]", namespaces=NS)
         assert len(cropped) == 1

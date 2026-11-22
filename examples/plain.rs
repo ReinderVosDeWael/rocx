@@ -1,3 +1,4 @@
+// docs:start quickstart
 use rocx::{Document, Paragraph, Result, Section};
 
 fn main() -> Result<()> {
@@ -12,8 +13,10 @@ fn main() -> Result<()> {
             ])
             .into(),
         ])
+        .with_timestamp(Some("2026-11-21T00:00:00Z".into()))
         .resolve()
         .await?
         .save(output)
     })
 }
+// docs:end quickstart

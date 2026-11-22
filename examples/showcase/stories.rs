@@ -509,7 +509,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
     out.push(p(
         "Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline.",
     ));
-    out.push(p("Shape text style: blue rectangle, 14.25 pt white text, bold explicitly false, centered horizontally and bottom anchored. Blank middle line preserved; ellipse has no text body."));
+    out.push(p("Shape text style: blue rectangle, 14.25 pt white Arial text, bold explicitly false, italic true, centered horizontally and bottom anchored. Blank middle line preserved; ellipse has no text body."));
     out.push(
         Paragraph::from_children(vec![
             ShapeRun::new(
@@ -522,6 +522,8 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
                         ShapeTextFormat::default()
                             .with_font_size(14.25)
                             .with_bold(false)
+                            .with_italic(true)
+                            .with_font("Arial")
                             .with_color([255, 255, 255])
                             .with_alignment(ShapeTextAlignment::Center)
                             .with_vertical_alignment(ShapeTextVerticalAlignment::Bottom),
@@ -538,6 +540,26 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
                         width: 1.5,
                         color: [16, 48, 32],
                     }),
+            )
+            .into(),
+        ])
+        .into(),
+    );
+    out.push(p("Standalone inline text box: 144 by 48 points, plain multiline DrawingML text, Arial 12 pt, bold explicitly false; no geometric fill or outline, no rich WordprocessingML story."));
+    out.push(
+        Paragraph::from_children(vec![
+            ShapeRun::new(
+                ShapeProperties::default()
+                    .with_geometry(ShapeGeometry::TextBox)
+                    .with_width(144.)
+                    .with_height(48.)
+                    .with_text("Standalone\nText box")
+                    .with_text_format(
+                        ShapeTextFormat::default()
+                            .with_font("Arial")
+                            .with_font_size(12.)
+                            .with_bold(false),
+                    ),
             )
             .into(),
         ])

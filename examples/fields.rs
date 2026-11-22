@@ -1,4 +1,5 @@
 //! Fields request consumer calculation; cached results below are placeholders.
+// docs:start fields
 use rocx::*;
 
 fn main() -> Result<()> {
@@ -59,3 +60,4 @@ fn main() -> Result<()> {
     );
     futures::executor::block_on(Document::new(vec![section.into()]).resolve())?.save(output)
 }
+// docs:end fields

@@ -389,6 +389,18 @@ See [the standards map](OOXML.md), [module boundaries](MODULES.md), and
 [testing guide](../tests/README.md) for implemented scope and validation limits.
 ## Shape text style requests
 
+R8n adds `ShapeGeometry::TextBox` (Python `geometry="text_box"`) to existing
+shape authoring. Downstream exhaustive enum matches need the new variant. This
+mode uses a standalone DrawingML text shape rather than a preset geometry;
+fill/outline requests are rejected. See
+[the plain text-box contract](FORMATTING.md#standalone-inline-text-boxes-r8n).
+
+R8m appends optional `italic` and `font` to `ShapeTextFormat` in both languages.
+Exhaustive Rust format literals need those fields or `..Default::default()`;
+Python's earlier argument positions are unchanged. Omission preserves earlier
+output bytes; explicit false disables italic and font requests the Latin typeface
+without checking installed fonts.
+
 `ShapeProperties` adds optional `text_format` with adjacent
 `with_text_format(ShapeTextFormat)`; exhaustive Rust literals need the new field
 or `..Default::default()`. Python appends `ShapeRun.text_format` and exports

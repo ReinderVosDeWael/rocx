@@ -41,7 +41,8 @@ def test_builder_inventory_rejects_a_missing_setter(tmp_path, monkeypatch) -> No
         checks.verify_rust_builder_inventory()
 
 
-def test_content_check_rejects_changed_shape_text_style(catalogs) -> None:
+@pytest.mark.parametrize("property", ["b", "i", "typeface"])
+def test_content_check_rejects_changed_shape_text_style(catalogs, property) -> None:
     rust, _ = catalogs
     output = io.BytesIO()
     with zipfile.ZipFile(rust) as source, zipfile.ZipFile(output, "w") as target:
@@ -50,7 +51,26 @@ def test_content_check_rejects_changed_shape_text_style(catalogs) -> None:
             if name == "word/document.xml":
                 root = etree.fromstring(data)
                 properties = root.xpath("//a:txBody/a:p/a:r/a:rPr", namespaces=checks.NS)[0]
-                properties.set("b", "1")
+                if property == "typeface":
+                    properties.find("a:latin", checks.NS).set("typeface", "Wrong font")
+                else:
+                    properties.set(property, "1" if property == "b" else "0")
+                data = etree.tostring(root)
+            target.writestr(name, data)
+    with pytest.raises(AssertionError):
+        checks.verify_content(output.getvalue(), rust.with_suffix(".template.docx").read_bytes())
+
+
+def test_content_check_rejects_changed_text_box_extent(catalogs) -> None:
+    rust, _ = catalogs
+    output = io.BytesIO()
+    with zipfile.ZipFile(rust) as source, zipfile.ZipFile(output, "w") as target:
+        for name in source.namelist():
+            data = source.read(name)
+            if name == "word/document.xml":
+                root = etree.fromstring(data)
+                extent = root.xpath("//a:graphicData/*[local-name()='lockedCanvas']/a:txSp/a:xfrm/a:ext", namespaces=checks.NS)[0]
+                extent.set("cx", "100")
                 data = etree.tostring(root)
             target.writestr(name, data)
     with pytest.raises(AssertionError):

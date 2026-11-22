@@ -37,6 +37,36 @@ async def test_styled_multiline_shape_preserves_false_and_blank_lines() -> None:
     assert len(body.xpath("a:p/a:endParaRPr", namespaces=NS)) == 3
 
 
+async def test_italic_and_latin_typeface_are_deferred_and_preserved_on_blank_lines() -> None:
+    root = await render(d.ShapeRun(text="First\n\nLast", text_format=d.ShapeTextFormat(
+        font=lambda: "A & B", italic=False, color=(16, 48, 32))))
+    properties = root.xpath("//a:txBody/a:p/a:r/a:rPr | //a:txBody/a:p/a:endParaRPr", namespaces=NS)
+    assert len(properties) == 5
+    for node in properties:
+        assert node.get("i") == "0"
+        assert node.get("b") is None
+        assert node.find("a:latin", NS).get("typeface") == "A & B"
+        assert [etree.QName(child).localname for child in node] == ["solidFill", "latin"]
+
+
+async def test_italic_true_does_not_materialize_a_typeface_or_bold() -> None:
+    root = await render(d.ShapeRun(text="Italic", text_format=d.ShapeTextFormat(italic=True)))
+    assert root.xpath("//a:rPr/@i", namespaces=NS) == ["1"]
+    assert not root.xpath("//a:rPr/a:latin | //a:rPr/@b", namespaces=NS)
+
+
+@pytest.mark.parametrize("font", ["", "字体 & Font"])
+async def test_latin_typeface_uses_string_lexical_values_without_font_lookup(font) -> None:
+    root = await render(d.ShapeRun(text="Font", text_format=d.ShapeTextFormat(font=font)))
+    assert root.xpath("//a:rPr/a:latin/@typeface", namespaces=NS) == [font]
+    assert not root.xpath("//a:rPr/@i", namespaces=NS)
+
+
+async def test_invalid_xml_in_authored_typeface_is_rejected() -> None:
+    with pytest.raises(ValueError, match=r"shape.text_format.font"):
+        await render(d.ShapeRun(text="Font", text_format=d.ShapeTextFormat(font="bad\x00font")))
+
+
 @pytest.mark.parametrize("horizontal, vertical, expected_h, expected_v", [
     ("left", "top", "l", "t"), ("center", "center", "ctr", "ctr"), ("right", "bottom", "r", "b")])
 async def test_all_shape_text_alignments(horizontal, vertical, expected_h, expected_v) -> None:
