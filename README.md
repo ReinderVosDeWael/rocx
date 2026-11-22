@@ -51,5 +51,6 @@ differences and the limits of each feature.
 ## Project information
 
 - [Migration guide](docs/MIGRATION.md)
+- [Changelog](CHANGELOG.md)
 - [Visual catalog](https://reindervosdewael.github.io/rv-docx-rs/catalog/)
 - [License](LICENSE)

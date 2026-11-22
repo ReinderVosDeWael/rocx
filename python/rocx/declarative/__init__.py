@@ -5,6 +5,8 @@ from rocx.declarative.document import Document, DocumentTemplate
 from rocx.declarative.defaults import DocumentDefaults, RunDefaults, ParagraphDefaults, NoteNumbering
 from rocx.declarative.content_control import BlockContentControl, ContentControlListItem, ContentControlMetadata, InlineContentControl
 from rocx.declarative.shape import ShapeOutline, ShapeRun, ShapeTextFormat
+from rocx.declarative.chart import ColumnChartRun
+from rocx.declarative.equation import InlineFraction
 from rocx.declarative.image import ImageAnchor, ImageCrop, ImageRun
 from rocx.declarative.hyperlink import Hyperlink
 from rocx.declarative.field import Field, FieldInstruction
@@ -64,6 +66,8 @@ __all__ = [
     "PageBorders",
     "ImageRun",
     "ShapeRun",
+    "ColumnChartRun",
+    "InlineFraction",
     "ShapeOutline",
     "ShapeTextFormat",
     "ImageCrop",

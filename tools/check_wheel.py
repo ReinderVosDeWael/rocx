@@ -31,6 +31,7 @@ async def verify_install() -> None:
     assert any(str(_native.__file__).endswith(suffix)
                for suffix in importlib.machinery.EXTENSION_SUFFIXES)
     assert _native.BACKEND == "rust"
+    assert rocx.__version__ == importlib.metadata.version("rocx")
     assert importlib.util.find_spec("docx") is None
     requirements = importlib.metadata.requires("rocx") or []
     assert len(requirements) == 1, requirements

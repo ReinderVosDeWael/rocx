@@ -36,59 +36,8 @@ After native changes, rebuild the editable Python extension first using the
 repository's locked native rebuild command. A stale native extension can cause
 an actual parity failure.
 
-The gallery also labels a standalone 144-by-48-point inline text box. It uses a
-direct DrawingML text shape, plain multiline text, Arial 12 pt and explicit
-bold=false, with no geometric fill/outline. This does not demonstrate a rich
-WordprocessingML text-box story. The separate floating text-box sample places
-plain text 220 pt from the margin and 12 pt below its paragraph; it requests
-square wrapping and a 6 pt left gap.
-
-The inline-shape gallery labels the rectangle's 14.25-point white Arial text,
-explicit bold=false, italic=true, horizontal centering and bottom anchoring. It preserves a blank
-middle line. The adjacent ellipse has no text body; neither sample claims text
-fitting or manually verified placement in Office.
-
-Topic 02 labels a chainable-setter sample: bold omitted, bold enabled, and bold
-explicitly disabled with italic enabled. Rust uses `RunFormat`/`ParagraphFormat`
-builders; Python uses equivalent existing keyword arguments. The inventory guard
-also checks that public Rust authoring value fields have adjacent setters and
-assignment tests. Builders change authoring syntax only; they do not add OOXML
-features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters).
-
-Topic 04 also labels all five inline-table alignment tokens on narrow 2160-twip
-tables. Existing tables retain omitted alignment; paragraph alignment is separate.
-
-Topic 06 additionally shows legal-numbering display requests on an abstract level
-and concrete replacements, including explicit false. The viewer computes labels;
-the catalog checks preserve `numFmt` and inspect `isLgl` independently.
-It also labels tab/space/nothing suffix requests on abstract/replacement levels
-and explains omitted defaults. Separators are consumer-generated, not text edits.
-It labels level-restart requests separately from start overrides: zero means
-never restart; trigger 1 is one-based; omitted levels retain consumer defaults.
-Concrete instances 61 and 62 share abstract bullet definition 100. Instance 62
-adds its own start override. The checks verify both references and a single
-Abstract and replacement levels also show distinct bold and italic label requests.
-The same levels show distinct left and hanging indent requests in points.
-They also associate different registered heading styles with the two levels.
-The Catalog Bullets numbering style points to concrete instance 61, with a reciprocal link on abstract definition 100.
-Concrete instance 63 inherits from Catalog Bullets through a level-free abstract definition.
-Topic 06 also labels separate document-wide placement, formats, starts and restart modes for footnotes and endnotes.
-It also labels tracked text insertions and deletions with review metadata and an explicitly disabled future-edit tracking flag.
-The template stage accepts imported text changes and a paired move before adding new revisions.
-The authored move sample labels the common source and destination name.
-The inline rich-text control sample shows its alias, tag, lock and formatted content.
-A separate block control groups one paragraph and one table. Both controls label their explicit IDs.
-A third control labels plain text with multiline enabled.
-The drop-down sample labels its choices and selected value.
-The table sample labels separate wrappers for a row and one of its cells.
-The generated template also includes a plain-text control whose cached value
-is updated by tag while its bold formatting is preserved.
-abstract definition.
-
-It also labels five numbering-label alignments on abstract levels, start/end on
-replacement levels, and omission elsewhere. Label alignment does not set paragraph
-text alignment; the viewer performs label positioning.
-Both pass official schema validation for 17 covered parts plus OPC relationships.
+Both generated documents pass official schema validation for 20 covered parts
+plus OPC relationships.
 Future intentional feature additions will change this baseline; equality is
 checked against the other implementation, not against a permanently fixed hash.
 
@@ -103,24 +52,32 @@ supported fields, not every Cartesian combination in every story/input form.
 | Location | Functionality exercised |
 | --- | --- |
 | Start and retained template paragraph | Two-stage template creation, insertion at paragraph index 1, cross-run replacement `{{replace}} → REPLACED`, supported-story edit scope and retained template content. |
+| Template safety | The catalog edits an unsigned template. Both APIs reject templates declaring an OPC signature origin; rejection is tested separately because it does not produce a document. The template stage also accepts imported text changes and a paired move before adding new revisions. |
+| Custom document properties | `Project` is retained as `Atlas`; `Review status` changes from `Pending` to `Draft & review`; the boolean `Review complete` changes from false to true, and `Published` is added as an explicit false. |
+| Template compatibility | The catalog labels rejection of unsupported mandatory namespaces on edited part roots and ordinary WordprocessingML descendants. Rejection is tested separately because it produces no document. |
+| Extended document properties | Inspect the document's metadata: Company is `Atlas & Co.` and Manager is `Taylor`. |
 | Defaults and Properties dialog | Run defaults (Calibri 11 pt), paragraph defaults (4 pt after, 1.1 lines); creator/title/subject/description/keywords/category/comments/version; fixed snapshot/render timestamps. Defaults remain separate from direct content properties. |
 | 01 Paragraphs/headings | Heading 0/no heading through 9; all nine alignments; multiplier/exact/minimum line heights and legacy line spacing; before/after spacing; left/right/first-line/hanging point indents; keep-lines/next, widow control, page-break-before and explicit false values. |
 | 01 Tabs | All eight alignments including start/end/bar/clear; all six leaders; signed positions and explicit clear at −12 pt. |
-| 02 Runs | Bold/italic/strike/caps/small-caps/super/subscript; false overrides; literal fonts and point sizes; RGB/automatic color; all 16 theme slots with tint/shade; all seven underline styles; Unicode, preserved spaces, empty runs, literal tabs/newlines. |
+| 02 Runs | Bold/italic/strike/caps/small-caps/super/subscript; false overrides; literal fonts and point sizes; RGB/automatic color; all 16 theme slots with tint/shade; all seven underline styles; Unicode, preserved spaces, empty runs, literal tabs/newlines. A labeled chainable-setter sample shows omitted, enabled and explicitly disabled bold (with italic enabled); builders alter Rust authoring syntax only, not OOXML features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters). |
 | 02 Script requests | Independent paragraph bidi, run RTL/complex-script flags, complex-script bold/italic/size, three language slots and literal East Asian/complex-script fonts; true/false cases. |
 | 03 Styles | Forward paragraph/character bases, next style and reciprocal opposite-kind links; direct character reference/override; legacy paragraph-style inch indents; update existing template paragraph/character styles while retaining unspecified bold. No computed effective formatting. |
-| 04 Tables | Fixed widths, explicit autofit and default allocated grid; all six table-border sides, all four cell-border sides, both line kinds; shading; top/center/bottom cell alignment; all margin sides including zero; horizontal spans and vertical restart/continue; short-row padding; nested tables with trailing paragraphs; all-disabled TableLook (mask 0600). |
+| 04 Tables | Fixed widths, explicit autofit and default allocated grid; all six table-border sides, all four cell-border sides, both line kinds; shading; top/center/bottom cell alignment; all margin sides including zero; horizontal spans and vertical restart/continue; short-row padding; nested tables with trailing paragraphs; all-disabled TableLook (mask 0600). Narrow 2160-twip tables label all five inline-table alignment tokens; existing tables retain omitted alignment, and paragraph alignment is separate. |
 | 04 Rows/text flow | Exact/minimum heights, repeat-header/cannot-split true/false; 36-row pagination sample; all six cell text directions. |
 | 05 Conditional styles | Separate labeled tables for all 13 region inputs, including base whole-table; all six TableLook activation flags explicitly enabled (mask 01E0); run/font/color/script/language requests, paragraph alignment/spacing/line-height/tabs/bidi and cell shading. Properties stay in style definitions, not direct cells. |
-| 06 Lists | Nine levels/references, decimal/lowerRoman/bullet formats, abstract starts and literal text, concrete level-0 restart at 7 and level-8 override at zero; concrete level-0 lowerLetter replacement combined with restart, and level-1 upperRoman replacement-only. Abstracts remain unchanged. Format/text are open strings, not finite enum galleries. |
+| 06 Lists | Nine levels/references, decimal/lowerRoman/bullet formats, abstract starts and literal text, concrete level-0 restart at 7 and level-8 override at zero; concrete level-0 lowerLetter replacement combined with restart, and level-1 upperRoman replacement-only. Abstracts remain unchanged. Format/text are open strings, not finite enum galleries. Legal-numbering requests (including false), suffix choices, level restarts (zero never restarts; trigger 1 is one-based), start overrides, label alignment, bold/italic, point indents and registered heading styles are labeled on abstract/replacement levels; omitted levels retain consumer defaults. Concrete instances 61/62 share abstract bullet definition 100, with a start override on 62; Catalog Bullets links instance 61 reciprocally to abstract 100, and instance 63 inherits through a level-free abstract definition. Separators and label positioning are consumer-generated; the viewer computes labels, while checks inspect `numFmt` and `isLgl`. |
 | 06 Links/ranges | External URL with tooltip/history and explicit display formatting; internal bookmark link; overlapping/cross-paragraph bookmarks and comment range; history=false; text/image/tab/break hyperlink children. Header/comment/note links use owner-local relationships. |
 | 06 Comments | Plain cross-paragraph range; structured paragraph/table/image/link story with author/date/initials; paragraph/run convenience comments with author overrides. Inspect the comments pane. |
-| 06 Notes | Footnote/endnote references and distinct kind/id=0 definitions; rich footnote paragraph/table/image/link story and endnote body. Automatic special note entries are infrastructure, not ordinary visible notes. |
+| 06 Notes | Footnote/endnote references and distinct kind/id=0 definitions; rich footnote paragraph/table/image/link story and endnote body. Document-wide placement, formats, starts and restart modes are labeled separately. Automatic special note entries are infrastructure, not ordinary visible notes. |
 | 06 Fields | PAGE/NUMPAGES/REF/TOC/raw DATE in simple and complex forms; nested cache, dirty/locked true/false. Caches are labeled placeholders, not evaluated values. |
-| 07 Images | PNG/JPEG/GIF/BMP/TIFF; density-derived/native/zero-DPI sizes; width-only, height-only and two-dimensional transforms; accessibility title/description/name; byte deduplication; filesystem path and async bytes/deferred transformation/alt text. `type` is an ignored hint, not an image converter. |
+| 06 Revisions and controls | Tracked insertions/deletions with review metadata and future-edit tracking explicitly disabled; authored move with common source/destination name. Labeled inline rich-text control (alias, tag, lock, formatted content), block control (paragraph and table), multiline plain-text control, drop-down choices/selection, and table row/cell wrappers; explicit IDs are shown. Generated template also updates a cached plain-text control by tag while preserving bold. |
+| 07 Images | PNG/JPEG/GIF/BMP/TIFF; density-derived/native/zero-DPI sizes; width-only, height-only and two-dimensional transforms; accessibility title/description/name; byte deduplication; filesystem path and async bytes/deferred transformation/alt text. `type` is an ignored hint, not an image converter. Topic 07 also labels a cropped, rotated, flipped inline picture and floating pictures with page/margin offsets, square wrapping/distances/placement flags or tight wrapping with explicit contour. |
 | 07 Breaks | Line/textWrapping/page/column variants with before/after labels. Literal tab/newline and explicit Tab/Break are shown separately. |
+| 07 Charts | One workbook-free inline column series (North 8, South 13.5, West 5). |
+| 07 Equations | A stacked 1-over-2 Office Math fraction between ordinary text runs. |
+| 07 Shapes | A standalone 144-by-48-point inline DrawingML text box with plain multiline text, Arial 12 pt and explicit bold=false, without geometric fill/outline; this is not a rich WordprocessingML text-box story. A separate floating text box places plain text 220 pt from the margin and 12 pt below its paragraph, with square wrapping and a 6 pt left gap. The inline sample labels a solid blue rectangle with 14.25-point white Arial text, explicit bold=false, italic=true, horizontal centering, bottom anchoring and a blank middle line; the solid green ellipse has an outline but no text body. The shape samples do not claim text fitting or manually verified Office placement. |
 | 08 Authoring | Ready/lazy/async values; named property references and explicit Deferred; true/false conditions with an excluded producer that would fail if run; immutable resolved block/inline reuse; repeated snapshot renders must match. |
-| 09 Sections | All five break kinds; portrait/landscape; page dimensions/margins; two columns/spacing/separator; page-number start/format; all four vertical alignments; title-page true/false; section bidi/gutter-side true/false independent of text. |
+| 09 Sections | All five break kinds; portrait/landscape; page dimensions/margins; two columns/spacing/separator; page-number start/format; all four vertical alignments; title-page true/false; section bidi/gutter-side true/false independent of text. Samples label all three line-number restart modes, preservation/removal of prior settings, paragraph suppression enabled/disabled, independent header/footer edge distances, mirrored margins, disabled top gutter, page-border edges/offset/display and all four grid modes with line/character pitch. Paragraph snapping is enabled, run snapping disabled; contextual spacing is on and mirrored paragraph indents are off. |
 | Header/footer stories | Default/first/even headers and footers, title-page selection, header image/link and PAGE/NUMPAGES footer caches, all visibly labeled. |
 | Generation/check scripts (nonvisual) | Explicit Transitional profile/read budgets; template loading; bytes/path save; fixed metadata; OPC relationships/validation; asset deduplication; untouched opaque theme-byte retention. Rust additionally demonstrates caller-owned-byte compilation and `PackagePlan.parts/part/validate/to_bytes`. Python's optional `to_docx` convenience uses the same bytes; verification independently opens them with python-docx without resaving. |
 
@@ -164,21 +121,3 @@ bad border/conditional-order mutations. `tests/showcase.rs` runs the Rust catalo
 without Python and checks combined property order. Nothing is normalized,
 unpacked/repacked or rewritten before byte comparison; ZIP diagnostics are only
 used after a failure.
-
-Section samples in topic 09 label all three line number restart modes and
-show preservation and explicit removal of previous settings. The samples also
-label paragraph suppression enabled and explicitly disabled.
-The first section also labels independently authored header and footer edge distances.
-The document settings sample labels mirrored margins and an explicitly disabled top gutter.
-It shows single top/bottom and dashed left/right page borders, offset from
-the page edges and placed behind the text on the first page.
-The later sections label all four document grid modes, with line pitch in
-twips and a signed character-pitch delta. They also label paragraph snapping
-enabled and run snapping explicitly disabled.
-The numbered sections also label contextual spacing on and mirrored paragraph
-indents explicitly off.
-
-Topic 07 labels a cropped, rotated and flipped inline picture and a floating picture
-with explicit page/margin offsets, square wrapping with distances, and placement flags.
-A second floating picture shows tight wrapping with an explicit contour.
-The inline shape sample labels a solid blue rectangle with text and a solid green ellipse with an outline.

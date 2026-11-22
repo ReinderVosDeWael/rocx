@@ -47,6 +47,18 @@ pub(crate) fn compile(
         .into());
     }
     let mut package = Package::load_with_limits(bytes, options.read_limits)?;
+    // ECMA-376 Part 2: the package-level signature origin relationship
+    // identifies the signing graph, regardless of its target part name.
+    const SIGNATURE_ORIGIN: &str =
+        "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin";
+    if !package.relationships("", SIGNATURE_ORIGIN)?.is_empty() {
+        return Err(crate::Diagnostic::new(
+            crate::Rule::UnsupportedProfile,
+            "digitally signed templates are not supported; use an unsigned template",
+        )
+        .at("_rels/.rels")
+        .into());
+    }
     let main = package
         .related("", "officeDocument")?
         .map(|(_, p)| p)
@@ -224,6 +236,7 @@ pub(crate) fn root(name: &str) -> Node {
     node
 }
 
+mod compatibility;
 pub(crate) mod schema;
 pub(crate) trait WordParts {
     fn word(&self, path: &str) -> Result<Node>;
@@ -232,6 +245,7 @@ pub(crate) trait WordParts {
 impl WordParts for Package {
     fn word(&self, path: &str) -> Result<Node> {
         let mut node = self.xml(path)?;
+        compatibility::check(self, path, &node)?;
         node.configure_ordering(schema::order);
         Ok(node)
     }

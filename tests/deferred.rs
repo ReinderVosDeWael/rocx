@@ -1,8 +1,9 @@
 mod support;
 
 use futures::{channel::oneshot, executor::block_on, future::try_join_all, task::noop_waker};
-use rocx::{Deferred, Document, Error, Paragraph, Section, Value};
+use rocx::{Deferred, Document, Error, Metadata, Paragraph, Section, Value};
 use std::{
+    collections::BTreeMap,
     error::Error as _,
     future::Future,
     io,
@@ -12,6 +13,36 @@ use std::{
     },
     task::Context,
 };
+
+#[test]
+fn deferred_metadata_writes_string_and_boolean_custom_properties() {
+    let metadata = Value::future(async {
+        Metadata::default()
+            .with_custom_properties(BTreeMap::from([("Middle".into(), "text".into())]))
+            .with_custom_boolean_properties(BTreeMap::from([
+                ("Alpha".into(), true),
+                ("Zulu".into(), false),
+            ]))
+    });
+    let document = block_on(Document::default().with_metadata(metadata).resolve()).unwrap();
+    let xml = support::part(&document.to_docx().unwrap(), "docProps/custom.xml");
+    assert!(xml.contains(">true</vt:bool>"));
+    assert!(xml.contains(">false</vt:bool>"));
+    assert!(xml.contains(">text</vt:lpwstr>"));
+    assert!(xml.find("Alpha") < xml.find("Middle"));
+    assert!(xml.find("Middle") < xml.find("Zulu"));
+}
+
+#[test]
+fn deferred_metadata_rejects_duplicate_names_across_variants() {
+    let metadata = Value::future(async {
+        Metadata::default()
+            .with_custom_properties(BTreeMap::from([("Same".into(), "text".into())]))
+            .with_custom_boolean_properties(BTreeMap::from([("Same".into(), true)]))
+    });
+    let error = block_on(Document::default().with_metadata(metadata).resolve()).unwrap_err();
+    assert!(error.to_string().contains("both a string and a boolean"));
+}
 
 #[test]
 fn paragraph_dependencies_share_one_producer_in_any_declaration_order() {

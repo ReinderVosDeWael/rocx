@@ -198,4 +198,145 @@ mod tests {
             assert!(PartName::new(invalid).is_err(), "{invalid}");
         }
     }
+
+    #[test]
+    fn part_names_normalize_leading_slash_and_preserve_zip_identity() {
+        for name in [
+            "document.xml",
+            "word/media/image-1.png",
+            "a/b/c/item%20name.xml",
+            "a/%C3%A9.xml",
+        ] {
+            let relative = PartName::new(name).unwrap();
+            let absolute = PartName::new(&format!("/{name}")).unwrap();
+            assert_eq!(relative, absolute, "{name}");
+            assert_eq!(relative.as_str(), format!("/{name}"));
+            assert_eq!(relative.zip_name(), name);
+        }
+    }
+
+    #[test]
+    fn relative_targets_round_trip_across_owner_and_target_matrix() {
+        let owners = [
+            "",
+            "document.xml",
+            "/word/document.xml",
+            "word/stories/header.xml",
+            "word/stories/nested/footer.xml",
+        ];
+        let targets = [
+            "document.xml",
+            "word/document.xml",
+            "word/stories/header.xml",
+            "word/stories/nested/item%20one.xml",
+            "media/image.png",
+        ];
+        for owner in owners {
+            for name in targets {
+                let target = PartName::new(name).unwrap();
+                let relative = target.relative_to(owner).unwrap();
+                assert_eq!(
+                    PartName::resolve(owner, &relative).unwrap(),
+                    target,
+                    "owner={owner:?}, target={name:?}, relative={relative:?}"
+                );
+                assert_eq!(
+                    PartName::resolve(owner, target.as_str()).unwrap(),
+                    target,
+                    "absolute target for owner={owner:?}, target={name:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resolution_handles_dot_segments_and_rejects_root_escape() {
+        for (owner, target, expected) in [
+            ("", "./word/document.xml", "/word/document.xml"),
+            (
+                "word/document.xml",
+                "./media/../styles.xml",
+                "/word/styles.xml",
+            ),
+            (
+                "word/stories/header.xml",
+                "../../media/image.png",
+                "/media/image.png",
+            ),
+            (
+                "word/stories/header.xml",
+                "/word/./media/../styles.xml",
+                "/word/styles.xml",
+            ),
+        ] {
+            assert_eq!(
+                PartName::resolve(owner, target).unwrap().as_str(),
+                expected,
+                "owner={owner:?}, target={target:?}"
+            );
+        }
+        for (owner, target) in [
+            ("", "../x.xml"),
+            ("main.xml", "../x.xml"),
+            ("word/main.xml", "../../x.xml"),
+            ("word/stories/header.xml", "../../../x.xml"),
+            ("word/stories/header.xml", "/../x.xml"),
+        ] {
+            assert!(
+                PartName::resolve(owner, target).is_err(),
+                "owner={owner:?}, target={target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_names_and_targets_are_rejected() {
+        for invalid in [
+            "",
+            "/",
+            "//word/x.xml",
+            "word//x.xml",
+            "word/./x.xml",
+            "word/../x.xml",
+            "word/x.",
+            "word/x y.xml",
+            "word/x\n.xml",
+            "word/x\\y.xml",
+            "word/x?y.xml",
+            "word/x#y.xml",
+            "word/x:y.xml",
+            "word/%.xml",
+            "word/%2.xml",
+            "word/%GG.xml",
+            "word/%2f.xml",
+            "word/%5C.xml",
+            "word/%41.xml",
+            "word/%2e.xml",
+        ] {
+            assert!(PartName::new(invalid).is_err(), "name={invalid:?}");
+        }
+        for target in [
+            "",
+            "//host/x.xml",
+            "x//y.xml",
+            "x y.xml",
+            "x?query",
+            "x#fragment",
+            "http://host/x.xml",
+            "%2F.xml",
+            "%41.xml",
+            "%GG.xml",
+        ] {
+            assert!(
+                PartName::resolve("word/document.xml", target).is_err(),
+                "target={target:?}"
+            );
+        }
+        assert!(
+            PartName::new("word/x.xml")
+                .unwrap()
+                .relative_to("word//document.xml")
+                .is_err()
+        );
+    }
 }

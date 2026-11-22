@@ -1,6 +1,14 @@
 //! Immutable document content; no serialization or execution effects.
 use super::*;
 use std::collections::BTreeMap;
+
+/// First character outside the XML 1.0 Char production.
+pub(crate) fn invalid_xml_character(text: &str) -> Option<(usize, char)> {
+    text.char_indices().find(|&(_, character)| {
+        !matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}')
+    })
+}
+
 /// Immutable resolved content. Rendering never invokes conditions or producers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedDocument {
@@ -107,6 +115,11 @@ impl ResolvedParagraph {
 #[non_exhaustive]
 pub enum ResolvedInline {
     Shape(ShapeProperties),
+    ColumnChart(ColumnChartProperties),
+    Fraction {
+        numerator: String,
+        denominator: String,
+    },
     ContentControl(super::ResolvedInlineContentControl),
     Field(ResolvedField),
     NoteReference(NoteTarget),
@@ -147,6 +160,8 @@ impl ResolvedInline {
             | Self::Image { format, .. } => Some(format),
             Self::Field(_)
             | Self::Shape(_)
+            | Self::ColumnChart(_)
+            | Self::Fraction { .. }
             | Self::ContentControl(_)
             | Self::Hyperlink(_)
             | Self::RangeStart { .. }
@@ -162,6 +177,8 @@ impl ResolvedInline {
             | Self::Image { comment, .. } => comment.as_ref(),
             Self::Field(_)
             | Self::Shape(_)
+            | Self::ColumnChart(_)
+            | Self::Fraction { .. }
             | Self::ContentControl(_)
             | Self::Hyperlink(_)
             | Self::RangeStart { .. }
@@ -219,6 +236,14 @@ pub struct Metadata {
     pub category: Option<String>,
     pub comments: Option<String>,
     pub version: Option<String>,
+    /// Company name in the Extended File Properties part.
+    pub company: Option<String>,
+    /// Manager name in the Extended File Properties part.
+    pub manager: Option<String>,
+    /// Named string properties stored separately from OPC core metadata.
+    pub custom_properties: BTreeMap<String, String>,
+    /// Named boolean properties. Names must not also occur in `custom_properties`.
+    pub custom_boolean_properties: BTreeMap<String, bool>,
 }
 setters!(Metadata {
     with_creator => creator: optional_into<String>,
@@ -229,4 +254,62 @@ setters!(Metadata {
     with_category => category: optional_into<String>,
     with_comments => comments: optional_into<String>,
     with_version => version: optional_into<String>,
+    with_company => company: optional_into<String>,
+    with_manager => manager: optional_into<String>,
+    with_custom_properties => custom_properties: value<BTreeMap<String, String>>,
+    with_custom_boolean_properties => custom_boolean_properties: value<BTreeMap<String, bool>>,
 });
+
+impl Metadata {
+    pub(crate) fn validate_extended_metadata(&self) -> Result<(), Diagnostic> {
+        for (name, value) in [("company", &self.company), ("manager", &self.manager)] {
+            if value
+                .as_deref()
+                .is_some_and(|s| invalid_xml_character(s).is_some())
+            {
+                return Err(Diagnostic::new(
+                    Rule::InvalidXml,
+                    "extended property must be XML text",
+                )
+                .at(format!("metadata.{name}")));
+            }
+        }
+        let strings = self
+            .custom_properties
+            .iter()
+            .enumerate()
+            .map(|(i, (name, value))| ("custom_properties", i, name, Some(value.as_str())));
+        let booleans = self
+            .custom_boolean_properties
+            .keys()
+            .enumerate()
+            .map(|(i, name)| ("custom_boolean_properties", i, name, None));
+        for (field, index, name, text) in strings.chain(booleans) {
+            let path = format!("metadata.{field}[{index}]");
+            if name.trim().is_empty() {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "custom property name must not be blank",
+                )
+                .at(path));
+            }
+            if invalid_xml_character(name).is_some()
+                || text.is_some_and(|value| invalid_xml_character(value).is_some())
+            {
+                return Err(Diagnostic::new(
+                    Rule::InvalidXml,
+                    "custom property name and value must be XML text",
+                )
+                .at(path));
+            }
+            if text.is_none() && self.custom_properties.contains_key(name) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    format!("custom property {name:?} is requested as both a string and a boolean"),
+                )
+                .at(path));
+            }
+        }
+        Ok(())
+    }
+}

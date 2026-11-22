@@ -9,8 +9,8 @@ async behavior.
 - [Download the paired visual catalogs](catalog.md) to inspect actual output.
 - Read the [Rust API](api/rust/rocx/index.html) or [Python API](api/python.md).
 
-`rocx` does not lay out or paginate pages, and fields such as page numbers are
-calculated by the document viewer. Documents may look different in Word and
+`rocx` does not lay out or paginate pages. A compatible viewer may update fields
+such as page numbers. Documents may look different in Word and
 other viewers. See [compatibility and limitations](compatibility.md).
 
 See the [migration guide](contracts/MIGRATION.md) if you are upgrading from an

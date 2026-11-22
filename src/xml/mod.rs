@@ -148,6 +148,13 @@ impl Node {
         }
     }
     pub fn parse(bytes: &[u8]) -> Result<Self> {
+        let mut root = Self::parse_original(bytes)?;
+        root.namespaces();
+        Ok(root)
+    }
+
+    /// Retain source bindings only, for prefix-valued attributes on imported roots.
+    pub(crate) fn parse_original(bytes: &[u8]) -> Result<Self> {
         let decoded;
         let utf16le = bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0x3c, 0]);
         let utf16be = bytes.starts_with(&[0xfe, 0xff]) || bytes.starts_with(&[0, 0x3c]);
@@ -237,9 +244,7 @@ impl Node {
             }
             node
         }
-        let mut root = convert(doc.root_element(), text);
-        root.namespaces();
-        Ok(root)
+        Ok(convert(doc.root_element(), text))
     }
     pub fn configure_ordering(&mut self, policy: OrderingPolicy) {
         self.ordering = Some(policy);
@@ -354,14 +359,11 @@ pub(crate) fn val(name: &str, value: impl ToString) -> Node {
 }
 
 pub(crate) fn validate_text(text: &str) -> Result<()> {
-    for (byte_offset, character) in text.char_indices() {
-        if !matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}')
-        {
-            return Err(Error::InvalidXmlCharacter {
-                character,
-                byte_offset,
-            });
-        }
+    if let Some((byte_offset, character)) = crate::document::invalid_xml_character(text) {
+        return Err(Error::InvalidXmlCharacter {
+            character,
+            byte_offset,
+        });
     }
     Ok(())
 }
@@ -380,6 +382,57 @@ pub(crate) fn is_ncname(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn namespace_round_trip_matrix_preserves_expanded_names() {
+        // Compare expanded names, not prefixes: serialization may choose another
+        // spelling for the same namespace. Siblings exercise scope restoration.
+        type Attribute = (Option<String>, String, String);
+        type Element = (Option<String>, String, Vec<Attribute>);
+        fn identities(xml: &str) -> Vec<Element> {
+            let doc = roxmltree::Document::parse(xml).unwrap();
+            doc.descendants()
+                .filter(|node| node.is_element())
+                .map(|node| {
+                    let mut attrs: Vec<_> = node
+                        .attributes()
+                        .map(|attr| {
+                            (
+                                attr.namespace().map(str::to_owned),
+                                attr.name().to_owned(),
+                                attr.value().to_owned(),
+                            )
+                        })
+                        .collect();
+                    attrs.sort();
+                    (
+                        node.tag_name().namespace().map(str::to_owned),
+                        node.tag_name().name().to_owned(),
+                        attrs,
+                    )
+                })
+                .collect()
+        }
+
+        for prefix in ["p", "alias"] {
+            for (outer, inner) in [("urn:one", "urn:two"), ("urn:two", "urn:one")] {
+                for reset in [false, true] {
+                    let default = if reset { "" } else { inner };
+                    let source = format!(
+                        r#"<root xmlns="{outer}" xmlns:{prefix}="{outer}"><{prefix}:item id="plain" {prefix}:id="outer"><branch xmlns="{default}" xmlns:{prefix}="{inner}"><{prefix}:item {prefix}:id="inner"/><leaf/></branch><{prefix}:item/></{prefix}:item></root>"#
+                    );
+                    let expected = identities(&source);
+                    let output = Node::parse(source.as_bytes()).unwrap().xml();
+                    assert_eq!(
+                        identities(&output),
+                        expected,
+                        "prefix={prefix}, outer={outer}, inner={inner}, reset={reset}; output={output}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn namespace_identity_survives_shadowing_and_prefix_valued_attributes() {
         let source = format!(

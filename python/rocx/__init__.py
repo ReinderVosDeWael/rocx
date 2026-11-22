@@ -2,6 +2,6 @@
 from . import declarative
 from .options import ReadLimits, RenderOptions
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __backend__ = "rust"
 __all__ = ["declarative", "ReadLimits", "RenderOptions"]

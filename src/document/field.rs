@@ -17,9 +17,12 @@ pub struct RawFieldInstruction(String);
 impl FieldInstruction {
     pub fn raw(value: impl Into<String>) -> Result<Self, Diagnostic> {
         let value = value.into();
-        if value.trim().is_empty() || value.chars().any(|c| !matches!(c,
-            '\u{9}' | '\u{a}' | '\u{d}' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}')) {
-            return Err(Diagnostic::new(Rule::InvalidContent, "field instruction must be nonempty XML text").at("instruction"));
+        if value.trim().is_empty() || invalid_xml_character(&value).is_some() {
+            return Err(Diagnostic::new(
+                Rule::InvalidContent,
+                "field instruction must be nonempty XML text",
+            )
+            .at("instruction"));
         }
         Ok(Self::Raw(RawFieldInstruction(value)))
     }
@@ -90,6 +93,20 @@ impl ResolvedField {
                 return Err(Diagnostic::new(
                     Rule::InvalidContent,
                     "DrawingML shapes in cached field results are unsupported",
+                )
+                .at(format!("children[{index}]")));
+            }
+            if matches!(child, ResolvedInline::Fraction { .. }) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "inline fractions in cached field results are unsupported",
+                )
+                .at(format!("children[{index}]")));
+            }
+            if matches!(child, ResolvedInline::ColumnChart(_)) {
+                return Err(Diagnostic::new(
+                    Rule::InvalidContent,
+                    "column charts in cached field results are unsupported",
                 )
                 .at(format!("children[{index}]")));
             }

@@ -53,6 +53,14 @@ pub fn metadata() -> Metadata {
         category: Some("Examples".into()),
         comments: Some("Core metadata comments".into()),
         version: Some("1.0".into()),
+        custom_properties: [("Review status".into(), "Draft & review".into())].into(),
+        custom_boolean_properties: [
+            ("Review complete".into(), true),
+            ("Published".into(), false),
+        ]
+        .into(),
+        company: Some("Atlas & Co.".into()),
+        manager: Some("Taylor".into()),
     }
 }
 pub async fn generate(output: &Path) -> Result<()> {
@@ -123,6 +131,16 @@ pub async fn generate(output: &Path) -> Result<()> {
         .into(),
     ]);
     template_document.timestamp = Some(STAMP.into()).into();
+    template_document.metadata = Metadata::default()
+        .with_custom_properties(
+            [
+                ("Project".into(), "Atlas".into()),
+                ("Review status".into(), "Pending".into()),
+            ]
+            .into(),
+        )
+        .with_custom_boolean_properties([("Review complete".into(), false)].into())
+        .into();
     template_document.styles = vec![
         ParagraphStyleDefinition {
             name: "Catalog Existing".into(),
@@ -153,6 +171,19 @@ pub async fn generate(output: &Path) -> Result<()> {
         p(
             "Document defaults: Calibri 11 pt, after spacing 4 pt, 1.1 line height. See template replacement at the start and the retained template paragraph after topic 08.",
         ),
+        p(
+            "Template safety: this sample uses an unsigned template. Templates with an OPC signature origin are rejected before any output is written.",
+        ),
+        p(
+            "Custom document properties: Project (Atlas) is retained; Review status changes to Draft & review.",
+        ),
+        p(
+            "Boolean custom properties: Review complete changes from false to true; Published is explicitly false.",
+        ),
+        p(
+            "Template compatibility: unsupported mandatory namespaces in edited WordprocessingML are rejected.",
+        ),
+        p("Extended document properties: Company is Atlas & Co.; Manager is Taylor."),
     ];
     formatting::blocks(&mut blocks);
     tables::blocks(&mut blocks);

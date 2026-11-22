@@ -1,5 +1,5 @@
 //! Checked dimensions and properties for geometric shapes and plain text boxes.
-use super::{Diagnostic, ImageAnchor, Points, Rule};
+use super::{Diagnostic, ImageAnchor, Points, Rule, measure::drawing_dimension};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShapeGeometry {
@@ -177,23 +177,9 @@ impl ShapeProperties {
     }
 
     pub(crate) fn dimensions_emu(&self) -> Result<(i64, i64), Diagnostic> {
-        let dimension = |value, name| {
-            let emu = Points::new(value)
-                .and_then(Points::emu)
-                .map_err(|error| error.at(name))?
-                .get();
-            if !(1..=i64::from(i32::MAX)).contains(&emu) {
-                return Err(Diagnostic::new(
-                    Rule::InvalidMeasurement,
-                    "shape dimensions must be positive and fit DrawingML coordinates",
-                )
-                .at(name));
-            }
-            Ok(emu)
-        };
         Ok((
-            dimension(self.width, "shape.width")?,
-            dimension(self.height, "shape.height")?,
+            drawing_dimension(self.width, "shape.width", "shape")?,
+            drawing_dimension(self.height, "shape.height", "shape")?,
         ))
     }
 }

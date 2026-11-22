@@ -1,6 +1,6 @@
 # Current support and conventions
 
-Version 0.2 follows its own declarative domain model and documented behavior.
+Version 0.3 follows its own declarative domain model and documented behavior.
 Constructor signatures and consumer-specific quirks are not compatibility
 requirements.
 See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and the
@@ -24,17 +24,19 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Comments | Text conveniences or structured paragraph/table/image/link content on paired body ranges; author/date/initials metadata; no threaded comments |
 | Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline or anchored pictures, density-aware dimensions and accessibility fields; deferred data/transformation/alt text in both APIs; header inspection without pixel decoding |
 | Shapes | Inline or floating DrawingML rectangles, ellipses and plain text boxes in body paragraphs, with checked dimensions and optional text styling; geometric shapes also support RGB fill and outline ([contract](docs/FORMATTING.md#floating-shapes-and-text-boxes)) |
+| Charts | One workbook-free inline column series in body paragraphs, including body table cells ([contract](docs/FORMATTING.md#inline-column-charts)) |
+| Equations | One stacked inline fraction with literal text operands in body paragraphs, including body table cells ([contract](docs/FORMATTING.md#inline-fractions)) |
 | Numbering | Native definitions/levels/references, shared authored abstract IDs and authored numbering styles, concrete per-level start overrides and level replacements, optional legal-numbering, suffix, level-restart, label-alignment, label-formatting and level paragraph formatting and style links in Rust and Python; checked level references, no counter evaluation ([coverage](docs/NUMBERING.md)) |
 | Fields | Simple/balanced complex paragraph-local fields, nested cached results, typed PAGE/NUMPAGES/REF/TOC and raw instructions; no evaluation or multi-paragraph TOC generation; see [fields](docs/FIELDS.md) |
-| Revisions | Authored run insertions and deletions with metadata and optional future-edit tracking ([contract](docs/REVISIONS.md)) |
+| Revisions | Authored text-run insertions, deletions and paired moves with metadata; optional future-edit tracking; scoped accept/reject for selected imported text changes ([contract](docs/REVISIONS.md)) |
 | Content controls | Inline, block, row and cell text controls with alias, tag, lock, optional ID and rich-text, plain-text and drop-down modes. Selected imported plain-text controls can be edited by tag ([contract](docs/CONTENT_CONTROLS.md)) |
-| Metadata | Core properties and snapshot timestamp |
+| Metadata | Core properties, snapshot timestamp, company and manager, and named string and boolean custom properties ([contract](docs/OOXML.md#document-properties)) |
 | Templates | Relationship-driven part discovery, namespace-safe rewriting, opaque payload retention, structural text replacement and insertion |
 | Packaging | Typed names/targets/IDs, defaults/overrides, read budgets, internal relationship/reference graph checks and inspectable package plan |
 
-Additional revision contexts and content control types, broader floating
-drawings, charts, diagrams, equations and broader Word extensions remain
-further work. Retaining imported data is not a claim of
+Other revision contexts and content control types, additional drawing and chart
+features, diagrams, broader equation support, and Word extensions are outside
+the current support profile. Retaining imported data is not a claim of
 typed support. Strict output is explicitly unsupported; the writer uses the
 Transitional vocabulary. No Word layout or field-calculation engine is included.
 
@@ -82,12 +84,27 @@ for DOCX output; unsupported main-part profiles/types fail explicitly. Untouched
 part payloads retain bytes, but edited XML and the ZIP container are reserialized.
 Valid namespace identities and opaque prefix bindings are preserved.
 
+Templates with a package-level OPC digital-signature origin relationship are
+rejected before output, even with no explicit edits. rocx does not check
+signature validity, strip signatures, or re-sign edited documents. Use an
+unsigned copy when you need to edit a signed document.
+
+When reading a part for WordprocessingML editing, rocx rejects unsupported or
+unbound namespaces declared mandatory by `mc:MustUnderstand` on its root or
+on ordinary WordprocessingML descendants.
+Only the baseline Transitional WordprocessingML, Office relationships and XML
+namespaces are recognized by this guard. It does not select `mc:AlternateContent`
+branches, descend into foreign subtrees, or scan untouched opaque parts.
+
 Text replacement can span runs and operate inside hyperlinks, but does not cross
 structured inline boundaries or alter field/revision/control contents. Untouched
 break attributes stay intact. Comment/bookmark markers remain at their original
 positions; inserted text belongs to the first matched run. This does not promise
 universal editing of every Word range structure. Known generated properties are
 schema-ordered; unrelated imported children are not blanket-sorted.
+
+See the [template-editing recipe](https://reindervosdewael.github.io/rv-docx-rs/recipes/#edit-an-existing-document)
+for a paired example that saves to a new file.
 
 Compilation completes before path output is replaced using a sibling temporary
 file. File reads/writes, clocks and language interoperability live outside the

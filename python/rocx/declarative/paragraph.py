@@ -14,13 +14,13 @@ if TYPE_CHECKING:
 
     from docx.enum import text as docx_text
 
-    from rocx.declarative import image, hyperlink, range as ranges, notes, field, content_control, shape
+    from rocx.declarative import image, hyperlink, range as ranges, notes, field, content_control, shape, chart, equation
 
-type InlineElement = TextRun | image.ImageRun | shape.ShapeRun | Tab | Break | hyperlink.Hyperlink | ranges.RangeStart | ranges.RangeEnd | notes.NoteReference | field.Field | content_control.InlineContentControl
+type InlineElement = TextRun | image.ImageRun | shape.ShapeRun | chart.ColumnChartRun | equation.InlineFraction | Tab | Break | hyperlink.Hyperlink | ranges.RangeStart | ranges.RangeEnd | notes.NoteReference | field.Field | content_control.InlineContentControl
 
 type InlineChildren = MutableSequence[
     TextRun
-    | image.ImageRun | shape.ShapeRun
+    | image.ImageRun | shape.ShapeRun | chart.ColumnChartRun | equation.InlineFraction
     | Tab
     | Break
     | hyperlink.Hyperlink
@@ -28,7 +28,7 @@ type InlineChildren = MutableSequence[
     | ranges.RangeEnd
     | notes.NoteReference
     | field.Field | content_control.InlineContentControl
-    | Coroutine[None, None, TextRun | image.ImageRun | shape.ShapeRun | Tab | Break | hyperlink.Hyperlink]
+    | Coroutine[None, None, TextRun | image.ImageRun | shape.ShapeRun | chart.ColumnChartRun | equation.InlineFraction | Tab | Break | hyperlink.Hyperlink]
 ]
 
 

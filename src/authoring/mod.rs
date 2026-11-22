@@ -159,6 +159,8 @@ pub enum Inline {
     Break(crate::Break),
     ImageRun(crate::ImageRun),
     ShapeRun(ShapeRun),
+    ColumnChartRun(ColumnChartRun),
+    InlineFraction(InlineFraction),
 }
 
 /// A formatted text run with independently deferred text, comments and a condition.
@@ -257,6 +259,10 @@ impl From<ResolvedInline> for Value<Inline> {
 mod components;
 mod shape;
 pub use shape::ShapeRun;
+mod chart;
+pub use chart::ColumnChartRun;
+mod fraction;
+pub use fraction::InlineFraction;
 mod content_control;
 pub use content_control::{BlockContentControl, InlineContentControl};
 mod field;

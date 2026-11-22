@@ -41,12 +41,15 @@ and temporary assembly files are disposable build artifacts; do not edit them.
   rewrites links to source files back to GitHub. Private maintenance notes,
   dependency audits and historical reorganization records are not copied into
   the website.
-- Guide examples use labeled source regions, not copied code. Add a unique
-  `// docs:start label` / `// docs:end label` region in Rust, or the `#` equivalents
+- Extract guide snippets from executable repository examples instead of copying
+  them. Add a unique `// docs:start label` / `// docs:end label` region in Rust,
+  or the `#` equivalents
   in Python. Reference it with `{{snippet:examples/file.rs:label}}` on its own
   indented line inside a code fence. Keep Rust/Python tabs behaviorally aligned
   and document differences. Add newly documented executable programs to the
   builder's run list; extraction alone does not prove a new example was executed.
+  Run standalone Markdown snippets manually when changing their API calls; the
+  site build does not execute them.
 - Keep the paired all-features catalogs and API inventories current for every
   feature. Their generated DOCX files are included as website downloads.
 - Python reference pages inspect the source package; setup must build the native

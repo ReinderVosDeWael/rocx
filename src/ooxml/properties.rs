@@ -2,6 +2,8 @@
 use crate::opc::Package;
 use crate::xml::Node;
 use crate::{Error, ResolvedDocument, Result};
+mod custom;
+mod extended;
 pub(crate) fn metadata(
     package: &mut Package,
     doc: &ResolvedDocument,
@@ -65,7 +67,8 @@ pub(crate) fn metadata(
         &core_path,
         "application/vnd.openxmlformats-package.core-properties+xml",
     )?;
-    Ok(())
+    custom::apply(package, m)?;
+    extended::apply(package, m)
 }
 
 use crate::ooxml::WordParts;

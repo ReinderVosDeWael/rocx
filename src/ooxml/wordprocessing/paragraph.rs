@@ -1,6 +1,6 @@
 //! ECMA-376 Part 1 (2016): P1 §17.3, paragraph/run structure.
 use crate::ooxml::Compiler;
-use crate::xml::{Content, Node, val};
+use crate::xml::{Content, Name, Node, val};
 use crate::{ResolvedInline, ResolvedParagraph, Result, RevisionKind};
 impl Compiler<'_> {
     pub(crate) fn paragraph(
@@ -45,6 +45,15 @@ impl Compiler<'_> {
     ) -> Result<Vec<Node>> {
         match run {
             ResolvedInline::Shape(shape) => return Ok(vec![self.shape(shape)?]),
+            ResolvedInline::ColumnChart(chart) => {
+                return Ok(vec![self.column_chart(chart, context)?]);
+            }
+            ResolvedInline::Fraction {
+                numerator,
+                denominator,
+            } => {
+                return Ok(vec![fraction(numerator, denominator)]);
+            }
             ResolvedInline::ContentControl(control) => {
                 return Ok(vec![self.inline_content_control(control, context)?]);
             }
@@ -102,6 +111,8 @@ impl Compiler<'_> {
             ResolvedInline::Image { image, .. } => self.image(image, context)?,
             ResolvedInline::Field(_)
             | ResolvedInline::Shape(_)
+            | ResolvedInline::ColumnChart(_)
+            | ResolvedInline::Fraction { .. }
             | ResolvedInline::ContentControl(_)
             | ResolvedInline::Hyperlink(_)
             | ResolvedInline::RangeStart { .. }
@@ -126,6 +137,26 @@ impl Compiler<'_> {
         };
         self.comment(nodes, &run.comment().cloned(), context)
     }
+}
+
+// ECMA-376 P1 §22.1, shared-math.xsd CT_OMath/CT_F: a direct paragraph
+// child with the numerator before the denominator.
+fn fraction(numerator: &str, denominator: &str) -> Node {
+    fn math(name: &str) -> Node {
+        Node::new(Name::expanded(
+            Some("http://schemas.openxmlformats.org/officeDocument/2006/math"),
+            name,
+            Some("m"),
+        ))
+    }
+    fn operand(name: &str, value: &str) -> Node {
+        math(name).with(math("r").with(math("t").attr("xml:space", "preserve").text(value)))
+    }
+    math("oMath").with(
+        math("f")
+            .with(operand("num", numerator))
+            .with(operand("den", denominator)),
+    )
 }
 
 use super::text::{deleted_text_run, text_run};

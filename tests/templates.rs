@@ -34,6 +34,50 @@ fn resolved(children: BlockChildren) -> ResolvedDocument {
 fn empty() -> ResolvedDocument {
     block_on(Document::default().resolve()).unwrap()
 }
+
+#[test]
+fn compile_rejects_a_valid_graph_with_a_signature_origin() {
+    let document = empty();
+    let data = document.to_docx().unwrap();
+    let mut source = zip::ZipArchive::new(Cursor::new(data)).unwrap();
+    let mut output = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    for i in 0..source.len() {
+        let mut part = source.by_index(i).unwrap();
+        output.start_file(part.name(), options).unwrap();
+        let mut payload = Vec::new();
+        part.read_to_end(&mut payload).unwrap();
+        let (end, marker) = match part.name() {
+            "_rels/.rels" => (
+                "</Relationships>",
+                r#"<Relationship Id="signatureOrigin" Type="http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin" Target="signing/root.sigs"/>"#,
+            ),
+            "[Content_Types].xml" => (
+                "</Types>",
+                r#"<Override PartName="/signing/root.sigs" ContentType="application/vnd.openxmlformats-package.digital-signature-origin"/>"#,
+            ),
+            _ => {
+                output.write_all(&payload).unwrap();
+                continue;
+            }
+        };
+        let mut xml = String::from_utf8(payload).unwrap();
+        xml.insert_str(xml.find(end).unwrap(), marker);
+        output.write_all(xml.as_bytes()).unwrap();
+    }
+    output.start_file("signing/root.sigs", options).unwrap();
+    let bytes = output.finish().unwrap().into_inner();
+    let error = application::compile_with_edits(
+        &document,
+        &bytes,
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.rule(), Some(Rule::UnsupportedProfile));
+    assert!(error.to_string().contains("digitally signed templates"));
+}
+
 fn cell(text: &str) -> Value<TableCell> {
     TableCell::new(vec![Paragraph::new(text).into()]).into()
 }
@@ -73,6 +117,60 @@ fn replacement_spans_runs_and_preserves_formatting_and_xml_special_text() {
         .collect();
     assert!(runs[0].descendants().any(|n| n.has_tag_name((W, "b"))));
     assert!(runs[1].descendants().any(|n| n.has_tag_name((W, "i"))));
+}
+
+#[test]
+fn unicode_replacement_across_run_boundaries_preserves_neighboring_runs_and_markers() {
+    let needle = "{{é日本🦀}}";
+    for (split, _) in needle.char_indices().skip(1) {
+        let temp = Temp::new();
+        let bold = TextRun {
+            format: RunFormat {
+                bold: Some(true),
+                ..Default::default()
+            }
+            .into(),
+            ..TextRun::new("前\t")
+        };
+        let italic = TextRun {
+            format: RunFormat {
+                italic: Some(true),
+                ..Default::default()
+            }
+            .into(),
+            ..TextRun::new("\n後")
+        };
+        resolved(vec![
+            Paragraph::from_children(vec![
+                bold.into(),
+                TextRun::new(&needle[..split]).into(),
+                TextRun::new(&needle[split..]).into(),
+                italic.into(),
+            ])
+            .into(),
+        ])
+        .save(temp.path())
+        .unwrap();
+        let mut template = DocumentTemplate::new(temp.path());
+        template.edits.replacements = vec![(needle.into(), "置換🦊".into())];
+        let bytes = empty().to_docx_with_template(&template).unwrap();
+        assert_eq!(texts(&bytes), ["前\t置換🦊\n後"], "split {split}");
+        let xml = part(&bytes, "word/document.xml");
+        let parsed = roxmltree::Document::parse(&xml).unwrap();
+        let runs: Vec<_> = parsed
+            .descendants()
+            .filter(|n| n.has_tag_name((W, "r")))
+            .collect();
+        assert!(runs[0].descendants().any(|n| n.has_tag_name((W, "b"))));
+        assert!(runs[0].descendants().any(|n| n.has_tag_name((W, "tab"))));
+        let last = runs.last().unwrap();
+        assert!(last.descendants().any(|n| n.has_tag_name((W, "i"))));
+        assert!(last.descendants().any(|n| n.has_tag_name((W, "br"))));
+
+        template.edits.replacements = vec![("存在しない".into(), "changed".into())];
+        let unchanged = empty().to_docx_with_template(&template).unwrap();
+        assert_eq!(texts(&unchanged), [format!("前\t{needle}\n後")]);
+    }
 }
 #[test]
 fn replacement_order_and_empty_replacements_match_python_dictionary_semantics() {

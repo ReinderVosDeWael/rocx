@@ -212,6 +212,13 @@ check!(image_crop, ImageCrop, ImageCrop::default();
 check!(shape_outline, ShapeOutline, ShapeOutline { width: 1., color: [0; 3] };
     with_width => width: value(2.), with_color => color: value([10u8, 20, 30]),
 );
+check!(column_chart_properties, ColumnChartProperties, ColumnChartProperties {
+    width: 288., height: 180., categories: vec!["North".into()], values: vec![8.],
+};
+    with_width => width: value(144.), with_height => height: value(72.),
+    with_categories => categories: value(vec![String::from("South")]),
+    with_values => values: value(vec![13.5]),
+);
 check!(shape_properties, ShapeProperties, ShapeProperties::default();
     with_width => width: value(40.), with_height => height: value(20.),
     with_geometry => geometry: value(ShapeGeometry::Ellipse), with_fill => fill: optional([1u8, 2, 3]),
@@ -332,6 +339,10 @@ check!(metadata, Metadata, Metadata::default();
     with_subject => subject: optional("Subject"), with_description => description: optional("Description"),
     with_keywords => keywords: optional("Keywords"), with_category => category: optional("Category"),
     with_comments => comments: optional("Comments"), with_version => version: optional("1.0"),
+    with_custom_properties => custom_properties: value(std::collections::BTreeMap::from([("Project".into(), "Atlas".into())])),
+    with_custom_boolean_properties => custom_boolean_properties: value(std::collections::BTreeMap::from([("Published".into(), false)])),
+    with_company => company: optional("Atlas & Co."),
+    with_manager => manager: optional("Taylor"),
 );
 check!(note_target, NoteTarget, NoteTarget { kind: NoteKind::Footnote, id: NoteId::new(1) };
     with_kind => kind: value(NoteKind::Endnote), with_id => id: value(NoteId::new(2)),

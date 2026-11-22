@@ -58,7 +58,9 @@ pub use notes::{CommentMetadata, NoteKind, NoteTarget, ResolvedCommentBody, Reso
 pub use range::{BookmarkName, RangeId, RangeKind};
 pub(crate) use range::{story_inlines, validate_ranges};
 pub use revision::{RevisionKind, TextRevision};
+mod chart;
 mod resources;
+pub use chart::ColumnChartProperties;
 mod shape;
 pub use shape::{
     ShapeGeometry, ShapeOutline, ShapeProperties, ShapeTextAlignment, ShapeTextFormat,
@@ -68,6 +70,7 @@ mod table;
 mod validation;
 mod values;
 pub use content::Metadata;
+pub(crate) use content::invalid_xml_character;
 pub use content::{ResolvedDocument, ResolvedInline, ResolvedParagraph, ResolvedSection};
 pub use notes::{
     EndnotePosition, FootnotePosition, NoteNumberFormat, NoteNumberRestart, NoteNumbering,

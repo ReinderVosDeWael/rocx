@@ -91,8 +91,9 @@ release/build lifecycle warrants it. Nothing requires that split now.
 New DOCX features should extend domain content/stories/ranges, their typed
 codecs, and resource/relationship registration together. Paragraph-local fields
 reuse rich inlines and the bookmark catalog; their codec never evaluates instructions.
-Revisions and charts remain future typed authoring work; neither
-an opaque imported part nor an available `StoryKind` variant proves support.
+Typed column charts pair one literal series with an inline drawing and an
+owner-local Chart Part. Other chart types are not implied by preservation of
+imported chart parts.
 The writer has a selected property vocabulary and validation surface, not a full
 runtime XSD validator. Independent schema tooling complements runtime graph and
 value validation. See [OOXML.md](OOXML.md) for support and specification clauses.

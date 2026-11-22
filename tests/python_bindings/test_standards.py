@@ -25,13 +25,256 @@ def validator():
     return validation.Validator(directory)
 
 
+@pytest.fixture
+def chart_package():
+    """Hand-authored workbook-free chart, independent of the native codec."""
+    c, w, a, r = validation.C, validation.W, validation.A, validation.R
+    rel, ct = validation.REL, validation.CT
+    wp = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+    return {name: etree.fromstring(xml) for name, xml in {
+        "[Content_Types].xml": f"""
+            <Types xmlns="{ct}">
+              <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+              <Override PartName="/word/document.xml"
+                        ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+              <Default Extension="chart" ContentType="{validation.CHART_TYPE}"/>
+            </Types>""",
+        "_rels/.rels": f"""
+            <Relationships xmlns="{rel}">
+              <Relationship Id="rId1" Type="{r}/officeDocument" Target="word/document.xml"/>
+            </Relationships>""",
+        "word/_rels/document.xml.rels": f"""
+            <Relationships xmlns="{rel}">
+              <Relationship Id="rId2" Type="{r}/chart" Target="charts/column.chart"/>
+            </Relationships>""",
+        "word/document.xml": f"""
+            <w:document xmlns:w="{w}" xmlns:a="{a}" xmlns:wp="{wp}" xmlns:c="{c}" xmlns:r="{r}">
+              <w:body><w:p><w:r><w:drawing><wp:inline>
+                <wp:extent cx="1828800" cy="914400"/>
+                <wp:docPr id="1" name="Column chart"/>
+                <a:graphic><a:graphicData uri="{c}"><c:chart r:id="rId2"/></a:graphicData></a:graphic>
+              </wp:inline></w:drawing></w:r></w:p></w:body>
+            </w:document>""",
+        "word/charts/column.chart": f"""
+            <chartSpace xmlns="{c}"><chart><plotArea>
+              <barChart><barDir val="col"/>
+                <ser><idx val="0"/><order val="0"/>
+                  <cat><strLit><ptCount val="1"/><pt idx="0"><v>North</v></pt></strLit></cat>
+                  <val><numLit><ptCount val="1"/><pt idx="0"><v>8</v></pt></numLit></val>
+                </ser>
+                <axId val="101"/><axId val="102"/>
+              </barChart>
+              <catAx><axId val="101"/><scaling/><axPos val="b"/><crossAx val="102"/></catAx>
+              <valAx><axId val="102"/><scaling/><axPos val="l"/><crossAx val="101"/></valAx>
+            </plotArea></chart></chartSpace>""",
+    }.items()}
+
+
+def zip_xml_parts(parts):
+    output = io.BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as package:
+        for name, root in parts.items():
+            package.writestr(name, etree.tostring(root))
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("use_override", [False, True], ids=["default", "override"])
+def test_literal_chart_part_and_owner_reference_validate(validator, chart_package, use_override):
+    chart_path = "word/charts/column.chart"
+    if use_override:
+        path = "word/charts/chart1.xml"
+        chart_package[path] = chart_package.pop(chart_path)
+        chart_package["word/_rels/document.xml.rels"][0].set("Target", "charts/chart1.xml")
+        etree.SubElement(chart_package["[Content_Types].xml"], f"{{{validation.CT}}}Override",
+                         PartName=f"/{path}", ContentType=validation.CHART_TYPE)
+        chart_path = path
+    assert set(validator.validate(zip_xml_parts(chart_package))) == {"word/document.xml", chart_path}
+
+
+@pytest.mark.parametrize(("mutation", "diagnostic"), [
+    ("invalid bar direction", r"word/charts/column\.chart: .*barDir"),
+    ("wrong root", r"incorrect chart root .*column\.chart"),
+    ("wrong content type", r"incorrect chart content type .*column\.chart"),
+    ("missing target", r"missing relationship target .*column\.chart"),
+    ("external relationship", r"chart relationship .* must be internal"),
+    ("wrong relationship type", r"missing owner-local chart relationship"),
+    ("wrong relationship owner", r"missing owner-local chart relationship"),
+    ("missing reference ID", r"missing owner-local chart relationship"),
+    ("wrong payload URI", r"incorrect chart graphicData URI"),
+    ("empty payload", r"expected one chart reference"),
+])
+def test_invalid_chart_package_fails(validator, chart_package, mutation, diagnostic):
+    c, a, r = validation.C, validation.A, validation.R
+    chart_path = "word/charts/column.chart"
+    chart = chart_package[chart_path]
+    payload = chart_package["word/document.xml"].find(f".//{{{a}}}graphicData")
+    reference = payload[0]
+    owner = chart_package["word/_rels/document.xml.rels"]
+    relation = owner[0]
+    if mutation == "invalid bar direction":
+        chart.find(f".//{{{c}}}barDir").set("val", "invalid")
+    elif mutation == "wrong root":
+        chart_package[chart_path] = etree.Element(f"{{{c}}}chart", {f"{{{r}}}id": "rId2"})
+    elif mutation == "wrong content type":
+        etree.SubElement(chart_package["[Content_Types].xml"], f"{{{validation.CT}}}Override",
+                         PartName=f"/{chart_path}", ContentType="application/xml")
+    elif mutation == "missing target":
+        del chart_package[chart_path]
+    elif mutation == "external relationship":
+        relation.set("TargetMode", "External")
+        relation.set("Target", "https://example.test/chart")
+    elif mutation == "wrong relationship type":
+        relation.set("Type", f"{r}/image")
+    elif mutation == "wrong relationship owner":
+        relation.set("Target", chart_path)
+        chart_package["_rels/.rels"].append(relation)
+    elif mutation == "missing reference ID":
+        del reference.attrib[f"{{{r}}}id"]
+    elif mutation == "wrong payload URI":
+        payload.set("uri", a)
+    elif mutation == "empty payload":
+        payload.remove(reference)
+    else:
+        pytest.fail(f"unknown mutation {mutation}")
+    with pytest.raises(validation.ValidationError, match=diagnostic):
+        validator.validate(zip_xml_parts(chart_package))
+
+
+async def test_inline_fraction_requires_a_denominator(validator):
+    from test_inline_fraction import NS, document
+    from test_notes import rewrite
+
+    data = await document(d.InlineFraction(" 1 ", "2")).to_bytes()
+    assert "word/document.xml" in validator.validate(data)
+
+    def invalid(root):
+        denominator, = root.xpath("//m:oMath/m:f/m:den", namespaces=NS)
+        denominator.getparent().remove(denominator)
+
+    with pytest.raises(validation.ValidationError, match="den"):
+        validator.validate(rewrite(data, "word/document.xml", invalid))
+
+
+async def test_custom_properties_validate_at_a_nonstandard_path(validator):
+    from test_custom_properties import relocate
+
+    data = await d.Document([], custom_properties={"Project": "Atlas"}).to_bytes()
+    path = "metadata/project.props"
+    assert path in validator.validate(relocate(data, etree.tostring, path))
+
+
+async def test_custom_boolean_requires_schema_boolean_lexical_value(validator):
+    from test_custom_properties import DEFAULT, VT
+    from test_notes import rewrite
+
+    data = await d.Document([], custom_properties={"Approved": False}).to_bytes()
+    assert DEFAULT in validator.validate(data)
+
+    def invalid(root):
+        root[0].find(f"{{{VT}}}bool").text = "no"
+
+    with pytest.raises(validation.ValidationError, match="not a valid value.*boolean"):
+        validator.validate(rewrite(data, DEFAULT, invalid))
+
+
+@pytest.mark.parametrize(("mutation", "diagnostic"), [
+    ("wrong content type", "incorrect custom properties content type"),
+    ("wrong root", "incorrect custom properties root"),
+    ("duplicate ID", "duplicate custom property ID"),
+    ("reserved ID", "invalid or duplicate custom property ID"),
+    ("missing relationship", "no package-level relationship"),
+    ("external relationship", "must be internal and package-level"),
+    ("duplicate relationship", "multiple package-level custom properties relationships"),
+])
+async def test_invalid_custom_properties_package_fails(validator, mutation, diagnostic):
+    from copy import deepcopy
+    from test_notes import rewrite
+
+    data = await d.Document([], custom_properties={"Project": "Atlas", "Review": "Draft"}).to_bytes()
+    part_path = {
+        "wrong content type": "[Content_Types].xml",
+        "wrong root": "docProps/custom.xml",
+        "duplicate ID": "docProps/custom.xml",
+        "reserved ID": "docProps/custom.xml",
+    }.get(mutation, "_rels/.rels")
+
+    def invalid(root):
+        if mutation == "wrong content type":
+            part = next(child for child in root if child.get("PartName") == "/docProps/custom.xml")
+            part.set("ContentType", "application/xml")
+        elif mutation == "wrong root":
+            root.tag = f"{{{validation.W}}}document"
+        elif mutation in {"duplicate ID", "reserved ID"}:
+            root[1].set("pid", root[0].get("pid") if mutation == "duplicate ID" else "1")
+        else:
+            relation = next(child for child in root if child.get("Type") == validation.CUSTOM_REL)
+            if mutation == "missing relationship":
+                root.remove(relation)
+            elif mutation == "external relationship":
+                relation.set("TargetMode", "External")
+                relation.set("Target", "https://example.test/custom")
+            elif mutation == "duplicate relationship":
+                clone = deepcopy(relation)
+                clone.set("Id", "extraCustom")
+                root.append(clone)
+            else:
+                pytest.fail(f"unknown mutation {mutation}")
+
+    with pytest.raises(validation.ValidationError, match=diagnostic):
+        validator.validate(rewrite(data, part_path, invalid))
+
+
+async def test_extended_properties_validate_at_a_nonstandard_path(validator):
+    from test_extended_properties import move_app
+
+    data = await d.Document([], company="Atlas").to_bytes()
+    path = "metadata/extension.props"
+    assert path in validator.validate(move_app(data, path))
+
+
+@pytest.mark.parametrize("mutation", ["external", "missing", "wrong content type"])
+async def test_invalid_extended_properties_relationship_fails(validator, mutation):
+    from test_notes import rewrite
+
+    data = await d.Document([], manager="Taylor").to_bytes()
+    if mutation == "wrong content type":
+        def invalid(root):
+            part = next(child for child in root if child.get("PartName") == "/docProps/app.xml")
+            part.set("ContentType", validation.CUSTOM_TYPE)
+
+        data = rewrite(data, "[Content_Types].xml", invalid)
+        diagnostic = "incorrect extended properties content type"
+    else:
+        def invalid(root):
+            relation = next(child for child in root if child.get("Type") == validation.EXTENDED_REL)
+            if mutation == "missing":
+                root.remove(relation)
+            else:
+                relation.set("TargetMode", "External")
+                relation.set("Target", "https://example.test/extended")
+
+        data = rewrite(data, "_rels/.rels", invalid)
+        diagnostic = "extended properties .* (has no package-level relationship|must be internal)"
+    with pytest.raises(validation.ValidationError, match=diagnostic):
+        validator.validate(data)
+
+
 async def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fails(validator, tmp_path):
     import test_notes
     spec = importlib.util.spec_from_file_location("visual_catalog", ROOT / "examples/all_features.py")
     example = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(example)
     data = await example.generate(tmp_path / "all-features.docx")
-    assert len(validator.validate(data)) >= 10
+    checked = validator.validate(data)
+    assert {"word/charts/chart1.xml", "docProps/custom.xml", "docProps/app.xml"} <= set(checked)
+    def duplicate_company(root):
+        etree.SubElement(root, f"{{{validation.EXTENDED}}}Company").text = "Duplicate"
+    with pytest.raises(validation.ValidationError, match="docProps/app.xml"):
+        validator.validate(test_notes.rewrite(data, "docProps/app.xml", duplicate_company))
+    def invalid_custom_pid(root):
+        root[0].set("pid", "not-an-integer")
+    with pytest.raises(validation.ValidationError, match="docProps/custom.xml"):
+        validator.validate(test_notes.rewrite(data, "docProps/custom.xml", invalid_custom_pid))
     def invalid_order(root):
         borders = root.find(f".//{{{validation.W}}}tcBorders")
         borders[:] = list(reversed(borders))

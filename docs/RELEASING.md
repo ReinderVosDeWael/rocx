@@ -1,8 +1,11 @@
 # Releasing
 
-Publishing is tag-gated. `.github/workflows/publish.yml` never publishes from a
-branch `workflow_dispatch`; that mode validates and builds the release artifacts
-without uploading them.
+Publish packages only through [the GitHub Actions workflow](../.github/workflows/publish.yml).
+Creating a local tag does not publish anything. Pushing a `v*` tag to GitHub
+starts CI, which validates, builds, and publishes to PyPI and crates.io. Manual
+workflow dispatches are preflight only, even when run on a tag: they build
+artifacts without uploading them to the registries. Do not publish packages
+with local upload commands.
 
 ## One-time registry setup
 
@@ -37,26 +40,40 @@ recommended for both environments.
 
 ## Release checklist
 
-1. Update the version in `Cargo.toml` and `pyproject.toml`. The versions are
-   independent fields and must remain identical.
+Before selecting a tag, verify the release candidate includes all intended source,
+tests, documentation and license notices. Build the site locally using
+[the documentation runbook](DOCUMENTATION.md) and review the support limits in
+[COMPATIBILITY.md](../COMPATIBILITY.md). Do not use a tag to test packaging:
+the tag push starts the publication workflow. Use an untagged validation run
+first to exercise the hosted build matrix without publishing.
+
+1. Update the package version in `Cargo.toml` and `pyproject.toml`, and the
+   Python runtime version (`rocx.__version__`). Keep all three identical.
 2. Refresh both lock files with `cargo check` and `uv lock`.
 3. Verify the tag matches every recorded version:
 
    ```sh
-   python tools/check_release.py --tag v0.2.1
+   python tools/check_release.py --tag v0.3.0
    ```
 
 4. Run the verification runbook in [tests/README.md](../tests/README.md),
-   including the required official-schema run and the isolated wheel probe.
-5. Commit the version and lock-file changes, then create and push the tag:
+   including the required official-schema invocation and the isolated wheel
+   probe. The schema command must set `ROCX_REQUIRE_SCHEMAS=1`; its successful
+   completion proves missing schemas did not become skips.
+5. Commit the release candidate. Run the hosted workflow manually from an
+   untagged ref at that commit. Confirm validation and artifact builds succeed
+   without registry uploads.
+6. Create and push the tag for the commit that passed preflight:
 
    ```sh
-   git tag v0.2.1
-   git push origin v0.2.1
+   git tag v0.3.0
+   git push origin v0.3.0
    ```
 
 The tag push runs the full release gate. Publishing starts only after validation
-and every wheel/sdist build succeeds.
+and every wheel/sdist build succeeds. Retry a failed tag-triggered release
+using GitHub Actions' rerun controls for the original tag-push run, not a new
+manual dispatch.
 
 ## Published artifacts
 

@@ -566,25 +566,88 @@ mod tests {
                 .contains("missing relationship target")
         );
     }
+    fn budget_fixture() -> (Vec<u8>, u64, u64) {
+        let content_types = br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="bin" ContentType="application/octet-stream"/></Types>"#;
+        let payload = vec![b'x'; content_types.len() + 1];
+        let total = (content_types.len() + payload.len() + 1) as u64;
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .last_modified_time(zip::DateTime::default());
+        for (name, bytes) in [
+            ("[Content_Types].xml", content_types.as_slice()),
+            ("a.bin", payload.as_slice()),
+            ("b.bin", b"x".as_slice()),
+        ] {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        (
+            zip.finish().unwrap().into_inner(),
+            payload.len() as u64,
+            total,
+        )
+    }
+
     #[test]
-    fn explicit_read_budgets_fail_before_expansion() {
-        let options = ReadLimits {
-            max_parts: 1,
+    fn read_budget_part_count_boundary() {
+        let (archive, _, _) = budget_fixture();
+        let mut limits = ReadLimits {
+            max_parts: 3,
             ..Default::default()
         };
+        assert_eq!(
+            Package::load_with_limits(&archive, limits)
+                .unwrap()
+                .parts
+                .len(),
+            3
+        );
+        limits.max_parts = 2;
+        let error = Package::load_with_limits(&archive, limits).unwrap_err();
         assert!(
-            Package::load_with_limits(include_bytes!("../../assets/default.docx"), options)
-                .unwrap_err()
+            error
                 .to_string()
-                .contains("part count")
+                .contains("package part count exceeds read limit"),
+            "{error}"
         );
-        let options = ReadLimits {
-            max_part_bytes: 1,
+    }
+
+    #[test]
+    fn read_budget_part_bytes_boundary() {
+        let (archive, largest_part, _) = budget_fixture();
+        let mut limits = ReadLimits {
+            max_part_bytes: largest_part,
             ..Default::default()
         };
+        assert!(Package::load_with_limits(&archive, limits).is_ok());
+        limits.max_part_bytes -= 1;
+        let error = Package::load_with_limits(&archive, limits).unwrap_err();
         assert!(
-            Package::load_with_limits(include_bytes!("../../assets/default.docx"), options)
-                .is_err()
+            error
+                .to_string()
+                .contains("package expanded bytes exceed read limit"),
+            "{error}"
         );
+        assert!(error.to_string().contains("a.bin"), "{error}");
+    }
+
+    #[test]
+    fn read_budget_expanded_bytes_boundary() {
+        let (archive, _, total) = budget_fixture();
+        let mut limits = ReadLimits {
+            max_expanded_bytes: total,
+            ..Default::default()
+        };
+        assert!(Package::load_with_limits(&archive, limits).is_ok());
+        limits.max_expanded_bytes -= 1;
+        let error = Package::load_with_limits(&archive, limits).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("package expanded bytes exceed read limit"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("b.bin"), "{error}");
     }
 }

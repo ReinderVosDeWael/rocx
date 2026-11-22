@@ -21,6 +21,12 @@ from rocx import declarative as d
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
       "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+      "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
+      "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
+      "odr": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+      "cust": "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties",
+      "app": "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties",
+      "vt": "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes",
       "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
       "r": "http://schemas.openxmlformats.org/package/2006/relationships"}
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
@@ -99,6 +105,36 @@ def verify_content(data: bytes, template: bytes) -> None:
         for topic in ["01 Paragraphs", "02 Run formatting", "03 Styles", "04 Tables", "05 Conditional", "06 Lists", "07 Inline images", "08 Authoring", "09 Section"]:
             assert topic in text, f"Missing catalog topic: {topic}"
         assert "{{replace}}" not in text and "Template REPLACED: cross-run replacement." == output.paragraphs[0].text
+        assert "Templates with an OPC signature origin are rejected before any output is written." in text
+        assert "Custom document properties: Project (Atlas) is retained; Review status changes to Draft & review." in text
+        assert "Boolean custom properties: Review complete changes from false to true; Published is explicitly false." in text
+        assert "Template compatibility: unsupported mandatory namespaces in edited WordprocessingML are rejected." in text
+        assert "Extended document properties: Company is Atlas & Co.; Manager is Taylor." in text
+        extended_type = f"{NS['odr']}/extended-properties"
+        app_rel, = [rel for rel in output.part.package.rels.values() if rel.reltype == extended_type]
+        assert app_rel.target_part.content_type == "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+        app = etree.fromstring(app_rel.target_part.blob)
+        assert app.findtext("app:Company", namespaces=NS) == "Atlas & Co."
+        assert app.findtext("app:Manager", namespaces=NS) == "Taylor"
+        custom_type = f"{NS['odr']}/custom-properties"
+        relation, = [rel for rel in output.part.package.rels.values() if rel.reltype == custom_type]
+        part = relation.target_part
+        assert part.content_type == "application/vnd.openxmlformats-officedocument.custom-properties+xml"
+        def custom_properties(root):
+            return [(n.get("name"), n.get("pid"), [(v.tag, v.text) for v in n])
+                    for n in root.findall("cust:property", namespaces=NS)]
+        string, boolean = (f"{{{NS['vt']}}}{tag}" for tag in ("lpwstr", "bool"))
+        assert custom_properties(etree.fromstring(seed.read("docProps/custom.xml"))) == [
+            ("Project", "2", [(string, "Atlas")]),
+            ("Review complete", "3", [(boolean, "false")]),
+            ("Review status", "4", [(string, "Pending")]),
+        ]
+        assert custom_properties(etree.fromstring(part.blob)) == [
+            ("Project", "2", [(string, "Atlas")]),
+            ("Review complete", "3", [(boolean, "true")]),
+            ("Review status", "4", [(string, "Draft & review")]),
+            ("Published", "5", [(boolean, "false")]),
+        ]
         assert any(p.text == "Template retained paragraph: insertion appears before this." for p in output.paragraphs[2:])
         for level in range(1, 10):
             paragraph = next(p for p in output.paragraphs if p.text == f"This is a Heading {level}")
@@ -433,6 +469,40 @@ def verify_content(data: bytes, template: bytes) -> None:
         assert "Floating text box: 220 pt from the margin" in text
         assert "Shape text style: blue rectangle, 14.25 pt white Arial text" in text
         assert "Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline." in text
+        caption = "Inline column chart: North 8, South 13.5, West 5; one series without an embedded workbook."
+        chart_inline, = document.xpath(
+            "//w:p[preceding-sibling::*[1][w:r/w:t=$caption]]//wp:inline[.//c:chart]",
+            caption=caption, namespaces=NS,
+        )
+        assert chart_inline.xpath("wp:extent/@cx | wp:extent/@cy", namespaces=NS) == ["3657600", "2286000"]
+        chart_id, = chart_inline.xpath(".//c:chart/@odr:id", namespaces=NS)
+        relation = output.part.rels[chart_id]
+        assert not relation.is_external and relation.reltype == f"{NS['odr']}/chart"
+        part = relation.target_part
+        assert part.content_type == "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+        assert not part.rels
+        chart = etree.fromstring(part.blob)
+        assert chart.tag == f"{{{NS['c']}}}chartSpace"
+        assert not chart.xpath("c:externalData", namespaces=NS)
+        plot, = chart.xpath("c:chart/c:plotArea", namespaces=NS)
+        assert plot.xpath("c:barChart/c:barDir/@val", namespaces=NS) == ["col"]
+        series, = plot.xpath("c:barChart/c:ser", namespaces=NS)
+        assert series.xpath("c:cat/c:strLit/c:pt/c:v/text()", namespaces=NS) == ["North", "South", "West"]
+        assert series.xpath("c:val/c:numLit/c:pt/c:v/text()", namespaces=NS) == ["8", "13.5", "5"]
+        for cache in series.xpath("c:cat/c:strLit | c:val/c:numLit", namespaces=NS):
+            assert cache.xpath("c:ptCount/@val | c:pt/@idx", namespaces=NS) == ["3", "0", "1", "2"]
+        axis_ids = plot.xpath("c:barChart/c:axId/@val", namespaces=NS)
+        assert len(set(axis_ids)) == 2
+        assert axis_ids == plot.xpath("c:catAx/c:axId/@val | c:valAx/c:axId/@val", namespaces=NS)
+        assert axis_ids[::-1] == plot.xpath("c:catAx/c:crossAx/@val | c:valAx/c:crossAx/@val", namespaces=NS)
+        equation, = document.xpath("//m:oMath", namespaces=NS)
+        assert equation.getparent().tag == f"{{{NS['w']}}}p"
+        assert equation.getprevious().findtext("w:t", namespaces=NS) == "Inline equation: stacked fraction "
+        assert equation.getnext().findtext("w:t", namespaces=NS) == "."
+        fraction, = equation
+        assert fraction.tag == f"{{{NS['m']}}}f"
+        assert [child.tag for child in fraction] == [f"{{{NS['m']}}}num", f"{{{NS['m']}}}den"]
+        assert fraction.xpath("m:num/m:r/m:t/text() | m:den/m:r/m:t/text()", namespaces=NS) == ["1", "2"]
         cropped = document.xpath("//wp:inline[.//a:srcRect]", namespaces=NS)
         assert len(cropped) == 1
         assert cropped[0].xpath("wp:extent/@cx | wp:extent/@cy", namespaces=NS) == ["762000", "508000"]

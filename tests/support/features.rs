@@ -223,6 +223,7 @@ pub fn document() -> Document {
         keywords: Some("rust, docx".into()),
         category: Some("Reports".into()),
         version: Some("1.0".into()),
+        ..Default::default()
     }
     .into();
     document.comment_author = Some("Default Author".into()).into();

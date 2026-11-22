@@ -60,7 +60,7 @@ or retaining an unknown part is not equivalent to understanding its feature.
 | Main document part discovery | P1 §11.3.10, Main Document Part; P2 §6.5 | The package relationship identifies the main part. Discovery follows the package relationship; relocated main parts are tested. |
 | ZIP mapping | P2 §7.3; normative Annex B | `Package::{load,finish}`. Archive reader limits are additional application policy. |
 | Core properties | P2 §8; P1 §15.2.12.1 | `ooxml/properties.rs` handles metadata above generic OPC. |
-| Signatures | P2 §10 | No signature generation or re-signing implementation. Editing signed content needs an explicit signature-handling policy. |
+| Signatures | P2 §10 | Packages declaring a package-level digital-signature origin relationship are rejected, regardless of target filename. No signature verification, removal, generation, or re-signing. See the [compatibility policy](../COMPATIBILITY.md). |
 
 A relationship target is relative to its source according to OPC rules; a
 filename pattern such as `word/header*.xml` is not authoritative story discovery.
@@ -89,8 +89,8 @@ payload bytes, but edited XML is not guaranteed to preserve every unknown featur
 | Glossary/building blocks | P1 §17.12; §11.3.8 | No typed generation yet | Future story/import support |
 | Comments and anchors | P1 §17.13.4; §§17.13.4.3–17.13.4.5; §11.3.2 | Text conveniences or structured paragraphs/tables/images/links on body ranges; explicit author/date/initials; not modern threaded comments | `ResolvedComment`/`ResolvedCommentBody`, shared range codec; extensions also require [MS-DOCX] |
 | Bookmarks | P1 §17.13.6; §§17.13.6.1–17.13.6.2 | Paired typed markers, overlap/cross-paragraph spans, document-wide names/IDs and imported collision checks | [range domain](../src/document/range.rs), [range codec](../src/ooxml/ranges.rs); [contract](RANGES.md) |
-| Tracked revisions | P1 §17.13.5 | No typed generation yet | Future revision/range model |
-| Content controls/custom markup | P1 §17.5; §§17.5.2.29–17.5.2.32 (`sdt` in different contexts) | No typed generation yet | Future context-aware block/inline/control model |
+| Tracked revisions | P1 §17.13.5 | Direct tracked text insertions, deletions, and paired moves; selected imported revisions can be accepted or rejected | [Revision contract](REVISIONS.md) |
+| Content controls/custom markup | P1 §17.5; §§17.5.2.29–17.5.2.32 (`sdt` in different contexts) | Context-specific inline, block, row, and cell controls; selected imported plain-text controls can be edited by tag; no custom XML data binding | [Content control contract](CONTENT_CONTROLS.md) |
 | Hyperlinks, `hyperlink`, `r:id`, `anchor`, `tooltip`, `history` | P1 §17.16.22; normative Annex A.1 `CT_Hyperlink`/`EG_PContent`; P2 §§6.4–6.5 | External URI/IRI and internal bookmark links; rich display runs; no nesting | [domain](../src/document/hyperlink.rs), [codec](../src/ooxml/wordprocessing/paragraph.rs); internal anchors have no external relationship |
 | Fields, `fldChar` | P1 §17.16; §§17.16.18–19, 17.16.23 | Simple/complex paragraph-local fields and nested cached results, PAGE/NUMPAGES/REF/TOC helpers and raw instructions; no evaluation | [field codec](../src/ooxml/wordprocessing/fields.rs), [contract](FIELDS.md); imported field edits rejected |
 | Mail merge | P1 §17.14 | No typed generation yet | Future fields/data-source integration |
@@ -150,6 +150,8 @@ validation cover generation; they do not establish browser/Word navigation safet
 | Inline shapes | P1 §§20.1, 20.3 | Rectangle and ellipse geometry in a standard DrawingML locked canvas, with checked size, RGB fill, outline, plain multiline text and optional uniform text size/bold/italic/Latin typeface/RGB/alignment requests. |
 | Standalone inline text boxes | P1 §20.3, CT_GvmlTextShape | Direct locked-canvas text shapes with independent transforms and shared plain-text styling; no geometric fill/outline or rich WordprocessingML text story. |
 | Floating shapes and text boxes | P1 §20.4, Annex A.4 `CT_Anchor` | Shared picture-anchor placement around a locked canvas in body paragraphs; no new relationships, computed wrapping, or visual layout claim. |
+| Inline column chart | P1 §21.2 (charts), §20.4 (`wp:inline`) | One clustered column series in a body paragraph; literal string categories and finite numeric values; internal owner-local chart relationship, no embedded workbook. |
+| Inline fraction | P1 §22.1; `CT_OMath`, `CT_F` | Direct paragraph child `m:oMath` containing one `m:f` with `m:num` then `m:den`; each operand is literal `m:r/m:t`, with spaces preserved. No additional parts or relationships. |
 | Tracked text revisions | P1 §17.13.5 and Annex A.1 | Text-run insertion, deletion and paired moves with author and optional UTC timestamp, preserving imported revision IDs. |
 | Track future revisions | P1 §17.15.1 | Optional trackRevisions flag in the document settings. |
 | Accept and reject text revisions | P1 §17.13.5 | Scoped template transformation for direct single text-run insertions, deletions and paired moves. |
@@ -186,10 +188,10 @@ application limits separately from schema bounds.
 | --- | --- | --- |
 | Drawing framework and themes | P1 §20.1; §14.2.7, Theme Part | Current theme is primarily supplied by the bundled template. |
 | Pictures | P1 §20.2; §15.2.14, Image Part | Native PNG/JPEG/GIF/BMP/TIFF header inspection and inline picture emission; Rust/Python defer data, transformation and alt text through the generic resolver; not a general DrawingML model. |
-| Wordprocessing drawings | P1 §20.4; §§20.4.2.8 (`inline`), 20.4.2.3 (`anchor`), 20.4.2.5 (`docPr`), 20.4.2.7 (`extent`) | Current inline sizing/accessibility fields; floating anchors and broader drawing properties are not generated. |
-| Charts | P1 §21.2; §14.2.1, Chart Part | No typed generation yet; introduces dependent parts and possibly embedded data. |
+| Wordprocessing drawings | P1 §20.4; §§20.4.2.8 (`inline`), 20.4.2.3 (`anchor`), 20.4.2.5 (`docPr`), 20.4.2.7 (`extent`) | Inline pictures, shapes and column charts; floating pictures and shapes support selected anchor properties. |
+| Charts | P1 §21.2; §14.2.1, Chart Part | One inline clustered column series with literal data; no embedded workbook, multiple series, or authoring of chart styles. |
 | Chart drawings and diagrams | P1 §§21.3–21.4 | No typed generation yet; reuse asset and relationship infrastructure. |
-| Math | P1 §22.1 | No typed generation yet; requires rich inline/block content integration. |
+| Math | P1 §22.1 | Typed stacked fractions with literal operands in body and body-table paragraphs. No display equations, nested expression model, styling, or editing imported equations. |
 | Extended/custom properties | P1 §§22.2–22.3; §§15.2.12.2–15.2.12.3 | Not exposed as a complete typed property surface. |
 | Legacy VML | P4 §19 | Not generated; imported documents require an explicit preservation policy. |
 
@@ -208,8 +210,12 @@ separate.
 - P3 §7 defines MCE markup, including `Ignorable`, `ProcessContent`,
   `MustUnderstand`, `AlternateContent`, `Choice`, and `Fallback`; §9 defines the
   reference processing model. Unknown-content retention and MCE interpretation
-  are different capabilities. The current engine does not implement a complete
-  MCE processor.
+  are different capabilities. For edited WordprocessingML, the editor checks
+  `MustUnderstand` on the root and ordinary WordprocessingML descendants using
+  in-scope namespace bindings, and rejects unbound or unsupported prefixes.
+  Foreign subtrees are opaque: the editor does not select `AlternateContent`
+  branches. See the [editing policy](../COMPATIBILITY.md#resolution-editing-and-output)
+  for the recognized namespaces and where the guard stops.
 - `Package` retains untouched part payload bytes; [XML module](../src/xml/mod.rs)
   normalizes parsed/rewritten trees while preserving expanded names and opaque
   prefix bindings. The confirmed shadowing regression is fixed and tested.
@@ -262,6 +268,38 @@ command, licensing/provenance, and a reproducibility check.
 [XML10]: https://www.w3.org/TR/REC-xml/#charsets
 [XMLNS]: https://www.w3.org/TR/REC-xml-names/
 
+
+## Document properties
+
+### Extended document properties
+
+Use `Metadata::with_company` and `Metadata::with_manager` in Rust or
+`Document(company=..., manager=...)` in Python. An omitted value leaves the
+template property untouched; an explicit empty string is written as empty
+text. The writer follows the package's extended-properties relationship or
+creates the part if missing. It leaves other fields as supplied by the
+template; it does not recompute application statistics (P1 §22.2).
+
+### Custom document properties
+
+Rust accepts a `BTreeMap<String, String>` in
+`Metadata::with_custom_properties` and a `BTreeMap<String, bool>` in
+`Metadata::with_custom_boolean_properties`. Python accepts strings and booleans
+in `Document(custom_properties=...)`, but not integers or other truthy objects.
+For example, set `Project` to `Atlas` and `Approved` to `true`.
+Names must not be blank, and names and string values must be valid XML text.
+An empty value is a string, not a removal request. Omission or an empty map
+leaves any existing custom-properties part untouched.
+
+New names are written as Unicode strings (`vt:lpwstr`) or booleans (`vt:bool`,
+`true` or `false`) in the Custom File Properties part (P1 §22.3 and §22.4
+variant types). New IDs are allocated in name order across both maps. The writer
+discovers template parts through the package relationship, updates a uniquely
+named unlinked property of the same variant in place, and preserves unrelated
+entries and their IDs. Names are matched exactly. A name requested in both Rust
+maps, or a matching linked, differently typed, or ambiguous property, is an
+error, not a type conversion or deletion. Numeric and date properties are not
+authored by this API.
 
 ## Executable validation and current architecture
 

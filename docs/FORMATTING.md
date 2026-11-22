@@ -1,5 +1,19 @@
 # Formatting coverage
 
+## Topic index
+
+- Text: [line height](#paragraph-line-height), [tab stops](#custom-tab-stops),
+  [language and complex scripts](#language-and-complex-script-formatting),
+  [paragraph direction](#paragraph-text-direction), [line numbering](#section-line-numbering).
+- Page layout: [section direction](#section-page-direction),
+  [gutter](#right-side-gutter-placement), [page borders](#page-borders),
+  [document grid](#section-document-grids), [page-layout requests](#document-page-layout-requests).
+- Drawings: [picture geometry and placement](#picture-geometry-and-floating-placement),
+  [shapes](#inline-geometric-shapes), [text boxes](#standalone-inline-text-boxes),
+  [floating shapes](#floating-shapes-and-text-boxes).
+- Other inline content: [charts](#inline-column-charts), [equations](#inline-fractions).
+- Rust convenience API: [chainable setters](#rust-chainable-authoring-setters).
+
 ## Rust chainable authoring setters
 
 Public authoring property records support consuming `with_<field>` setters next
@@ -112,12 +126,9 @@ producers normally. `LineHeight` is a value, not a new component or resolver.
   avoided with `..Default::default()`. Python's new optional argument is appended
   so existing positional arguments keep their meanings.
 
-Evidence: `tests/line_height.rs`, `tests/python_bindings/test_line_height.py`,
-official-schema checks in `test_standards.py`, and Rust-generated independent
-python-docx readback in `tests/python_docx.rs`. Readback mutations change units,
-rules and style values and must fail after loading. Invalid rule mutations fail
-official schemas in both document and styles parts. These are serialization and
-consumer-object checks, not manual Word rendering or visual-equivalence evidence.
+Verification covers Rust/Python serialization, independent consumer-object
+readback and official-schema validation. This is not manual Word rendering or
+visual-equivalence evidence.
 
 Normative source: ECMA-376 P1 (2016) §17.3.1.33 (`spacing`, `line`, `lineRule`)
 and Annex A.1.
@@ -171,11 +182,9 @@ replaces the **local** tab collection, while an empty list retains an imported
 collection. Other style properties remain unchanged. Removing every inherited
 or default stop is not represented by an empty list or a new global setting.
 
-Evidence: `tests/tab_stops.rs`, `tests/python_bindings/test_tab_stops.py`,
-independent Rust-generated python-docx readback, official-schema positive and
-invalid alignment/leader/position mutations on document/styles parts. Changed
-position/alignment/leader negative controls fail after successful loading. No
-manual rendering or complete typed tab import is claimed. Source: P1 (2016)
+Verification covers Rust/Python serialization, independent readback and
+official-schema checks, including invalid alignment/leader/position controls.
+No manual rendering or complete typed tab import is claimed. Source: P1 (2016)
 §§17.3.1.37–38, §§17.18.84–85 and the Transitional schema's left/right values.
 
 ## Language and complex-script formatting
@@ -220,11 +229,7 @@ literal/theme slots. Theme-font authoring is not supported.
 Conditional table-style script properties and document defaults use the same
 codec; see [STYLES.md](STYLES.md) for their scopes and merge contracts.
 
-Evidence: `tests/script_formatting.rs`, `test_script_formatting.py`, independent
-Rust-generated python-docx API/XML readback and changed language/font/size/flag
-negative controls, official schemas and invalid size/flag mutations in document/
-styles parts, deferred references, hidden guards, and style-update preservation.
-No visual/shaping equivalence is claimed. Sources: P1 (2016) §§17.3.2.2, 17.3.2.7,
+Sources: P1 (2016) §§17.3.2.2, 17.3.2.7,
 17.3.2.17, 17.3.2.20, 17.3.2.26, 17.3.2.30, 17.3.2.39 and 17.7.3.
 
 ## Paragraph text direction
@@ -239,11 +244,7 @@ inheritance is materialized.
 Paragraph bidi is not run `rtl`, cell text flow, a string reversal, or automatic
 alignment/indent conversion. The writer retains stored text and explicitly
 supplied left/right alignment/indent values; the consumer interprets layout.
-Tests exercise absent/false/true, generic references, style/direct separation,
-unchanged text/indent values, Rust-generated independent loaded-XML readback and
-bad-bool schema/semantic mutations. The installed wheel probe also checks the
-request. No bidi shaping or visual-layout equivalence is claimed. Source: P1
-(2016) §17.3.1.6 (`bidi`) and Annex A.1.
+Source: P1 (2016) §17.3.1.6 (`bidi`) and Annex A.1.
 
 ## Section page direction
 
@@ -262,13 +263,6 @@ text, mirror physical margins, change column counts, or calculate page layout.
 Paragraph and run direction remain independently authored. See P1 (2016)
 §17.6.1 and Annex A.1.
 
-Evidence: `tests/section_direction.rs`, `test_section_direction.py`, independent
-Rust-generated python-docx loaded-XML readback with a changed section flag
-negative control, required-schema validation with an invalid boolean mutation,
-template preservation, inherited/explicit values, deferred references, hidden
-sections and repeatable snapshots. Installed-wheel probes cover the section flag.
-No manual Office rendering or visual-layout equivalence is claimed.
-
 ## Right-side gutter placement
 
 `SectionProperties.rtl_gutter` is an optional boolean in both APIs. It writes
@@ -285,12 +279,7 @@ margins, adjust width-allocation metrics or calculate binding/page layout. Secti
 template gutter amounts are retained. Python appends the field; Rust exhaustive
 literals need it or `..Default::default()`.
 
-Evidence: `tests/section_gutter.rs`, `test_section_gutter.py`, independent
-Rust-generated loaded-XML readback with changed-flag negative control, official
-schema validation with invalid boolean mutation, and clean-wheel probes. Tests
-cover absence/false/true, inheritance, template preservation, deferred/hidden
-inputs, repeated snapshots and unchanged text/margins/gutter amounts/top settings/
-width metrics. No visual-rendering claim is made. Source: P1 (2016) §17.6.16.
+Source: P1 (2016) §17.6.16.
 
 ### Section line numbering
 
@@ -477,8 +466,7 @@ select fonts, fit text, paginate or position the shape. No manual Office renderi
 was verified. Sources: P1 (2016) §20.1 text-body, paragraph and character
 properties; Annex A.4 `CT_TextBodyProperties`, `CT_TextParagraph`,
 `CT_TextCharacterProperties`, `ST_TextFontSize`, `ST_TextAlignType` and
-`ST_TextAnchoringType`. Tests: `shape_text_format.rs`, `test_shape_text_format.py`,
-the paired catalogs and schema/content negative controls.
+`ST_TextAnchoringType`.
 
 The format also accepts optional `italic` and `font` fields. Italic follows
 bold's three-state contract: omitted, enabled, or explicitly disabled. `font`
@@ -490,8 +478,6 @@ are preserved, not checked against installed fonts. Invalid XML characters in an
 emitted typeface are rejected. Missing font/italic values do not materialize any
 attributes or elements. Python supports deferred values for these fields too.
 No installed-font lookup, embedding, fallback selection or measurement is added.
-Schema mutations reject missing typeface attributes and wrong child order;
-catalog mutations reject changed font or italic requests.
 
 ### Standalone inline text boxes
 
@@ -527,8 +513,7 @@ drawing IDs remain unique across mixed drawings and imported canvases. This is
 plain DrawingML text, not a rich WordprocessingML `txbxContent` story. Rich child
 blocks, text-flow links, padding/autofit and manual Office rendering remain unimplemented
 or unverified. Source: P1 (2016) §20.3; Annex A.4 `CT_GvmlGroupShape` and
-`CT_GvmlTextShape`. Tests: `test_text_boxes.py`, `shape_text_format.rs`, official
-catalog schema checks and missing-transform/changed-extent mutations.
+`CT_GvmlTextShape`.
 
 ### Floating shapes and text boxes
 
@@ -547,3 +532,63 @@ relationship. The existing story and container restrictions still apply. This
 is a placement request, not a layout calculation or a claim of Office rendering.
 Source: P1 (2016) §20.4 and Annex A.4 `CT_Anchor`. See the floating text box in
 the [paired catalogs](../examples/ALL_FEATURES.md).
+
+## Inline column charts
+
+Add a `ColumnChartRun` to a body paragraph, including a paragraph in a body
+table cell. The chart takes up space in the line like an inline image. Supply
+width and height in points, a nonempty ordered list of text labels, and one
+finite value per label. Zero and negative values are supported.
+
+```rust
+use rocx::{ColumnChartProperties, ColumnChartRun, Paragraph};
+let chart = ColumnChartRun::new(ColumnChartProperties {
+    width: 288.,
+    height: 180.,
+    categories: vec!["North".into(), "South".into(), "West".into()],
+    values: vec![8., 13.5, 5.],
+});
+let paragraph = Paragraph::from_children(vec![chart.into()]);
+```
+
+```python
+from rocx import declarative as d
+chart = d.ColumnChartRun(288, 180, ["North", "South", "West"], [8, 13.5, 5])
+paragraph = d.Paragraph(children=[chart])
+```
+
+The writer stores the data directly in the chart, not in an embedded workbook.
+The document app lays out the chart and chooses its visual defaults. This API
+does not support additional series, styles, floating placement, chart editing,
+or putting the chart inside a hyperlink, cached field result, or inline
+content control. Appending a chart to a template does not rewrite imported
+chart data.
+
+## Inline fractions
+
+`InlineFraction` inserts a stacked Office Math fraction as a direct child of a
+body paragraph, including a paragraph in a body table cell. Both operands are
+nonempty, single-line literal XML text. They can be deferred independently;
+spaces are preserved and text is not interpreted as formula syntax.
+
+```rust
+use rocx::{InlineFraction, Paragraph, TextRun};
+let paragraph = Paragraph::from_children(vec![
+    TextRun::new("Half is ").into(),
+    InlineFraction::new("1", "2").into(),
+    TextRun::new(".").into(),
+]);
+```
+
+```python
+from rocx import declarative as d
+paragraph = d.Paragraph(children=[
+    d.TextRun("Half is "), d.InlineFraction("1", "2"), d.TextRun("."),
+])
+```
+
+The writer emits a single inline OMML object and adds no package part or
+relationship. Fractions are not supported in headers, footers, notes, comments,
+hyperlinks, cached field results, or inline content controls. Appending a
+fraction does not edit imported equations. Display equations, nested expressions,
+and equation styling are not supported.

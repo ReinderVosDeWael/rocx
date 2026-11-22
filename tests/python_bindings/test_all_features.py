@@ -88,6 +88,48 @@ def test_exact_byte_check_rejects_container_only_differences(catalogs) -> None:
         checks.exact_bytes(original, output.getvalue())
 
 
+def test_content_check_rejects_changed_chart_values(catalogs) -> None:
+    from test_notes import rewrite
+
+    rust, _ = catalogs
+
+    def change_value(root):
+        value = root.xpath("//c:numLit/c:pt[@idx='1']/c:v", namespaces=checks.NS)[0]
+        value.text = "12.5"
+
+    changed = rewrite(rust.read_bytes(), "word/charts/chart1.xml", change_value)
+    with pytest.raises(AssertionError):
+        checks.verify_content(changed, rust.with_suffix(".template.docx").read_bytes())
+
+
+def test_content_check_rejects_changed_fraction_operand(catalogs) -> None:
+    from test_notes import rewrite
+
+    rust, _ = catalogs
+
+    def change_operand(root):
+        operand, = root.xpath("//m:oMath/m:f/m:den/m:r/m:t", namespaces=checks.NS)
+        operand.text = "3"
+
+    changed = rewrite(rust.read_bytes(), "word/document.xml", change_operand)
+    with pytest.raises(AssertionError):
+        checks.verify_content(changed, rust.with_suffix(".template.docx").read_bytes())
+
+
+def test_content_check_rejects_changed_custom_boolean(catalogs) -> None:
+    from test_notes import rewrite
+
+    rust, _ = catalogs
+
+    def change_value(root):
+        value, = root.xpath("cust:property[@name='Published']/vt:bool", namespaces=checks.NS)
+        value.text = "true"
+
+    changed = rewrite(rust.read_bytes(), "docProps/custom.xml", change_value)
+    with pytest.raises(AssertionError):
+        checks.verify_content(changed, rust.with_suffix(".template.docx").read_bytes())
+
+
 def test_content_check_rejects_changed_floating_text_box_position(catalogs) -> None:
     from test_notes import rewrite
 

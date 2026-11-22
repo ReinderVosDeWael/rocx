@@ -100,6 +100,8 @@ impl ResolvedHyperlink {
                 ResolvedInline::Hyperlink(_)
                     | ResolvedInline::Field(_)
                     | ResolvedInline::Shape(_)
+                    | ResolvedInline::ColumnChart(_)
+                    | ResolvedInline::Fraction { .. }
                     | ResolvedInline::ContentControl(_)
                     | ResolvedInline::RangeStart { .. }
                     | ResolvedInline::RangeEnd(_)

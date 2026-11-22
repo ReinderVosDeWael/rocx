@@ -2,7 +2,8 @@
 
 Run through uv's test group. This tool is not imported by the document engine.
 It checks base schemas after supported MCE preprocessing, OPC targets, and r:*
-references. It is not Word layout validation or a validator for every extension.
+references, including standard DrawingML chart links. It is not Word layout
+validation or a validator for every extension.
 """
 import argparse
 from collections.abc import Iterable
@@ -28,9 +29,24 @@ XS = "http://www.w3.org/2001/XMLSchema"
 MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+C = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+CUSTOM = "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+EXTENDED = "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+VT = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
-BASE = {W, A, R, XML,
+CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+CHART_TYPE = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+CHART_REL = f"{R}/chart"
+CUSTOM_TYPE = "application/vnd.openxmlformats-officedocument.custom-properties+xml"
+CUSTOM_REL = f"{R}/custom-properties"
+EXTENDED_TYPE = "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+EXTENDED_REL = f"{R}/extended-properties"
+PROPERTY_PARTS = {
+    CUSTOM_REL: (CUSTOM_TYPE, CUSTOM, "custom properties"),
+    EXTENDED_REL: (EXTENDED_TYPE, EXTENDED, "extended properties"),
+}
+BASE = {W, A, C, CUSTOM, EXTENDED, VT, R, XML,
         "http://schemas.openxmlformats.org/drawingml/2006/picture",
         "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
         "http://schemas.openxmlformats.org/officeDocument/2006/math"}
@@ -69,7 +85,7 @@ def parser():
 def prefix_uris(element, value):
     result = set()
     for prefix in value.split():
-        uri = element.nsmap.get(prefix)
+        uri = XML if prefix == "xml" else element.nsmap.get(prefix)
         if uri is None:
             raise ValidationError(f"undeclared MCE prefix {prefix}")
         result.add(uri)
@@ -136,6 +152,45 @@ def target_of(owner, target):
     if path == ".." or path.startswith("../"):
         raise ValidationError(f"target escapes package root: {target}")
     return path
+
+
+def content_types(parts: dict[str, bytes], canonical: dict[str, str]) -> dict[str, str | None]:
+    manifest = canonical.get("[content_types].xml")
+    if manifest is None:
+        return {}
+    root = etree.fromstring(parts[manifest], parser())
+    overrides = {node.get("PartName", "").removeprefix("/").lower(): node.get("ContentType", "").lower()
+                 for node in root.findall(f"{{{CT}}}Override")}
+    defaults = {node.get("Extension", "").lower(): node.get("ContentType", "").lower()
+                for node in root.findall(f"{{{CT}}}Default")}
+    return {name: overrides.get(key, defaults.get(posixpath.splitext(key)[1][1:]))
+            for key, name in canonical.items() if name != manifest}
+
+
+def validate_custom_ids(root: etree._Element, owner: str) -> None:
+    ids = set()
+    for node in root.findall(f"{{{CUSTOM}}}property"):
+        identifier = int(node.get("pid"))  # The XSD has already checked its lexical form and range.
+        if identifier < 2 or identifier in ids:
+            raise ValidationError(f"invalid or duplicate custom property ID {identifier} in {owner}")
+        ids.add(identifier)
+
+
+def validate_chart_references(root: etree._Element, owner: str, relations: dict[str, etree._Element]) -> None:
+    """Check the chart-specific payload and edge beyond the graphicData XSD."""
+    for payload in root.iter(f"{{{A}}}graphicData"):
+        children = [child for child in payload if isinstance(child.tag, str)]
+        references = [child for child in children if child.tag == f"{{{C}}}chart"]
+        if payload.get("uri", "").strip() != C:
+            if references:
+                raise ValidationError(f"incorrect chart graphicData URI in {owner}")
+            continue
+        if len(references) != 1 or len(children) != 1:
+            raise ValidationError(f"expected one chart reference in {owner}")
+        identifier = references[0].get(f"{{{R}}}id")
+        relation = relations.get(identifier) if identifier is not None else None
+        if not identifier or relation is None or relation.get("Type") != CHART_REL:
+            raise ValidationError(f"missing owner-local chart relationship for {identifier!r} in {owner}")
 
 
 def validate_note_graph(parts: dict[str, bytes], relationships: dict[str, dict[str, etree._Element]]) -> None:
@@ -271,6 +326,9 @@ class Validator:
         self.schemas = {
             W: etree.XMLSchema(etree.parse(str(prepared / "wml.xsd"), parser())),
             A: etree.XMLSchema(etree.parse(str(prepared / "dml-main.xsd"), parser())),
+            C: etree.XMLSchema(etree.parse(str(prepared / "dml-chart.xsd"), parser())),
+            CUSTOM: etree.XMLSchema(etree.parse(str(prepared / "shared-documentPropertiesCustom.xsd"), parser())),
+            EXTENDED: etree.XMLSchema(etree.parse(str(prepared / "shared-documentPropertiesExtended.xsd"), parser())),
         }
 
     def validate(self, path_or_bytes):
@@ -285,6 +343,11 @@ class Validator:
         canonical = {name.lower(): name for name in parts}
         if len(canonical) != len(parts):
             raise ValidationError("duplicate equivalent part names")
+        media = content_types(parts, canonical)
+        charts = {name for name, kind in media.items() if kind == CHART_TYPE}
+        property_types = {mime: (namespace, label) for mime, namespace, label in PROPERTY_PARTS.values()}
+        properties = {name: property_types[kind] for name, kind in media.items() if kind in property_types}
+        linked_properties = {}
         relationships = {}
         for name, data in parts.items():
             if not name.endswith(".rels"):
@@ -299,31 +362,66 @@ class Validator:
                 if not identifier or identifier in ids:
                     raise ValidationError(f"duplicate or missing relationship ID in {name}")
                 ids[identifier] = relation
-                if relation.get("TargetMode", "Internal") == "Internal":
+                internal = relation.get("TargetMode", "Internal") == "Internal"
+                is_chart = relation.get("Type") == CHART_REL
+                if is_chart and not internal:
+                    raise ValidationError(f"chart relationship {identifier} in {name} must be internal")
+                kind = relation.get("Type")
+                property_spec = PROPERTY_PARTS.get(kind)
+                if property_spec is not None and (owner or not internal):
+                    _, _, label = property_spec
+                    raise ValidationError(f"{label} relationship in {name} must be internal and package-level")
+                if internal:
                     target = target_of(owner, relation.get("Target", ""))
                     if target.lower() not in canonical:
                         raise ValidationError(f"missing relationship target {target}")
+                    if is_chart and canonical[target.lower()] not in charts:
+                        raise ValidationError(f"incorrect chart content type for {target}")
+                    if property_spec is not None:
+                        mime, _, label = property_spec
+                        if kind in linked_properties:
+                            raise ValidationError(f"multiple package-level {label} relationships")
+                        actual = canonical[target.lower()]
+                        if media.get(actual) != mime:
+                            raise ValidationError(f"incorrect {label} content type for {target}")
+                        linked_properties[kind] = actual
             relationships[owner] = ids
+        linked_paths = set(linked_properties.values())
+        for path, (_, label) in properties.items():
+            if path not in linked_paths:
+                raise ValidationError(f"{label} part {path} has no package-level relationship")
         checked = []
         for name, data in parts.items():
-            if not name.endswith(".xml"):
+            if not name.endswith(".xml") and name not in charts and name not in properties:
                 continue
             element = etree.fromstring(data, parser())
-            schema = self.schemas.get(etree.QName(element).namespace)
-            if schema is None:
+            if name in charts and element.tag != f"{{{C}}}chartSpace":
+                raise ValidationError(f"incorrect chart root in {name}: expected chartSpace")
+            if name in properties:
+                expected, label = properties[name]
+                if element.tag != f"{{{expected}}}Properties":
+                    raise ValidationError(f"incorrect {label} root in {name}")
+            namespace = etree.QName(element).namespace
+            schema = self.schemas.get(namespace)
+            if (schema is None or (namespace == C and name not in charts)
+                    or (namespace in {CUSTOM, EXTENDED} and name not in properties)):
                 continue
+            base = deepcopy(element)
+            preprocess(base)
+            relations = relationships.get(name, {})
+            validate_chart_references(base, name, relations)
             for node in element.iter():
                 if not isinstance(node.tag, str):
                     continue
                 for attr, value in node.attrib.items():
-                    if etree.QName(attr).namespace == R and value not in relationships.get(name, {}):
+                    if etree.QName(attr).namespace == R and value not in relations:
                         raise ValidationError(f"undeclared relationship reference {value} in {name}")
-            base = deepcopy(element)
-            preprocess(base)
             if not schema.validate(base):
                 raise ValidationError(f"{name}: {schema.error_log.last_error}")
             if etree.QName(base).namespace == W:
                 validate_field_structure(base, name)
+            if namespace == CUSTOM:
+                validate_custom_ids(base, name)
             checked.append(name)
         if not checked:
             raise ValidationError("no supported WordprocessingML/DrawingML parts were validated")

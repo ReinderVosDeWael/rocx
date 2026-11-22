@@ -290,6 +290,13 @@ def story_blocks() -> list:
             x=220, y=12, wrap="square", distance_left=6,
         )),
     ]))
+    blocks.append(p("Inline column chart: North 8, South 13.5, West 5; one series without an embedded workbook."))
+    blocks.append(d.Paragraph(children=[
+        d.ColumnChartRun(288, 180, ["North", "South", "West"], [8, 13.5, 5]),
+    ]))
+    blocks.append(d.Paragraph(children=[
+        d.TextRun("Inline equation: stacked fraction "), d.InlineFraction("1", "2"), d.TextRun("."),
+    ]))
     blocks.append(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."))
     async def image_bytes() -> bytes:
         return (IMAGES / "sample.png").read_bytes()
@@ -321,11 +328,17 @@ async def generate(output: pathlib.Path) -> bytes:
     ])
     template_path = output.with_suffix(".template.docx")
     await d.Document([d.Section([seed, p("Template retained paragraph: insertion appears before this."), tagged_seed, revision_seed, move_seed])], timestamp=STAMP,
+        custom_properties={"Project": "Atlas", "Review status": "Pending", "Review complete": False},
         styles=[d.ParagraphStyleDefinition(name="Catalog Existing", bold=True),
             d.CharacterStyleDefinition(name="Catalog Existing Character", bold=True)]).save(template_path)
     blocks = [p("ALL FEATURES — visual inspection catalog"),
         p("Each sample names its requested feature. Field caches are placeholders; update fields in your viewer. Font fallback, pagination and conditional table-style activation depend on the viewer. Inspect comments, footnotes, endnotes and document properties too."),
-        p("Document defaults: Calibri 11 pt, after spacing 4 pt, 1.1 line height. See template replacement at the start and the retained template paragraph after topic 08.")]
+        p("Document defaults: Calibri 11 pt, after spacing 4 pt, 1.1 line height. See template replacement at the start and the retained template paragraph after topic 08."),
+        p("Template safety: this sample uses an unsigned template. Templates with an OPC signature origin are rejected before any output is written."),
+        p("Custom document properties: Project (Atlas) is retained; Review status changes to Draft & review."),
+        p("Boolean custom properties: Review complete changes from false to true; Published is explicitly false."),
+        p("Template compatibility: unsupported mandatory namespaces in edited WordprocessingML are rejected."),
+        p("Extended document properties: Company is Atlas & Co.; Manager is Taylor.")]
     blocks.extend(formatting_blocks())
     blocks.extend(table_blocks())
     blocks.extend(story_blocks())
@@ -404,6 +417,8 @@ async def generate(output: pathlib.Path) -> bytes:
     document = d.Document(sections, timestamp=STAMP, creator="DOCX inspection catalog", title="All features visual inspection",
         subject="Rust/Python byte parity", description="Labeled functionality samples; not a rendering guarantee", keywords="docx,visual,parity",
         category="Examples", comments="Core metadata comments", version="1.0", comment_author="Catalog reviewer",
+        custom_properties={"Review status": "Draft & review", "Review complete": True, "Published": False},
+        company="Atlas & Co.", manager="Taylor",
         defaults=d.DocumentDefaults(run=d.RunDefaults(font="Calibri", size=11),
             paragraph=d.ParagraphDefaults(spacing_after=4, line_height=d.LineHeight.multiple(1.1)),
             mirror_margins=True, gutter_at_top=False, track_revisions=False,

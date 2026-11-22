@@ -1,5 +1,20 @@
 //! Checked physical measurements; P1 §§17.18.42, 22.9.2.14–22.9.2.15.
 use super::{Diagnostic, Rule};
+
+pub(super) fn drawing_dimension(value: f64, field: &str, drawing: &str) -> Result<i64, Diagnostic> {
+    let emu = Points::new(value)
+        .and_then(Points::emu)
+        .map_err(|error| error.at(field))?
+        .get();
+    if !(1..=i64::from(i32::MAX)).contains(&emu) {
+        return Err(Diagnostic::new(
+            Rule::InvalidMeasurement,
+            format!("{drawing} dimensions must be positive and fit DrawingML coordinates"),
+        )
+        .at(field));
+    }
+    Ok(emu)
+}
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Points(f64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

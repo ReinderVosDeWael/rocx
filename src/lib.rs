@@ -34,7 +34,10 @@ pub use authoring::{
     Inline, InlineChildren, Note, NoteReference, Paragraph, ParagraphContent, RangeEnd, RangeStart,
     Section, Tab, Table, TableCell, TableRow, TextRun,
 };
-pub use authoring::{BlockContentControl, Field, InlineContentControl, ShapeRun};
+pub use authoring::{
+    BlockContentControl, ColumnChartRun, Field, InlineContentControl, InlineFraction, ShapeRun,
+};
+pub use document::ColumnChartProperties;
 pub use document::NumberingAlignment;
 pub use document::NumberingStartOverride;
 pub use document::NumberingSuffix;
@@ -118,6 +121,10 @@ pub mod declarative {
         PageBorderZOrder, PageBorders,
     };
     pub use crate::{
+        ColumnChartProperties, ColumnChartRun, InlineFraction, ShapeGeometry, ShapeOutline,
+        ShapeProperties, ShapeRun, ShapeTextAlignment, ShapeTextFormat, ShapeTextVerticalAlignment,
+    };
+    pub use crate::{
         ContentControlListItem, ContentControlLock, ContentControlProperties, ContentControlText,
         InlineContentControl, ResolvedInlineContentControl,
     };
@@ -127,10 +134,6 @@ pub mod declarative {
     pub use crate::{Field, FieldForm, FieldInstruction, FieldProperties};
     pub use crate::{RevisionKind, TextRevision};
     pub use crate::{RowHeight, TableRowProperties};
-    pub use crate::{
-        ShapeGeometry, ShapeOutline, ShapeProperties, ShapeRun, ShapeTextAlignment,
-        ShapeTextFormat, ShapeTextVerticalAlignment,
-    };
     pub use crate::{TabAlignment, TabLeader, TabStop};
 }
 

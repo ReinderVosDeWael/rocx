@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from xml.etree import ElementTree
 
 import pytest
 
@@ -14,15 +15,18 @@ def test_missing_schemas_skip_only_when_optional(tmp_path: Path, required: bool)
     root = Path(__file__).resolve().parents[2]
     environment = dict(os.environ, ROCX_SCHEMA_DIR=str(tmp_path),
                        ROCX_REQUIRE_SCHEMAS="1" if required else "0")
+    report = tmp_path / "standards-report.xml"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "tests/python_bindings/test_standards.py"],
+        [sys.executable, "-m", "pytest", "-q", "--junitxml", str(report),
+         "tests/python_bindings/test_standards.py"],
         cwd=root, env=environment, capture_output=True, text=True, check=False,
     )
     output = result.stdout + result.stderr
-    if required:
-        assert result.returncode == 1, output
-        assert "Required official schemas missing" in output
-        assert "29 errors" in output
-    else:
-        assert result.returncode == 0, output
-        assert "29 skipped" in output
+    assert result.returncode == (1 if required else 0), output
+    cases = ElementTree.parse(report).findall(".//testcase")
+    assert cases, output
+    outcome = "error" if required else "skipped"
+    expected = "Required official schemas missing" if required else "Download pinned schemas"
+    for case in cases:
+        status = case.find(outcome)
+        assert status is not None and expected in status.get("message", ""), case.get("name")

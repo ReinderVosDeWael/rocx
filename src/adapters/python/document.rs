@@ -1,6 +1,25 @@
 //! Native conversion into resolved domain values.
 use super::*;
+use pyo3::types::{PyBool, PyString};
+
 pub(super) fn document(o: &Bound<'_, PyAny>) -> PyResult<ResolvedDocument> {
+    let custom = o.getattr("custom_properties")?;
+    let mut custom_properties = std::collections::BTreeMap::new();
+    let mut custom_boolean_properties = std::collections::BTreeMap::new();
+    if !custom.is_none() {
+        for item in custom.call_method0("items")?.try_iter()? {
+            let (name, value) = item?.extract::<(String, Bound<'_, PyAny>)>()?;
+            if value.is_instance_of::<PyBool>() {
+                custom_boolean_properties.insert(name, value.extract::<bool>()?);
+            } else if value.is_instance_of::<PyString>() {
+                custom_properties.insert(name, value.extract::<String>()?);
+            } else {
+                return Err(PyTypeError::new_err(
+                    "Custom property values must be strings or booleans",
+                ));
+            }
+        }
+    }
     Ok(ResolvedDocument {
         sections: list(&o.getattr("sections")?, |v| Ok(Some(section(v)?)))?,
         notes: list(&o.getattr("notes")?, note)?,
@@ -13,6 +32,10 @@ pub(super) fn document(o: &Bound<'_, PyAny>) -> PyResult<ResolvedDocument> {
             category: field!(o, "category", Option<String>),
             comments: field!(o, "comments", Option<String>),
             version: field!(o, "version", Option<String>),
+            custom_properties,
+            custom_boolean_properties,
+            company: field!(o, "company", Option<String>),
+            manager: field!(o, "manager", Option<String>),
         },
         comment_author: field!(o, "comment_author", Option<String>),
         styles: list(&o.getattr("styles")?, |v| {

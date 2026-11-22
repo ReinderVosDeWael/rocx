@@ -1,9 +1,12 @@
-# Migrating to 0.2
+# Migration guide
 
-Version 0.2 redesigns the API. Existing `rv-docx-rs` code will need updates;
-old constructor syntax and behavior are not guaranteed.
+This guide separates the legacy `rv-docx-rs` rename/redesign from the
+`0.2 → 0.3` upgrade. Existing `rv-docx-rs` code may need updates; old
+constructor syntax and behavior are not guaranteed.
 
-## Package names
+## From `rv-docx-rs` to rocx (0.2 redesign)
+
+### Package names
 
 | Former name | Current name |
 | --- | --- |
@@ -11,7 +14,7 @@ old constructor syntax and behavior are not guaranteed.
 | Python distribution `rv-docx-rs` | Distribution `rocx` |
 | Python import `rv_docx` | Import `rocx` |
 
-## Rust API
+### Rust API
 
 - Paragraphs contain either text or child elements. Use `Paragraph::new` for
   text and `Paragraph::from_children` for runs, links, images, or other content.
@@ -20,10 +23,8 @@ old constructor syntax and behavior are not guaranteed.
   snapshots can be rendered more than once without rerunning producers.
 - Prefer `..Default::default()` when constructing public records with struct
   literals, so optional fields added to the API do not require exhaustive lists.
-- If a `ShapeProperties` literal lists every field, add `anchor: None` to
-  preserve inline placement. Floating shapes opt in with `with_anchor`.
 
-## Python API
+### Python API
 
 - Import from `rocx` or `rocx.declarative`.
 - `await document.resolve()` returns an immutable snapshot and does not mutate
@@ -32,9 +33,23 @@ old constructor syntax and behavior are not guaranteed.
 - `Document.save()` and `Document.to_bytes()` resolve automatically.
   `snapshot.to_docx()` is available with the optional `interop` extra.
 
+## From 0.2 to 0.3
+
+- Rust `Metadata` adds `company`, `manager`, `custom_properties`, and
+  `custom_boolean_properties`. In exhaustive literals, specify the new fields
+  or use `..Default::default()`.
+- Template edits now reject signed packages and unsupported mandatory
+  namespaces. See the [editing policy](../COMPATIBILITY.md#resolution-editing-and-output)
+  and the [0.3.0 changelog](../CHANGELOG.md).
+
+### If your older checkout predates floating shapes
+
+Add `anchor: None` or `..Default::default()` to exhaustive `ShapeProperties`
+literals to keep inline placement. Use `with_anchor` to opt into
+[floating placement](FORMATTING.md#floating-shapes-and-text-boxes).
+
 ## Further guidance
 
-See [Getting started](https://reindervosdewael.github.io/rv-docx-rs/getting-started/),
-the [feature guides](https://reindervosdewael.github.io/rv-docx-rs/), and the
-[compatibility guide](../COMPATIBILITY.md) for examples, supported behavior, and
-limitations. The Rust and Python APIs are intentionally similar, but not identical.
+See [Getting started](https://reindervosdewael.github.io/rv-docx-rs/getting-started/)
+for examples and the [compatibility guide](../COMPATIBILITY.md) for supported
+behavior and limitations.

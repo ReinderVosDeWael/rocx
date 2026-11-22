@@ -589,6 +589,27 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
         ])
         .into(),
     );
+    out.push(p("Inline column chart: North 8, South 13.5, West 5; one series without an embedded workbook."));
+    out.push(
+        Paragraph::from_children(vec![
+            ColumnChartRun::new(ColumnChartProperties {
+                width: 288.,
+                height: 180.,
+                categories: vec!["North".into(), "South".into(), "West".into()],
+                values: vec![8., 13.5, 5.],
+            })
+            .into(),
+        ])
+        .into(),
+    );
+    out.push(
+        Paragraph::from_children(vec![
+            TextRun::new("Inline equation: stacked fraction ").into(),
+            InlineFraction::new("1", "2").into(),
+            TextRun::new(".").into(),
+        ])
+        .into(),
+    );
     out.push(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."));
     let mut path_image = ImageRun::from_path(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images/sample.png"),

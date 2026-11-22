@@ -498,6 +498,33 @@ fn at<T>(result: Result<T, Diagnostic>, path: impl std::fmt::Display) -> Result<
 }
 impl ResolvedInline {
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        if let Self::ColumnChart(chart) = self {
+            chart.validate()?;
+        }
+        if let Self::Fraction {
+            numerator,
+            denominator,
+        } = self
+        {
+            for (name, operand) in [("numerator", numerator), ("denominator", denominator)] {
+                if super::invalid_xml_character(operand).is_some() {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidXml,
+                        "fraction operand must be XML text",
+                    )
+                    .at(name));
+                }
+                if operand.is_empty()
+                    || operand.contains(['\r', '\n', '\u{85}', '\u{2028}', '\u{2029}'])
+                {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidContent,
+                        "fraction operand must be nonempty single-line text",
+                    )
+                    .at(name));
+                }
+            }
+        }
         if let Self::RangeStart {
             kind: RangeKind::StructuredComment(body),
             ..
@@ -566,6 +593,7 @@ fn blocks(values: &[ResolvedBlock], path: &DeclarationPath) -> Result<(), Diagno
 impl ResolvedDocument {
     /// Validate supported domain invariants independently of either frontend or codec.
     pub fn validate(&self) -> Result<(), Diagnostic> {
+        self.metadata.validate_extended_metadata()?;
         if let Some(defaults) = &self.defaults {
             at(defaults.validate(), "defaults")?;
         }
@@ -615,6 +643,20 @@ impl ResolvedDocument {
                     return Err(Diagnostic::new(
                         Rule::InvalidContent,
                         "note references are supported only in the body story",
+                    )
+                    .at(path));
+                }
+                if matches!(run, ResolvedInline::ColumnChart(_)) && *kind != StoryKind::Body {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidContent,
+                        "column charts are supported only in body paragraphs",
+                    )
+                    .at(path));
+                }
+                if matches!(run, ResolvedInline::Fraction { .. }) && *kind != StoryKind::Body {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidContent,
+                        "inline fractions are supported only in body paragraphs",
                     )
                     .at(path));
                 }

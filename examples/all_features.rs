@@ -2,6 +2,12 @@
 //! Includes labeled DrawingML shape text styling and its omission boundaries.
 //! The shape gallery also requests italic text and a Latin typeface explicitly.
 //! Standalone inline and floating text boxes use a direct DrawingML text shape.
+//! Includes one labeled workbook-free inline column chart.
+//! Includes a labeled stacked Office Math fraction between text runs.
+//! The template-edit sample uses an unsigned template and labels the signature policy.
+//! The template-edit sample also updates string and boolean custom document properties.
+//! The catalog labels the mandatory namespace policy for edited template parts.
+//! Document properties also include the company and manager.
 //! Includes chainable authoring builders and omitted/true/false formatting.
 //! Demonstrates two concrete lists sharing an authored abstract numbering ID and separate formatting, paragraph style links, and an inherited numbering style.
 //! Shows an inline image with crop, rotation and flipping, plus floating-picture wrap sides, distances, alignment, reference frames, placement flags and a wrapping polygon.

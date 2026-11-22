@@ -55,6 +55,8 @@ component!(crate::NoteReference, ResolvedInline, "note_reference");
 component!(crate::Comment, crate::ResolvedCommentBody, "comment");
 component!(ImageRun, ResolvedInline, "image_run");
 component!(crate::ShapeRun, ResolvedInline, "shape_run");
+component!(crate::ColumnChartRun, ResolvedInline, "column_chart_run");
+component!(crate::InlineFraction, ResolvedInline, "inline_fraction");
 component!(Tab, ResolvedInline, "tab");
 component!(Break, ResolvedInline, "break");
 component!(Table, ResolvedTable, "table");

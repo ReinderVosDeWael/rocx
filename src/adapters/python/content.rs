@@ -249,6 +249,16 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
             format: RunFormat::default(),
             comment: None,
         },
+        "InlineFraction" => ResolvedInline::Fraction {
+            numerator: field!(o, "numerator", String),
+            denominator: field!(o, "denominator", String),
+        },
+        "ColumnChartRun" => ResolvedInline::ColumnChart(crate::ColumnChartProperties {
+            width: field!(o, "width", f64),
+            height: field!(o, "height", f64),
+            categories: field!(o, "categories", Vec<String>),
+            values: field!(o, "values", Vec<f64>),
+        }),
         "ShapeRun" => ResolvedInline::Shape(crate::ShapeProperties {
             anchor: optional_record(o, "anchor", image_anchor)?,
             text_format: optional_record(o, "text_format", |format| {

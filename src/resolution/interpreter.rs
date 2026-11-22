@@ -476,6 +476,8 @@ fn resolve_inlines(
                         Inline::Break(br) => br.resolve_at(path).await,
                         Inline::ImageRun(image) => image.resolve_at(path).await,
                         Inline::ShapeRun(shape) => shape.resolve_at(path).await,
+                        Inline::ColumnChartRun(chart) => chart.resolve_at(path).await,
+                        Inline::InlineFraction(fraction) => fraction.resolve_at(path).await,
                     }
                 }
             }))
@@ -485,6 +487,39 @@ fn resolve_inlines(
             .collect(),
         )
     })
+}
+impl crate::InlineFraction {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let (numerator, denominator) = futures_util::future::try_join(
+            field(self.numerator, format!("{path}.numerator")),
+            field(self.denominator, format!("{path}.denominator")),
+        )
+        .await?;
+        let fraction = ResolvedInline::Fraction {
+            numerator,
+            denominator,
+        };
+        fraction
+            .validate()
+            .map_err(|error| Error::from(error).at(&path))?;
+        Ok(Some(fraction))
+    }
+}
+impl crate::ColumnChartRun {
+    pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
+        if !self.condition.evaluate() {
+            return Ok(None);
+        }
+        let path = format!("{path}.properties");
+        let chart = field(self.properties, &path).await?;
+        chart
+            .validate()
+            .map_err(|error| Error::from(error).at(&path))?;
+        Ok(Some(ResolvedInline::ColumnChart(chart)))
+    }
 }
 impl crate::ShapeRun {
     pub(crate) async fn resolve_at(self, path: String) -> Result<Option<ResolvedInline>> {
