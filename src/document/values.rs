@@ -1,8 +1,8 @@
 //! Formatting, style, section and numbering values in the current authoring API.
 //!
-//! Current public lengths follow the initial CMI-inspired units. Wire units and
-//! lexical values are defined by ECMA-376 Part 1 (2016), including §§17.18.42
-//! (half-points), 22.9.2.14 (twips), and 22.9.2.15 (universal measurements).
+//! Public lengths use documented authoring units. Wire units and lexical values
+//! are defined by ECMA-376 Part 1 (2016), including §§17.18.42 (half-points),
+//! 22.9.2.14 (twips), and 22.9.2.15 (universal measurements).
 //! [Official Part 1](https://ecma-international.org/wp-content/uploads/ECMA-376-1_5th_edition_december_2016.zip).
 
 /// Explicit document-default overrides, not computed effective formatting.
@@ -912,7 +912,8 @@ impl ImageAnchorVerticalAlignment {
         }
     }
 }
-/// Position offsets use points. Relative height controls drawing stacking order.
+/// Floating placement for pictures and shapes. Offsets use points; relative height
+/// controls drawing stacking order.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ImageAnchor {
     pub horizontal_reference: ImageAnchorReference,
@@ -925,7 +926,7 @@ pub struct ImageAnchor {
     pub wrap_side: Option<ImageWrapSide>,
     /// Ordered polygon vertices in DrawingML wrap-path coordinates.
     pub wrap_polygon: Vec<(i32, i32)>,
-    /// Wrap distances from the picture edges in points.
+    /// Wrap distances from the drawing edges in points.
     pub distance_top: Option<f64>,
     pub distance_bottom: Option<f64>,
     pub distance_left: Option<f64>,

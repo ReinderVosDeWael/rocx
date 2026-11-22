@@ -1,6 +1,6 @@
 # Style references
 
-## R6f: reference allocation and inheritance checks
+## Style references and inheritance checks
 
 Both authoring APIs use the shared native style compiler. Paragraph and table
 style identities are reserved before resolving `base_style` and paragraph
@@ -27,8 +27,8 @@ styles relationships and the existing name/ID lookup.
   this is not a complete imported-style graph validator. Unknown indirect
   imported ancestors and effective formatting are not resolved by this feature.
 
-This slice does not add theme-font authoring or computed/effective style
-inspection. Document defaults and linked styles are described below.
+Theme-font authoring and computed/effective style inspection are not supported.
+Document defaults and linked styles are described below.
 The deferred style collection still uses ordinary Rust `Value`/`PropertyRef` and
 Python generic resolution; there is no new dependency engine.
 
@@ -43,7 +43,7 @@ all graph cycles or semantic kind mismatches. No layout equivalence is claimed.
 Sources: P1 (2016) §17.7, particularly §§17.7.4.3/17.7.4.10 (based-on/next) and
 §17.7.4.17 (`style`), plus Annex A.1.
 
-## R6g: character styles and direct run references
+## Character styles and direct run references
 
 Rust adds `CharacterStyleDefinition { name, base_style, format: RunFormat }` to
 `StyleDefinition`. Put it in the ordinary deferred `Document.styles` collection.
@@ -82,7 +82,7 @@ python-docx API readback with retargeted-link negative controls, generic referen
 existing-style updates and invalid measurements/kinds/cycles. Source: P1 (2016)
 §§17.7.3, 17.7.4.17 and 17.3.2.29 (`rStyle`).
 
-## R6k: conditional table paragraph formatting
+## Conditional table paragraph formatting
 
 `TableSectionFormat` adds `line_height`, `tab_stops` and `bidi` in both APIs.
 They use the same checked paragraph codec as direct formatting and paragraph
@@ -108,9 +108,9 @@ independent Rust-generated python-docx loaded-style XML readback and changed-hei
 negative control, plus official schema checks with bad line-rule/tab/bidi values.
 See [FORMATTING.md](FORMATTING.md) for units and inheritance limits. Source:
 P1 (2016) §17.7.6.1 (`pPr`), §17.7.6.6 (`tblStylePr`) and Annex A.1.
-Cell/table properties and full effective-style inspection remain outside this slice.
+Cell/table properties and full effective-style inspection are not included here.
 
-## R6l: conditional table run script formatting
+## Conditional table run script formatting
 
 `TableSectionFormat` also supports `language`, `bold_complex_script`,
 `italic_complex_script`, `size_complex_script`, `rtl`, `complex_script`,
@@ -135,7 +135,7 @@ snapshots), Rust-generated independent loaded-XML readback with changed RTL
 negative control, official schema validation with invalid toggle/size mutations,
 and clean installed-wheel probes. Source: P1 §17.7.6.2 and §17.3.2.
 
-## R6m: document defaults
+## Document defaults
 
 `Document.defaults` accepts optional `DocumentDefaults` through the ordinary
 deferred field mechanism. Rust reuses `RunFormat` and `ParagraphFormat` in its
@@ -183,7 +183,7 @@ without defaults, and clean-wheel probes. Tests cover template merging,
 absent/false/zero, point units, style-reference rejection, deferred references,
 detached snapshots and unchanged direct formatting. Source: P1 (2016) §§17.7.5.1–5.
 
-## R6n: explicit linked-style references
+## Linked styles
 
 Paragraph and character definitions accept optional `linked_style` names/IDs in
 both APIs. Forward targets use the existing two-pass style allocation. An authored
@@ -204,7 +204,7 @@ pair, author both edges. One-sided edges are allowed; no target, backlink or
 formatting is silently created or modified. These are pairing references, not
 based-on inheritance, so reciprocal links are not inheritance cycles. Omission
 preserves an existing link; explicit values update new or existing definitions.
-There is no link-clearing operation in this slice. Unrelated or omitted malformed
+There is no operation to clear a link. Unrelated or omitted malformed
 imported links remain preserved rather than globally repaired or validated.
 
 Both halves remain independent resources. Direct paragraph and run references

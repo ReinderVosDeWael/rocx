@@ -45,6 +45,13 @@ async def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fa
         anchor.insert(0, position)
     with pytest.raises(validation.ValidationError, match="word/document.xml"):
         validator.validate(test_notes.rewrite(data, "word/document.xml", invalid_anchor_order))
+    def missing_floating_text_box_wrap(root):
+        ns = {"wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+              "a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+        anchor, = root.xpath("//wp:anchor[.//a:txSp]", namespaces=ns)
+        anchor.remove(anchor.find("wp:wrapSquare", ns))
+    with pytest.raises(validation.ValidationError, match="word/document.xml"):
+        validator.validate(test_notes.rewrite(data, "word/document.xml", missing_floating_text_box_wrap))
     def invalid_shape_font_size(root):
         namespace = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
         properties = root.find(f".//{namespace}txBody/{namespace}p/{namespace}r/{namespace}rPr")

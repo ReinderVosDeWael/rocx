@@ -1,7 +1,7 @@
 # Deferred fields and shared resolution scenarios
 
-Inventory including R6a–R6v formatting/table/style/list properties (2026-11-20). This describes authoring and
-resolution, not a promise that every resolved value is legal OOXML. Conversion
+This inventory describes which declaration fields can be deferred and how they
+resolve. It does not promise that every resolved value is legal OOXML; conversion
 and domain validation still apply after producers finish.
 
 ## Rust field inventory
@@ -156,7 +156,7 @@ tests/python_bindings/test_deferred.py`. Existing failure/cancellation tests in
 | Formatting references | `compilation::formatting_can_depend_on_another_named_async_property` | `test_deferred::test_dependencies_cover_formatting_comments_nested_children_and_metadata` |
 | Image data, transformation, alt text; source last | `resolution_contract::image_fields_accept_references_before_the_source_and_snapshots_do_not_rerun_them` | Same scenario in `test_resolution_contract.py` |
 | Concurrent image fields; hidden producers | `resolution_contract::image_fields_start_concurrently_and_hidden_images_do_not_poll_options` | Same scenario in `test_resolution_contract.py` |
-| Children and metadata | `r1::immutable_resolved_children_can_be_shared_without_cloning_futures`; `r1::metadata_section_table_and_cell_properties_use_the_same_reference_mechanism` | `test_deferred` shared header/cell children; `test_r1` metadata/section/table/cell references |
+| Children and metadata | Shared immutable resolved children; shared references for metadata, sections, tables and cells | Shared header/cell children; metadata/section/table/cell reference tests |
 | Diamond | `resolution_contract::diamond_references_share_the_base_producer` | `test_deferred::test_fanout_and_multistage_dependencies_share_one_producer` |
 | Direct/indirect cycles | `resolution_contract::direct_and_indirect_reference_cycles_fail_without_waiting` | `test_deferred::test_dependency_cycles_fail_instead_of_waiting_forever` |
 | Excluded source | `deferred::typed_property_references_detect_cycles_and_honor_excluded_sources` (property guard) | `test_deferred::test_condition_is_shared_and_excluded_dependency_does_not_run` (declaration guard) |
@@ -169,13 +169,13 @@ tests/python_bindings/test_deferred.py`. Existing failure/cancellation tests in
 
 ## Diagnostics, validation and rendering policy
 
-R1 adds stable `rule`, `location` and `cause` attributes to native errors while
+Native errors expose stable `rule`, `location` and `cause` attributes while
 retaining standard exception categories. Rule codes come from Rust `Rule::code`,
 not display text. Domain traversal uses `DeclarationPath`; package identities
 continue to use OPC part/target types. Native conversion errors without a more
 specific path use `document`, `template` or `options`. Some legacy compiler
-validations retain the broad `invalid_content` rule; R1 is not an exhaustive
-classification of every legacy error. A location can be absent for failures
+some validations retain the broad `invalid_content` rule; not every error has a
+specific rule code. A location can be absent for failures
 without known declaration/part context. `cause` is an optional display string;
 native cause chains also populate Python `__cause__`.
 

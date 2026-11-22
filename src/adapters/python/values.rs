@@ -245,7 +245,7 @@ pub(super) fn columns(o: &Bound<'_, PyAny>) -> PyResult<Columns> {
         separator: dict_field!(d, "separator", bool),
     })
 }
-fn image_anchor(a: &Bound<'_, PyAny>) -> PyResult<crate::ImageAnchor> {
+pub(super) fn image_anchor(a: &Bound<'_, PyAny>) -> PyResult<crate::ImageAnchor> {
     let reference = |value: &str| match value {
         "page" => Ok(crate::ImageAnchorReference::Page),
         "margin" => Ok(crate::ImageAnchorReference::Margin),

@@ -2,7 +2,7 @@ mod support;
 
 use futures::executor::block_on;
 use rocx::{Document, Paragraph, Section, Value};
-use support::{body, part};
+use support::{Body, body, part};
 
 fn section(text: &[&str]) -> Value<Section> {
     Section::new(
@@ -14,20 +14,22 @@ fn section(text: &[&str]) -> Value<Section> {
 }
 
 #[test]
-fn paragraph_content_and_section_structure_match_pinned_cmi_fixtures() {
+fn paragraph_content_and_section_structure_follow_the_native_contract() {
     let cases = [
-        (Document::default(), include_str!("fixtures/empty.xml")),
-        (
-            Document::new(vec![Section::default().into()]),
-            include_str!("fixtures/empty_section.xml"),
-        ),
+        (Document::default(), vec![], 1),
+        (Document::new(vec![Section::default().into()]), vec![], 1),
         (
             Document::new(vec![section(&[
                 "Hello, world!",
                 "",
                 "café Ελληνικά 日本語 🌍",
             ])]),
-            include_str!("fixtures/plain.xml"),
+            vec![
+                ("Hello, world!".into(), false),
+                ("".into(), false),
+                ("café Ελληνικά 日本語 🌍".into(), false),
+            ],
+            1,
         ),
         (
             Document::new(vec![section(&[
@@ -36,7 +38,13 @@ fn paragraph_content_and_section_structure_match_pinned_cmi_fixtures() {
                 "\tfirst\t\tlast\t",
                 "a\nb\rc\r\nd\n",
             ])]),
-            include_str!("fixtures/whitespace.xml"),
+            vec![
+                ("  Leading  and trailing  ".into(), false),
+                ("<tag> & \"quotes\" 'apostrophes' ]]> ".into(), false),
+                ("\tfirst\t\tlast\t".into(), false),
+                ("a\nb\nc\n\nd\n".into(), false),
+            ],
+            1,
         ),
         (
             Document::new(vec![
@@ -44,7 +52,14 @@ fn paragraph_content_and_section_structure_match_pinned_cmi_fixtures() {
                 section(&[]),
                 section(&["two", "three"]),
             ]),
-            include_str!("fixtures/sections.xml"),
+            vec![
+                ("one".into(), false),
+                ("".into(), true),
+                ("".into(), true),
+                ("two".into(), false),
+                ("three".into(), false),
+            ],
+            3,
         ),
         (
             Document::new(vec![
@@ -61,7 +76,8 @@ fn paragraph_content_and_section_structure_match_pinned_cmi_fixtures() {
                 ])
                 .into(),
             ]),
-            include_str!("fixtures/conditional.xml"),
+            vec![("visible".into(), false), ("also visible".into(), false)],
+            1,
         ),
         (
             Document::new(vec![
@@ -74,14 +90,18 @@ fn paragraph_content_and_section_structure_match_pinned_cmi_fixtures() {
                     }))
                     .into(),
             ]),
-            include_str!("fixtures/deferred.xml"),
+            vec![("Deferred text".into(), false), ("Lazy text".into(), false)],
+            1,
         ),
     ];
-    for (index, (declaration, reference)) in cases.into_iter().enumerate() {
+    for (index, (declaration, paragraphs, section_count)) in cases.into_iter().enumerate() {
         let bytes = block_on(declaration.resolve()).unwrap().to_docx().unwrap();
         assert_eq!(
             body(&part(&bytes, "word/document.xml")),
-            body(reference),
+            Body {
+                paragraphs,
+                section_count,
+            },
             "fixture {index}"
         );
     }

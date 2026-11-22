@@ -250,6 +250,7 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
             comment: None,
         },
         "ShapeRun" => ResolvedInline::Shape(crate::ShapeProperties {
+            anchor: optional_record(o, "anchor", image_anchor)?,
             text_format: optional_record(o, "text_format", |format| {
                 Ok(crate::ShapeTextFormat {
                     italic: field!(format, "italic", Option<bool>),

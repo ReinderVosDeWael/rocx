@@ -1,4 +1,5 @@
 //! P1 (2016) §§20.1 and 20.3, CT_GvmlGroupShape, CT_GvmlShape and CT_GvmlTextShape.
+use super::placement::placement;
 use crate::ooxml::Compiler;
 use crate::xml::{Name, Node};
 use crate::{Result, ShapeGeometry, ShapeProperties};
@@ -47,8 +48,7 @@ impl Compiler<'_> {
                 ),
             )
             .with(shape_node);
-        let inline = Node::new("wp:inline")
-            .with(extent("wp:extent"))
+        let drawing = placement(extent("wp:extent"), shape.anchor.as_ref())?
             .with(Node::new("wp:docPr").attr("id", self.drawing).attr(
                 "name",
                 if shape.geometry == ShapeGeometry::TextBox {
@@ -61,7 +61,7 @@ impl Compiler<'_> {
                 Node::new("a:graphic")
                     .with(Node::new("a:graphicData").attr("uri", CANVAS).with(canvas)),
             );
-        Ok(Node::new("w:r").with(Node::new("w:drawing").with(inline)))
+        Ok(Node::new("w:r").with(Node::new("w:drawing").with(drawing)))
     }
 }
 

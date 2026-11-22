@@ -178,3 +178,61 @@ fn standalone_text_box_has_a_direct_text_shape_and_no_geometric_properties() {
         .is_err()
     );
 }
+
+#[test]
+fn floating_shape_uses_the_wordprocessing_drawing_anchor_sequence() {
+    let bytes = render(
+        ShapeProperties::default()
+            .with_geometry(ShapeGeometry::Ellipse)
+            .with_anchor(
+                ImageAnchor::default()
+                    .with_horizontal_reference(ImageAnchorReference::Column)
+                    .with_x(-12.)
+                    .with_vertical_alignment(ImageAnchorVerticalAlignment::Bottom)
+                    .with_wrap(ImageWrap::TopAndBottom)
+                    .with_distance_top(0.)
+                    .with_behind_text(true),
+            ),
+    )
+    .unwrap();
+    let mut package = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    package
+        .by_name("word/document.xml")
+        .unwrap()
+        .read_to_string(&mut xml)
+        .unwrap();
+    let tree = roxmltree::Document::parse(&xml).unwrap();
+    let wp = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+    let anchor = tree
+        .descendants()
+        .find(|n| n.has_tag_name((wp, "anchor")))
+        .unwrap();
+    let children: Vec<_> = anchor.children().filter(|n| n.is_element()).collect();
+    assert_eq!(
+        children
+            .iter()
+            .map(|n| n.tag_name().name())
+            .collect::<Vec<_>>(),
+        [
+            "simplePos",
+            "positionH",
+            "positionV",
+            "extent",
+            "wrapTopAndBottom",
+            "docPr",
+            "graphic"
+        ]
+    );
+    assert_eq!(anchor.attribute("behindDoc"), Some("1"));
+    assert_eq!(children[1].attribute("relativeFrom"), Some("column"));
+    assert_eq!(
+        children[1].first_element_child().unwrap().text(),
+        Some("-152400")
+    );
+    assert_eq!(
+        children[2].first_element_child().unwrap().text(),
+        Some("bottom")
+    );
+    assert_eq!(children[4].attribute("distT"), Some("0"));
+}

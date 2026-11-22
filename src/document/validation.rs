@@ -283,6 +283,12 @@ impl ImageCrop {
     }
 }
 impl ImageAnchor {
+    pub(crate) fn validate(&self) -> Result<(), Diagnostic> {
+        self.offsets_emu()?;
+        self.wrap_distances_emu()?;
+        Ok(())
+    }
+
     pub(crate) fn wrap_distances_emu(&self) -> Result<[Option<u32>; 4], Diagnostic> {
         let distances = [
             self.distance_top,
@@ -303,14 +309,14 @@ impl ImageAnchor {
             if points.len() < 3 || area == 0 {
                 return Err(Diagnostic::new(
                     Rule::InvalidContent,
-                    "picture wrap polygon requires at least three vertices and nonzero signed area",
+                    "wrap polygon requires at least three vertices and nonzero signed area",
                 )
                 .at("anchor.wrap_polygon"));
             }
         } else if !self.wrap_polygon.is_empty() {
             return Err(Diagnostic::new(
                 Rule::InvalidContent,
-                "picture wrap polygon requires tight or through wrapping",
+                "wrap polygon requires tight or through wrapping",
             )
             .at("anchor.wrap_polygon"));
         }
@@ -359,7 +365,7 @@ impl ImageAnchor {
         ) {
             return Err(Diagnostic::new(
                 Rule::InvalidContent,
-                "invalid horizontal picture reference frame",
+                "invalid horizontal drawing reference frame",
             )
             .at("anchor.horizontal_reference"));
         }
@@ -372,7 +378,7 @@ impl ImageAnchor {
         ) {
             return Err(Diagnostic::new(
                 Rule::InvalidContent,
-                "invalid vertical picture reference frame",
+                "invalid vertical drawing reference frame",
             )
             .at("anchor.vertical_reference"));
         }
@@ -380,7 +386,7 @@ impl ImageAnchor {
             || (self.vertical_alignment.is_some() && self.y != 0.)
         {
             return Err(Diagnostic::new(Rule::InvalidContent,
-                "picture anchor alignment cannot be combined with a nonzero offset on the same axis")
+                "drawing anchor alignment cannot be combined with a nonzero offset on the same axis")
                 .at("anchor"));
         }
         let offset = |value, name| {
@@ -390,7 +396,7 @@ impl ImageAnchor {
                     i32::try_from(emu.get()).map_err(|_| {
                         Diagnostic::new(
                             Rule::InvalidMeasurement,
-                            "picture anchor offset must fit a signed DrawingML coordinate",
+                            "drawing anchor offset must fit a signed DrawingML coordinate",
                         )
                     })
                 })
@@ -402,8 +408,7 @@ impl ImageAnchor {
 impl ImageTransformation {
     pub fn validate(&self) -> Result<(), Diagnostic> {
         if let Some(anchor) = &self.anchor {
-            anchor.offsets_emu()?;
-            anchor.wrap_distances_emu()?;
+            anchor.validate()?;
         }
         if self
             .rotation

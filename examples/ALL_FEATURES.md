@@ -36,13 +36,12 @@ After native changes, rebuild the editable Python extension first using the
 repository's locked native rebuild command. A stale native extension can cause
 an actual parity failure.
 
-Verified local baseline through R8n: both final files are 58,774 bytes, SHA-256
-`18e99b3262acd2bad24d83b92497127d6abbf2bf52d310f78ea3d8f4b5b38add`.
-
 The gallery also labels a standalone 144-by-48-point inline text box. It uses a
 direct DrawingML text shape, plain multiline text, Arial 12 pt and explicit
 bold=false, with no geometric fill/outline. This does not demonstrate a rich
-WordprocessingML text-box story or floating placement.
+WordprocessingML text-box story. The separate floating text-box sample places
+plain text 220 pt from the margin and 12 pt below its paragraph; it requests
+square wrapping and a 6 pt left gap.
 
 The inline-shape gallery labels the rectangle's 14.25-point white Arial text,
 explicit bold=false, italic=true, horizontal centering and bottom anchoring. It preserves a blank
@@ -130,8 +129,8 @@ rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque
 extensions have dedicated tests; invalid structures do not belong in a visual
 catalog. Lower-level Rust identity/measurement helpers support authoring and
 packaging but have no separate visual effects. This covers the currently
-implemented surface, not future roadmap features or all possible raw field,
-number-format and language strings.
+documented authoring surface, not every possible raw field, number-format or
+language string.
 
 ## Viewer caveats
 

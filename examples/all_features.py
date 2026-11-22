@@ -283,6 +283,13 @@ def story_blocks() -> list:
     blocks.append(p("Standalone inline text box: 144 by 48 points, plain multiline DrawingML text, Arial 12 pt, bold explicitly false; no geometric fill or outline, no rich WordprocessingML story."))
     blocks.append(d.Paragraph(children=[d.ShapeRun(144, 48, geometry="text_box", text="Standalone\nText box",
         text_format=d.ShapeTextFormat(font="Arial", font_size=12, bold=False))]))
+    blocks.append(d.Paragraph(children=[
+        d.TextRun("Floating text box: 220 pt from the margin, 12 pt below its paragraph, square wrapping with a 6 pt gap on the left."),
+        d.ShapeRun(108, 24, geometry="text_box", text="Floating note", anchor=d.ImageAnchor(
+            horizontal_reference="margin", vertical_reference="paragraph",
+            x=220, y=12, wrap="square", distance_left=6,
+        )),
+    ]))
     blocks.append(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."))
     async def image_bytes() -> bytes:
         return (IMAGES / "sample.png").read_bytes()

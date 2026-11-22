@@ -46,7 +46,7 @@ fn runs(xml: &str) -> Vec<Vec<String>> {
 }
 
 #[test]
-fn run_boundaries_empty_runs_and_text_match_the_python_reference() {
+fn run_boundaries_empty_runs_and_text_follow_the_native_contract() {
     let declaration = document(vec![
         Paragraph::from_children(vec![
             TextRun::new("First ").into(),
@@ -72,9 +72,30 @@ fn run_boundaries_empty_runs_and_text_match_the_python_reference() {
     );
     let bytes = resolved.to_docx().unwrap();
     let xml = part(&bytes, "word/document.xml");
-    let reference = include_str!("fixtures/runs.xml");
-    assert_eq!(body(&xml), body(reference));
-    assert_eq!(runs(&xml), runs(reference));
+    assert_eq!(
+        body(&xml).paragraphs,
+        [
+            ("First café & <world>\t\n".into(), false),
+            ("Lazy async".into(), false),
+            ("".into(), false),
+            ("".into(), false),
+        ]
+    );
+    assert_eq!(
+        runs(&xml),
+        [
+            vec!["First ", "", "café & <world>\t\n"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+            vec!["Lazy ", "async"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+            vec![],
+            vec![],
+        ]
+    );
     assert_eq!(bytes, resolved.to_docx().unwrap());
 }
 

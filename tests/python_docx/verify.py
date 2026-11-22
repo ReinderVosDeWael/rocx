@@ -1,4 +1,4 @@
-"""Read Rust-generated files using python-docx, without a CMI source checkout.
+"""Read Rust-generated files using python-docx.
 
 Invoked by tests/python_docx.rs. unittest assertions remain active under python -O.
 """

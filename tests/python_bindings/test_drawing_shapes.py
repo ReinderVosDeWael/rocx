@@ -1,4 +1,4 @@
-"""Independent readback for inline DrawingML shapes."""
+"""Independent readback for inline and floating DrawingML shapes."""
 import io
 import zipfile
 
@@ -36,9 +36,57 @@ async def test_shape_rejects_negative_size_and_unsupported_story():
     invalid = d.Paragraph(children=[d.ShapeRun(width=-1)])
     with pytest.raises(ValueError, match=r"shape\.width"):
         await d.Document([d.Section([invalid])]).to_bytes()
-    header = d.Header([d.Paragraph(children=[d.ShapeRun()])])
+    header = d.Header([d.Paragraph(children=[d.ShapeRun(anchor=d.ImageAnchor())])])
     with pytest.raises(ValueError, match="only in body paragraphs"):
         await d.Document([d.Section([], headers={"default": header})]).to_bytes()
+
+
+async def test_floating_shapes_keep_canvas_content_and_anchor_requests():
+    calls = []
+
+    async def y():
+        calls.append("y")
+        return -6
+
+    def excluded():
+        pytest.fail("hidden shape anchor must not run")
+
+    shapes = [
+        d.ShapeRun(),
+        d.ShapeRun(42, 24, geometry="ellipse", anchor=d.ImageAnchor(
+            horizontal_alignment="right", vertical_reference="paragraph", y=y,
+            wrap="square", wrap_side="left", distance_left=3, relative_height=9,
+            locked=True, layout_in_cell=False, allow_overlap=False,
+        )),
+        d.ShapeRun(48, 24, geometry="text_box", text="Floating", anchor=lambda: d.ImageAnchor()),
+        d.ShapeRun(anchor=excluded, condition=False),
+    ]
+    snapshot = await d.Document([d.Section([d.Paragraph(children=shapes)])]).resolve()
+    data = await snapshot.to_bytes()
+    assert data == await snapshot.to_bytes()
+    assert calls == ["y"]
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        root = etree.fromstring(package.read("word/document.xml"))
+        assert not any(name.startswith("word/media/") for name in package.namelist())
+    ellipse, box = root.xpath("//wp:anchor", namespaces=NS)
+    assert len(root.xpath("//wp:inline", namespaces=NS)) == 1
+    assert ellipse.xpath("wp:positionH/wp:align/text()", namespaces=NS) == ["right"]
+    assert ellipse.xpath("wp:positionV/@relativeFrom | wp:positionV/wp:posOffset/text()",
+                         namespaces=NS) == ["paragraph", "-76200"]
+    assert ellipse.xpath("wp:wrapSquare/@wrapText | wp:wrapSquare/@distL",
+                         namespaces=NS) == ["left", "38100"]
+    assert [ellipse.get(k) for k in ("relativeHeight", "locked", "layoutInCell", "allowOverlap")] == [
+        "9", "1", "0", "0",
+    ]
+    assert ellipse.xpath(".//a:prstGeom/@prst", namespaces=NS) == ["ellipse"]
+    assert box.xpath(".//lc:lockedCanvas/a:txSp/a:txBody//a:t/text()", namespaces=NS) == ["Floating"]
+    assert len(set(root.xpath("//wp:docPr/@id | //a:cNvPr/@id", namespaces=NS))) == 8
+
+
+async def test_floating_shape_rejects_conflicting_alignment_and_offset():
+    shape = d.ShapeRun(anchor=d.ImageAnchor(horizontal_alignment="right", x=6))
+    with pytest.raises(ValueError, match="nonzero offset"):
+        await d.Document([d.Section([d.Paragraph(children=[shape])])]).to_bytes()
 
 
 async def test_shape_text_uses_drawingml_paragraphs_and_preserves_blank_lines():
@@ -55,7 +103,8 @@ async def test_shape_text_uses_drawingml_paragraphs_and_preserves_blank_lines():
 async def test_shape_outline_and_imported_nonvisual_ids_are_preserved(tmp_path):
     from test_notes import rewrite
 
-    original = await d.Document([d.Section([d.Paragraph(children=[d.ShapeRun()])])]).to_bytes()
+    shape = d.ShapeRun(anchor=d.ImageAnchor(x=30, y=20))
+    original = await d.Document([d.Section([d.Paragraph(children=[shape])])]).to_bytes()
     template = tmp_path / "existing-shape.docx"
 
     def change_inner_id(root):
@@ -69,6 +118,8 @@ async def test_shape_outline_and_imported_nonvisual_ids_are_preserved(tmp_path):
     with zipfile.ZipFile(io.BytesIO(data)) as package:
         root = etree.fromstring(package.read("word/document.xml"))
     assert root.xpath("//a:sp/a:nvSpPr/a:cNvPr/@id", namespaces=NS) == ["900", "902"]
+    assert root.xpath("//wp:anchor/wp:positionH/wp:posOffset/text()", namespaces=NS) == ["381000"]
+    assert len(root.xpath("//wp:inline[.//lc:lockedCanvas]", namespaces=NS)) == 1
     assert root.xpath("//a:spPr/a:ln/@w", namespaces=NS) == ["19050"]
     assert root.xpath("//a:spPr/a:ln/a:solidFill/a:srgbClr/@val", namespaces=NS) == ["103020"]
 

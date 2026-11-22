@@ -20,7 +20,7 @@ class ImageCrop:
 
 @dataclasses.dataclass
 class ImageAnchor:
-    """Floating picture offsets in points relative to the page or margins."""
+    """Floating picture or shape placement. Offsets and wrap distances use points."""
 
     horizontal_reference: Literal["page", "margin", "column", "character", "leftMargin", "rightMargin", "insideMargin", "outsideMargin"] = "page"
     vertical_reference: Literal["page", "margin", "paragraph", "line", "topMargin", "bottomMargin", "insideMargin", "outsideMargin"] = "page"

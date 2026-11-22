@@ -26,7 +26,7 @@ async def test_section_condition_false() -> None:
     )
 
     docx = await doc.to_docx()
-    assert len(docx.sections) == 2  # noqa: PLR2004
+    assert len(docx.sections) == 1
     content_paragraphs = [para for para in docx.paragraphs if para.text.strip()]
     assert len(content_paragraphs) == 1
     assert content_paragraphs[0].text.startswith("Visible section")

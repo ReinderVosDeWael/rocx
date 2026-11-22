@@ -1,8 +1,8 @@
 # Current support and conventions
 
-Version 0.2 follows its own declarative domain model. CMI Docx 0.6.16, revision
-`3449b942034129ad74a28aeb253361035806e385`, remains a historical reference for
-selected fixtures/tests. Exact CMI constructors and quirks are not requirements.
+Version 0.2 follows its own declarative domain model and documented behavior.
+Constructor signatures and consumer-specific quirks are not compatibility
+requirements.
 See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and the
 [OOXML specification/coverage map](docs/OOXML.md).
 
@@ -23,7 +23,7 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 | Stories | Main body, default/first/even headers and footers; comment generation currently restricted to body context |
 | Comments | Text conveniences or structured paragraph/table/image/link content on paired body ranges; author/date/initials metadata; no threaded comments |
 | Images | PNG/JPEG/GIF/BMP/TIFF metadata and inline or anchored pictures, density-aware dimensions and accessibility fields; deferred data/transformation/alt text in both APIs; header inspection without pixel decoding |
-| Shapes | Inline DrawingML rectangles and ellipses in body paragraphs, with checked dimensions and optional RGB fill |
+| Shapes | Inline or floating DrawingML rectangles, ellipses and plain text boxes in body paragraphs, with checked dimensions and optional text styling; geometric shapes also support RGB fill and outline ([contract](docs/FORMATTING.md#floating-shapes-and-text-boxes)) |
 | Numbering | Native definitions/levels/references, shared authored abstract IDs and authored numbering styles, concrete per-level start overrides and level replacements, optional legal-numbering, suffix, level-restart, label-alignment, label-formatting and level paragraph formatting and style links in Rust and Python; checked level references, no counter evaluation ([coverage](docs/NUMBERING.md)) |
 | Fields | Simple/balanced complex paragraph-local fields, nested cached results, typed PAGE/NUMPAGES/REF/TOC and raw instructions; no evaluation or multi-paragraph TOC generation; see [fields](docs/FIELDS.md) |
 | Revisions | Authored run insertions and deletions with metadata and optional future-edit tracking ([contract](docs/REVISIONS.md)) |
@@ -98,10 +98,9 @@ pure domain/codecs. Python `to_docx()` is an optional python-docx convenience.
 Rust/Python expected-content readback checks are complemented by deliberate
 mutations, namespace/relocation fixtures, domain-boundary compilation, structured
 edit tests, and independent official Transitional XSD checks. The schema validator
-also tests invalid order and missing relationships. Historical normalized CMI
-comparisons preserve useful examples but do not prove schema correctness.
-[Testing instructions](tests/README.md) describe the exact checks, optional schema
-cache setup, the one retired CMI-only assertion, and wheel verification.
+also tests invalid order and missing relationships. These checks do not prove
+visual equivalence across readers. [Testing instructions](tests/README.md) describe
+the exact checks, optional schema cache setup, and wheel verification.
 
 These establish the documented implemented surface and selected conformance
 properties, not full OOXML, extension, or visual-layout equivalence across readers.

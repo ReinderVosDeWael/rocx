@@ -20,7 +20,7 @@ TEXT: Final = "Wheel — café Ελληνικά 日本語 🦀"
 
 
 async def verify_install() -> None:
-    """Check installed native output without either reference implementation."""
+    """Check installed native output without optional packages."""
     import rocx
     from rocx import _native
     from rocx import declarative as d
@@ -32,7 +32,6 @@ async def verify_install() -> None:
                for suffix in importlib.machinery.EXTENSION_SUFFIXES)
     assert _native.BACKEND == "rust"
     assert importlib.util.find_spec("docx") is None
-    assert importlib.util.find_spec("cmi_docx") is None
     requirements = importlib.metadata.requires("rocx") or []
     assert len(requirements) == 1, requirements
     requirement = requirements[0].lower().replace(" ", "").replace("'", '"')

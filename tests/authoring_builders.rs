@@ -218,6 +218,7 @@ check!(shape_properties, ShapeProperties, ShapeProperties::default();
     with_text => text: optional("Label"),
     with_outline => outline: optional(ShapeOutline { width: 1., color: [0; 3] }),
     with_text_format => text_format: optional(ShapeTextFormat::default().with_bold(false)),
+    with_anchor => anchor: optional(ImageAnchor::default().with_x(12.)),
 );
 check!(shape_text_format, ShapeTextFormat, ShapeTextFormat::default();
     with_font_size => font_size: optional(14.),

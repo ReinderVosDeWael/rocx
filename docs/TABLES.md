@@ -1,6 +1,6 @@
 # Table coverage
 
-## R6v: inline table alignment
+## Inline table alignment
 
 Rust `TableProperties.alignment: Option<TableAlignment>` supports `Left`,
 `Center`, `Right`, `Start` and `End`; Python `Table(..., alignment="center")`
@@ -42,7 +42,7 @@ narrow fixed-width alignment tables. No manual rendering, effective alignment or
 floating-table support is claimed. Source: P1 (2016) §17.4.28 and Annex A.1
 CT_TblPrBase/CT_JcTable, ST_JcTable.
 
-## R6c: row heights and pagination requests
+## Row heights and pagination requests
 
 Rust uses `TableRow.properties: Value<TableRowProperties>` and
 `.with_properties(...)`. Resolved rows expose read-only `.properties()`; their
@@ -76,8 +76,8 @@ Height values must be finite, nonnegative points and fit the existing checked
 signed 64-bit twip conversion. They round to the nearest 1/20 point. Zero and
 values rounding to zero are accepted. The wire height is an unsigned measure;
 the checked helper's signed limit is a library bound, not the full schema range.
-Omission leaves sizing to the consumer and applicable defaults; this slice does
-not expose an explicit `auto` override for inherited heights. Exact heights may
+Omission leaves sizing to the consumer and applicable defaults; an explicit
+`auto` override for inherited heights is not exposed. Exact heights may
 clip content; minimum heights may expand. No font metrics are measured.
 
 Absent, false and true flags remain distinct. Header repetition is only effective
@@ -94,7 +94,7 @@ references such as `source.deferred("height")`; snapshots can render repeatedly.
 
 There is no new row template-edit/import model or table-style row authoring here.
 Existing grid widths, spans, merges, padding and nested-cell paragraph handling
-remain unchanged; this slice is not completion of the remaining R6 table work.
+remain unchanged.
 
 Evidence: `tests/row_properties.rs`, `tests/async_fields.rs`,
 `tests/python_bindings/test_row_properties.py`, Rust-generated independent
@@ -107,7 +107,7 @@ serialization, not visual pagination equivalence or manual Word rendering.
 Sources: ECMA-376 P1 (2016) §§17.4.6 (`cantSplit`), 17.4.49 (`tblHeader`),
 17.4.80 (`trHeight`) and Annex A.1.
 
-## R6d: cell margins and text flow
+## Cell margins and text flow
 
 `TableCellProperties` adds `margins: Option<CellMargins>` and
 `text_direction: Option<CellTextDirection>`. Resolved cells expose read-only
@@ -152,7 +152,7 @@ no complete high-level margin/direction API, so readback uses its loaded cell XM
 No manual rendering or effective-layout equivalence is claimed. Sources: P1
 (2016) §§17.4.68 (`tcMar`), 17.4.72 (`textDirection`), 17.18.93 and Annex A.1.
 
-## R6q: table-look activation
+## Conditional table-style regions
 
 `TableProperties.look: Option<TableLook>` in Rust and `Table(..., look=TableLook(...))`
 in Python request which conditional regions of a table style the consumer should

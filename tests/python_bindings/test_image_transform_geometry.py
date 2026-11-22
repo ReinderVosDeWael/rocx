@@ -145,13 +145,13 @@ async def test_anchor_serializes_axis_specific_reference_frames():
     assert root.xpath("//wp:positionV/@relativeFrom", namespaces=NS) == ["line"]
 
 
-@pytest.mark.parametrize("anchor, message", [
-    (d.ImageAnchor(horizontal_reference="line"), "horizontal picture reference frame"),
-    (d.ImageAnchor(vertical_reference="column"), "vertical picture reference frame"),
+@pytest.mark.parametrize("anchor, axis", [
+    (d.ImageAnchor(horizontal_reference="line"), "horizontal"),
+    (d.ImageAnchor(vertical_reference="column"), "vertical"),
 ])
-async def test_anchor_rejects_reference_frames_on_the_wrong_axis(anchor, message):
+async def test_anchor_rejects_reference_frames_on_the_wrong_axis(anchor, axis):
     image = d.ImageRun(PNG, transformation={"anchor": anchor})
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match=rf"anchor\.{axis}_reference: invalid {axis} drawing reference frame"):
         await d.Document([d.Section([d.Paragraph(children=[image])])]).to_bytes()
 
 

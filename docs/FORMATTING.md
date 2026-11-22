@@ -53,7 +53,7 @@ Tests compare setters to literals, cover all value fields and deferred component
 inputs, and require exact DOCX bytes for equivalent RunFormat authoring. Topic 02
 of both visual catalogs labels omitted, enabled and explicitly disabled bold.
 
-## R6a: paragraph line height
+## Paragraph line height
 
 Paragraphs and paragraph styles share `LineHeight` and the same spacing codec.
 This authors direct properties; it does not calculate effective style values,
@@ -120,9 +120,9 @@ official schemas in both document and styles parts. These are serialization and
 consumer-object checks, not manual Word rendering or visual-equivalence evidence.
 
 Normative source: ECMA-376 P1 (2016) §17.3.1.33 (`spacing`, `line`, `lineRule`)
-and Annex A.1. Other R6 formatting/style/list/table work remains on the roadmap.
+and Annex A.1.
 
-## R6b: custom tab stops
+## Custom tab stops
 
 `ParagraphFormat.tab_stops` and `ParagraphStyleDefinition.tab_stops` take
 `Vec<TabStop>` in Rust. Python's `Paragraph` and `ParagraphStyleDefinition` append
@@ -178,7 +178,7 @@ position/alignment/leader negative controls fail after successful loading. No
 manual rendering or complete typed tab import is claimed. Source: P1 (2016)
 §§17.3.1.37–38, §§17.18.84–85 and the Transitional schema's left/right values.
 
-## R6e: language and complex-script formatting
+## Language and complex-script formatting
 
 Direct `RunFormat` and paragraph style definitions support independent script
 properties; Python exposes the same fields on `TextRun`/`ParagraphStyleDefinition`.
@@ -216,7 +216,7 @@ An all-absent record emits no `lang`. Partial style updates retain omitted slots
 Fonts are names only: no availability check, embedding, download, fallback,
 script classification, font metrics or bidi rendering is performed. Style font
 updates remove only the corresponding theme-font attributes, retaining other
-literal/theme slots. Theme-font authoring remains outside this slice.
+literal/theme slots. Theme-font authoring is not supported.
 Conditional table-style script properties and document defaults use the same
 codec; see [STYLES.md](STYLES.md) for their scopes and merge contracts.
 
@@ -227,7 +227,7 @@ styles parts, deferred references, hidden guards, and style-update preservation.
 No visual/shaping equivalence is claimed. Sources: P1 (2016) §§17.3.2.2, 17.3.2.7,
 17.3.2.17, 17.3.2.20, 17.3.2.26, 17.3.2.30, 17.3.2.39 and 17.7.3.
 
-## R6i: paragraph bidi direction
+## Paragraph text direction
 
 `ParagraphFormat.bidi` and paragraph style `bidi` are optional booleans in Rust;
 Python appends `bidi` to `Paragraph` and `ParagraphStyleDefinition`. The shared
@@ -245,7 +245,7 @@ bad-bool schema/semantic mutations. The installed wheel probe also checks the
 request. No bidi shaping or visual-layout equivalence is claimed. Source: P1
 (2016) §17.3.1.6 (`bidi`) and Annex A.1.
 
-## R6j: section page direction
+## Section page direction
 
 `SectionProperties.bidi` is an optional boolean in both APIs. It emits a
 section-level `sectPr/bidi` request with explicit `val=1/0`, separate from
@@ -269,7 +269,7 @@ template preservation, inherited/explicit values, deferred references, hidden
 sections and repeatable snapshots. Installed-wheel probes cover the section flag.
 No manual Office rendering or visual-layout equivalence is claimed.
 
-## R6o: section gutter placement
+## Right-side gutter placement
 
 `SectionProperties.rtl_gutter` is an optional boolean in both APIs. It writes
 `sectPr/rtlGutter` with explicit `val=1/0`. Omission preserves previous/template
@@ -419,7 +419,7 @@ and target extents remain the same.
 
 ### Inline geometric shapes
 
-`ShapeRun` creates an inline rectangle or ellipse with positive dimensions
+`ShapeRun` creates a rectangle or ellipse, inline by default, with positive dimensions
 in points and an optional RGB fill. Rust takes a `ShapeProperties` record
 and Python takes keyword arguments. Shapes are supported in body paragraphs.
 The codec emits a standard DrawingML locked canvas and creates no image
@@ -434,7 +434,7 @@ An optional `ShapeOutline` supplies a line width in points and an RGB
 color. The width is checked against DrawingML's 0–20,116,800 EMU range.
 Shape and canvas identifiers are reserved alongside existing drawing IDs.
 
-### Shape text styling (R8l)
+### Shape text styling
 
 Optional `ShapeTextFormat` applies uniform styling to the shape's plain text:
 
@@ -480,7 +480,7 @@ properties; Annex A.4 `CT_TextBodyProperties`, `CT_TextParagraph`,
 `ST_TextAnchoringType`. Tests: `shape_text_format.rs`, `test_shape_text_format.py`,
 the paired catalogs and schema/content negative controls.
 
-R8m adds optional `italic` and `font` fields to this same record. Italic follows
+The format also accepts optional `italic` and `font` fields. Italic follows
 bold's three-state contract: omitted, enabled, or explicitly disabled. `font`
 authors the requested Latin typeface as `a:latin/@typeface`, after solid fill in
 both run and end-paragraph properties. It does not set East Asian or complex-script
@@ -493,7 +493,7 @@ No installed-font lookup, embedding, fallback selection or measurement is added.
 Schema mutations reject missing typeface attributes and wrong child order;
 catalog mutations reject changed font or italic requests.
 
-### Standalone inline text boxes (R8n)
+### Standalone inline text boxes
 
 Use the same authoring APIs with Rust `ShapeGeometry::TextBox` or Python
 `geometry="text_box"`:
@@ -520,12 +520,30 @@ multiline text and uniform formatting retain the same contracts as shape text.
 properties container in which to serialize them. Other shape-mode defaults and
 output are unchanged.
 
-Text boxes are inline drawings in body paragraphs. The existing shape story and
-container restrictions still apply; no headers/footers, notes, hyperlink children
-or cached field results are enabled. Shape/canvas drawing IDs remain unique with
-mixed drawings and imported canvases. This is plain DrawingML text, not a rich
-WordprocessingML `txbxContent` story. Floating placement, rich child blocks,
-text-flow links, padding/autofit and manual Office rendering remain unimplemented
+Text boxes are inline by default and restricted to body paragraphs. The existing
+shape story and container restrictions still apply; headers/footers, notes,
+hyperlink children and cached field results are not supported. Shape/canvas
+drawing IDs remain unique across mixed drawings and imported canvases. This is
+plain DrawingML text, not a rich WordprocessingML `txbxContent` story. Rich child
+blocks, text-flow links, padding/autofit and manual Office rendering remain unimplemented
 or unverified. Source: P1 (2016) §20.3; Annex A.4 `CT_GvmlGroupShape` and
 `CT_GvmlTextShape`. Tests: `test_text_boxes.py`, `shape_text_format.rs`, official
 catalog schema checks and missing-transform/changed-extent mutations.
+
+### Floating shapes and text boxes
+
+Set `ShapeProperties::with_anchor(ImageAnchor)` in Rust or `ShapeRun(anchor=...)`
+in Python to float a rectangle, ellipse or plain text box. `ImageAnchor` is
+shared with pictures despite its name. Signed offsets, alignment, wrap modes
+and distances, explicit wrap polygons, stacking and placement flags use the
+same units and validation as [picture anchors](#picture-geometry-and-floating-placement).
+An alignment and nonzero offset cannot both be requested on the same axis.
+Tight and through wrapping require
+authored polygons; the writer does not derive them from the geometry or text.
+
+Omitting the anchor keeps the existing inline output. A floating shape uses
+`wp:anchor` around the same locked canvas; it creates no media part or
+relationship. The existing story and container restrictions still apply. This
+is a placement request, not a layout calculation or a claim of Office rendering.
+Source: P1 (2016) §20.4 and Annex A.4 `CT_Anchor`. See the floating text box in
+the [paired catalogs](../examples/ALL_FEATURES.md).

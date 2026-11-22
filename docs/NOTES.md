@@ -1,8 +1,8 @@
 # Footnotes, endnotes and structured comments
 
-R4 generates ordinary footnote/endnote stories and structured **base-schema**
-comments. No Office, runtime DOCX SDK, note-number calculation, pagination,
-threaded-comment extension or field evaluation is required or implemented.
+The library generates ordinary footnotes, endnotes and structured comments. It
+does not calculate note numbering, paginate, evaluate fields, or create threaded
+comments.
 
 ## Declarations and deferred values
 
@@ -58,7 +58,7 @@ width; this is not a footnote layout engine.
   is not rewritten merely for lookup. Public authoring values remain narrower.
 - Owners are discovered through relationships. Conventional filenames are used
   only for new parts, with collision avoidance. Each note registers a separate
-  logical story in R3's registry, even when notes share one physical part.
+  logical story, even when notes share one physical part.
   Images/hyperlinks are registered against that physical owner, including relocated
   parts. Existing media deduplication and owner-local relationship IDs are reused.
 
@@ -90,7 +90,7 @@ same anchor allocation/definition writer. No threaded-comment metadata is emitte
 
 `EditScope::SupportedStories` (Python `scope="supported_stories"`) visits related
 note/comment content. Edits affect imported content, not newly appended content.
-R3's fixed-marker/first-run replacement policy is unchanged. Untouched note part
+The fixed-marker/first-run replacement policy applies to these edits. Untouched note part
 payloads retain bytes; appended/edited parts are reserialized namespace-safely.
 This is checked base-vocabulary interpretation, not a general typed note importer
 or complete validation of arbitrary extensions/MCE constructs.
@@ -109,8 +109,8 @@ References: ECMA-376 P1 (2016) §§11.3.4, 11.3.7 (parts), §17.11 and specifica
 §§17.11.7, 17.11.10, 17.11.14 (reference/content constraints), §17.13.4 (comments),
 §17.18.10 (decimal IDs), and normative Annex A.1; P2 (2021) §§6.4–6.5 (owners and
 relationships). P1 distinguishes note roles by type and explicitly permits an
-ordinary note with ID zero. Glossary note authoring and Microsoft threaded
-comment extensions remain separate future work.
+ordinary note with ID zero. Glossary notes and Microsoft threaded comment
+extensions are unsupported.
 
 ### Document-wide numbering defaults
 

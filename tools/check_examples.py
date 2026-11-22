@@ -379,7 +379,7 @@ def verify_content(data: bytes, template: bytes) -> None:
         assert len(document.xpath("//w:headerReference", namespaces=NS)) >= 3
         assert len(document.xpath("//w:footerReference", namespaces=NS)) >= 3
         assert {p.rsplit(".", 1)[-1] for p in package.namelist() if p.startswith("word/media/")} >= {"png", "jpg", "gif", "bmp", "tiff"}
-        anchored, = document.xpath("//wp:anchor[wp:wrapSquare]", namespaces=NS)
+        anchored, = document.xpath("//wp:anchor[wp:wrapSquare and .//a:blip]", namespaces=NS)
         assert anchored.xpath("wp:positionH[@relativeFrom='column']/wp:posOffset/text()", namespaces=NS) == ["3175000"]
         assert anchored.xpath("wp:positionV[@relativeFrom='page']/wp:align/text()", namespaces=NS) == ["bottom"]
         square, = anchored.xpath("wp:wrapSquare", namespaces=NS)
@@ -394,7 +394,7 @@ def verify_content(data: bytes, template: bytes) -> None:
             ("0", "0"), ("21600", "21600"), ("0", "21600"),
         ]
         assert "tight text wrapping around an authored triangular contour" in text
-        canvases = document.xpath("//a:graphicData/*[local-name()='lockedCanvas']", namespaces=NS)
+        canvases = document.xpath("//wp:inline//a:graphicData/*[local-name()='lockedCanvas']", namespaces=NS)
         assert [canvas.xpath("a:sp/a:spPr/a:prstGeom/@prst", namespaces=NS) for canvas in canvases] == [
             ["rect"], ["ellipse"], [],
         ]
@@ -424,6 +424,13 @@ def verify_content(data: bytes, template: bytes) -> None:
         assert box.xpath("a:txBody/a:p/a:r/a:rPr/a:latin/@typeface", namespaces=NS) == ["Arial"] * 2
         assert box.xpath("a:txBody/a:p/a:r/a:rPr/@b", namespaces=NS) == ["0"] * 2
         assert "Standalone inline text box: 144 by 48 points" in text
+        floating, = document.xpath("//wp:anchor[.//a:graphicData/*[local-name()='lockedCanvas']]", namespaces=NS)
+        assert floating.xpath("wp:positionH[@relativeFrom='margin']/wp:posOffset/text()", namespaces=NS) == ["2794000"]
+        assert floating.xpath("wp:positionV[@relativeFrom='paragraph']/wp:posOffset/text()", namespaces=NS) == ["152400"]
+        assert floating.xpath("wp:wrapSquare/@wrapText | wp:wrapSquare/@distL", namespaces=NS) == ["bothSides", "76200"]
+        assert floating.xpath("wp:extent/@cx | wp:extent/@cy", namespaces=NS) == ["1371600", "304800"]
+        assert floating.xpath(".//a:graphicData/*/a:txSp/a:txBody/a:p/a:r/a:t/text()", namespaces=NS) == ["Floating note"]
+        assert "Floating text box: 220 pt from the margin" in text
         assert "Shape text style: blue rectangle, 14.25 pt white Arial text" in text
         assert "Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline." in text
         cropped = document.xpath("//wp:inline[.//a:srcRect]", namespaces=NS)

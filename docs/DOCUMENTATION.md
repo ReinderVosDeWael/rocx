@@ -38,8 +38,9 @@ and temporary assembly files are disposable build artifacts; do not edit them.
 - Edit site pages in `docs/website/` and navigation in `mkdocs.yml`.
 - Public feature contracts stay in their existing `docs/*.md` files. The explicit
   allowlist in `tools/build_docs.py` copies them into the assembled site and
-  rewrites links to source files back to GitHub. Internal plans, dependency audits
-  and historical reorganization handoffs are not copied into the website.
+  rewrites links to source files back to GitHub. Private maintenance notes,
+  dependency audits and historical reorganization records are not copied into
+  the website.
 - Guide examples use labeled source regions, not copied code. Add a unique
   `// docs:start label` / `// docs:end label` region in Rust, or the `#` equivalents
   in Python. Reference it with `{{snippet:examples/file.rs:label}}` on its own

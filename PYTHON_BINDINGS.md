@@ -2,9 +2,9 @@
 
 `rocx` exposes `rocx.declarative`. The optional PyO3 extension converts
 resolved Python snapshots directly into the shared Rust document domain and
-uses the native OOXML compiler. CMI is only a pinned historical test dependency.
-Native bytes/save has no Python package runtime dependency. The optional
-`interop` extra provides python-docx's editable document and enum conveniences.
+uses the native OOXML compiler. Native bytes/save has no Python package runtime
+dependency; the optional `interop` extra provides python-docx's editable document
+and enum conveniences.
 
 ```sh
 uv sync --locked --group test
@@ -17,8 +17,8 @@ uv build --wheel
 The interface includes documents/templates, sections/properties/headers/footers,
 paragraphs, text/images/tabs/breaks, nested tables/rows/cells/borders, styles, and
 numbering definitions/references. Python uses familiar dictionaries, tuples and
-keyword arguments. Constructors are guided by domain ergonomics rather than
-exact CMI signature equality.
+keyword arguments. Constructors are guided by domain ergonomics and the
+documented Python API.
 
 `Hyperlink(target, children, tooltip=None, history=None)` separates an external
 absolute URI/IRI from its display runs. All four fields support the same deferred
@@ -230,7 +230,7 @@ style names (`single`, `double`, `dotted`, `dash`, `wave`, `words`, `none`).
 Numbering uses `NumberingDefinition`, `NumberingLevel` and `NumberingReference`.
 The [migration guide](docs/MIGRATION.md) documents changed behavior and examples.
 
-## Verification and provenance
+## Verification
 
 The suite checks immutable resolution, property dependencies, cancellation,
 conditions, error translation, the actual native backend, file/stream output,
@@ -239,15 +239,8 @@ checked by python-docx against expected content, with separate Rust-file readbac
 and deliberate semantic mutation controls. Independent official XSD checks and
 invalid-order/relationship mutations are documented in [tests/README.md](tests/README.md).
 
-Historical CMI test files retain original hashes in
-`tests/python_bindings/upstream/ORIGIN.json`. Signature/dataclass-equality tests
-were retired as requirements. One original test expecting CMI's trailing empty
-section is explicitly skipped; native exclusion behavior has its own passing
-test. The other applicable upstream content checks and selected differential
-comparisons remain useful regression evidence, not a claim of full OOXML coverage.
-
 maturin builds an ABI-stable extension for CPython 3.12+. Production wheel metadata
-contains only optional interoperability dependencies; no CMI renderer or Rust
-toolchain is needed to run the installed wheel. Adapted original field declarations
-retain their LGPL provenance; bundled Word defaults retain their separate MIT
-notice. Generated binaries, virtual environments, caches and wheels stay out of Git.
+contains only optional interoperability dependencies; no renderer package or Rust
+toolchain is needed to run the installed wheel. The project and bundled Word
+defaults retain their respective LGPL and MIT licensing notices. Generated
+binaries, virtual environments, caches and wheels stay out of Git.

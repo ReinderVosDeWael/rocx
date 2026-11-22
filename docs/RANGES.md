@@ -1,10 +1,10 @@
 # Stories, bookmarks and range anchors
 
-R3 supports paired bookmark and body-comment markers in Rust and Python. Ranges
+Rust and Python support paired bookmark and body-comment markers. Ranges
 can overlap and span paragraphs, sections and table cells in the same body story;
 they are not nested containers. Notes and structured base comments are described
-in [NOTES.md](NOTES.md); fields in [FIELDS.md](FIELDS.md). Revisions, threaded comments and a general typed
-DOCX import model remain separate future features.
+in [NOTES.md](NOTES.md); fields in [FIELDS.md](FIELDS.md). Tracked revisions,
+threaded comments and a general typed DOCX import model are not supported.
 
 ## Identity and pairing
 
@@ -46,9 +46,9 @@ time. A standalone marker is not a complete story and cannot validate pairing.
 Registering the same owner/kind again creates another identity: identity is not
 inferred from a filename. The compiler has one body story across sections, reuses
 the logical story of a reused header/footer part, and registers each comment
-definition as a separate story even though comments share one XML part (text-only
-or structured-block content). R4 also assigns separate identities to individual
-footnotes/endnotes. Table cells retain their enclosing story.
+definition as a separate story even though comments share one XML part. Each
+footnote and endnote also has a separate story. Table cells retain their enclosing
+story.
 
 Each authored header/footer definition must contain its own complete ranges;
 ranges cannot be continued through separately supplied header definitions merely
@@ -61,8 +61,8 @@ Rust uses `HyperlinkTarget::bookmark(name)`; Python uses `BookmarkTarget(name)`.
 The target is checked against generated and relationship-discovered imported
 bookmarks, including forward references. Missing or ambiguous names fail with an
 `invalid_relationship` diagnostic and target location. Internal links emit only
-`w:anchor`, never a dummy external relationship. External URI strings retain R2
-behavior; `"#name"` is not an implicit bookmark reference.
+`w:anchor`, never a dummy external relationship. External URI strings are not
+interpreted as bookmark names; `"#name"` is not an implicit bookmark reference.
 
 The compiler reserves existing bookmark names and numeric IDs in related supported
 story parts, including relocated owners. Generated name collisions are rejected,

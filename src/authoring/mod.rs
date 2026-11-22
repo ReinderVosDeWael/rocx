@@ -142,7 +142,7 @@ impl Paragraph {
 
 pub type InlineChildren = Vec<Value<Inline>>;
 
-/// Inline content; additional CMI inline components can be added later.
+/// Inline content; additional variants can be added as features are implemented.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Inline {
@@ -211,7 +211,7 @@ impl From<TextRun> for Value<Inline> {
     }
 }
 
-/// Mixed block content; more CMI component variants will be added in later milestones.
+/// Mixed block content; additional variants can be added as features are implemented.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Block {

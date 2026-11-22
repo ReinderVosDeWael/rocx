@@ -1,5 +1,5 @@
 //! Checked dimensions and properties for geometric shapes and plain text boxes.
-use super::{Diagnostic, Points, Rule};
+use super::{Diagnostic, ImageAnchor, Points, Rule};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShapeGeometry {
@@ -125,6 +125,8 @@ pub struct ShapeProperties {
     pub text: Option<String>,
     pub outline: Option<ShapeOutline>,
     pub text_format: Option<ShapeTextFormat>,
+    /// Floating placement; omission keeps the canvas inline.
+    pub anchor: Option<ImageAnchor>,
 }
 setters!(ShapeProperties {
     with_width => width: value<f64>,
@@ -134,6 +136,7 @@ setters!(ShapeProperties {
     with_text => text: optional_into<String>,
     with_outline => outline: optional<ShapeOutline>,
     with_text_format => text_format: optional<ShapeTextFormat>,
+    with_anchor => anchor: optional<ImageAnchor>,
 });
 impl Default for ShapeProperties {
     fn default() -> Self {
@@ -145,12 +148,16 @@ impl Default for ShapeProperties {
             text: None,
             outline: None,
             text_format: None,
+            anchor: None,
         }
     }
 }
 impl ShapeProperties {
     pub(crate) fn validate(&self) -> Result<(), Diagnostic> {
         self.dimensions_emu()?;
+        if let Some(anchor) = &self.anchor {
+            anchor.validate()?;
+        }
         if self.geometry == ShapeGeometry::TextBox
             && (self.fill.is_some() || self.outline.is_some())
         {

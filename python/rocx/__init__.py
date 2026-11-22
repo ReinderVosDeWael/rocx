@@ -1,4 +1,4 @@
-"""Python interface to the Rust DOCX engine (not the upstream CMI renderer)."""
+"""Python interface to the native Rust DOCX engine."""
 from . import declarative
 from .options import ReadLimits, RenderOptions
 

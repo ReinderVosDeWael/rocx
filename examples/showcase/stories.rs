@@ -565,6 +565,30 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
         ])
         .into(),
     );
+    out.push(
+        Paragraph::from_children(vec![
+            TextRun::new("Floating text box: 220 pt from the margin, 12 pt below its paragraph, square wrapping with a 6 pt gap on the left.")
+                .into(),
+            ShapeRun::new(
+                ShapeProperties::default()
+                    .with_geometry(ShapeGeometry::TextBox)
+                    .with_width(108.)
+                    .with_height(24.)
+                    .with_text("Floating note")
+                    .with_anchor(
+                        ImageAnchor::default()
+                            .with_horizontal_reference(ImageAnchorReference::Margin)
+                            .with_vertical_reference(ImageAnchorReference::Paragraph)
+                            .with_x(220.)
+                            .with_y(12.)
+                            .with_wrap(ImageWrap::Square)
+                            .with_distance_left(6.),
+                    ),
+            )
+            .into(),
+        ])
+        .into(),
+    );
     out.push(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."));
     let mut path_image = ImageRun::from_path(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images/sample.png"),

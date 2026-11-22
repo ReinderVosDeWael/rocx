@@ -1,13 +1,10 @@
-# Architecture review and proposed direction
+# Historical architecture review
 
-Historical review of commit `85faea7`. This record predates the package rename to
-`rocx`: pinned links and paths below retain the repository's historical
-`rv-docx-rs`/`rv_docx` names. Version 0.2 implements the reorganization;
-see [current module boundaries](MODULES.md), [migration](MIGRATION.md) and the
-[implementation milestones](REORGANIZATION.md). The findings below describe the
-starting point, not unresolved current runtime failures. Source links are pinned
-to that reviewed commit. CMI is a guideline, not an API constraint; the design
-uses explicit domain values, a functional core and effectful application adapters.
+This review records the architecture at commit `85faea7`, before version 0.2.
+Its findings and source links describe that earlier code, not current behavior.
+For current support and code organization, see the
+[compatibility guide](../COMPATIBILITY.md), [module map](MODULES.md), and
+[migration guide](MIGRATION.md).
 
 ## Assessment
 
@@ -141,9 +138,9 @@ values. Preserve “unspecified” separately from explicit false and interpret
 style toggle rules in their actual context. Validation must distinguish domain
 invariants, schema constraints, and chosen implementation limits.
 
-These changes are allowed to diverge from CMI. Keep Python constructors pleasant
-through defaults and small builders; Rust's exact constructor syntax need not be
-copied into Python. References: [formatting and units](OOXML.md#formatting-and-units).
+Keep Python constructors pleasant through defaults and small builders; Rust's
+exact constructor syntax need not be copied into Python. References:
+[formatting and units](OOXML.md#formatting-and-units).
 
 ### 5. Separate the declarative program from the resolved document
 
@@ -227,19 +224,19 @@ Evidence: [python_bindings.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/bl
 
 Field lists appear in Python declarations, Rust declarations/resolved records,
 and conversion functions. The adapter constructs ready Rust declarations and
-runs Rust resolution again. It also reproduces CMI's extra excluded-final-section
+runs Rust resolution again. It also retains an extra excluded-final-section
 behavior and identifies unknown-style errors by message prefix.
 
 Partition conversion by document feature and translate a resolved Python program
 into the canonical resolved domain. Share validation and a typed diagnostic
 vocabulary; translate errors at the boundary, never by parsing display text.
 Remove inherited quirks through deliberate behavior changes and corresponding
-tests. An optional legacy adapter would only be warranted by real users; CMI
-compatibility is not a reason to build one now. Keep `to_docx()` as a convenience
-while making native bytes/save the primary dependency-light Python operations;
-consider making python-docx interoperability optional in a future packaging change.
+tests. An optional legacy adapter would only be warranted by real users. Keep
+`to_docx()` as a convenience while making native bytes/save the primary
+dependency-light Python operations; consider making python-docx interoperability
+optional in a future packaging change.
 
-### 9. Tests must establish OOXML correctness independently of CMI
+### 9. Tests must establish OOXML correctness independently
 
 Evidence: [tests/features.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/tests/features.rs), `normalized`;
 [Python differential tests](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/tests/python_bindings/test_differential.py);
@@ -248,7 +245,8 @@ Evidence: [tests/features.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blo
 The existing content assertions and deliberate mutations are valuable. However,
 normalization sorts property children, so an ordering error can disappear from
 that comparison. python-docx accepts a subset of the format and is not an OOXML
-conformance validator. CMI equality cannot establish semantics CMI does not model.
+conformance validator. Cross-implementation equality cannot establish semantics
+that neither implementation models.
 
 Organize tests by contract: domain invariants and pure transformations; resolution
 DAG behavior; OPC names/targets; feature serialization; template preservation;
@@ -260,7 +258,7 @@ attributes, notes, fields, revisions, and package cycles. Mutation tests should
 also detect invalid order and broken relationship targets. A schema validator
 and a consumer readback check complement each other; neither proves visual layout.
 
-Keep pinned upstream fixtures with their provenance as historical regression
+Keep independently generated fixtures with reproducible provenance as regression
 examples. Replace constructor-equality assertions when a chosen API change makes
 them obsolete. Put reusable fixture builders in test support rather than having
 [tests](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/tests/features.rs) import [example support](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/examples/support/mod.rs).
@@ -277,9 +275,8 @@ first workspace extraction once conversion is clean: it would isolate PyO3,
 wheel settings, and Python-linking concerns. OPC/XML crates should be extracted
 only if another consumer or a real independent lifecycle warrants them. A DDD
 boundary is not automatically a crate, microservice, or plugin framework.
-The Rust package is currently named `cmi-docx` while the repository/Python
-distribution use `rv-docx-rs`; align the release identity during the planned API
-work, with explicit import/package migration guidance.
+At the time of review, the Rust crate and Python distribution used different
+names. Version 0.2 renamed both to `rocx`; see the migration guide.
 
 ## Proposed boundaries and dependency direction
 
@@ -369,8 +366,8 @@ and effects; the mutable implementation detail of an owned serializer is local.
    feature at a time, using paragraphs and pictures as the first vertical slice.
 4. **Redesign authoring and resolution around that domain.** Make Python output
    immutable resolved values, standardize dependency/reference behavior, and
-   simplify native conversion. Retire CMI quirks and incompatible equality tests
-   explicitly; publish migration examples for changed constructors.
+   simplify native conversion. Retire inherited quirks and incompatible equality
+   tests explicitly; publish migration examples for changed constructors.
 5. **Grow coverage through vertical features.** Hyperlinks and fields exercise
    inline structure and external relationships; footnotes/endnotes exercise
    stories and parts; revisions/content controls exercise ranges and preservation;

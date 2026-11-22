@@ -88,6 +88,20 @@ def test_exact_byte_check_rejects_container_only_differences(catalogs) -> None:
         checks.exact_bytes(original, output.getvalue())
 
 
+def test_content_check_rejects_changed_floating_text_box_position(catalogs) -> None:
+    from test_notes import rewrite
+
+    rust, _ = catalogs
+
+    def change_position(root):
+        offset, = root.xpath("//wp:anchor[.//a:txSp]/wp:positionV/wp:posOffset", namespaces=checks.NS)
+        offset.text = "0"
+
+    changed = rewrite(rust.read_bytes(), "word/document.xml", change_position)
+    with pytest.raises(AssertionError):
+        checks.verify_content(changed, rust.with_suffix(".template.docx").read_bytes())
+
+
 def test_content_check_rejects_losing_explicit_false_from_a_builder(catalogs) -> None:
     rust, _ = catalogs
     output = io.BytesIO()

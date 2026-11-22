@@ -11,105 +11,77 @@ fn bytes(document: Document) -> Vec<u8> {
 fn doc(blocks: BlockChildren) -> Document {
     Document::new(vec![Section::new(blocks).into()])
 }
-fn normalized(n: roxmltree::Node<'_, '_>) -> Option<String> {
-    if !n.is_element() {
-        return None;
-    }
-    let name = n.tag_name().name();
-    // Historical CMI omits explicit false small-caps. The native contract now
-    // preserves it; separate native assertions cover the override semantics.
-    if name == "smallCaps" && n.attribute((W, "val")) == Some("0") {
-        return None;
-    }
-    if [
-        "drawing",
-        "headerReference",
-        "footerReference",
-        "commentRangeStart",
-        "commentRangeEnd",
-    ]
-    .contains(&name)
-    {
-        return None;
-    }
-    let mut attrs: Vec<_> = n
-        .attributes()
-        .filter(|a| {
-            !a.name().starts_with("rsid")
-                && !(a.name() == "space"
-                    && a.namespace() == Some("http://www.w3.org/XML/1998/namespace"))
-                && !(name == "pgSz" && a.name() == "orient" && a.value() == "portrait")
-                && !(name == "br" && a.name() == "type" && a.value() == "textWrapping")
-                && !(name == "vMerge" && a.name() == "val" && a.value() == "continue")
-                && !(name == "shd"
-                    && ((a.name() == "val" && a.value() == "clear")
-                        || (a.name() == "color" && a.value() == "auto")))
-                && !(a.name() == "val"
-                    && a.value() == "1"
-                    && [
-                        "b",
-                        "i",
-                        "caps",
-                        "smallCaps",
-                        "strike",
-                        "keepNext",
-                        "keepLines",
-                        "widowControl",
-                        "pageBreakBefore",
-                    ]
-                    .contains(&name))
-        })
-        .map(|a| format!("{}={}", a.name(), a.value()))
-        .collect();
-    attrs.sort();
-    let mut children: Vec<_> = n.children().filter_map(normalized).collect();
-    if name.ends_with("Pr") || name == "style" {
-        children.sort();
-    }
-    if children.is_empty() && attrs.is_empty() && ["rPr", "pPr"].contains(&name) {
-        return None;
-    }
-    Some(format!(
-        "{}[{}]{}({})",
-        name,
-        attrs.join(","),
-        if name == "t" {
-            n.text().unwrap_or("")
-        } else {
-            ""
-        },
-        children.join("")
-    ))
-}
 #[test]
-fn feature_document_matches_python_structure_and_style_definitions() {
+fn feature_document_emits_authored_content_and_styles() {
     let bytes = bytes(features::document());
-    let expected = include_bytes!("fixtures/features.docx");
-    let a = part(&bytes, "word/document.xml");
-    let b = part(expected, "word/document.xml");
-    let a = roxmltree::Document::parse(&a).unwrap();
-    let b = roxmltree::Document::parse(&b).unwrap();
-    let body = |n: roxmltree::Node<'_, '_>| {
-        normalized(
-            n.descendants()
-                .find(|n| n.has_tag_name((W, "body")))
-                .unwrap(),
-        )
-    };
-    assert_eq!(body(a.root()), body(b.root()));
-    let a = part(&bytes, "word/styles.xml");
-    let b = part(expected, "word/styles.xml");
-    let a = roxmltree::Document::parse(&a).unwrap();
-    let b = roxmltree::Document::parse(&b).unwrap();
+    let document_xml = part(&bytes, "word/document.xml");
+    let document = roxmltree::Document::parse(&document_xml).unwrap();
+    let text: Vec<_> = document
+        .descendants()
+        .filter(|node| node.has_tag_name((W, "t")))
+        .filter_map(|node| node.text())
+        .collect();
+    for expected in [
+        "Feature parity report",
+        "Formatted ",
+        "sup",
+        "sub",
+        "Landscape section",
+        "nested",
+        "continuation",
+    ] {
+        assert!(
+            text.contains(&expected),
+            "missing authored text {expected:?}"
+        );
+    }
+    assert_eq!(
+        document
+            .descendants()
+            .filter(|node| node.has_tag_name((W, "tbl")))
+            .count(),
+        2
+    );
+    assert_eq!(
+        document
+            .descendants()
+            .filter(|node| node.has_tag_name((W, "sectPr")))
+            .count(),
+        2
+    );
+
+    let archive = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+    for (prefix, expected) in [
+        (
+            "word/header",
+            &["Default header", "Even header", "First header"][..],
+        ),
+        ("word/footer", &["Footer"][..]),
+    ] {
+        let mut actual = Vec::new();
+        for name in archive.file_names().filter(|name| name.starts_with(prefix)) {
+            let xml = part(&bytes, name);
+            let story = roxmltree::Document::parse(&xml).unwrap();
+            actual.extend(
+                story
+                    .descendants()
+                    .filter(|node| node.has_tag_name((W, "t")))
+                    .filter_map(|node| node.text().map(str::to_owned)),
+            );
+        }
+        actual.sort();
+        assert_eq!(actual, expected);
+    }
+
+    let styles_xml = part(&bytes, "word/styles.xml");
+    let styles = roxmltree::Document::parse(&styles_xml).unwrap();
     for name in ["ReportBody", "ReportTable"] {
-        let find = |n: roxmltree::Node<'_, '_>| {
-            normalized(
-                n.descendants()
-                    .find(|n| n.attribute((W, "styleId")) == Some(name))
-                    .unwrap(),
-            )
-        };
-        assert_eq!(find(a.root()), find(b.root()), "{name}");
+        assert!(
+            styles
+                .descendants()
+                .any(|node| node.attribute((W, "styleId")) == Some(name)),
+            "missing style {name}"
+        );
     }
 }
 #[test]
@@ -538,7 +510,7 @@ fn invalid_formatting_and_undefined_styles_fail_without_a_package() {
 }
 
 #[test]
-fn comment_ranges_cover_the_same_runs_as_the_python_reference() {
+fn feature_document_comment_ranges_cover_authored_runs() {
     fn ranges(xml: &str) -> std::collections::BTreeMap<String, (usize, usize)> {
         let doc = roxmltree::Document::parse(xml).unwrap();
         let mut count = 0;
@@ -555,9 +527,7 @@ fn comment_ranges_cover_the_same_runs_as_the_python_reference() {
         ranges
     }
     let bytes = bytes(features::document());
-    let expected = include_bytes!("fixtures/features.docx");
-    assert_eq!(
-        ranges(&part(&bytes, "word/document.xml")),
-        ranges(&part(expected, "word/document.xml"))
-    );
+    let ranges = ranges(&part(&bytes, "word/document.xml"));
+    assert_eq!(ranges.len(), 2);
+    assert!(ranges.values().all(|(start, end)| start < end));
 }

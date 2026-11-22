@@ -24,8 +24,8 @@ Opaque imported markup remains distinct from typed authoring support.
 ## Decisions and scope
 
 - Keep a declarative interface with async values, conditions, and property
-  dependencies in the authoring tree. CMI is a historical reference, not an API
-  constraint. Preserve useful behavior tests, not incidental compatibility quirks.
+  dependencies in the authoring tree. Preserve useful behavior tests, not
+  incidental compatibility quirks.
 - Use a document domain built from explicit value types and algebraic data types.
   Resolve declarations into immutable domain snapshots. Keep effects at the
   application boundary; local mutation of owned compiler buffers is acceptable.
@@ -92,9 +92,9 @@ flowchart LR
   optional Python features are built. Preserve fixture provenance.
 - Group reusable builders and readers under test support; remove the dependency
   from integration tests on `examples/support`. Examples remain consumer demos.
-- Identify which tests assert domain behavior, serialization, preservation,
-  language resolution, or historical CMI equality. Keep current checks active
-  until their corresponding behavior is deliberately changed.
+- Identify which tests assert domain behavior, serialization, preservation, or
+  language resolution. Keep current checks active until their corresponding
+  behavior is deliberately changed.
 - Add a concise module/dependency guide and choose repeatable profile/default/
   timestamp inputs for deterministic comparisons.
 
@@ -228,10 +228,10 @@ producers again. Changed resolution APIs have migration examples.
   Convert resolved Python snapshots directly into the native resolved domain;
   remove the second ready-value Rust resolution pass.
 - Curate public exports instead of exposing every implementation type through
-  wildcards. Remove CMI-only quirks, including the extra excluded final section,
+  wildcards. Remove incidental quirks, including the extra excluded final section,
   through explicit behavior changes and updated tests.
 - Retain Rust/Python idiomatic constructors over the same domain semantics;
-  constructor syntax need not match between languages or match CMI.
+  constructor syntax need not match between languages.
 - Align the Cargo package with the repository name (`rv-docx-rs`, imported in
   Rust as `rv_docx_rs`); retain Python's `rv_docx` import. Update examples and
   document the breaking import change in a dedicated release step.

@@ -1,8 +1,8 @@
 # OOXML references and implementation coverage
 
 This is a specification map for contributors, not a declaration of full OOXML
-conformance. CMI is a source of examples and historical tests; the standards and
-explicit product choices determine the long-term domain model and behavior.
+conformance. The standards and explicit product choices determine the domain
+model and behavior.
 See [the module guide](MODULES.md) for implemented boundaries and
 [the original review](ARCHITECTURE.md) for historical context.
 
@@ -149,6 +149,7 @@ validation cover generation; they do not establish browser/Word navigation safet
 | Picture geometry and anchors | P1 §§20.1–20.4 and Annex A.4 | Crop, rotation and flipping, optional page/margin-relative floating placement, none, square, top-and-bottom, tight or through wrapping, edge distances, side selection and placement flags. |
 | Inline shapes | P1 §§20.1, 20.3 | Rectangle and ellipse geometry in a standard DrawingML locked canvas, with checked size, RGB fill, outline, plain multiline text and optional uniform text size/bold/italic/Latin typeface/RGB/alignment requests. |
 | Standalone inline text boxes | P1 §20.3, CT_GvmlTextShape | Direct locked-canvas text shapes with independent transforms and shared plain-text styling; no geometric fill/outline or rich WordprocessingML text story. |
+| Floating shapes and text boxes | P1 §20.4, Annex A.4 `CT_Anchor` | Shared picture-anchor placement around a locked canvas in body paragraphs; no new relationships, computed wrapping, or visual layout claim. |
 | Tracked text revisions | P1 §17.13.5 and Annex A.1 | Text-run insertion, deletion and paired moves with author and optional UTC timestamp, preserving imported revision IDs. |
 | Track future revisions | P1 §17.15.1 | Optional trackRevisions flag in the document settings. |
 | Accept and reject text revisions | P1 §17.13.5 | Scoped template transformation for direct single text-run insertions, deletions and paired moves. |
@@ -172,12 +173,12 @@ validation cover generation; they do not establish browser/Word navigation safet
 | Twip measurements | P1 §22.9.2.14 (`ST_TwipsMeasure`); §17.18.81 (`ST_SignedTwipsMeasure`) | Numeric conveniences retain documented units; checked domain value objects centralize conversion. |
 | Universal measurements | P1 §22.9.2.15 (`ST_UniversalMeasure`) | Distinguish lexical representations and selected output profile. |
 | On/off values and inheritance | P1 §22.9.2.7 (`ST_OnOff`), individual property definitions and §17.7 | Do not conflate absent, true, false, and style toggle semantics. |
-| Font/script selection | P1 §17.3.2.26 (`rFonts`); §17.8 | Current font mapping covers part of the vocabulary; broader script/font modeling remains future work. |
+| Font/script selection | P1 §17.3.2.26 (`rFonts`); §17.8 | Current font mapping covers part of the vocabulary; broader script/font modeling is unsupported. |
 
-The [current public units](../COMPATIBILITY.md#units-and-defaults) are API choices
-inherited from the initial CMI design, not a requirement that future constructors
-accept those same units. A numeric guard in the implementation is not necessarily
-an OOXML limit: document application limits separately from schema bounds.
+The [current public units](../COMPATIBILITY.md#units-and-defaults) are API choices,
+not a requirement that future constructors accept those same units. A numeric
+guard in the implementation is not necessarily an OOXML limit: document
+application limits separately from schema bounds.
 
 ## DrawingML and shared vocabularies
 

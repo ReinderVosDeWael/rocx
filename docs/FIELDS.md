@@ -1,7 +1,7 @@
 # Fields and cached results
 
-R5 authors paragraph-local simple and complex WordprocessingML fields in both
-frontends. **The library does not evaluate instructions, calculate pages, build
+Both frontends support paragraph-local simple and complex WordprocessingML
+fields. **The library does not evaluate instructions, calculate pages, build
 a TOC, fetch referenced documents, or refresh cached results.** A consuming
 application may evaluate fields, and may ignore an update request. Schema/readback
 checks do not prove display numbering, pagination or visual equivalence.

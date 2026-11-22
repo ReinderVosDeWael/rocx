@@ -1,5 +1,75 @@
 # Remaining implementation plan and agent handoff
 
+**Checkpoint:** the engineer requested a local commit of R8o, the renderer
+cleanup, and the accompanying documentation updates. The chart prototype is
+recorded below; its scratch DOCX is not part of the commit. No push, publication,
+or deployment was requested.
+
+## R8o — Floating shapes and plain text boxes (implemented)
+
+Starting from clean `0901682`, which committed R8m/R8n and the website. Reuse
+`ImageAnchor` on `ShapeProperties` and Python `ShapeRun` for page-relative
+or other supported axis-specific placement, wrapping and stacking. An omitted
+anchor must retain the exact inline representation. Use the shared Wordprocessing
+Drawing anchor codec (P1 §20.4, Annex A.4 `CT_Anchor`) around the existing
+locked-canvas payload without introducing relationships or widening the supported
+body-story/container scope. Verify both labeled catalogs, schema/readback and
+exact final/template parity. Rich text stories, charts and math remain open.
+
+Verification: 253 all-feature/all-target Rust tests, 3 doctests, Clippy and
+private-item rustdoc with warnings denied, the isolated installed-wheel probe,
+and the strict documentation build (464 link-checked HTML pages) passed.
+Both final catalogs independently passed validation of 17
+schema-covered parts plus OPC relationships. Exact final and template parity
+passed; final files are **58,912 bytes**, SHA-256
+`4c2896dc92b596d25d9675aaea5bcd0a827951bf32e117bba7df23e9e1d497fb`.
+Running the prior Python catalog against the updated codec reproduced the
+R8n final checksum and the unchanged template bytes. Acceptance covers
+floating and inline canvases, deferred and hidden requests, template ID
+reservation, invalid alignment/offset combinations, and negative controls for
+missing anchor wrap and altered offsets. No manual Office rendering claim.
+The full schema-required Python rerun passed **679 tests, 1 intentional skip**
+after updating two picture tests for the shared drawing diagnostics, before
+the renderer cleanup.
+Separate concurrent documentation and manifest edits were preserved. The site
+still builds. The external-renderer cleanup removed the obsolete test dependency
+and synchronized `uv.lock`; R8o itself did not change dependencies or lockfiles.
+
+## R8p — Workbook-free column chart prototype
+
+A local, hand-assembled DOCX prototype uses one inline column series with
+`c:strLit` categories and `c:numLit` values and no `c:externalData`. The pinned
+chart XSD validated the chart part and rejected an invalid `barDir`. The existing
+package validator accepted the document and rejected a missing chart target.
+Independent python-docx readback recognized the inline object as a chart and
+resolved the owner-local relationship, MIME type, literal points and reciprocal
+axis IDs. Artifact: `/tmp/opencode/rocx-literal-chart-egn3prle/literal-column.docx`.
+
+Next: open the prototype in a chart-capable DOCX application and check that its
+columns and labels render without repair before making a rendering claim. Add
+chart-root and chart-reference checks to the development validator, then
+author the smallest shared Rust/Python API if the output contract holds. No
+public chart API, workbook editing, or rendering verification yet.
+
+## Remove external renderer references (complete)
+
+Removed the obsolete test-only renderer dependency and package comparison
+checks. Retained native API/OOXML expectations, independent schema and
+python-docx checks, and source attribution for the adapted test files.
+
+The replacement tests and fixture removals were already in the working tree.
+A locked sync first exposed that Python verification depended on transitive
+packages from the removed renderer. The `test` group now declares its direct
+`lxml` and `python-docx` dependencies and locked setup succeeds without the
+renderer; `uv.lock` is synchronized. Rust native feature assertions now keep
+XML buffers alive and check header/footer text in their owning parts, not the
+body. Verification: **253 Rust tests**, 3 doctests, **665 schema-required Python
+tests**, Clippy with warnings denied, an isolated installed-wheel probe and the
+strict site build (464 link-checked HTML pages) passed. Both final catalogs
+validate 17 schema-covered parts plus OPC relationships; final and template
+bytes remain identical between languages, and the final SHA-256 is unchanged
+from R8o. Formatting, whitespace and lock checks passed.
+
 ## Unified documentation website (2026-11-21)
 
 **Commit authorization:** the engineer requested a commit of the completed work.
@@ -966,9 +1036,8 @@ an assertion that the feature already works or that a suspected defect has been
 reproduced.
 
 Baseline: commit **`b903ab2`**, version **0.2.0**, on `main` in
-<https://github.com/ReinderVosDeWael/rv-docx-rs>. The working directory used for
-development was `/workspace/cmi-docx-rs`; that historical directory name is not
-the package name. Verify the checkout and current Git status before proceeding.
+<https://github.com/ReinderVosDeWael/rv-docx-rs>. Verify the checkout and current
+Git status before proceeding.
 The Cargo package is `rocx`, the Rust import is `rocx`, the Python distribution is
 `rocx`, and the Python import is `rocx`. Checkpoint entries written before the
 package-rename checkpoint use the former names `rv-docx-rs`, `rv_docx_rs`,
@@ -984,17 +1053,16 @@ The repository reorganization is implemented. Do not restart it or treat
 [ARCHITECTURE.md](ARCHITECTURE.md) describes the historical starting point.
 
 At the baseline, verification passed: 82 Rust tests, 2 doctests, and 110 Python
-tests; one obsolete upstream CMI behavior test was deliberately skipped. These
+tests; one obsolete API behavior test was deliberately skipped. These
 counts are historical evidence, not fixed targets. Clippy and rustdoc passed
 with warnings denied, independent official-schema tests ran with local schemas,
-and a clean wheel worked without `docx` or `cmi_docx` installed.
+and a clean wheel worked without optional document-interoperability packages.
 
 ## Product decisions to preserve
 
-- Maintain an ergonomic declarative interface in Rust and Python. CMI Docx is
-  inspiration and a historical test source, **not an API compatibility rule**.
-  Preserve useful behavior, not CMI bugs, constructor signatures or dataclass
-  layouts. Explain breaking changes in the migration guide.
+- Maintain an ergonomic declarative interface in Rust and Python. Preserve useful
+  behavior, not incidental quirks, constructor signatures or dataclass layouts.
+  Explain breaking changes in the migration guide.
 - Favor domain-driven design and functional programming: explicit domain values,
   algebraic content models, immutable resolved snapshots, pure transformations,
   and effects at adapters/application boundaries. Local mutation of an owned
@@ -1124,7 +1192,7 @@ scripts or silently skipped standards validation.
 2. Turn the manual clean-installed-wheel verification into a committed reusable
    tool/test. Build with `uv build --wheel`, install into a fresh uv environment,
    run outside the source tree, and confirm that the installed extension is used.
-   Assert that `docx` and `cmi_docx` are absent, native bytes/save works, snapshot
+   Assert that `docx` is absent, native bytes/save works, snapshot
    output is repeatable, exact Unicode text and formatting are present, and
    `to_docx()` explains the missing optional extra. Inspect dependency metadata.
 3. Make a CI standards job download/cache the digest-pinned official schemas
@@ -1132,9 +1200,9 @@ scripts or silently skipped standards validation.
    than turn its tests into skips. Preserve offline validation after cache setup.
    Local optional skipping remains useful. Include representative Rust-generated
    feature files, not only Python-generated minimal documents.
-4. Record all intentional skips and normalization policies. Keep the original
-   upstream provenance/hash and the one retired trailing-section expectation.
-   Do not relax comparisons to get a green result.
+4. Record all intentional skips and comparison policies. Keep contract tests
+   independent of optional packages and do not relax assertions to get a green
+   result.
 5. Triage the five dependency alerts reported by GitHub at the baseline
    (one critical, two high, two moderate). Inspect actual advisory/dependency
    paths before changing versions; the prior session could not read advisory
@@ -2301,7 +2369,7 @@ For every feature slice:
 Prerequisites: Rust (manifest MSRV 1.88, edition 2024), uv, and Python >=3.12
 with development/link libraries when running embedding tests. On a new machine,
 network access may be needed once for Cargo/uv packages and official schemas.
-Keep existing lockfiles; do not replace the pinned CMI source casually.
+Keep lockfiles synchronized with declared dependencies.
 
 From the repository root:
 
@@ -2395,5 +2463,5 @@ Use [FORMATTING.md](FORMATTING.md), [TABLES.md](TABLES.md), [STYLES.md](STYLES.m
 [RANGES.md](RANGES.md), [NOTES.md](NOTES.md), [FIELDS.md](FIELDS.md), the current
 deferred-field inventory and migration guide rather than baseline API shapes.
 Confirm hosted CI/version-matrix results when available; no package publication
-was authorized. Do not reopen settled CMI compatibility or repository naming
+was authorized. Do not reopen settled API or repository naming
 decisions. Preserve the existing untracked dependency-audit document.

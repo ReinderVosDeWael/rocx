@@ -23,7 +23,7 @@ These dispositions are source/feature inspection, not exploit reproduction or
 a general security audit. Revisit them when dependency features or call sites
 change, and before a release.
 
-None of these five alerts concerns `python-docx` (optional interop) or the pinned
-`cmi-docx` source (test-group only). This is not evidence that those dependencies
-are free of other vulnerabilities. No production Python dependencies were added;
-the clean-wheel probe checks that only the optional interop requirement is present.
+None of these five alerts concerns `python-docx` (optional interop). This is not
+evidence that it is free of other vulnerabilities. No production Python
+dependencies were added; the clean-wheel probe checks that only the optional
+interop requirement is present.

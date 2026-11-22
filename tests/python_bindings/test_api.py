@@ -1,32 +1,20 @@
-"""Current API invariants and provenance of historical comparison fixtures."""
-import hashlib
-import json
-from pathlib import Path
+"""Public API invariants for the Python declarations."""
 
 import pytest
-from cmi_docx import declarative as reference
-from rocx import declarative as bindings
+
+from rocx import declarative as d
 
 
-def test_upstream_test_expectations_are_unchanged():
-    directory = Path(__file__).parent / "upstream"
-    origin = json.loads((directory / "ORIGIN.json").read_text())
-    assert origin["revision"] == "3449b942034129ad74a28aeb253361035806e385"
-    for name, digest in origin["sha256"].items():
-        original = (directory / name).read_text().replace("rocx", "cmi_docx")
-        assert hashlib.sha256(original.encode()).hexdigest() == digest, name
-
-
-@pytest.mark.parametrize("api", [reference, bindings])
-def test_paragraph_rejects_missing_or_conflicting_content(api):
+def test_paragraph_requires_one_content_form():
     with pytest.raises(ValueError):
-        api.Paragraph()
+        d.Paragraph()
     with pytest.raises(ValueError):
-        api.Paragraph(text="text", children=[])
+        d.Paragraph(text="text", children=[])
 
 
-@pytest.mark.parametrize("name,side", [("TableBorder", "insideH"), ("CellBorder", "start")])
-def test_border_hex_color_matches_reference(name, side):
-    expected = getattr(reference, name)(side=side, color=(12, 34, 255))
-    actual = getattr(bindings, name)(side=side, color=(12, 34, 255))
-    assert actual.hex_color == expected.hex_color == "0C22FF"
+@pytest.mark.parametrize(
+    "kind,side", [(d.TableBorder, "insideH"), (d.CellBorder, "start")]
+)
+def test_border_colors_are_normalized_to_uppercase_hex(kind, side):
+    border = kind(side=side, color=(12, 34, 255))
+    assert border.hex_color == "0C22FF"

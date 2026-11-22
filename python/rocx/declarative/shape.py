@@ -1,8 +1,9 @@
-"""Inline DrawingML shapes with dimensions in points."""
+"""DrawingML shapes with dimensions in points."""
 import dataclasses
 from typing import Literal
 
 from rocx.declarative.base import Component
+from rocx.declarative.image import ImageAnchor
 
 
 @dataclasses.dataclass
@@ -36,7 +37,7 @@ class ShapeTextFormat:
 
 @dataclasses.dataclass
 class ShapeRun(Component):
-    """Inline geometric shape or standalone plain DrawingML text box.
+    """Geometric shape or standalone plain DrawingML text box.
 
     Attributes:
         width: Positive width in points, within DrawingML coordinate bounds.
@@ -48,6 +49,7 @@ class ShapeRun(Component):
             a text_box still creates one empty text paragraph.
         outline: Optional geometric line; not supported for text_box.
         text_format: Optional uniform text requests, shared by both modes.
+        anchor: Optional floating position and wrapping. None keeps the shape inline.
     """
 
     width: float = 72
@@ -57,3 +59,4 @@ class ShapeRun(Component):
     text: str | None = None
     outline: ShapeOutline | None = None
     text_format: ShapeTextFormat | None = None
+    anchor: ImageAnchor | None = None
