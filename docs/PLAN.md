@@ -33,20 +33,21 @@ branch; keep umbrella or externally blocked work open.
 | #4 | Canonical Pages URLs returned HTTP 200; the old site path returned 404. Both hosted quickstarts ran outside the checkout against registry packages and passed independent readback. Strict build: 516 HTML pages; docs tests: 11 passed. The 0.3.0 PyPI OIDC run succeeded; crates.io used the bootstrap token. Private crates.io trusted-publisher verification remains. |
 | #7 | LibreOffice displayed three identified fixtures under Xvfb; the [checklist](VIEWER-COMPATIBILITY-CHECKLIST.md) records observed features and a separate headless conversion check. Desktop Word and a Word-authored fixture remain unverified. |
 | #3 | Direct body run and hyperlink inspection now exposes snapshot-scoped read-only anchors in Rust and Python. The umbrella remains open for broader typed stories and structured edits, including revisions. |
-| #9 | The [JavaScript package](../javascript/README.md) replaces the prototype. It offers an installable tarball, TypeScript declarations, and the shared Rust/Wasm authoring slice; local Node 22/24 and Chromium dev/production checks passed exact DOCX byte parity with Rust/Python. Verify the packed-artifact workflow on GitHub before closing. |
+| #9 | The [JavaScript package](../javascript/README.md) replaces the prototype. [Hosted CI](https://github.com/ReinderVosDeWael/rocx/actions/runs/45219366575) installed the tarball in fresh Node 22/24 and Chromium consumers, verified exact DOCX byte parity with Rust/Python and schema/readback, and uploaded the installable artifacts. No npm registry upload. |
 | #16 | Independent fixture reproduced tab-stop corruption; the fix preserves tab-stop markup and still replaces literal run tabs. Source and output passed schema/OPC validation. |
 | #17 | Block, row, and cell fixtures reproduced unguarded replacement and passed schema/OPC validation. Ordinary matches inside these controls are rejected; unrelated paragraphs and supported targeted replacement still work. |
 | #18 | A schema-valid template without margins reproduced invalid output. Partial patches now fill required built-in defaults and preserve existing margins. Both cases passed schema/OPC validation and readback. |
 | #19 | Eight fresh-document checks reproduced shared/explicit references before the fix. Explicit stories now use separate parts and omissions inherit; the independent template append check remains unchanged. Focused integration (including exact DOCX byte parity) passed 59 tests. |
 
-The combined #16–#18 fixes passed the Rust all-targets and doctest suites,
-Clippy, and 777 schema-required Python tests, including exact Rust/Python DOCX
-catalog byte parity. After the #19 fix and #3 inline slice were integrated,
-the Rust suite, three doctests, Clippy, Rust 1.88 check, 787 schema-required
-Python tests, exact catalog DOCX byte parity, and a strict 520-page docs build
-passed.
+Issues #2, #9, and #16–#19 are closed on the default branch. The integrated Rust
+all-targets suite, three doctests, native and Wasm Clippy, Rust 1.88 check,
+787 schema-required Python tests, exact catalog DOCX byte parity, and a
+strict 520-page docs build passed. Rust crate packaging, the Python source
+archive and isolated wheel, and rebuilding the JavaScript tarball from its
+bundled source passed locally. The [hosted Verification run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45219366683)
+also passed.
 
-The next release is conditional on resolving the open issues, confirming
+The next release is conditional on resolving #3, #4, and #7, confirming
 registry setup, and passing the local and hosted preflight in
 [RELEASING.md](RELEASING.md). Do not use a publishing tag to test the pipeline.
 

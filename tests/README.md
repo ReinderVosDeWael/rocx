@@ -25,6 +25,9 @@ This is environment configuration, not a library dependency.
   validation, output semantics, preservation boundaries and deterministic plans.
 - **Cross-language behavior:** Paired Rust/Python tests exercise bindings,
   independent readback, deferred values and negative controls.
+- **Packed JavaScript consumer:** The [JavaScript verification guide](../javascript/README.md#verification)
+  covers fresh Node and Chromium installs, TypeScript declarations, and exact
+  DOCX byte parity with Rust and Python. This workflow does not publish to npm.
 - **Standards and package structure:** `test_standards.py` and
   `tools/validate_ooxml.py` validate official schemas, OPC relationships and
   malformed-order/missing-target controls. See

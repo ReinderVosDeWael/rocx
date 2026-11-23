@@ -8,6 +8,11 @@ See [migration](docs/MIGRATION.md), [module boundaries](docs/MODULES.md), and th
 
 ## Implemented surface
 
+This matrix describes Rust and Python. The
+[JavaScript/Wasm package](https://github.com/ReinderVosDeWael/rocx/tree/main/javascript)
+supports a smaller authoring subset in Node and Chromium; it does not expose
+templates or the editor.
+
 | Area | Current support |
 | --- | --- |
 | Declarations | Documents, sections, paragraphs, runs, tables, headers/footers; ready/lazy/async fields and synchronous conditions; deferred Rust metadata/format/property aggregates and immutable resolved-child reuse |
