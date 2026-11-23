@@ -44,10 +44,10 @@ fn compile_rejects_a_valid_graph_with_a_signature_origin() {
     let options = zip::write::SimpleFileOptions::default();
     for i in 0..source.len() {
         let mut part = source.by_index(i).unwrap();
-        output.start_file(part.name(), options).unwrap();
+        output.start_file(part.name().unwrap(), options).unwrap();
         let mut payload = Vec::new();
         part.read_to_end(&mut payload).unwrap();
-        let (end, marker) = match part.name() {
+        let (end, marker) = match part.name().unwrap().as_ref() {
             "_rels/.rels" => (
                 "</Relationships>",
                 r#"<Relationship Id="signatureOrigin" Type="http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/origin" Target="signing/root.sigs"/>"#,
@@ -308,6 +308,7 @@ fn template_headers_are_extended_and_existing_comments_and_images_survive() {
     assert_eq!(
         archive
             .file_names()
+            .map(|name| name.unwrap())
             .filter(|p| p.starts_with("word/media/"))
             .count(),
         2
@@ -329,11 +330,14 @@ fn unrelated_parts_and_template_metadata_are_retained() {
     for i in 0..reader.len() {
         let mut entry = reader.by_index(i).unwrap();
         writer
-            .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+            .start_file(
+                entry.name().unwrap(),
+                zip::write::SimpleFileOptions::default(),
+            )
             .unwrap();
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes).unwrap();
-        if entry.name() == "[Content_Types].xml" {
+        if entry.name().unwrap() == "[Content_Types].xml" {
             let xml=String::from_utf8(bytes).unwrap().replace("</Types>","<Override PartName=\"/custom/opaque.bin\" ContentType=\"application/octet-stream\"/></Types>");
             writer.write_all(xml.as_bytes()).unwrap();
         } else {
@@ -445,7 +449,7 @@ fn utf16_template_parts_are_read_and_written_as_valid_utf8() {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for i in 0..reader.len() {
             let mut entry = reader.by_index(i).unwrap();
-            let name = entry.name().to_owned();
+            let name = entry.name().unwrap().into_owned();
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes).unwrap();
             if name == "word/document.xml" {
@@ -490,12 +494,15 @@ fn edits_preserve_page_breaks_and_reject_structured_boundary_crossings() {
         let mut entry = package.by_index(i).unwrap();
         let mut data = Vec::new();
         entry.read_to_end(&mut data).unwrap();
-        if entry.name() == "word/document.xml" {
+        if entry.name().unwrap() == "word/document.xml" {
             let xml = String::from_utf8(data).unwrap();
             data=xml.replace("<w:sectPr",r#"<w:p><w:r><w:t>replace</w:t><w:br w:type="page"/><w:t>before</w:t></w:r><w:hyperlink w:anchor="local"><w:r><w:t>inside</w:t></w:r></w:hyperlink></w:p><w:sectPr"#).into_bytes();
         }
         writer
-            .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+            .start_file(
+                entry.name().unwrap(),
+                zip::write::SimpleFileOptions::default(),
+            )
             .unwrap();
         writer.write_all(&data).unwrap();
     }

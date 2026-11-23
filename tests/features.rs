@@ -59,8 +59,12 @@ fn feature_document_emits_authored_content_and_styles() {
         ("word/footer", &["Footer"][..]),
     ] {
         let mut actual = Vec::new();
-        for name in archive.file_names().filter(|name| name.starts_with(prefix)) {
-            let xml = part(&bytes, name);
+        for name in archive
+            .file_names()
+            .map(|name| name.unwrap())
+            .filter(|name| name.starts_with(prefix))
+        {
+            let xml = part(&bytes, &name);
             let story = roxmltree::Document::parse(&xml).unwrap();
             actual.extend(
                 story
@@ -99,7 +103,10 @@ fn all_generated_relationships_resolve_to_real_package_parts() {
         .insert(HeaderFooterType::Default, header.into());
     let bytes = bytes(Document::new(vec![section.into()]));
     let archive = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
-    let names: Vec<_> = archive.file_names().map(str::to_owned).collect();
+    let names: Vec<_> = archive
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     for name in names.iter().filter(|n| n.ends_with(".rels")) {
         let xml = part(&bytes, name);
         let parsed = roxmltree::Document::parse(&xml).unwrap();
@@ -168,6 +175,7 @@ fn every_supported_image_format_and_density_is_embedded_without_decoding() {
         assert_eq!(
             archive
                 .file_names()
+                .map(|name| name.unwrap())
                 .filter(|n| n.starts_with("word/media/"))
                 .count(),
             1,

@@ -9,6 +9,7 @@ readme = "README.md"
 repository = "https://github.com/ReinderVosDeWael/rocx"
 homepage = "https://reindervosdewael.github.io/rocx/"
 documentation = "https://reindervosdewael.github.io/rocx/"
+exclude = ["/docs/PLAN.md", "/docs/ROADMAP-HISTORY.md", "/tools/js-wasm-probe/"]
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -19,10 +20,11 @@ python-tests = []
 python-bindings = ["dep:pyo3"]
 
 [dependencies]
-pyo3 = { version = "0.29", optional = true, features = ["abi3-py312"] }
-zip = { version = "2.4", default-features = false, features = ["deflate-flate2", "flate2"] }
+pyo3 = { version = "0.30", optional = true, features = ["abi3-py312"] }
+# ZIP 9.8 raises the minimum Rust version to 1.89.
+zip = { version = "~9.7.3", default-features = false, features = ["deflate-flate2"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
-roxmltree = "0.20"
+roxmltree = "0.21"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]

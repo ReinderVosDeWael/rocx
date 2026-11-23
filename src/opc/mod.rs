@@ -46,7 +46,8 @@ impl Package {
             if file.is_dir() {
                 continue;
             }
-            let part = PartName::new(file.name())?;
+            let name = file.name()?.into_owned();
+            let part = PartName::new(&name)?;
             if !identities.insert(part.as_str().to_ascii_lowercase()) {
                 return Err(Error::Validation(
                     "duplicate equivalent OPC part name".into(),
@@ -59,7 +60,7 @@ impl Package {
                     crate::Rule::InvalidPackage,
                     "package expanded bytes exceed read limit",
                 )
-                .at(file.name())
+                .at(name)
                 .into());
             }
             let mut bytes = Vec::new();
@@ -72,10 +73,10 @@ impl Package {
                     crate::Rule::InvalidPackage,
                     "package expanded bytes exceed read limit",
                 )
-                .at(file.name())
+                .at(name)
                 .into());
             }
-            if parts.insert(file.name().to_owned(), bytes).is_some() {
+            if parts.insert(name, bytes).is_some() {
                 return Err(Error::Validation("duplicate DOCX package part".into()));
             }
         }

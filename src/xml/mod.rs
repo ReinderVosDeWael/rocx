@@ -200,6 +200,7 @@ impl Node {
             roxmltree::ParsingOptions {
                 allow_dtd: false,
                 nodes_limit: 1_000_000,
+                entity_resolver: None,
             },
         )
         .map_err(|e| Error::Validation(format!("invalid XML: {e}")))?;

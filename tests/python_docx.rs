@@ -1181,7 +1181,7 @@ fn rewrite_part(
         let mut entry = archive.by_index(index).unwrap();
         let mut content = Vec::new();
         entry.read_to_end(&mut content).unwrap();
-        if entry.name() == part {
+        if entry.name().unwrap() == part {
             let original = std::str::from_utf8(&content).unwrap();
             let edited = change.take().expect("duplicate mutation target")(original);
             assert_ne!(original, edited, "mutation did not change {part}");
@@ -1190,7 +1190,10 @@ fn rewrite_part(
             content = edited.into_bytes();
         }
         writer
-            .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+            .start_file(
+                entry.name().unwrap(),
+                zip::write::SimpleFileOptions::default(),
+            )
             .unwrap();
         writer.write_all(&content).unwrap();
     }

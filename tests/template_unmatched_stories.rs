@@ -23,16 +23,17 @@ fn source(header_markup: &str) -> Vec<u8> {
         let mut part = input.by_index(index).unwrap();
         let mut bytes = Vec::new();
         part.read_to_end(&mut bytes).unwrap();
+        let name = part.name().unwrap();
         output
-            .start_file(part.name(), zip::write::SimpleFileOptions::default())
+            .start_file(name.as_ref(), zip::write::SimpleFileOptions::default())
             .unwrap();
-        if part.name() == "word/header1.xml" {
+        if name == "word/header1.xml" {
             let xml = String::from_utf8(bytes).unwrap();
             bytes = xml
                 .replace("</w:hdr>", &format!("{header_markup}</w:hdr>"))
                 .into_bytes();
         }
-        if part.name() == "word/header1.xml" || part.name() == "word/footer1.xml" {
+        if name == "word/header1.xml" || name == "word/footer1.xml" {
             bytes.extend_from_slice(b"\n");
         }
         output.write_all(&bytes).unwrap();
