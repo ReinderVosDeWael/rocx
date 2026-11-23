@@ -1,4 +1,5 @@
 """Filesystem effects invoked by resolution and application orchestration."""
+from io import DEFAULT_BUFFER_SIZE
 import os
 from pathlib import Path
 import tempfile
@@ -8,7 +9,24 @@ from . import diagnostics
 def save_bytes(destination, data):
     if hasattr(destination, "write"):
         try:
-            destination.write(data)
+            offset = 0
+            chunk = data
+            while chunk:
+                written = destination.write(chunk)
+                if written is None:
+                    raise OSError("output stream write made no progress")
+                if (
+                    not isinstance(written, int)
+                    or isinstance(written, bool)
+                    or not 0 <= written <= len(chunk)
+                ):
+                    raise OSError("output stream write returned an invalid byte count")
+                if written == 0:
+                    raise OSError("output stream write made no progress")
+                offset += written
+                # Keep passing bytes to custom writers, without repeatedly
+                # copying the entire unwritten suffix after a short write.
+                chunk = data[offset:offset + DEFAULT_BUFFER_SIZE]
         except OSError as error:
             diagnostics.annotate(error, "io_error", "output")
             raise
