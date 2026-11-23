@@ -59,7 +59,8 @@ pub(crate) fn open_word_source(
         .map(|(_, p)| p)
         .ok_or_else(|| Error::Validation("package has no officeDocument relationship".into()))?;
     let mime = package.content_type_for(&main)?;
-    if mime.as_deref() != Some(DOCX_MAIN) && !(allow_template && mime.as_deref() == Some(DOTX_MAIN)) {
+    if mime.as_deref() != Some(DOCX_MAIN) && !(allow_template && mime.as_deref() == Some(DOTX_MAIN))
+    {
         let required = if allow_template { "DOCX/DOTX" } else { "DOCX" };
         return Err(crate::Diagnostic::new(
             crate::Rule::UnsupportedProfile,

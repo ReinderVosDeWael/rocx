@@ -525,7 +525,9 @@ pub async fn generate(output: &Path) -> Result<()> {
         .body()
         .iter()
         .filter_map(|block| match block {
-            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == EDIT_LABEL => Some(paragraph),
+            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == EDIT_LABEL => {
+                Some(paragraph)
+            }
             _ => None,
         })
         .collect();

@@ -54,3 +54,16 @@ differences and the limits of each feature.
 - [Changelog](CHANGELOG.md)
 - [Visual catalog](https://reindervosdewael.github.io/rv-docx-rs/catalog/)
 - [License](LICENSE)
+
+## Contributing
+
+Enable the repository's pre-commit hook once per clone:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+With Cargo and `rustfmt` installed, the hook runs `cargo fmt --check` against
+the staged snapshot. If it fails, run `cargo fmt` and stage the intended
+formatting changes before retrying. GitHub Actions also checks formatting
+whether or not the hook is installed.

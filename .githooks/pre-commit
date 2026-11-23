@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+# Check the proposed commit, not any unstaged edits or untracked files.
+snapshot=$(mktemp -d)
+trap 'rm -r -- "$snapshot"' EXIT
+git checkout-index --all --prefix="$snapshot/"
+
+if ! (cd "$snapshot" && cargo fmt --check); then
+    echo 'Pre-commit: Rust formatting check failed on staged files.' >&2
+    echo 'Run cargo fmt, then stage the intended formatting changes and retry.' >&2
+    exit 1
+fi
