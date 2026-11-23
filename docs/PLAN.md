@@ -30,10 +30,17 @@ branch; keep umbrella or externally blocked work open.
 | Issue | Scope |
 | --- | --- |
 | #2 | Closed as already fixed by `ab59df3`; all three builder regression tests passed on the default branch. |
-| #4 | GitHub Pages reports the canonical `/rocx/` path. The strict docs build checked 516 HTML pages and all 11 docs tests passed. The PyPI OIDC publish and crates.io bootstrap publish both succeeded for 0.3.0; crates.io trusted-publisher setup is not verified. Recheck hosted quickstarts. |
-| #3, #7, #9 | Advance the editor checkpoint, viewer evidence, and JavaScript package respectively; verify the remaining acceptance criteria independently. |
-| #16, #17 | Reproduce tab-stop corruption and ordinary replacement inside structured content controls; fix template traversal without changing targeted replacement. |
-| #18, #19 | Reproduce invalid partial page margins and merged authored section stories; verify generated schema and readback behavior. |
+| #4 | Canonical Pages URLs returned HTTP 200; the old site path returned 404. Both hosted quickstarts ran outside the checkout against registry packages and passed independent readback. Strict build: 516 HTML pages; docs tests: 11 passed. The 0.3.0 PyPI OIDC run succeeded; crates.io used the bootstrap token. Private crates.io trusted-publisher verification remains. |
+| #7 | LibreOffice headless conversion and extracted-content checks passed on three identified fixtures. The [checklist](VIEWER-COMPATIBILITY-CHECKLIST.md) records hashes and limits. Desktop Word, a Word-authored fixture, and interactive LibreOffice observations remain. |
+| #3, #9 | Advance the editor checkpoint and JavaScript package respectively; verify remaining acceptance criteria independently. |
+| #16 | Independent fixture reproduced tab-stop corruption; the fix preserves tab-stop markup and still replaces literal run tabs. Source and output passed schema/OPC validation. |
+| #17 | Block, row, and cell fixtures reproduced unguarded replacement and passed schema/OPC validation. Ordinary matches inside these controls are rejected; unrelated paragraphs and supported targeted replacement still work. |
+| #18 | A schema-valid template without margins reproduced invalid output. Partial patches now fill required built-in defaults and preserve existing margins. Both cases passed schema/OPC validation and readback. |
+| #19 | Reproduce and fix merged authored section stories; verify explicit story isolation, omitted-story inheritance, and unchanged template append behavior. |
+
+The combined #16–#18 fixes passed the Rust all-targets and doctest suites,
+Clippy, and 777 schema-required Python tests, including exact Rust/Python DOCX
+catalog byte parity.
 
 The next release is conditional on resolving the open issues, confirming
 registry setup, and passing the local and hosted preflight in

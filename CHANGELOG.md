@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Template fixes
+
+- Preserve paragraph tab-stop definitions when replacing literal tabs in text.
+- Reject ordinary replacements in block, row, and cell content controls;
+  supported targeted replacements remain available.
+- Fill required page margins with built-in defaults when a template lacks
+  margin settings, without overwriting existing margins on a partial update.
+
 ## 0.3.0
 
 ### Authoring
