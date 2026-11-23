@@ -1,4 +1,4 @@
-//! Independent Rust authoring of the same catalog as all_features.py.
+//! Independent Rust authoring of the same catalog as Python and JavaScript.
 use rocx::*;
 use std::path::Path;
 mod formatting;
@@ -55,7 +55,7 @@ pub fn metadata() -> Metadata {
     Metadata {
         creator: Some("DOCX inspection catalog".into()),
         title: Some("All features visual inspection".into()),
-        subject: Some("Rust/Python byte parity".into()),
+        subject: Some("Rust/Python/JavaScript byte parity".into()),
         description: Some("Labeled functionality samples; not a rendering guarantee".into()),
         keywords: Some("docx,visual,parity".into()),
         category: Some("Examples".into()),

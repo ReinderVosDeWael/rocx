@@ -624,7 +624,7 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
         ])
         .into(),
     );
-    out.push(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."));
+    out.push(p("Image from a named fixture (filename preserved), followed by async byte data with deferred size/alt text."));
     let mut path_image = ImageRun::from_path(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images/sample.png"),
     );

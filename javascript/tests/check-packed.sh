@@ -2,23 +2,56 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
-output=$(mktemp -d "${TMPDIR:-/tmp}/rocx-packed-js.XXXXXX")
+output=$(mktemp -d "${TMPDIR:-/var/tmp}/rocx-packed-js.XXXXXX")
 echo "Packed artifact, consumers and DOCX outputs: $output"
 image="$root/tests/fixtures/images/sample.png"
+images=$(dirname -- "$image")
 examples="$root/examples/javascript"
+editor="$root/tests/fixtures/imported-editor.docx"
+parity="$output/parity"
+oracles="$parity/rust"
+fixtures="$output/web/public/fixtures"
+cd "$root"
+echo "Packed consumer runtime: $(node --version)"
 
-npm pack "$root/javascript" --silent --pack-destination "$output" > "$output/package-name"
+export PYTHON
+PYTHON=$(uv run --no-sync python -c 'import sys; print(sys.executable)')
+provenance="$root/javascript/tests/parity/integration/provenance.py"
+"$PYTHON" "$provenance" pack "$output" --checkout "$root"
 artifact="$output/$(cat "$output/package-name")"
-mkdir "$output/node" "$output/web"
+mkdir -p "$output/node" "$fixtures/editor" "$oracles/editor"
 cp "$examples"/{author.mjs,node.mjs} \
     "$root/javascript/tests"/{node-errors,init-retry,unicode,cross-realm,diagnostics}.mjs "$output/node/"
 cp "$examples"/{author.mjs,browser.mjs,index.html,vite.config.mjs} "$output/web/"
 cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,contract-input.mts,input-contract.mjs,browser-test.mjs} "$output/web/"
+cp -R "$root/javascript/tests/parity" "$output/web/"
+cp "$images"/* "$editor" "$fixtures/"
+uv run --no-sync python tests/javascript_parity/generate_fixtures.py "$fixtures"
+uv run --no-sync python javascript/tests/parity/editor.py generate "$fixtures/editor"
+for mode in rust node browser-dev browser; do
+    mkdir -p "$parity/$mode/editor"
+    cp "$fixtures/editor"/{base,relocated}.docx "$fixtures/editor/image.png" "$parity/$mode/editor/"
+done
+cargo run --quiet --locked --example javascript_parity_oracles -- "$oracles"
+# The editor owner keeps a standalone native oracle outside the Rust crate
+# package. Locate the actual Cargo artifact instead of assuming a target dir.
+rocx_rlib=$(cargo build --locked --lib --message-format=json | "$PYTHON" -c '
+import json, sys
+for line in sys.stdin:
+    event = json.loads(line)
+    if event.get("reason") == "compiler-artifact" and event["target"]["name"] == "rocx":
+        print(next(file for file in event["filenames"] if file.endswith(".rlib")))
+')
+test -f "$rocx_rlib"
+rustc --edition 2024 -L "dependency=$(dirname -- "$rocx_rlib")/deps" --extern "rocx=$rocx_rlib" \
+    javascript/src/editor/parity_native.rs -o "$output/editor-oracle"
+"$output/editor-oracle" "$oracles/editor"
 
 (
     cd "$output/node"
     printf '{ "private": true }\n' > package.json
     npm install --ignore-scripts --offline --no-audit --no-fund --no-save "$artifact"
+    "$PYTHON" "$provenance" check-install "$output" --consumer node
     test -f node_modules/rocx-docx/LICENSE
     tar -tzf node_modules/rocx-docx/rocx-source.tar.gz > source-files.txt
     grep -Fx src/lib.rs source-files.txt
@@ -36,18 +69,46 @@ cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,contract-i
     # npm may look up registry metadata for the Vite toolchain during reification.
     # The tarball itself still has no dependencies and installs offline above.
     npm install --ignore-scripts --prefer-offline --no-audit --no-fund --no-save "$artifact"
+    "$PYTHON" "$provenance" check-install "$output" --consumer web
     if [[ "${ROCX_INSTALL_BROWSER:-0}" == 1 ]]; then
         ./node_modules/.bin/playwright install --with-deps chromium
     fi
-    ./node_modules/.bin/tsc --noEmitOnError --strict --target es2022 --module NodeNext types.mts contract-input.mts
-    ./node_modules/.bin/tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler types.mts contract-input.mts
+    tsc=./node_modules/.bin/tsc
+    portable_types=(types.mts contract-input.mts parity/{b0,editor,inspection,resolution,structured,styles,tables,text-layout}.mts
+        parity/integration/structured.mts)
+    node_types=(parity/{drawings,template}.mts)
+    "$tsc" --noEmitOnError --strict --target es2022 --module NodeNext types.mts contract-input.mts
+    "$tsc" --noEmit --strict --target es2022 --module NodeNext "${portable_types[@]}" "${node_types[@]}"
+    "$tsc" --noEmit --strict --target es2022 --module esnext --moduleResolution bundler "${portable_types[@]}"
+    # These fixtures import the intentionally Node-only conditional subpath.
+    "$tsc" --noEmit --strict --target es2022 --module esnext --moduleResolution bundler \
+        --customConditions node "${node_types[@]}"
+    echo "Installed declarations: strict NodeNext and bundler checks passed"
     node input-contract.mjs "$image"
+    node parity/b0.mjs "$image"
+    node parity/b0-retry.mjs
+    node parity/b0-browser.mjs
+    node parity/inspection.mjs --browser
+    node parity/resolution.mjs
+    node parity/drawings.mjs "$images" "$oracles/drawings.docx" "$oracles/pictures.docx" "$oracles/image-path.docx"
+    node parity/structured.mjs "$image" "$oracles/structured.docx"
+    node parity/tables.mjs "--rust=$oracles/tables.docx"
+    node parity/template.mjs "$root/assets/default.docx" "$image" "$editor" "$oracles"
+
+    cp -R "$examples"/catalog "$examples/catalog.mjs" .
+    node parity/integration/node.mjs "$fixtures" "$parity/node"
     node browser-test.mjs "$image" "$output"
 )
-cd "$root"
+for mode in node browser-dev browser; do
+    echo "$mode: verifying editor readback and exact untouched payloads"
+    uv run --no-sync python javascript/tests/parity/editor.py verify "$parity/$mode/editor"
+done
 cargo run --locked --example javascript_workflow -- "$output/rust.docx"
 uv run --no-sync python examples/javascript_workflow.py "$output/python.docx"
+uv run --no-sync python tools/check_examples.py --output-dir "$parity/catalog-references"
 uv run --no-sync python tools/check_javascript.py "$output"
+"$PYTHON" "$provenance" finish "$output" --checkout "$root"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     printf 'tarball=%s\n' "$artifact" >> "$GITHUB_OUTPUT"
+    printf 'provenance=%s\n' "$output/provenance.json" >> "$GITHUB_OUTPUT"
 fi

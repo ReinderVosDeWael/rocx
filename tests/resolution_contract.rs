@@ -5,12 +5,59 @@ use futures::{channel::oneshot, executor::block_on, future::try_join, task::noop
 use rocx::*;
 use std::{
     future::Future,
+    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     task::Context,
 };
+
+#[test]
+fn host_named_image_bytes_match_path_resolution_and_docx() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images/sample.png");
+    let bytes = std::fs::read(&path).unwrap();
+    let run = |data| {
+        ImageRun::new(data)
+            .with_alt_text(Value::ready(Some(
+                AltText::default().with_title("Path probe"),
+            )))
+            .with_transformation(Value::ready(Some(
+                ImageTransformation::default().with_width(15.),
+            )))
+    };
+    let snapshot = |data| {
+        block_on(
+            Document::new(vec![
+                Section::new(vec![
+                    Paragraph::from_children(vec![run(data).into()]).into(),
+                ])
+                .into(),
+            ])
+            .with_timestamp(Some("2024-02-03T04:05:06Z".into()))
+            .resolve(),
+        )
+        .unwrap()
+    };
+
+    let from_path = snapshot(ImageData::Path(path));
+    let from_host = snapshot(ImageData::NamedBytes {
+        bytes: bytes.clone(),
+        source_name: "sample.png".into(),
+    });
+    let from_plain_bytes = snapshot(ImageData::Bytes(bytes));
+    let path_paragraph = from_path.sections()[0].paragraphs()[0];
+    let host_paragraph = from_host.sections()[0].paragraphs()[0];
+    let plain_paragraph = from_plain_bytes.sections()[0].paragraphs()[0];
+    let image = path_paragraph.runs()[0].image().unwrap();
+    assert_eq!(image.name(), "sample.png");
+    assert_eq!(host_paragraph.runs()[0].image().unwrap(), image);
+    assert_eq!(
+        plain_paragraph.runs()[0].image().unwrap().name(),
+        "image.png"
+    );
+    assert_eq!(from_host.to_docx().unwrap(), from_path.to_docx().unwrap());
+}
 
 #[test]
 fn image_fields_accept_references_before_the_source_and_snapshots_do_not_rerun_them() {

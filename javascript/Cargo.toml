@@ -9,6 +9,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 js-sys = "0.3"
 rocx = { path = ".." }
 serde = { version = "1", features = ["derive"] }

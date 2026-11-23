@@ -72,6 +72,44 @@ and schema/OPC validation. The Rust all-targets suite, doctests, Wasm Clippy,
 523-page docs build also passed.
 Track broader authoring parity in #21; keep editor parity separate.
 
+### Full JavaScript binding workstream
+
+Use the [Rust-source parity contract](JAVASCRIPT-PARITY.md) for authoring,
+resolution, template and implemented editor capabilities. This workstream
+includes the implemented Rust editor surface, not the future editor
+checkpoint below. The inventory maps Rust requirements to JavaScript APIs
+and evidence; focused cases are not proof of full parity.
+
+**B0/B1 checkpoint:** The shared boundary preserves the legacy
+`generateDocx({ blocks }, options)` form and adds `DocumentProgram`,
+resolution and reusable snapshots, template rendering and package plans,
+Node file helpers, and typed imported inspection (E01–E03). The
+[focused evidence map](JAVASCRIPT-PARITY.md#implementation-and-focused-evidence)
+links installed declarations and individual fixtures. Node image reads carry
+the basename with the bytes; Rust adds `ImageData::NamedBytes`, which
+downstream exhaustive `ImageData` matches must handle. Separate concurrent
+root resolution passes can still hang on a split property cycle; one-pass
+cycle checks do not address this baseline limitation.
+
+**B2 implemented in this worktree, not released:** The installed package
+exposes anchored alignment, table-insertion and default-header image
+previews (E04–E06). Local packed runs on Node 22.23.5 and 24.22.3 and in
+Chromium 159.0.8154.6 (Vite development and production) matched Rust
+on all six catalog DOCX files. Typed preview reports, invalid inputs,
+independent readback and untouched payloads were checked separately.
+The [evidence and review notes](JAVASCRIPT-PARITY.md#qualification-and-independent-review)
+record the final same-tarball matrix.
+
+Workstream acceptance criteria:
+
+1. Inventory the Rust surface. Map each public authoring, resolution, template, and editor capability to a JavaScript API and a test. Use Rust source as the baseline; the all-features example alone is not proof of completeness.
+2. Verify behavior from the installed package. Exercise Node 22/24 and Chromium. Require exact DOCX bytes against Rust for equivalent deterministic fixtures, including all six catalog artifacts. Check typed inspection results, edit previews, invalid inputs, and preservation of untouched parts separately; matching final bytes does not prove those behaviors.
+3. Run independent review. Have the reviewer check every inventory row against Rust and its test evidence. Fix validated findings and repeat review. Report any unverified capability as a gap, not a pass.
+
+Independent review approved all 33 rows after the deferred-input coverage
+corrections. One qualified tarball passed on both Node majors and Chromium.
+No package publication was performed.
+
 The Rust/Python release gates below still apply.
 GitHub has both release environments and a crates.io bootstrap secret; this
 does not verify the registry-side trusted-publisher binding tracked in #4.

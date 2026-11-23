@@ -128,6 +128,7 @@ impl ImageRun {
         .await?;
         let (bytes, name) = match data {
             ImageData::Bytes(b) => (b, None),
+            ImageData::NamedBytes { bytes, source_name } => (bytes, Some(source_name)),
             ImageData::Path(p) => {
                 let b = crate::adapters::io::read(&p).map_err(|e| e.at(format!("{path}.data")))?;
                 (b, p.file_name().map(|s| s.to_string_lossy().into_owned()))

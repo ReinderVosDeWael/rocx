@@ -7,6 +7,19 @@ use rocx::{
 use serde::{Deserialize, Deserializer, de::Error as _};
 use wasm_bindgen::{JsCast, prelude::*};
 
+mod boundary;
+mod drawings;
+mod editor;
+mod host;
+mod inspection;
+mod program;
+mod resolution;
+mod structured;
+mod styles;
+mod tables;
+mod template;
+mod text_layout;
+
 struct CallerText(String);
 
 impl<'de> Deserialize<'de> for CallerText {
@@ -177,6 +190,10 @@ impl RunInput {
 }
 
 fn image_bytes(bytes: &JsValue) -> Result<Vec<u8>, Error> {
+    copy_image_view(bytes).map(|bytes| bytes.to_vec())
+}
+
+fn copy_image_view(bytes: &JsValue) -> Result<Uint8Array, Error> {
     use js_sys::{Array, Reflect, Symbol};
 
     let uint8_prototype = Object::get_prototype_of(&Uint8Array::new_with_length(0));
@@ -198,7 +215,7 @@ fn image_bytes(bytes: &JsValue) -> Result<Vec<u8>, Error> {
     // overridden properties. Reflect catches exceptions from unusable views.
     let copy = Reflect::construct(&uint8_prototype.constructor(), &Array::of1(bytes))
         .map_err(|_| error("Cannot copy image bytes from Uint8Array"))?;
-    Ok(copy.unchecked_into::<Uint8Array>().to_vec())
+    Ok(copy.unchecked_into::<Uint8Array>())
 }
 
 impl BlockInput {

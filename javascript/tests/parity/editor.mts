@@ -1,0 +1,299 @@
+import {
+  openDocx, resolveComponent,
+  type AlignmentChange, type EditBatch, type EditPreview, type HeaderImageChange,
+  type HeaderImageEdit, type HeaderImagePreview, type ImportedDocument, type ImportedParagraph,
+  type ResolvedImage, type ResolvedTable, type TableCellDeclaration, type TableDeclaration,
+  type TableInsertionChange,
+} from "rocx-docx";
+
+export interface Fixtures {
+  base: Uint8Array;
+  unsafe: Uint8Array;
+  ambiguous: Uint8Array;
+  drawing: Uint8Array;
+  relocated: Uint8Array;
+  image: Uint8Array;
+}
+
+function check(value: unknown, message: string): asserts value {
+  if (!value) throw new Error(message);
+}
+
+function same(actual: unknown, expected: unknown, message: string) {
+  const sorted = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sorted);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, sorted(item)]));
+    }
+    return value;
+  };
+  const a = JSON.stringify(sorted(actual));
+  const b = JSON.stringify(sorted(expected));
+  check(a === b, `${message}: ${a} != ${b}`);
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array, message: string) {
+  check(a.length === b.length && a.every((byte, i) => byte === b[i]), message);
+}
+
+function rejects(action: () => unknown, message: RegExp, path?: string) {
+  try {
+    action();
+  } catch (error) {
+    check(error instanceof Error && message.test(error.message), `expected ${message}, got ${error}`);
+    same(Reflect.get(error, "rule"), path ? undefined : "unsupported_edit", "error rule");
+    if (path) same(Reflect.get(error, "path"), path, "adapter path");
+    return;
+  }
+  throw new Error(`expected ${message}`);
+}
+
+function paragraph(doc: ImportedDocument, index: number): ImportedParagraph {
+  const block = doc.body()[index];
+  check(block?.kind === "paragraph", `body[${index}] is not a paragraph`);
+  return block;
+}
+
+const cell = (children: TableCellDeclaration["children"], gridSpan?: number) => ({
+  kind: "tableCell" as const, children, ...(gridSpan === undefined ? {} : { properties: { gridSpan } }),
+});
+const text = (value: string) => ({ kind: "paragraph" as const, text: value });
+const table = (...cells: TableCellDeclaration[]): TableDeclaration =>
+  ({ kind: "table", rows: [{ kind: "tableRow", children: cells }] });
+
+async function payloads(png: Uint8Array) {
+  const rich: ResolvedTable | undefined = await resolveComponent({
+    ...table(cell([{
+      kind: "paragraph",
+      runs: [
+        { kind: "text", text: "bold", format: { bold: true } },
+        { kind: "fraction", numerator: "1", denominator: "2" },
+        { kind: "hyperlink", target: { kind: "external", url: "https://example.invalid/inserted" },
+          children: [{ kind: "text", text: "linked" }] },
+      ],
+    }, table(cell([text("nested A")]), cell([text("nested B")]))], 2), cell([text("tail")])),
+    properties: { columnWidths: [1200, 2400, 3600] },
+  });
+  const auto = await resolveComponent(table(cell([text("next A")]), cell([text("next B")])));
+  const unsupported = await resolveComponent({
+    kind: "table",
+    rows: [{
+      kind: "tableRow", children: [cell([text("guarded")])],
+      properties: { contentControl: { text: { kind: "rich" } } },
+    }],
+  });
+  const inline = await resolveComponent({ kind: "image", data: png });
+  const floatingRun = await resolveComponent({
+    kind: "image", data: png,
+    transformation: { anchor: { horizontalReference: "page", verticalReference: "page", wrap: "none" } },
+  });
+  const image: ResolvedImage | undefined = inline?.view.image;
+  const floating = floatingRun?.view.image;
+  check(rich && auto && unsupported && image && floating && inline, "editor payloads resolved");
+  return { rich, auto, unsupported, image, floating, inline };
+}
+
+type Payloads = Awaited<ReturnType<typeof payloads>>;
+
+export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, { rich, auto }: Payloads) {
+  const doc = await openDocx(input.base);
+  const start = paragraph(doc, 0).anchor;
+  const unset = paragraph(doc, 1).anchor;
+  const sectionEnd = paragraph(doc, 3).anchor;
+  const align = { target: start, alignment: "center" } as const;
+  const insert = { target: start, table: rich };
+  const preview: EditPreview = doc.preview({
+    alignments: [{ target: unset, alignment: "right" }, align],
+    tableInsertions: [{ target: sectionEnd, table: auto }, insert],
+  });
+  const changes: readonly AlignmentChange[] = preview.changes();
+  const insertions: readonly TableInsertionChange[] = preview.insertions();
+  same(changes, [{ bodyIndex: 0, before: "start", after: "center" },
+    { bodyIndex: 1, after: "right" }], "raw and unset before values in source order");
+  check(!Object.hasOwn(changes[1], "before"), "unset before is absent");
+  check(Object.isFrozen(changes) && Object.isFrozen(changes[0]), "report is immutable");
+  same(insertions, [{ afterBodyIndex: 0, rows: 1, columns: 3 },
+    { afterBodyIndex: 3, rows: 1, columns: 2 }], "insertion dimensions and original indices");
+  same(preview.headerChanges(), [], "no header changes");
+  const bytes = preview.toDocx();
+  const reopened = await openDocx(bytes);
+  same(reopened.body().map((block) => block.kind), [
+    "paragraph", "table", "paragraph", "paragraph", "paragraph", "table", "paragraph", "paragraph", "paragraph",
+  ], "table placement including immediately after section terminator");
+  same(paragraph(reopened, 0).alignment, "center", "reopened first alignment");
+  same(paragraph(reopened, 2).alignment, "right", "reopened second alignment");
+  same(paragraph(doc, 0).alignmentXml, "start", "original alignment is unchanged");
+  const noop = doc.preview({ alignments: [{ target: paragraph(doc, 4).anchor, alignment: "right" }] });
+  same(noop.changes(), [], "unchanged alignment omitted");
+  bytesEqual(noop.toDocx(), doc.preview({}).toDocx(), "unchanged and empty batches encode identically");
+
+  const other = await openDocx(input.base);
+  rejects(() => doc.preview({ alignments: [{ ...align, target: paragraph(other, 0).anchor }] }), /different document snapshot/);
+  rejects(() => doc.preview({ alignments: [align, align] }), /multiple alignment/);
+  rejects(() => doc.preview({ tableInsertions: [insert, insert] }), /multiple table/);
+  rejects(() => doc.preview({ tableInsertions: [{ ...insert, target: paragraph(other, 0).anchor }] }),
+    /different document snapshot/);
+  const unsafe = await openDocx(input.unsafe);
+  rejects(() => unsafe.preview({ tableInsertions: [{ ...insert, target: paragraph(unsafe, 0).anchor }] }), /range/);
+  const ambiguous = await openDocx(input.ambiguous);
+  rejects(() => ambiguous.preview({ alignments: [{ ...align, target: paragraph(ambiguous, 0).anchor }] }), /ambiguous/);
+  return { body: bytes, noop: noop.toDocx() };
+}
+
+export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {
+  const doc = await openDocx(input.base);
+  const [first, inherited, later, distinct] = doc.defaultHeaders().map((header) => header.view);
+  check(first.anchor !== inherited.anchor && first.partName === inherited.partName, "aliases have section-scoped targets");
+  const sharedEdit: HeaderImageEdit = { target: inherited.anchor, mode: "shared", image };
+  const shared: HeaderImagePreview = doc.previewHeaderImage(sharedEdit);
+  const change: HeaderImageChange = shared.change();
+  same(change, { sourcePart: first.partName, outputPart: first.partName,
+    affectedSections: [0, 1, 2, 3], mode: "shared" }, "default and first/even consumers");
+  check(Object.isFrozen(change.affectedSections), "header report array is immutable");
+  const sharedBatch = doc.preview({ headerImages: [sharedEdit] });
+  same(sharedBatch.headerChanges(), [change], "batch header report matches dedicated report");
+  bytesEqual(sharedBatch.toDocx(), shared.toDocx(), "batch and dedicated shared bytes");
+  const sharedAfter = (await openDocx(shared.toDocx())).defaultHeaders().map((header) => header.view);
+  same(sharedAfter.map((h) => h.partName), [first.partName, first.partName, first.partName, distinct.partName],
+    "shared edit does not change defaults");
+  same(sharedAfter.map((h) => h.blocks.length), [2, 2, 2, 1], "only the shared part gained a paragraph");
+
+  const localEdit = { ...sharedEdit, mode: "sectionLocal" } as const;
+  const local = doc.previewHeaderImage(localEdit);
+  same(local.change(), { sourcePart: first.partName, outputPart: local.change().outputPart,
+    affectedSections: [1], restoredSection: 2, mode: "sectionLocal" }, "local scope and redirected inheritor");
+  check(local.change().outputPart !== first.partName, "local fork gets its own part");
+  const localAfter = (await openDocx(local.toDocx())).defaultHeaders().map((header) => header.view);
+  same(localAfter.map((h) => [h.partName, h.inherited, h.blocks.length]), [
+    [first.partName, false, 1], [local.change().outputPart, false, 2],
+    [later.partName, false, 1], [distinct.partName, false, 1],
+  ], "only selected default is forked; later explicit restoration");
+  const localBatch = doc.preview({ headerImages: [localEdit] });
+  same(localBatch.headerChanges(), [local.change()], "batch local report");
+  bytesEqual(localBatch.toDocx(), local.toDocx(), "batch and dedicated local bytes");
+
+  const relocated = await openDocx(input.relocated);
+  const relocatedTarget = relocated.defaultHeaders()[1].view.anchor;
+  same(relocated.previewHeaderImage({ ...sharedEdit, target: relocatedTarget }).change().affectedSections,
+    [0, 1, 2, 3], "even-only alias is counted despite a distinct default");
+  const relocatedPreview = relocated.previewHeaderImage({
+    ...localEdit, target: relocatedTarget,
+  });
+  same(relocatedPreview.change().sourcePart, "content/headers/source.xml", "relocated source part");
+  check(relocatedPreview.change().outputPart.startsWith("content/headers/"), "local fork beside relocated source");
+  const drawing = await openDocx(input.drawing);
+  rejects(() => drawing.previewHeaderImage({ ...localEdit, target: drawing.defaultHeaders()[1].view.anchor }),
+    /cannot be safely copied/);
+  rejects(() => doc.previewHeaderImage({ ...sharedEdit, image: floating }), /requires an inline image/);
+  rejects(() => relocated.previewHeaderImage(sharedEdit), /different document snapshot/);
+  return {
+    shared: shared.toDocx(), local: local.toDocx(), relocated: relocatedPreview.toDocx(),
+    reports: { shared: change, local: local.change(), relocated: relocatedPreview.change() },
+  };
+}
+
+export async function mixedTransactionAtomicityAndRepeatPreview(
+  input: Fixtures, { rich, auto, unsupported, image, floating, inline }: Payloads,
+) {
+  // Return only previews and expected bytes: no source, inspection DTO or anchor is retained here.
+  const retained = async () => {
+    const doc = await openDocx(input.base);
+    const [h0, h1, h2] = doc.defaultHeaders().map((h) => h.view);
+    const p0 = paragraph(doc, 0).anchor;
+    const alignments = [{ target: p0, alignment: "center" },
+      { target: paragraph(doc, 1).anchor, alignment: "right" }] as const;
+    const tableInsertions = [{ target: p0, table: rich }, { target: paragraph(doc, 3).anchor, table: auto }];
+    const first = { target: h0.anchor, mode: "sectionLocal", image } as const;
+    const second = { ...first, target: h1.anchor };
+    const shared = { ...first, target: h2.anchor, mode: "shared" } as const;
+    const batch: EditBatch = { alignments, tableInsertions, headerImages: [first, second] };
+    const a = doc.preview(batch);
+    const b = doc.preview({ alignments: [...alignments].reverse(), tableInsertions: [...tableInsertions].reverse(),
+      headerImages: [second, first] });
+    const expected = a.toDocx();
+    bytesEqual(b.toDocx(), expected, "shuffling all inputs produces exact bytes");
+    const headers = a.headerChanges();
+    same(headers, b.headerChanges(), "shuffling preserves report order");
+    same(headers.map((h) => [h.sourcePart, h.affectedSections, h.restoredSection]),
+      [[h0.partName, [0], undefined], [h0.partName, [1], 2]], "adjacent locals use original part; last restores");
+    check(!Object.hasOwn(headers[0], "restoredSection"), "absent restoration is omitted");
+    const reopened = await openDocx(expected);
+    same(reopened.defaultHeaders().map((h) => h.view.partName),
+      [headers[0].outputPart, headers[1].outputPart, h0.partName, doc.defaultHeaders()[3].view.partName],
+      "local forks preserve the original section slots despite table insertion");
+    same([paragraph(reopened, 0).alignment, paragraph(reopened, 2).alignment], ["center", "right"], "mixed body edits");
+    same([reopened.body()[1].kind, reopened.body()[5].kind], ["table", "table"], "mixed table locations");
+    const c = doc.preview({ ...batch, headerImages: [shared] });
+    check(c.headerChanges()[0].mode === "shared", "independent shared mixed preview");
+    const cExpected = c.toDocx();
+    const noEdits = doc.preview({}).toDocx();
+    rejects(() => doc.preview({ ...batch, headerImages: [first, shared] }), /shared.+(conflict|excludes|cannot)/i);
+    rejects(() => doc.preview({ ...batch, headerImages: [shared, { ...shared, target: h1.anchor }] }),
+      /shared.+(conflict|excludes|cannot)/i);
+    const relocated = await openDocx(input.relocated);
+    const [relocatedFirst, , relocatedExplicit] = relocated.defaultHeaders().map((h) => h.view);
+    check(!relocatedExplicit.inherited && relocatedFirst.partName === relocatedExplicit.partName,
+      "same physical header has two explicit references");
+    rejects(() => relocated.preview({
+      headerImages: [{ ...shared, target: relocatedFirst.anchor }, { ...second, target: relocatedExplicit.anchor }],
+    }), /same physical part/);
+    rejects(() => doc.preview({ ...batch, headerImages: [first, first] }), /multiple header/);
+    rejects(() => doc.preview({ ...batch, headerImages: [first, { ...second, image: floating }] }), /requires an inline image/);
+    // The Rust transaction stages both headers before it discovers unsupported table content.
+    rejects(() => doc.preview({ ...batch, tableInsertions: [{ target: p0, table: unsupported }] }), /row content controls/);
+    const foreign = await openDocx(input.base);
+    rejects(() => doc.preview({ ...batch, headerImages: [first, { ...second, target: foreign.defaultHeaders()[1].view.anchor }] }),
+      /different document snapshot/);
+    for (const forged of [{ ...p0 }, structuredClone(p0), Object.create(p0), h1.anchor,
+      paragraph(doc, 0).inlineStructure[0]]) {
+      rejects(() => doc.preview({ ...batch, alignments: [{ ...alignments[0], target: forged }] } as EditBatch),
+        /right type/, "batch.alignments[0].target");
+    }
+    rejects(() => doc.preview({ tableInsertions: [{ target: p0, table: rich.view }] } as unknown as EditBatch),
+      /right type/, "batch.tableInsertions[0].table");
+    rejects(() => doc.previewHeaderImage({ ...first, image: inline } as unknown as HeaderImageEdit),
+      /right type/, "edit.image");
+    rejects(() => doc.previewHeaderImage({ ...first, mode: "local" } as unknown as HeaderImageEdit),
+      /unknown HeaderEditMode/, "edit.mode");
+    rejects(() => doc.preview({ alignments: [{ target: p0, alignment: "both" }] } as unknown as EditBatch),
+      /unknown Alignment/, "batch.alignments[0].alignment");
+    rejects(() => doc.preview({ headerImages: null } as unknown as EditBatch), /expected an array/, "batch.headerImages");
+    bytesEqual(doc.preview({}).toDocx(), noEdits, "failed transactions expose no staged output");
+    bytesEqual(doc.preview(batch).toDocx(), expected, "valid preview works after failures");
+    return { a, b, c, expected, cExpected };
+  };
+  const { a, b, c, expected, cExpected } = await retained();
+  a.toDocx().fill(0);
+  c.toDocx().fill(255);
+  bytesEqual(a.toDocx(), expected, "retained preview re-encodes after output mutation");
+  bytesEqual(b.toDocx(), expected, "other retained preview unaffected");
+  bytesEqual(c.toDocx(), cExpected, "shared retained preview independently re-encodes");
+  check(expected.some((byte, i) => byte !== cExpected[i]), "mixed local and shared previews differ");
+  return { mixed: expected, mixedShared: cExpected, mixedReports: [...a.headerChanges()] };
+}
+
+export async function run(fixtures: Fixtures) {
+  const resolved = await payloads(fixtures.image);
+  return {
+    ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
+    ...await headerImageScopesAndEffects(fixtures, resolved),
+    ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),
+  };
+}
+
+// Compile only. Check public inputs and output types without letting invalid calls execute.
+export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  // @ts-expect-error header anchors are not body paragraph anchors
+  doc.preview({ tableInsertions: [{ target: header.target, table }] });
+  // @ts-expect-error cloned records cannot stand in for header anchors
+  doc.previewHeaderImage({ ...header, target: {} });
+  // @ts-expect-error resolved views are not owning handles
+  doc.preview({ tableInsertions: [{ target: p.anchor, table: table.view }] });
+  // @ts-expect-error Word XML values are not JS alignment variants
+  doc.preview({ alignments: [{ target: p.anchor, alignment: "both" }] });
+  // @ts-expect-error edit report collections are readonly
+  doc.preview({}).changes().push({ bodyIndex: 0, after: "left" });
+  // @ts-expect-error dedicated preview is not a batch preview
+  doc.previewHeaderImage(header).headerChanges();
+}

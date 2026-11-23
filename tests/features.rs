@@ -370,6 +370,32 @@ fn tables_resolve_all_lazy_levels_and_skip_conditional_rows_and_cells() {
     );
 }
 #[test]
+fn table_column_limit_rejects_cumulative_and_wasm_overflowing_spans() {
+    let table = |spans: [u32; 2]| {
+        Table::new(vec![
+            TableRow::new(
+                spans
+                    .into_iter()
+                    .map(|span| {
+                        TableCell::default()
+                            .with_properties(TableCellProperties::default().with_grid_span(span))
+                            .into()
+                    })
+                    .collect(),
+            )
+            .into(),
+        ])
+    };
+    let at_limit = block_on(table([8192, 8192]).resolve()).unwrap().unwrap();
+    assert_eq!(at_limit.columns(), 16384);
+    for spans in [[8192, 8193], [u32::MAX, 2]] {
+        let error = block_on(table(spans).resolve()).unwrap_err();
+        assert_eq!(error.rule(), Some(Rule::InvalidContent), "{spans:?}");
+        assert_eq!(error.path(), Some("table"));
+        assert!(error.to_string().contains("column limit"), "{error}");
+    }
+}
+#[test]
 fn autofit_ignores_column_widths_and_fixed_widths_are_validated() {
     let make = |layout| Table {
         rows: vec![TableRow::new(vec![TableCell::default().into()]).into()].into(),

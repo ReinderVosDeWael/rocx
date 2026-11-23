@@ -1,4 +1,4 @@
-"""Generate both visual catalogs; require exact bytes and independent coverage.
+"""Generate the native visual catalogs and optionally compare installed JS output.
 
 Run with the development environment: uv run --no-sync python tools/check_examples.py
 This uses python-docx/lxml for verification only, never to generate the catalog.
@@ -38,6 +38,8 @@ HEADER_INLINE_LABEL = "Default-header inline structure: "
 HEADER_BATCH_LABEL = "Combined editor batch: this paragraph is centered and followed by a table in both image previews."
 HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
+CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
+                    ".header-shared.docx", ".header-local.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -85,13 +87,13 @@ def verify_rust_builder_inventory() -> None:
             assert all(method in tested for method, _ in methods), f"Untested {name} builders"
 
 
-def exact_bytes(rust: bytes, python: bytes) -> str:
+def exact_bytes(rust: bytes, candidate: bytes, *, language: str = "Python") -> str:
     """Compare the ZIP containers themselves, with part-level failure diagnostics."""
-    if rust != python:
-        with zipfile.ZipFile(io.BytesIO(rust)) as a, zipfile.ZipFile(io.BytesIO(python)) as b:
+    if rust != candidate:
+        with zipfile.ZipFile(io.BytesIO(rust)) as a, zipfile.ZipFile(io.BytesIO(candidate)) as b:
             names = set(a.namelist()) | set(b.namelist())
             changed = [name for name in sorted(names) if name not in a.namelist() or name not in b.namelist() or a.read(name) != b.read(name)]
-        raise AssertionError(f"DOCX bytes differ: Rust={len(rust)}, Python={len(python)}; changed parts={changed or 'ZIP container metadata/compression only'}")
+        raise AssertionError(f"DOCX bytes differ: Rust={len(rust)}, {language}={len(candidate)}; changed parts={changed or 'ZIP container metadata/compression only'}")
     return hashlib.sha256(rust).hexdigest()
 
 
@@ -730,10 +732,31 @@ def generate(directory: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     return rust, python
 
 
+def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:
+    """Require all six files and check content and untouched payloads separately."""
+    artifacts = []
+    for suffix in CATALOG_SUFFIXES:
+        path = directory / f"all_features-javascript{suffix}"
+        data = path.read_bytes()
+        try:
+            digest = exact_bytes(rust.with_suffix(suffix).read_bytes(), data, language="JavaScript")
+        except AssertionError as error:
+            raise AssertionError(f"{path}: {error}") from error
+        artifacts.append(data)
+        print(f"Byte-identical {path}: {len(data)} bytes; SHA-256 {digest}")
+    final, template, edited, source, shared, local = artifacts
+    # Compare source/result payloads within the JS artifacts, independent of the Rust oracle.
+    verify_content(final, template)
+    verify_edited(final, edited)
+    verify_header_scopes(source, shared, local)
+
+
 def main() -> None:
     """Generate visible artifacts and report the exact-byte SHA-256."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=pathlib.Path, default=ROOT / "examples")
+    parser.add_argument("--javascript-dir", type=pathlib.Path, action="append", default=[],
+                        help="compare six files from catalog-node.mjs (repeat for multiple runtimes)")
     args = parser.parse_args()
     verify_inventory()
     rust, python = generate(args.output_dir)
@@ -753,6 +776,8 @@ def main() -> None:
     print(f"Byte-identical DOCX: {len(rust.read_bytes())} bytes; SHA-256 {digest}")
     print(f"Byte-identical edited DOCX: {len(edited)} bytes; SHA-256 {edited_digest}")
     print(f"Rust:   {rust}\nPython: {python}")
+    for directory in args.javascript_dir:
+        verify_javascript_catalog(rust, directory)
 
 
 if __name__ == "__main__":
