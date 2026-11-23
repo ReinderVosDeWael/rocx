@@ -1,219 +1,171 @@
-# Viewer compatibility checklist
+# LibreOffice compatibility matrix
 
-This is a repeatable manual inspection protocol, not a compatibility guarantee.
-Record results only for the exact file, application, version and platform
-actually inspected. Opening a document successfully does not establish correct
-layout. Headless conversion, schema validation and python-docx readback are not
-GUI observations.
+LibreOffice Writer displayed the four synthetic DOCX files below. Results
+apply only to the listed pages, viewer build, and platform; they are not
+a visual fidelity guarantee. Microsoft Word was not tested, and no input
+was authored in Word.
 
-## Fixture set
+## Fixture matrix — 2026-11-23
 
-Generate the rocx quickstart (two paragraphs, including Unicode):
+Writer `25.8.7.3 580(Build:3)` on Ubuntu 25.10 x86_64 (kernel
+`6.17.0-41-generic`). GUI runs used the generic X11 VCL backend, a fresh
+profile per file and a 1440 × 1000 × 24 Xvfb screen without a physical
+desktop or window manager. Fontconfig matched Calibri to Carlito and Cambria
+to Caladea; this does not identify the font used for every run.
 
-```sh
-cargo run --locked --example plain -- /tmp/opencode/viewer-quickstart.docx
-```
+All four files opened to readable document views with no repair dialog visible
+in the inspected screenshots. Those captures do not establish that every
+possible startup prompt was absent. Files were opened read-only; no explicit
+field refresh, link activation or save was performed. Headless PDF conversion
+used a separate profile with `DISPLAY` and `WAYLAND_DISPLAY` unset.
 
-Generate a compact, synthetic **python-docx-authored** sample with a labeled
-table, image and bullet list using the existing repository image:
+| Fixture and provenance | Writer GUI: readability and layout | Separate headless PDF check |
+| --- | --- | --- |
+| `quickstart.docx` — rocx Rust `plain` example | Page 1: both paragraphs legible, including `café` and the globe emoji. | 1 page; both paragraphs and Unicode present in extracted text. |
+| `compact.docx` — independent synthetic python-docx 1.2.0 fixture | Page 1: blue heading, `café` and globe emoji, bordered 2 × 2 table with all four labels, two bulleted items, and a red rectangle below its label. | 1 page; cell labels, bullets and Unicode present in extracted text; `pdfimages` reports a 24 × 12 RGB image. |
+| `all_features.docx` — rocx-generated catalog, before the imported-editor batch | Page 2: the labeled editor paragraph is left-aligned and followed by the heading samples, with no inserted table. | 25 pages; labeled paragraph and `03 Styles` present. |
+| `all_features.edited.docx` — rocx-generated catalog built from its own template, then edited by rocx | Page 1: `Template REPLACED`, first header with an underlined link and red image, and footer `PAGE 1 / NUMPAGES 25`. Page 2: even header, centered editor paragraph, two-column inserted table with bold first-cell label, and blue headings. Page 6: `03 Styles`, bold blue paragraph style sample, an italic character style sample, and a readable updated-template style label. Page 7: default header with an underlined link and red image, and a shaded merged cell in the first table. | 25 pages; first/even/default header text, footer, editor paragraph, inserted table cell text and `03 Styles` present. |
 
-```sh
-UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync python tools/generate_viewer_compatibility_fixture.py /tmp/opencode/viewer-compact.docx
-```
-
-This independent sample is neither rocx-authored nor Word-authored. Inspect
-the red image, four labeled table cells and both list items. Its output can
-vary between runs; hash the actual file under test.
-
-From the repository root, generate the paired catalogs and edit artifacts using
-the existing checks (requires the provisioned development environment and a
-current native Python extension):
-
-```sh
-UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync python tools/check_examples.py --output-dir /tmp/opencode/viewer-compatibility-7
-```
-
-See [catalog generation and inspection guide](../examples/ALL_FEATURES.md) for
-artifact names, visible labels, intended features and viewer caveats. The script
-checks exact Rust/Python DOCX bytes, not merely normalized XML. Retain originals
-outside the output directory before regenerating; record each file's SHA-256,
-for example `sha256sum /path/to/file.docx`. Test the final catalog and its edited
-counterpart separately: the edited catalog exercises styles and headers as well
-as an imported body edit, but is not an edit of a Word-authored template.
-The generated header-source, header-shared and
-header-local files provide a focused shared-header comparison.
-
-The repository's [imported editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
-is an independent python-docx-authored input. It is **not** Word-authored. The
-catalogs are rocx-authored, including when the editor modifies a catalog.
-Neither demonstrates interoperability with a desktop Word-authored source.
-If a redistributable Word-authored fixture becomes available, document its exact
-origin, authoring application/version, license and hash before including it;
-do not use private or unvetted documents.
-
-The issue #6 branded report is an optional additional visual fixture once
-available; its absence does not block this checklist. Record its provenance and
-hash independently and use its own feature labels as inspection targets.
-
-## Procedure
-
-1. Keep an untouched original; open a copy locally in the interactive viewer.
-   Record OS and version, application name and exact version/build, date, file
-   name, SHA-256 of the original, display environment and relevant installed
-   fonts. Record any repair, conversion or security prompts, even if opening
-   fails. Never overwrite the original.
-2. Record separately: **open** (including warnings), **readability** (legible
-   text and missing/garbled content), and **layout** (specific visible behavior).
-   Use `not tested` where appropriate. Don't infer results for uninspected
-   features, applications, versions or operating systems.
-3. For the catalog, inspect labeled paragraphs and Unicode; heading and list
-   hierarchy; table borders, merges and pagination; images and text wrapping;
-   charts, equations and shapes; headers/footers and section breaks; and
-   comments, notes, links, fields, revisions and controls where the viewer
-   exposes them. Note clipping, overlap, font substitution, missing objects,
-   unexpected page breaks and repair notices, with page and label. Compare
-   edited versus original alignment/table and shared versus local headers.
-   Use the catalog guide as the requested-content reference, not as proof of
-   a particular viewer rendering.
-4. Record initial cached fields and whether fields were updated; save or export
-   only a separate copy, noting any actions. Viewer-calculated pagination,
-   labels and fields, font availability and application settings can differ.
-   A saved copy is a new artifact, not the original byte-parity baseline.
-5. Record failures and limitations as well as successes. Attach screenshots only
-   when permitted and identify the file hash, app, page and feature. Avoid
-   publishing sensitive documents or screenshots.
-
-## Observation record template
-
-Copy once per file/application/platform:
+These are the inputs generated at rocx commit `d5afcff`; both the originals
+and the GUI copies retained their input bytes:
 
 ```text
-Date:
-Fixture, provenance, SHA-256:
-OS/version, display environment, relevant fonts:
-Application and exact version/build:
-Open (prompts/repair):
-Readability (feature/page and result):
-Layout (feature/page and result):
-Not tested:
-Field updates, settings, save/export actions:
-Evidence / reproduction:
+54af8daa7b1c954a4091811220af75753671c8e99df43d3fb50ea82f671d855e  quickstart.docx
+b448890cc991f80b753773165d661f75e83c6b7f0d1e38846fc5156cd08ee521  compact.docx
+9a11f212275be7a0602b87b83938c4b6e9736766bfbc3198b7c08160a5a6e523  all_features.docx
+c6d53fcb1eec613288af72ba01c11a87a3f1c94ccf05c9b5e1bfafa293d9ade9  all_features.edited.docx
 ```
 
-## Current observations and gaps
+**Limits.** Only the listed views and features were inspected. The updated
+template style label on page 6 did not visibly demonstrate the bold/italic
+combination described by its text; readback confirmed the definitions, not
+Writer's effective formatting. The GUI footer values describe this run, not
+stable pagination or field behavior. Other pages and advanced features (such as
+charts, floating objects, revisions and controls), the dedicated shared/local
+header edit cases, the independently authored editor fixture after editing,
+other viewers/platforms, and save/reopen behavior were not tested here.
 
-| Application / platform | Open / readability | Key features | Limitations | Targeted findings |
-| --- | --- | --- | --- | --- |
-| LibreOffice 25.8.7.3 580(Build:3), Ubuntu 25.10 x86_64, kernel 6.17.0-41-generic | Three fixtures displayed in GUI under Xvfb | Quickstart, compact fixture, edited catalog pages 1–2 | Only captured pages and features inspected; no physical desktop | GUI and separate headless observations below |
-| Desktop Word, platform/version not observed | Not tested | Not tested | No desktop Word observation available | None |
+**Nonvisual cross-checks.** python-docx 1.2.0 confirmed quickstart paragraph
+text, the compact table contents, bullet styles and inline image, and the
+catalog pair's left-to-center alignment change, inserted table with bold
+label, header text and template style definitions. ZIP integrity checks passed.
+A separate byte comparison of the ZIP part payloads found that the editor
+batch changed only `word/document.xml`; sibling payloads, including style,
+header and relationship parts, matched exactly. Neither package readback nor
+headless conversion establishes visual fidelity.
 
-- No desktop Word observation or redistributable Word-authored fixture has been
-  established for this checklist. Those remain explicit gaps. The later Xvfb
-  inspection below covers only specific LibreOffice pages and features.
-- Independent python-docx 1.2.0 readback opened the repository editor fixture
-  (4 top-level paragraphs, 0 tables) and pre-existing Rust and Python catalog
-  artifacts (279 top-level paragraphs, 29 tables each). The two pre-existing
-  catalog files both had SHA-256
-  `24325a9a3f997433ec0b91dbe5212f51c71878b4ba8cae8dbe3d6b16462f026c`;
-  the editor fixture had SHA-256
-  `919563e963cfc6f131007ce10359b4309379880c37162fe168fcba22e0cf0f2a`.
-  These are readback observations of those exact files, not GUI observations
-  or proof of the current source's generated output.
-- Independent readback checked the generated quickstart text and the compact
-  table, bullet paragraphs and inline image; ZIP integrity checks passed.
+An earlier run at `7d8ce6b` covered the quickstart, independent compact fixture
+and edited catalog pages 1–2 on the same Writer build. A competing local Writer
+instance produced a **Document in Use** lock dialog, not a repair dialog.
+An X I/O error when that run's Xvfb process timed out was a display teardown,
+not a document compatibility result. The current run used separate read-only
+copies and closed Writer before ending the display.
 
-## LibreOffice GUI probe under Xvfb, 2026-11-23
+## Reproduce the check
 
-LibreOffice Writer `25.8.7.3 580(Build:3)` ran on Ubuntu 25.10 x86_64,
-kernel `6.17.0-41-generic`, with the generic X11 VCL backend and a fresh user
-profile. Xvfb used a 1440 × 1000, 24-bit screen and `-nolisten tcp`; there was
-no physical desktop or window manager. `fc-match Calibri` returned Carlito and
-`fc-match Cambria` returned Caladea; these fontconfig matches do not prove the
-font used for every run. No manual field update, save, or export was made.
-Inputs were opened directly; their SHA-256 hashes, listed in the headless table
-below, were unchanged afterward.
+### Generate and identify inputs
 
-Screenshots were inspected, not inferred from PDF text. Each showed a Writer
-document with no repair dialog visible at capture; snapshots do not establish
-that every possible prompt was absent throughout startup.
-
-| Fixture | Observed GUI content | Scope and limitations |
-| --- | --- | --- |
-| rocx quickstart | Page 1 of 1: both paragraphs legible, including `café` and a globe emoji. | Captured at 154% zoom. No other content tested. |
-| python-docx compact synthetic fixture | Page 1 of 1: blue heading, `café` and globe, bordered 2 × 2 table with four labels, two bulleted items, and a red rectangle below its label. | Captured at 100%. This is not a Word-authored fixture. |
-| rocx edited catalog | Page 1: first-header label, underlined link, small red image, and readable opening text. Page 2: even-header label, centered imported-editor paragraph, two-cell inserted table with bold first-cell label, and blue heading samples. Page 1 footer shows `PAGE 1 / NUMPAGES 25`; Writer status shows 25 pages. | Captured at 95%; only portions of pages 1–2 inspected. No claim about remaining styles, objects, pagination, or other pages. Field values were displayed but no explicit field update was performed. The template was rocx-generated, not Word-authored. |
-
-An earlier simultaneous launch using a different LibreOffice profile produced
-a **Document in Use** dialog for `quickstart.docx`, stating that it was locked
-for editing by the same user on a different system. This was a competing local
-instance, not a repair dialog; that instance was terminated. The screenshots
-above were taken from the generic-backend instance. After capture, the Xvfb
-process reached its 120-second execution timeout; Writer then reported an X
-I/O error and fatal signal. This shutdown is not a document compatibility
-result. No desktop Word behavior or Word-authored source was tested.
-
-To repeat with Xvfb, use a fresh LibreOffice profile and open copies of the
-inputs from the headless probe below, one at a time. For example, with
-`xvfb-run`, `xwininfo` and `ffmpeg` installed, launch an authenticated X11
-session and print its environment:
+From the repository root, with Rust, Cargo and python-docx 1.2.0 available.
+If needed, activate a Python environment containing python-docx, or use
+`uv run --no-project --with python-docx==1.2.0 python` instead of `python`
+for the compact fixture.
 
 ```sh
-gui=$(mktemp -d /tmp/opencode/rocx-viewer-gui-XXXXXX)
-cp /path/to/quickstart.docx "$gui/"
-xvfb-run -a -s '-screen 0 1440x1000x24 -nolisten tcp' sh -c '
-    printf "DISPLAY=%s XAUTHORITY=%s\n" "$DISPLAY" "$XAUTHORITY"
-    exec env SAL_USE_VCLPLUGIN=gen libreoffice "-env:UserInstallation=file://$1/profile" \
-        --norestore --nologo "$1/quickstart.docx"
-' sh "$gui"
-```
-
-In a second terminal, export the printed `DISPLAY` and `XAUTHORITY`. Run
-`xwininfo -root -tree` to identify Writer's windows and capture the rendered
-screen with `ffmpeg -f x11grab -video_size 1440x1000 -i "$DISPLAY" -frames:v 1 capture.png`.
-Inspect the screenshot and any prompts. Page 2 of the edited catalog was
-reached with Page Down.
-
-## Headless LibreOffice conversion probe, 2026-11-23
-
-This is **not** an interactive viewer result: no GUI, repair prompt, visual
-readability, image appearance, formatting, or layout was observed. Conversion
-success does not prove that an interactive open has no repair warnings. Word
-desktop and Word-authored inputs were not tested. LibreOffice's field updates
-and PDF export are not evidence of Word's behavior.
-
-On Ubuntu 25.10 x86_64, kernel 6.17.0-41-generic, LibreOffice
-`25.8.7.3 580(Build:3)` ran with empty `DISPLAY` and `WAYLAND_DISPLAY`.
-`Xvfb`, `xvfb-run`, `Xorg`, `weston`, `Xvnc`, and `xpra` were not found;
-`Xwayland` was present but no Wayland display or compositor was available.
-The input files were generated from rocx commit `7d8ce6b`, then converted
-with a separate LibreOffice user profile. SHA-256 values were unchanged
-after export.
-
-| Input and provenance | SHA-256 | Headless result |
-| --- | --- | --- |
-| rocx Rust quickstart | `54af8daa7b1c954a4091811220af75753671c8e99df43d3fb50ea82f671d855e` | One-page PDF; extracted text contains both paragraphs, `café` and `🌍`. |
-| python-docx compact synthetic fixture | `d3432cfb8bfac5e49203373ef4276edcb233f7573c1ed0fd30ccca4275234d11` | One-page PDF; extracted text contains all four table labels, both list items, `café` and `🌍`; `pdfimages -list` reports one 24 × 12 RGB image on page 1. Image color and placement were not visually checked. |
-| rocx Rust edited catalog (generated template, not Word-authored) | `2272664cc4c39fa115779009731df2896d2ae92cb70190eca7b82550a170970b` | 25-page PDF; extracted text contains first-header and default-footer labels, the imported-editor paragraph and inserted table labels, and the `03 Styles` heading. This does not verify the style appearance, table geometry, or alignment. |
-
-Reproduce from the repository root with Rust, python-docx, LibreOffice and
-Poppler utilities installed. Use a fresh directory so prior exports cannot be
-mistaken for results; PDF text extraction is a content check, not a visual check.
-The compact fixture may have a different hash on another run.
-
-```sh
-run=$(mktemp -d /tmp/opencode/rocx-viewer-XXXXXX)
+run=$(mktemp -d "${TMPDIR:-/tmp}/rocx-viewer-XXXXXX")
 mkdir "$run/input" "$run/pdf"
 cargo run --locked --example plain -- "$run/input/quickstart.docx"
-uv run --locked --group test python tools/generate_viewer_compatibility_fixture.py "$run/input/compact.docx"
+python tools/generate_viewer_compatibility_fixture.py "$run/input/compact.docx"
 cargo run --locked --example all_features -- "$run/input/all_features.docx"
-sha256sum "$run/input/"{quickstart,compact,all_features.edited}.docx
-libreoffice "-env:UserInstallation=file://$run/lo-profile" --headless \
-    --convert-to pdf --outdir "$run/pdf" \
-    "$run/input/"{quickstart,compact,all_features.edited}.docx
-for file in "$run/pdf/"*.pdf; do
-    pdfinfo "$file"
-    pdftotext -layout "$file" -
+(cd "$run/input" && sha256sum quickstart.docx compact.docx \
+    all_features.docx all_features.edited.docx) > "$run/input.sha256"
+cat "$run/input.sha256"
+```
+
+`all_features.template.docx` is the small intermediate generation template;
+compare `all_features.docx` with `all_features.edited.docx` to see the separate
+body edit. Hash the actual files inspected rather than expecting the compact
+fixture's hash to be stable. The [catalog guide](../examples/ALL_FEATURES.md)
+lists the feature labels and documents the full Rust/Python DOCX byte-parity
+check. That check is separate from the viewer check.
+
+### Inspect interactively
+
+1. Open a copy in LibreOffice Writer, one file at a time, and record any
+   repair, conversion or security prompt. Record app/build, OS, display, fonts,
+   date and file hash. Keep originals untouched.
+2. Compare the views with the matrix: quickstart and compact on page 1; compare
+   the catalog pair at `Imported editor:`; inspect `03 Styles` and the labeled
+   first/even/default headers in the edited catalog. Use the labels to find views
+   if pagination differs. Report legibility and layout separately, including
+   clipping, overlap, missing objects or unexpected page breaks if observed.
+3. Record what was not tested. Note any field updates or settings changes and
+   save or export only a separate copy. If attaching screenshots, identify the
+   input hash, viewer build, page and feature. Do not use private documents.
+
+For Linux without a desktop, start Writer on an authenticated Xvfb display
+using `xvfb-run` and `xauth`. Repeat for each input with a new profile and
+copy; close Writer before terminating Xvfb. This is still the Writer GUI,
+not `--headless` mode.
+
+```sh
+file=all_features.edited.docx  # repeat with the other names in the matrix
+gui=$(mktemp -d "$run/gui-XXXXXX")
+cp "$run/input/$file" "$gui/"
+xvfb-run -a -s '-screen 0 1440x1000x24 -nolisten tcp' sh -c '
+    printf "export DISPLAY=%s XAUTHORITY=%s\n" "$DISPLAY" "$XAUTHORITY"
+    exec env SAL_USE_VCLPLUGIN=gen libreoffice \
+        "-env:UserInstallation=file://$1/profile" --view --norestore --nologo "$1/$2"
+' sh "$gui" "$file"
+```
+
+In another terminal, set `DISPLAY` and `XAUTHORITY` to the printed values.
+Identify the Writer window with `xwininfo -root -tree`. After the page has
+rendered, capture the X11 screen and inspect the image:
+
+```sh
+ffmpeg -loglevel error -f x11grab -video_size 1440x1000 \
+    -i "$DISPLAY" -frames:v 1 -threads 1 capture.png
+```
+
+Use Page Down or Writer's Find command on the Xvfb display to navigate and
+capture the specific features. For example, if `xdotool` is installed, use
+`xdotool windowfocus "$writer_window" key Next`, where `writer_window` is
+the window ID from `xwininfo`. Wait for the page count to settle before
+recording `NUMPAGES`; a window appearing does not mean Writer has finished
+layout. After closing the viewer, use `cmp "$run/input/$file" "$gui/$file"`
+to check the copy for changes.
+
+### Optional headless cross-check
+
+Use LibreOffice and the Poppler utilities. PDF extraction checks text,
+reported page count and image inventory, not visual layout or GUI warnings.
+Use a new output directory if repeating the export.
+
+```sh
+(
+    unset DISPLAY WAYLAND_DISPLAY
+    libreoffice "-env:UserInstallation=file://$run/lo-headless" --headless \
+        --convert-to pdf --outdir "$run/pdf" \
+        "$run/input/quickstart.docx" "$run/input/compact.docx" \
+        "$run/input/all_features.docx" "$run/input/all_features.edited.docx"
+)
+for pdf in "$run/pdf/"*.pdf; do
+    pdfinfo "$pdf"
+    pdftotext -layout "$pdf" "${pdf%.pdf}.txt"
 done
 pdfimages -list "$run/pdf/compact.pdf"
-sha256sum "$run/input/"{quickstart,compact,all_features.edited}.docx
+(cd "$run/input" && sha256sum -c "$run/input.sha256")
+```
+
+### Observation record
+
+```text
+Date, source commit, fixture name/provenance/SHA-256:
+Viewer version/build, OS, display, fonts:
+GUI open (prompts/repair):
+Readability (page, label, result):
+Layout (page, label, result):
+Not tested:
+Field updates, settings, save/export actions:
+Evidence (GUI captures and separate nonvisual checks):
 ```
