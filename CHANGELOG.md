@@ -12,6 +12,12 @@
 - Inspect run and hyperlink boundaries in direct body paragraphs with
   snapshot-scoped read-only addresses in Rust and Python.
 
+### JavaScript
+
+- Add an npm-installable Rust/Wasm tarball for Node and Chromium with a typed,
+  byte-oriented API for formatted paragraphs, simple tables, and inline images.
+  The tarball is separate from the Rust/Python distributions.
+
 ### Template fixes
 
 - Preserve paragraph tab-stop definitions when replacing literal tabs in text.

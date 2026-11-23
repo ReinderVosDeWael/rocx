@@ -33,7 +33,7 @@ branch; keep umbrella or externally blocked work open.
 | #4 | Canonical Pages URLs returned HTTP 200; the old site path returned 404. Both hosted quickstarts ran outside the checkout against registry packages and passed independent readback. Strict build: 516 HTML pages; docs tests: 11 passed. The 0.3.0 PyPI OIDC run succeeded; crates.io used the bootstrap token. Private crates.io trusted-publisher verification remains. |
 | #7 | LibreOffice displayed three identified fixtures under Xvfb; the [checklist](VIEWER-COMPATIBILITY-CHECKLIST.md) records observed features and a separate headless conversion check. Desktop Word and a Word-authored fixture remain unverified. |
 | #3 | Direct body run and hyperlink inspection now exposes snapshot-scoped read-only anchors in Rust and Python. The umbrella remains open for broader typed stories and structured edits, including revisions. |
-| #9 | Advance the JavaScript package and verify the remaining acceptance criteria independently. |
+| #9 | The [JavaScript package](../javascript/README.md) replaces the prototype. It offers an installable tarball, TypeScript declarations, and the shared Rust/Wasm authoring slice; local Node 22/24 and Chromium dev/production checks passed exact DOCX byte parity with Rust/Python. Verify the packed-artifact workflow on GitHub before closing. |
 | #16 | Independent fixture reproduced tab-stop corruption; the fix preserves tab-stop markup and still replaces literal run tabs. Source and output passed schema/OPC validation. |
 | #17 | Block, row, and cell fixtures reproduced unguarded replacement and passed schema/OPC validation. Ordinary matches inside these controls are rejected; unrelated paragraphs and supported targeted replacement still work. |
 | #18 | A schema-valid template without margins reproduced invalid output. Partial patches now fill required built-in defaults and preserve existing margins. Both cases passed schema/OPC validation and readback. |
@@ -61,13 +61,13 @@ registry setup, and passing the local and hosted preflight in
 | [#6](https://github.com/ReinderVosDeWael/rocx/issues/6) | [Branded report](website/branded-report.md) linked from README and the site. Exact Rust/Python output, unchanged template and header parts, and strict docs build verified. |
 | [#7](https://github.com/ReinderVosDeWael/rocx/issues/7) | Added a [viewer checklist](VIEWER-COMPATIBILITY-CHECKLIST.md); verified app results are still needed. |
 | [#8](https://github.com/ReinderVosDeWael/rocx/issues/8) | [Evaluation complete](PYTHON-SYNC-EVALUATION.md): keep the async API. The local probe passed script execution, active-loop rejection, async producer, exact DOCX byte comparison, and independent readback. |
-| [#9](https://github.com/ReinderVosDeWael/rocx/issues/9) | The [unsupported WebAssembly probe](../tools/js-wasm-probe/README.md) cross-built and returned DOCX bytes in Node with a fixed timestamp. Independent paragraph readback passed; browser execution and four-way byte parity remain. |
+| [#9](https://github.com/ReinderVosDeWael/rocx/issues/9) | The [original WebAssembly probe](https://github.com/ReinderVosDeWael/rocx/tree/0201e21/tools/js-wasm-probe) cross-built and returned DOCX bytes in Node with a fixed timestamp. It has since been replaced by the JavaScript package. |
 
 After integrating the checkpoint with `main`, all six paired catalog artifacts
 matched byte for byte, and 21 Rust editor tests and 29 focused Python tests passed.
 Finish editor checkpoint task 4 before moving on to task 5. Extend the typed
 inspection contract beyond the current direct body and default-header slice.
-Keep the Wasm prototype out of the Rust/Python release path; viewer results and
+Keep the JavaScript tarball out of the Rust/Python release path; viewer results and
 hosted release preflight remain separate.
 Repository commits, pushes, and release tags are authorized by `AGENTS.md`.
 The current checkpoint and issue work are split into separate commits.
