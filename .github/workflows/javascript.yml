@@ -18,7 +18,6 @@ jobs:
     env:
       ROCX_SCHEMA_DIR: ${{ github.workspace }}/.validation-schemas
       ROCX_INSTALL_BROWSER: "1"
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
@@ -47,6 +46,8 @@ jobs:
       - run: cargo clippy --manifest-path javascript/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
       - id: packed
         run: bash javascript/tests/check-packed.sh
+        env:
+          TMPDIR: ${{ runner.temp }}
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: rocx-docx-node-${{ matrix.node }}
