@@ -1,0 +1,13 @@
+[package]
+name = "rocx-js-wasm-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rocx = { path = "../.." }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
