@@ -123,10 +123,7 @@ impl RunInput {
                 let ImageInput {
                     bytes, alt_text, ..
                 } = decode_fields(self.0, &["kind", "bytes", "altText"])?;
-                let bytes = bytes
-                    .dyn_into::<Uint8Array>()
-                    .map_err(|_| error("Image bytes must be a Uint8Array"))?;
-                Ok(ImageRun::new(bytes.to_vec())
+                Ok(ImageRun::new(image_bytes(&bytes)?)
                     .with_alt_text(alt_text.map(|description| AltText {
                         description: Some(description),
                         ..Default::default()
@@ -135,6 +132,31 @@ impl RunInput {
             }
         }
     }
+}
+
+fn image_bytes(bytes: &JsValue) -> Result<Vec<u8>, Error> {
+    use js_sys::{Array, Reflect, Symbol};
+
+    let uint8_prototype = Object::get_prototype_of(&Uint8Array::new_with_length(0));
+    let typed_array_prototype = Object::get_prototype_of(&uint8_prototype);
+    // Call the intrinsic getter directly: it reads the internal typed-array
+    // brand across realms without consulting properties on the input.
+    let brand = Object::get_own_property_descriptor_symbol(
+        &typed_array_prototype,
+        &Symbol::to_string_tag(),
+    )
+    .ok()
+    .and_then(|descriptor| descriptor.get_get())
+    .and_then(|getter| getter.call0(bytes).ok());
+    if brand.and_then(|brand| brand.as_string()).as_deref() != Some("Uint8Array") {
+        return Err(error("Image bytes must be a Uint8Array"));
+    }
+
+    // The typed-array constructor copies exactly the source view, ignoring
+    // overridden properties. Reflect catches exceptions from unusable views.
+    let copy = Reflect::construct(&uint8_prototype.constructor(), &Array::of1(bytes))
+        .map_err(|_| error("Cannot copy image bytes from Uint8Array"))?;
+    Ok(copy.unchecked_into::<Uint8Array>().to_vec())
 }
 
 impl BlockInput {
