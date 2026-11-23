@@ -70,6 +70,6 @@ jobs:
           key: official-schemas-${{ hashFiles('tools/validate_ooxml.py') }}
       - if: steps.schemas.outputs.cache-hit != 'true'
         run: uv run --no-sync python tools/validate_ooxml.py --download-schemas
-      - run: uv run --no-sync pytest tests/python_bindings/test_standards.py
+      - run: uv run --no-sync pytest tests/python_bindings/test_standards.py tests/python_bindings/test_template_page_margins.py
       - run: cargo run --locked --example feature_parity -- "${{ runner.temp }}/features.docx"
       - run: uv run --no-sync python tools/validate_ooxml.py "${{ runner.temp }}/features.docx"

@@ -37,6 +37,7 @@ pub(crate) fn section_properties(
         size.set("w:h", h);
         // P1 (2016) §17.6.11: header and footer distances are independent of body margins.
         if let Some(m) = &p.page_margins {
+            let mut patched = false;
             for (k, v) in [
                 ("top", m.top),
                 ("bottom", m.bottom),
@@ -46,9 +47,28 @@ pub(crate) fn section_properties(
                 ("footer", m.footer),
             ] {
                 if let Some(v) = v {
+                    patched = true;
                     previous
                         .ensure("w:pgMar")
                         .set(format!("w:{k}"), crate::Emu::new(v).twips().get());
+                }
+            }
+            if patched {
+                // CT_PageMar requires all seven attributes even when only one
+                // margin is changed. Match the built-in template's defaults.
+                let margins = previous.ensure("w:pgMar");
+                for (key, default) in [
+                    ("w:top", 1440),
+                    ("w:right", 1800),
+                    ("w:bottom", 1440),
+                    ("w:left", 1800),
+                    ("w:header", 720),
+                    ("w:footer", 720),
+                    ("w:gutter", 0),
+                ] {
+                    if margins.get(key).is_none() {
+                        margins.set(key, default);
+                    }
                 }
             }
         }
