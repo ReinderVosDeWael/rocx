@@ -51,6 +51,13 @@ Six isolated development worktrees established these baselines before changes:
 | #3 | Separate body and header previews succeeded; the combined call failed. | One transaction supports body edits and shared or local header images, checks aliases and conflicts, and rejects the whole batch on failure. |
 | #21 | A temporary declaration-only field passed the old packed tests but the installed Wasm rejected it. | The packed consumer requires every declared field and variant in a typed fixture and exercises runtime validation. |
 
+Integrated verification on `9cc432b`: 304 Rust all-features/all-targets tests,
+three doctests, 806 schema-required Python tests, formatting, native/Wasm Clippy,
+Rust 1.88, and the strict 524-page docs build passed. All six Rust/Python
+catalog pairs matched byte for byte. Node 22 and 24 packed consumers passed
+the declaration checks, both Chromium modes, and five-way exact DOCX byte
+parity with schema and OPC validation. Issues #3 and #21 retain broader work.
+
 ### JavaScript parity review follow-up
 
 The adapter now retries after Wasm initialization failure (#24), rejects
