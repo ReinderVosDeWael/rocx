@@ -12,7 +12,10 @@ export function createGenerator(initialize) {
     if (Number.isNaN(date.valueOf()) || date.toISOString() !== canonical || timestamp.startsWith("0000")) {
       throw new TypeError("timestamp is not a valid UTC date and time");
     }
-    initialized ??= initialize();
+    initialized ??= initialize().catch((error) => {
+      initialized = undefined;
+      throw error;
+    });
     await initialized;
     return render_docx(declaration, timestamp);
   };
