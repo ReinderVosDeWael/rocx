@@ -1,7 +1,7 @@
 # Active plan — editing existing DOCX files
 
-The current editor checkpoint shipped in 0.3.0. Resume the editor work below;
-the unrelated backlog remains deferred.
+The initial editor checkpoint shipped in 0.3.0. The inline inspection slice
+below is unreleased; the unrelated backlog remains deferred.
 
 The [engine audit](ENGINE-AUDIT.md) records four correctness and preservation
 defects (#10–#13). Each failed its regression before the fix and passed
@@ -31,8 +31,9 @@ branch; keep umbrella or externally blocked work open.
 | --- | --- |
 | #2 | Closed as already fixed by `ab59df3`; all three builder regression tests passed on the default branch. |
 | #4 | Canonical Pages URLs returned HTTP 200; the old site path returned 404. Both hosted quickstarts ran outside the checkout against registry packages and passed independent readback. Strict build: 516 HTML pages; docs tests: 11 passed. The 0.3.0 PyPI OIDC run succeeded; crates.io used the bootstrap token. Private crates.io trusted-publisher verification remains. |
-| #7 | LibreOffice headless conversion and extracted-content checks passed on three identified fixtures. The [checklist](VIEWER-COMPATIBILITY-CHECKLIST.md) records hashes and limits. Desktop Word, a Word-authored fixture, and interactive LibreOffice observations remain. |
-| #3, #9 | Advance the editor checkpoint and JavaScript package respectively; verify remaining acceptance criteria independently. |
+| #7 | LibreOffice displayed three identified fixtures under Xvfb; the [checklist](VIEWER-COMPATIBILITY-CHECKLIST.md) records observed features and a separate headless conversion check. Desktop Word and a Word-authored fixture remain unverified. |
+| #3 | Direct body run and hyperlink inspection now exposes snapshot-scoped read-only anchors in Rust and Python. The umbrella remains open for broader typed stories and structured edits, including revisions. |
+| #9 | Advance the JavaScript package and verify the remaining acceptance criteria independently. |
 | #16 | Independent fixture reproduced tab-stop corruption; the fix preserves tab-stop markup and still replaces literal run tabs. Source and output passed schema/OPC validation. |
 | #17 | Block, row, and cell fixtures reproduced unguarded replacement and passed schema/OPC validation. Ordinary matches inside these controls are rejected; unrelated paragraphs and supported targeted replacement still work. |
 | #18 | A schema-valid template without margins reproduced invalid output. Partial patches now fill required built-in defaults and preserve existing margins. Both cases passed schema/OPC validation and readback. |
@@ -40,7 +41,10 @@ branch; keep umbrella or externally blocked work open.
 
 The combined #16–#18 fixes passed the Rust all-targets and doctest suites,
 Clippy, and 777 schema-required Python tests, including exact Rust/Python DOCX
-catalog byte parity.
+catalog byte parity. After the #19 fix and #3 inline slice were integrated,
+the Rust suite, three doctests, Clippy, Rust 1.88 check, 787 schema-required
+Python tests, exact catalog DOCX byte parity, and a strict 520-page docs build
+passed.
 
 The next release is conditional on resolving the open issues, confirming
 registry setup, and passing the local and hosted preflight in
@@ -61,10 +65,10 @@ registry setup, and passing the local and hosted preflight in
 
 After integrating the checkpoint with `main`, all six paired catalog artifacts
 matched byte for byte, and 21 Rust editor tests and 29 focused Python tests passed.
-Finish editor checkpoint task 4 before moving on to task 5. Next, preserve
-direct body paragraph run boundaries and introduce snapshot-scoped, read-only
-addresses for supported inline targets. Keep the Wasm prototype out of the
-release path; viewer results and hosted release preflight remain separate.
+Finish editor checkpoint task 4 before moving on to task 5. Extend the typed
+inspection contract beyond the current direct body and default-header slice.
+Keep the Wasm prototype out of the Rust/Python release path; viewer results and
+hosted release preflight remain separate.
 Repository commits, pushes, and release tags are authorized by `AGENTS.md`.
 The current checkpoint and issue work are split into separate commits.
 Normal pushes can deploy the documentation site. Do not push a publishing tag
@@ -119,11 +123,11 @@ existing declarative and template APIs intact.
    for equivalent edit batches, not just normalized XML equality.
 
 The editor opens a Transitional DOCX in Rust and Python, exposes direct body
-paragraphs and placeholders for other blocks, and previews alignment patches
-and declarative table insertions in one batch. Direct paragraphs expose
-ordered text, tab, break, and opaque inline items for inspection; this view
-flattens run and hyperlink boundaries and does not yet expose inline edit
-anchors. The section view reports body ranges and explicit section types,
+paragraphs, tables, and placeholders for unsupported blocks, and previews
+alignment patches and declarative table insertions in one batch. Direct body
+paragraphs expose run and hyperlink structure with snapshot-scoped read-only
+anchors alongside their existing flat projections. Inline edits are not yet
+available. The section view reports body ranges and explicit section types,
 without inferring defaults. Tables can contain formatted paragraphs, nested
 tables, fractions, and external links. The editor sizes
 automatic tables only in simple single-column sections and rejects insertion
@@ -152,12 +156,12 @@ documents; Word-specific interoperability is not a gate for this batch.
 ### Serial checkpoint: editor work
 
 Work through these tasks in order and checkpoint after task 10. Tasks 1–3
-passed on the python-docx fixture. Task 4 is in progress: basic paragraph
-inline readback, direct section readback, typed direct-body tables, and typed
-default-header stories are available in Rust and Python. The paired catalogs
-passed exact byte parity. Resume with richer inline structure and snapshot-scoped
-anchors; other stories are still outside the implemented slice. Tasks 5–10 have
-not started.
+passed on the python-docx fixture. Task 4 is in progress: direct body
+paragraphs have flat and structured inline readback, including read-only
+run/hyperlink anchors, and direct sections, body tables, and default headers
+are inspectable. The paired catalogs passed exact byte parity. Table-cell and
+header paragraphs still expose flat inline projections; other stories are
+outside the implemented slice. Tasks 5–10 have not started.
 
 1. Generate the [python-docx editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
    with formatted body text, an insertion anchor, and two sections sharing a

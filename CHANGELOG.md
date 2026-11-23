@@ -7,6 +7,11 @@
 - Give each fresh section its own explicitly declared headers and footers.
   Omitting a later story inherits it from the preceding section.
 
+### Existing documents
+
+- Inspect run and hyperlink boundaries in direct body paragraphs with
+  snapshot-scoped read-only addresses in Rust and Python.
+
 ### Template fixes
 
 - Preserve paragraph tab-stop definitions when replacing literal tabs in text.
