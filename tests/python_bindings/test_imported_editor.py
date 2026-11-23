@@ -80,6 +80,68 @@ def test_python_docx_header_story_with_opaque_table():
     assert _parts(imported.preview([]).to_docx()) == _parts(data)
 
 
+@pytest.mark.parametrize("mode,affected,drawings", [
+    ("shared", [0, 1], [1, 1]),
+    ("section_local", [0], [1, 0]),
+])
+async def test_combined_transaction_on_independent_fixture(mode, affected, drawings):
+    source = (FIXTURES / "imported-editor.docx").read_bytes()
+    document = ImportedDocument.open(source)
+    first, second = document.default_headers
+    patch = ParagraphAlignmentEdit(document.body[0].anchor, "center")
+    table = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text="combined")])])]).resolve()
+    insertion = TableInsertion(document.body[1].anchor, table)
+    image = await d.ImageRun(data=(FIXTURES / "images/sample.png").read_bytes()).resolve()
+    header = HeaderImageEdit(first.anchor, image, mode=mode)
+
+    # Both operations work independently, but must also work against one snapshot.
+    assert document.preview([patch], table_insertions=[insertion]).insertions
+    assert document.preview_header_image(header).change.affected_sections == affected
+    preview = document.preview([patch], table_insertions=[insertion], header_images=[header])
+    change, = preview.header_changes
+    assert change.affected_sections == affected
+    assert change.restored_section == (1 if mode == "section_local" else None)
+    output = preview.to_docx()
+    saved = docx.Document(io.BytesIO(output))
+    assert saved.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert saved.paragraphs[0].runs[0].bold
+    assert saved.tables[0].cell(0, 0).text == "combined"
+    assert [len(s.header._element.xpath(".//w:drawing")) for s in saved.sections] == drawings
+    if mode == "section_local":
+        part = first.part_name.lstrip("/")
+        assert _parts(output)[part] == _parts(source)[part]
+    assert document.body[0].alignment is None
+    assert document.default_headers[1].part_name == second.part_name
+
+
+async def test_combined_transaction_rejects_foreign_targets_and_alias_conflicts():
+    source = (FIXTURES / "imported-editor.docx").read_bytes()
+    document, other = (ImportedDocument.open(source) for _ in range(2))
+    patch = ParagraphAlignmentEdit(document.body[0].anchor, "center")
+    foreign_patch = ParagraphAlignmentEdit(other.body[0].anchor, "center")
+    image = await d.ImageRun(data=(FIXTURES / "images/sample.png").read_bytes()).resolve()
+    first, second = document.default_headers
+    shared = HeaderImageEdit(first.anchor, image, mode="shared")
+    local = HeaderImageEdit(second.anchor, image, mode="section_local")
+    stale = HeaderImageEdit(other.default_headers[1].anchor, image, mode="section_local")
+    for edits in [[shared, shared, stale], [stale, shared, shared]]:
+        with pytest.raises(ValueError, match="different document snapshot"):
+            document.preview([patch], header_images=edits)
+    with pytest.raises(ValueError, match="different document snapshot"):
+        document.preview([foreign_patch], header_images=[shared])
+    for edits in [[shared, local], [local, shared]]:
+        with pytest.raises(ValueError, match="same physical part"):
+            document.preview([patch], header_images=edits)
+    image_table = await d.Table([d.TableRow([d.TableCell([d.Paragraph(children=[
+        d.ImageRun(data=(FIXTURES / "images/sample.png").read_bytes()),
+    ])])])]).resolve()
+    insertion = TableInsertion(document.body[1].anchor, image_table)
+    with pytest.raises(ValueError, match="unsupported inline content in an inserted table"):
+        document.preview([patch], table_insertions=[insertion], header_images=[local])
+    assert _parts(document.preview([]).to_docx()) == _parts(source)
+    assert document.preview([patch], header_images=[shared]).header_changes[0].affected_sections == [0, 1]
+
+
 async def test_python_docx_fixture_body_edits():
     source = (FIXTURES / "imported-editor.docx").read_bytes()
     before = docx.Document(io.BytesIO(source))

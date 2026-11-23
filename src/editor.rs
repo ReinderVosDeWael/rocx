@@ -271,6 +271,7 @@ pub struct AlignmentChange {
 pub struct EditPreview {
     changes: Vec<AlignmentChange>,
     insertions: Vec<TableInsertionChange>,
+    header_changes: Vec<HeaderImageChange>,
     output: PackagePlan,
 }
 
@@ -283,6 +284,11 @@ impl EditPreview {
     /// Table insertions in source document order.
     pub fn insertions(&self) -> &[TableInsertionChange] {
         &self.insertions
+    }
+
+    /// Header image changes in target section order.
+    pub fn header_changes(&self) -> &[HeaderImageChange] {
+        &self.header_changes
     }
 
     pub fn to_docx(&self) -> Result<Vec<u8>> {
@@ -405,9 +411,31 @@ impl ImportedDocument {
         edits: &[ParagraphAlignmentEdit],
         tables: &[TableInsertion],
     ) -> Result<EditPreview> {
+        self.preview_transaction(edits, tables, &[])
+    }
+
+    /// Stage body and header edits in one independently writable preview.
+    /// All targets refer to this original snapshot. One alignment and one table
+    /// insertion may target the same paragraph; each section may have one header
+    /// edit. A shared edit excludes other edits of the same physical source part.
+    /// Local forks use the original part even when another section forks it in
+    /// the same batch. No edits are published if any operation fails.
+    pub fn preview_transaction(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+    ) -> Result<EditPreview> {
+        for snapshot in edits
+            .iter()
+            .map(|edit| &edit.target.snapshot)
+            .chain(tables.iter().map(|insertion| &insertion.target.snapshot))
+            .chain(header_images.iter().map(HeaderImageEdit::target_snapshot))
+        {
+            self.validate_snapshot(snapshot)?;
+        }
         let mut by_index = BTreeMap::new();
         for edit in edits {
-            self.validate_target(&edit.target)?;
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
                 .is_some()
@@ -417,7 +445,6 @@ impl ImportedDocument {
         }
         let mut table_targets = BTreeMap::new();
         for insertion in tables {
-            self.validate_target(&insertion.target)?;
             if table_targets
                 .insert(insertion.target.body_index, &insertion.table)
                 .is_some()
@@ -430,8 +457,10 @@ impl ImportedDocument {
         let mut package = self.package.clone();
         let mut changes = Vec::new();
         let mut insertions = Vec::new();
-        if !by_index.is_empty() || !table_targets.is_empty() {
+        let mut header_changes = Vec::new();
+        if !by_index.is_empty() || !table_targets.is_empty() || !header_images.is_empty() {
             let mut root = package.word(&self.main)?;
+            let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             for (body_index, paragraph) in body
                 .elements_mut()
@@ -455,8 +484,16 @@ impl ImportedDocument {
             if !by_index.is_empty() {
                 return Err(unsupported("target paragraph not found"));
             }
-            if !table_targets.is_empty() {
-                let sites = insertion::table_sites(body, &table_targets)?;
+            let sites = if table_targets.is_empty() {
+                Vec::new()
+            } else {
+                insertion::table_sites(body, &table_targets)?
+            };
+            // Header reference edits use original body slots, before splicing tables.
+            let (staged, staged_headers) = headers.stage(package, &self.main, body)?;
+            package = staged;
+            header_changes = staged_headers;
+            if !sites.is_empty() {
                 let mut payloads = Vec::with_capacity(sites.len());
                 let mut slots = Vec::with_capacity(sites.len());
                 for (body_index, slot, width) in sites {
@@ -483,19 +520,21 @@ impl ImportedDocument {
                 }
                 body.children.extend(original);
             }
-            if !changes.is_empty() || !insertions.is_empty() {
+            if !changes.is_empty()
+                || !insertions.is_empty()
+                || header_changes
+                    .iter()
+                    .any(|change| change.mode == HeaderEditMode::SectionLocal)
+            {
                 package.put_word(&self.main, root)?;
             }
         }
         Ok(EditPreview {
             changes,
             insertions,
+            header_changes,
             output: PackagePlan::new(package)?,
         })
-    }
-
-    fn validate_target(&self, target: &ParagraphAnchor) -> Result<()> {
-        self.validate_snapshot(&target.snapshot)
     }
 
     fn validate_snapshot(&self, snapshot: &Arc<()>) -> Result<()> {

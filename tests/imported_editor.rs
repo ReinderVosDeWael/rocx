@@ -774,15 +774,21 @@ fn header_fixture(content: &str, hyperlink: bool) -> Vec<u8> {
 }
 
 fn header_image() -> rocx::ResolvedImage {
+    resolve_header_image(None)
+}
+
+fn resolve_header_image(anchor: Option<rocx::ImageAnchor>) -> rocx::ResolvedImage {
     use rocx::{Component, ImageRun};
-    block_on(Component::resolve(ImageRun::new(
-        include_bytes!("fixtures/images/sample.png").to_vec(),
-    )))
-    .unwrap()
-    .unwrap()
-    .image()
-    .unwrap()
-    .clone()
+    let mut image = ImageRun::new(include_bytes!("fixtures/images/sample.png").to_vec());
+    image.transformation = anchor
+        .map(|anchor| rocx::ImageTransformation::default().with_anchor(anchor))
+        .into();
+    block_on(Component::resolve(image))
+        .unwrap()
+        .unwrap()
+        .image()
+        .unwrap()
+        .clone()
 }
 
 fn assert_header_image_relationship(output: &BTreeMap<String, Vec<u8>>, part: &str) {
@@ -811,6 +817,204 @@ fn assert_header_image_relationship(output: &BTreeMap<String, Vec<u8>>, part: &s
     assert_eq!(
         output[image_part.zip_name()],
         include_bytes!("fixtures/images/sample.png")
+    );
+}
+
+#[test]
+fn mixed_transaction_preserves_source_and_uses_original_slots() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit, TableInsertion};
+    let input = include_bytes!("fixtures/imported-editor.docx");
+    let doc = ImportedDocument::open(input).unwrap();
+    let headers = doc.default_headers().unwrap();
+    let original = parts(input);
+    let align = ParagraphAlignmentEdit {
+        target: paragraph(&doc, 0).anchor.clone(),
+        alignment: Alignment::Center,
+    };
+    let table = TableInsertion {
+        target: paragraph(&doc, 1).anchor.clone(),
+        table: insertion_table(),
+    };
+    for mode in [HeaderEditMode::Shared, HeaderEditMode::SectionLocal] {
+        let edit = HeaderImageEdit {
+            target: headers[0].anchor.clone(),
+            mode,
+            image: header_image(),
+        };
+        let preview = doc
+            .preview_transaction(
+                std::slice::from_ref(&align),
+                std::slice::from_ref(&table),
+                std::slice::from_ref(&edit),
+            )
+            .unwrap();
+        let local = mode == HeaderEditMode::SectionLocal;
+        let [change] = preview.header_changes() else {
+            panic!("expected one header change")
+        };
+        assert_eq!(
+            change.affected_sections,
+            if local { &[0][..] } else { &[0, 1] }
+        );
+        assert_eq!(change.restored_section, local.then_some(1));
+        let bytes = preview.to_docx().unwrap();
+        let reopened = ImportedDocument::open(&bytes).unwrap();
+        assert_eq!(paragraph(&reopened, 0).alignment, Some(Alignment::Center));
+        assert!(matches!(reopened.body()[2], BodyBlock::Table(_)));
+        let after = reopened.default_headers().unwrap();
+        assert_eq!(after[0].part_name, change.output_part);
+        assert_eq!(after[1].part_name, change.source_part);
+        let output = parts(&bytes);
+        assert_header_image_relationship(&output, &change.output_part);
+        let header = headers[0].part_name.trim_start_matches('/');
+        let (dir, filename) = header.rsplit_once('/').unwrap();
+        let rels = format!("{dir}/_rels/{filename}.rels");
+        let variant_changes = if local {
+            vec!["word/_rels/document.xml.rels"]
+        } else {
+            vec![header, rels.as_str()]
+        };
+        for (name, old) in &original {
+            if !["word/document.xml", "[Content_Types].xml"].contains(&name.as_str())
+                && !variant_changes.contains(&name.as_str())
+            {
+                assert_eq!(&output[name], old, "{name}");
+            }
+        }
+        assert_eq!(
+            doc.preview_transaction(&[], &[], std::slice::from_ref(&edit))
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+            doc.preview_header_image(&edit).unwrap().to_docx().unwrap()
+        );
+    }
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        original
+    );
+}
+
+#[test]
+fn adjacent_local_forks_are_order_independent_and_failure_leaks_no_staged_work() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let input = header_fixture("<w:p/>", false);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let headers = doc.default_headers().unwrap();
+    let edits = [0, 1].map(|section| HeaderImageEdit {
+        target: headers[section].anchor.clone(),
+        mode: HeaderEditMode::SectionLocal,
+        image: header_image(),
+    });
+    let align = [ParagraphAlignmentEdit {
+        target: paragraph(&doc, 0).anchor.clone(),
+        alignment: Alignment::Right,
+    }];
+    let preview = doc.preview_transaction(&align, &[], &edits).unwrap();
+    let [first, second] = preview.header_changes() else {
+        panic!("expected two local forks")
+    };
+    assert_eq!(first.affected_sections, [0]);
+    assert_eq!(second.affected_sections, [1]);
+    assert_eq!(first.restored_section, None);
+    assert_eq!(second.restored_section, Some(2));
+    let bytes = preview.to_docx().unwrap();
+    let reversed = doc
+        .preview_transaction(&align, &[], &[edits[1].clone(), edits[0].clone()])
+        .unwrap();
+    assert_eq!(reversed.to_docx().unwrap(), bytes);
+    let after = ImportedDocument::open(&bytes)
+        .unwrap()
+        .default_headers()
+        .unwrap();
+    assert_ne!(first.output_part, second.output_part);
+    assert_eq!(after[0].part_name, first.output_part);
+    assert_eq!(after[1].part_name, second.output_part);
+    assert_eq!(after[2].part_name, first.source_part);
+    let output = parts(&bytes);
+    let drawing_id = |part: &str| {
+        let xml = std::str::from_utf8(&output[part.trim_start_matches('/')]).unwrap();
+        roxmltree::Document::parse(xml)
+            .unwrap()
+            .descendants()
+            .find(|node| node.tag_name().name() == "docPr")
+            .unwrap()
+            .attribute("id")
+            .unwrap()
+            .parse::<u32>()
+            .unwrap()
+    };
+    assert!(drawing_id(&first.output_part) < drawing_id(&second.output_part));
+
+    let mut invalid = edits.clone();
+    invalid[1].image = resolve_header_image(Some(rocx::ImageAnchor::default()));
+    let error = doc.preview_transaction(&align, &[], &invalid).unwrap_err();
+    assert!(
+        error.to_string().contains("requires an inline image"),
+        "{error}"
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&input)
+    );
+    assert_eq!(
+        doc.preview_transaction(&align, &[], &edits)
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        bytes
+    );
+}
+
+#[test]
+fn shared_header_conflicts_follow_physical_parts_not_relationship_ids() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let mut entries = parts(&header_fixture("<w:p/>", false));
+    let xml = entries.get_mut("word/document.xml").unwrap();
+    *xml = std::str::from_utf8(xml)
+        .unwrap()
+        .replace(
+            "<w:sectPr/></w:body>",
+            r#"<w:sectPr><w:headerReference w:type="default" r:id="alias"/></w:sectPr></w:body>"#,
+        )
+        .into_bytes();
+    let rels = entries.get_mut("word/_rels/document.xml.rels").unwrap();
+    *rels = std::str::from_utf8(rels)
+        .unwrap()
+        .replace("</Relationships>", r#"<Relationship Id="alias" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="headerTest.xml"/></Relationships>"#)
+        .into_bytes();
+    let input = package_bytes(entries);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let headers = doc.default_headers().unwrap();
+    assert!(!headers[0].inherited && !headers[2].inherited);
+    assert_eq!(headers[0].part_name, headers[2].part_name);
+    let align = [ParagraphAlignmentEdit {
+        target: paragraph(&doc, 0).anchor.clone(),
+        alignment: Alignment::Right,
+    }];
+    let edit = HeaderImageEdit {
+        target: headers[0].anchor.clone(),
+        mode: HeaderEditMode::Shared,
+        image: header_image(),
+    };
+    for mode in [HeaderEditMode::Shared, HeaderEditMode::SectionLocal] {
+        let aliased = HeaderImageEdit {
+            target: headers[2].anchor.clone(),
+            mode,
+            image: header_image(),
+        };
+        for edits in [[edit.clone(), aliased.clone()], [aliased, edit.clone()]] {
+            let error = doc.preview_transaction(&align, &[], &edits).unwrap_err();
+            assert!(error.to_string().contains("same physical part"), "{error}");
+        }
+    }
+    let error = doc
+        .preview_transaction(&align, &[], &[edit.clone(), edit])
+        .unwrap_err();
+    assert!(error.to_string().contains("target one section"), "{error}");
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&input)
     );
 }
 
@@ -1250,11 +1454,30 @@ fn shared_edit_counts_aliases_on_first_page_headers() {
     assert_eq!(headers[1].part_name, headers[2].part_name);
     assert_ne!(headers[0].part_name, headers[1].part_name);
     let preview = doc
-        .preview_header_image(&HeaderImageEdit {
-            target: headers[0].anchor.clone(),
-            mode: HeaderEditMode::Shared,
-            image: header_image(),
-        })
+        .preview_transaction(
+            &[],
+            &[],
+            &[
+                HeaderImageEdit {
+                    target: headers[2].anchor.clone(),
+                    mode: HeaderEditMode::SectionLocal,
+                    image: header_image(),
+                },
+                HeaderImageEdit {
+                    target: headers[0].anchor.clone(),
+                    mode: HeaderEditMode::Shared,
+                    image: header_image(),
+                },
+            ],
+        )
         .unwrap();
-    assert_eq!(preview.change().affected_sections, [0, 2]);
+    let [shared, local] = preview.header_changes() else {
+        panic!("expected shared and local edits")
+    };
+    assert_eq!(shared.affected_sections, [0, 2]);
+    assert_eq!(local.affected_sections, [2]);
+    assert_ne!(shared.source_part, local.source_part);
+    let output = parts(&preview.to_docx().unwrap());
+    assert_header_image_relationship(&output, &shared.output_part);
+    assert_header_image_relationship(&output, &local.output_part);
 }

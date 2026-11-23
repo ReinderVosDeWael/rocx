@@ -71,9 +71,7 @@ struct PyImportedSection {
 
 #[pyclass(name = "HeaderImageEdit", frozen, module = "rocx.editor")]
 struct PyHeaderImageEdit {
-    target: editor::HeaderAnchor,
-    image: crate::ResolvedImage,
-    shared: bool,
+    inner: editor::HeaderImageEdit,
 }
 
 #[pymethods]
@@ -85,9 +83,9 @@ impl PyHeaderImageEdit {
         image: &Bound<'_, PyAny>,
         mode: &str,
     ) -> PyResult<Self> {
-        let shared = match mode {
-            "shared" => true,
-            "section_local" => false,
+        let mode = match mode {
+            "shared" => editor::HeaderEditMode::Shared,
+            "section_local" => editor::HeaderEditMode::SectionLocal,
             _ => {
                 return Err(PyValueError::new_err(
                     "mode must be 'shared' or 'section_local'",
@@ -108,9 +106,11 @@ impl PyHeaderImageEdit {
             return Err(PyTypeError::new_err("expected a resolved ImageRun"));
         };
         Ok(Self {
-            target: anchor.inner.clone(),
-            image,
-            shared,
+            inner: editor::HeaderImageEdit {
+                target: anchor.inner.clone(),
+                image,
+                mode,
+            },
         })
     }
 }
@@ -129,6 +129,22 @@ struct PyHeaderImageChange {
     mode: String,
 }
 
+impl From<&editor::HeaderImageChange> for PyHeaderImageChange {
+    fn from(change: &editor::HeaderImageChange) -> Self {
+        Self {
+            source_part: change.source_part.clone(),
+            output_part: change.output_part.clone(),
+            affected_sections: change.affected_sections.clone(),
+            restored_section: change.restored_section,
+            mode: match change.mode {
+                editor::HeaderEditMode::Shared => "shared",
+                editor::HeaderEditMode::SectionLocal => "section_local",
+            }
+            .to_owned(),
+        }
+    }
+}
+
 #[pyclass(name = "HeaderImagePreview", module = "rocx.editor")]
 struct PyHeaderImagePreview {
     inner: Mutex<editor::HeaderImagePreview>,
@@ -142,18 +158,7 @@ impl PyHeaderImagePreview {
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?;
-        let change = preview.change();
-        Ok(PyHeaderImageChange {
-            source_part: change.source_part.clone(),
-            output_part: change.output_part.clone(),
-            affected_sections: change.affected_sections.clone(),
-            restored_section: change.restored_section,
-            mode: match &change.mode {
-                editor::HeaderEditMode::Shared => "shared",
-                editor::HeaderEditMode::SectionLocal => "section_local",
-            }
-            .to_owned(),
-        })
+        Ok(preview.change().into())
     }
 
     fn to_docx<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
@@ -466,6 +471,16 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    /// Header image changes in target section order.
+    #[getter]
+    fn header_changes(&self) -> PyResult<Vec<PyHeaderImageChange>> {
+        let preview = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?;
+        Ok(preview.header_changes().iter().map(Into::into).collect())
+    }
+
     #[getter]
     fn insertions(&self) -> PyResult<Vec<PyTableInsertionChange>> {
         let preview = self
@@ -598,21 +613,12 @@ impl PyImportedDocument {
         &self,
         edit: PyRef<'_, PyHeaderImageEdit>,
     ) -> PyResult<PyHeaderImagePreview> {
-        let edit = editor::HeaderImageEdit {
-            target: edit.target.clone(),
-            image: edit.image.clone(),
-            mode: if edit.shared {
-                editor::HeaderEditMode::Shared
-            } else {
-                editor::HeaderEditMode::SectionLocal
-            },
-        };
         let doc = self
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyHeaderImagePreview {
-            inner: Mutex::new(doc.preview_header_image(&edit).map_err(rust_error)?),
+            inner: Mutex::new(doc.preview_header_image(&edit.inner).map_err(rust_error)?),
         })
     }
 
@@ -668,11 +674,13 @@ impl PyImportedDocument {
         inline_object(py, doc.inline_at(&target.inner).map_err(rust_error)?)
     }
 
-    #[pyo3(signature = (edits, *, table_insertions=None))]
+    /// Stage alignment edits, table insertions and header images against one snapshot.
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
         table_insertions: Option<Vec<PyRef<'_, PyTableInsertion>>>,
+        header_images: Option<Vec<PyRef<'_, PyHeaderImageEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -689,12 +697,20 @@ impl PyImportedDocument {
                 table: insertion.table.clone(),
             })
             .collect();
+        let header_images: Vec<_> = header_images
+            .unwrap_or_default()
+            .iter()
+            .map(|edit| edit.inner.clone())
+            .collect();
         let doc = self
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
-            inner: Mutex::new(doc.preview_batch(&edits, &insertions).map_err(rust_error)?),
+            inner: Mutex::new(
+                doc.preview_transaction(&edits, &insertions, &header_images)
+                    .map_err(rust_error)?,
+            ),
         })
     }
 }

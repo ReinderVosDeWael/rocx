@@ -1,13 +1,13 @@
 //! Default-header inspection and explicitly scoped editing.
 
 use super::{
-    ALTERNATE, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedSection,
+    ALTERNATE, EditPreview, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedSection,
     InlineLocation, insertion, missing_body, read_paragraph_inlines, unsupported,
 };
 use crate::ooxml::{WordParts, encode_header_image};
-use crate::opc::{Package, PackagePlan};
+use crate::opc::Package;
 use crate::xml::{Content, Node, W};
-use crate::{ResolvedImage, Result, SectionType};
+use crate::{DrawingId, ResolvedImage, Result, SectionType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -106,6 +106,12 @@ pub struct HeaderImageEdit {
     pub image: ResolvedImage,
 }
 
+impl HeaderImageEdit {
+    pub(super) fn target_snapshot(&self) -> &Arc<()> {
+        &self.target.snapshot
+    }
+}
+
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct HeaderImageChange {
@@ -120,17 +126,16 @@ pub struct HeaderImageChange {
 
 #[derive(Debug)]
 pub struct HeaderImagePreview {
-    change: HeaderImageChange,
-    output: PackagePlan,
+    batch: EditPreview,
 }
 
 impl HeaderImagePreview {
     pub fn change(&self) -> &HeaderImageChange {
-        &self.change
+        &self.batch.header_changes()[0]
     }
 
     pub fn to_docx(&self) -> Result<Vec<u8>> {
-        self.output.to_bytes()
+        self.batch.to_docx()
     }
 }
 
@@ -253,15 +258,85 @@ impl ImportedDocument {
 
     /// Stage an image in one existing default header, with explicit sharing intent.
     pub fn preview_header_image(&self, edit: &HeaderImageEdit) -> Result<HeaderImagePreview> {
-        self.validate_snapshot(&edit.target.snapshot)?;
-        let mut package = self.package.clone();
-        let mut root = package.word(&self.main)?;
-        let sections = header_sections(&package, &self.main, &root)?;
-        let index = edit.target.section_index;
-        let source = sections
-            .get(index)
-            .and_then(|section| section.effective[0].as_ref())
-            .ok_or_else(|| unsupported("target has no effective default header"))?;
+        Ok(HeaderImagePreview {
+            batch: self.preview_transaction(&[], &[], std::slice::from_ref(edit))?,
+        })
+    }
+
+    pub(super) fn plan_header_images<'a>(
+        &self,
+        root: &Node,
+        edits: &'a [HeaderImageEdit],
+    ) -> Result<HeaderBatch<'a>> {
+        if edits.is_empty() {
+            return Ok(HeaderBatch::default());
+        }
+        let mut targets = BTreeMap::new();
+        for edit in edits {
+            if targets.insert(edit.target.section_index, edit).is_some() {
+                return Err(unsupported(
+                    "multiple header image edits target one section",
+                ));
+            }
+        }
+        let sections = header_sections(&self.package, &self.main, root)?;
+        let mut sources = BTreeMap::new();
+        for (&index, edit) in &targets {
+            let source = default_source(&sections, index)?;
+            if let Some(previous) = sources.insert(&source.part, edit.mode)
+                && (previous == HeaderEditMode::Shared || edit.mode == HeaderEditMode::Shared)
+            {
+                return Err(unsupported(
+                    "shared header image edit conflicts with another edit of the same physical part",
+                ));
+            }
+        }
+        Ok(HeaderBatch { sections, targets })
+    }
+}
+
+fn default_source(sections: &[SectionHeaders], index: usize) -> Result<&HeaderRef> {
+    sections
+        .get(index)
+        .and_then(|section| section.effective[0].as_ref())
+        .ok_or_else(|| unsupported("target has no effective default header"))
+}
+
+#[derive(Default)]
+pub(super) struct HeaderBatch<'a> {
+    sections: Vec<SectionHeaders>,
+    targets: BTreeMap<usize, &'a HeaderImageEdit>,
+}
+
+impl HeaderBatch<'_> {
+    pub(super) fn stage(
+        &self,
+        mut package: Package,
+        main: &str,
+        body: &mut Node,
+    ) -> Result<(Package, Vec<HeaderImageChange>)> {
+        let mut changes = Vec::with_capacity(self.targets.len());
+        let mut last_drawing = None;
+        for (&index, edit) in &self.targets {
+            let (staged, change) =
+                self.stage_image(package, main, body, index, edit, &mut last_drawing)?;
+            package = staged;
+            changes.push(change);
+        }
+        Ok((package, changes))
+    }
+
+    fn stage_image(
+        &self,
+        mut package: Package,
+        main: &str,
+        body: &mut Node,
+        index: usize,
+        edit: &HeaderImageEdit,
+        last_drawing: &mut Option<DrawingId>,
+    ) -> Result<(Package, HeaderImageChange)> {
+        let sections = &self.sections;
+        let source = default_source(sections, index)?;
         let mut header = package.word(&source.part)?;
         if header.name != "w:hdr" || !insertion::can_append(&header) {
             return Err(unsupported("header cannot be safely extended"));
@@ -293,35 +368,62 @@ impl ImportedDocument {
                 let output = package.unique(&prefix, "xml");
                 package.copy_sibling_relationships(&source.part, &output)?;
                 package.content_type(&output, HEADER_MIME)?;
-                let id = package.link(&self.main, "header", &output)?;
-                let body = root.child_mut("w:body").ok_or_else(missing_body)?;
+                let id = package.link(main, "header", &output)?;
                 set_default_reference(body, sections[index].slot, &id)?;
-                if let Some(next) = sections
-                    .get(index + 1)
-                    .filter(|part| !part.explicit_default)
-                {
+                // A following section with its own local edit gets that new
+                // reference, not a restoration. It still forks the original.
+                if let Some(next) = sections.get(index + 1).filter(|part| {
+                    !part.explicit_default && !self.targets.contains_key(&(index + 1))
+                }) {
                     set_default_reference(body, next.slot, &source.id)?;
                     restored_section = Some(index + 1);
                 }
-                package.put_word(&self.main, root)?;
                 (output, vec![index])
             }
         };
-        let (mut package, paragraph) =
-            encode_header_image(package, &self.main, &output_part, &edit.image)?;
+        let (mut package, mut paragraph) =
+            encode_header_image(package, main, &output_part, &edit.image)?;
+        reserve_staged_drawing(&mut paragraph, last_drawing)?;
         header.push(paragraph);
         package.put_word(&output_part, header)?;
-        Ok(HeaderImagePreview {
-            change: HeaderImageChange {
+        Ok((
+            package,
+            HeaderImageChange {
                 source_part: source.part.clone(),
                 output_part,
                 affected_sections,
                 restored_section,
                 mode: edit.mode,
             },
-            output: PackagePlan::new(package)?,
-        })
+        ))
     }
+}
+
+fn reserve_staged_drawing(paragraph: &mut Node, last: &mut Option<DrawingId>) -> Result<()> {
+    // The encoder scans materialized source parts. Remember allocations from
+    // earlier edits, whose header XML is still staged in the package cache.
+    let doc_pr = paragraph
+        .child_mut("w:r")
+        .and_then(|run| run.child_mut("w:drawing"))
+        .and_then(|drawing| drawing.child_mut("wp:inline"))
+        .and_then(|inline| inline.child_mut("wp:docPr"))
+        .ok_or_else(|| unsupported("encoded header image has no drawing properties"))?;
+    let id = doc_pr
+        .get("id")
+        .and_then(|id| id.parse().ok())
+        .map(DrawingId::new)
+        .ok_or_else(|| unsupported("encoded header image has an invalid drawing ID"))?;
+    let id = if let Some(previous) = *last
+        && previous >= id
+    {
+        let next = previous.next()?;
+        doc_pr.set("id", next);
+        next
+    } else {
+        id
+    };
+    *last = Some(id);
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
