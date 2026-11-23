@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Authoring
+
+- Give each fresh section its own explicitly declared headers and footers.
+  Omitting a later story inherits it from the preceding section.
+
 ### Template fixes
 
 - Preserve paragraph tab-stop definitions when replacing literal tabs in text.

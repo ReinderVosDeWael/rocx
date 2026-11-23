@@ -36,7 +36,7 @@ branch; keep umbrella or externally blocked work open.
 | #16 | Independent fixture reproduced tab-stop corruption; the fix preserves tab-stop markup and still replaces literal run tabs. Source and output passed schema/OPC validation. |
 | #17 | Block, row, and cell fixtures reproduced unguarded replacement and passed schema/OPC validation. Ordinary matches inside these controls are rejected; unrelated paragraphs and supported targeted replacement still work. |
 | #18 | A schema-valid template without margins reproduced invalid output. Partial patches now fill required built-in defaults and preserve existing margins. Both cases passed schema/OPC validation and readback. |
-| #19 | Reproduce and fix merged authored section stories; verify explicit story isolation, omitted-story inheritance, and unchanged template append behavior. |
+| #19 | Eight fresh-document checks reproduced shared/explicit references before the fix. Explicit stories now use separate parts and omissions inherit; the independent template append check remains unchanged. Focused integration (including exact DOCX byte parity) passed 59 tests. |
 
 The combined #16–#18 fixes passed the Rust all-targets and doctest suites,
 Clippy, and 777 schema-required Python tests, including exact Rust/Python DOCX
