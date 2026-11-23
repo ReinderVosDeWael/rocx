@@ -117,11 +117,13 @@ in-memory copies; large-document throughput and memory use are not qualified.
 ## Verification
 
 The non-publishing GitHub Actions workflow packs the package, installs it in
-fresh Node and Vite projects, and type-checks both module resolutions. It
-downloads DOCX files in real Chromium from Vite development and production
-servers. The five outputs (Rust, Python, Node, and the two browser runs) must
-match exactly as ZIP bytes, open with python-docx, and pass ECMA-376 schema and
-OPC relationship checks.
+fresh Node and Vite projects, and type-checks both module resolutions. The
+packed input contract requires sample values for every declared input field
+and variant, including optional fields, and checks them against the running
+adapter. The workflow downloads DOCX files in real Chromium from Vite
+development and production servers. The five outputs (Rust, Python, Node, and
+the two browser runs) must match exactly as ZIP bytes, open with python-docx,
+and pass ECMA-376 schema and OPC relationship checks.
 
 To run locally after building the locked Python environment and installing
 the pinned tools above:

@@ -13,7 +13,7 @@ mkdir "$output/node" "$output/web"
 cp "$examples"/{author.mjs,node.mjs} \
     "$root/javascript/tests"/{node-errors,init-retry,unicode,cross-realm,diagnostics}.mjs "$output/node/"
 cp "$examples"/{author.mjs,browser.mjs,index.html,vite.config.mjs} "$output/web/"
-cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,browser-test.mjs} "$output/web/"
+cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,contract-input.mts,input-contract.mjs,browser-test.mjs} "$output/web/"
 
 (
     cd "$output/node"
@@ -39,8 +39,9 @@ cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,browser-te
     if [[ "${ROCX_INSTALL_BROWSER:-0}" == 1 ]]; then
         ./node_modules/.bin/playwright install --with-deps chromium
     fi
-    ./node_modules/.bin/tsc --noEmit --strict --target es2022 --module NodeNext types.mts
-    ./node_modules/.bin/tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler types.mts
+    ./node_modules/.bin/tsc --noEmitOnError --strict --target es2022 --module NodeNext types.mts contract-input.mts
+    ./node_modules/.bin/tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler types.mts contract-input.mts
+    node input-contract.mjs "$image"
     node browser-test.mjs "$image" "$output"
 )
 cd "$root"
