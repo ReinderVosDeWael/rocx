@@ -20,6 +20,9 @@ from rocx.editor import (
     ImportedDocument,
     ImportedHeader,
     ImportedHeaderParagraph,
+    ImportedHyperlink,
+    ImportedRun,
+    InlineAnchor,
     ImportedCellParagraph,
     ImportedTableCell,
     ImportedTableRow,
@@ -68,12 +71,36 @@ async def test_python_docx_fixture_body_edits():
     assert before.paragraphs[0].alignment is None
     assert before.paragraphs[0].runs[0].bold is True
     assert before.paragraphs[0].paragraph_format.space_after == Pt(12)
+    before_link, = before.paragraphs[0].hyperlinks
+    assert [run.text for run in before_link.runs] == [" ", "me"]
+    assert before_link.url == "https://example.invalid/body"
 
     imported = ImportedDocument.open(source)
     assert [(s.body_start, s.body_end) for s in imported.sections] == [(0, 3), (3, 4)]
     assert [(item.kind, item.value) for item in imported.body[0].inline_items] == [
-        ("text", "Patch"), ("text", " me"),
+        ("text", "Patch"), ("opaque", "w:bookmarkStart"), ("text", " "),
+        ("text", "me"), ("opaque", "w:bookmarkEnd"),
     ]
+    label, start, empty, link, end = imported.body[0].inline_structure
+    assert isinstance(label, ImportedRun) and isinstance(empty, ImportedRun)
+    assert [item.value for item in label.items] == ["Patch"]
+    assert empty.items == []
+    assert isinstance(start, BodyOpaque) and start.xml == "w:bookmarkStart"
+    assert isinstance(end, BodyOpaque) and end.xml == "w:bookmarkEnd"
+    assert isinstance(link, ImportedHyperlink) and link.bookmark is None
+    assert link.relationship_id == before_link._element.get(docx.oxml.ns.qn("r:id"))
+    space, word = link.children
+    assert all(isinstance(run, ImportedRun) for run in [space, word])
+    assert [[item.value for item in run.items] for run in [space, word]] == [[" "], ["me"]]
+    assert isinstance(word.anchor, InlineAnchor)
+    assert word.anchor != space.anchor and word.anchor != link.anchor
+    assert imported.inline_at(word.anchor).anchor == word.anchor
+    assert imported.inline_at(empty.anchor).items == []
+    assert isinstance(imported.inline_at(link.anchor), ImportedHyperlink)
+    with pytest.raises(ValueError, match="different document snapshot"):
+        ImportedDocument.open(source).inline_at(word.anchor)
+    with pytest.raises(TypeError):
+        ParagraphAlignmentEdit(word.anchor, "center")
     table = await d.Table([
         d.TableRow([d.TableCell([d.Paragraph(text="inserted")])]),
     ]).resolve()
@@ -92,6 +119,12 @@ async def test_python_docx_fixture_body_edits():
     assert patch.alignment == WD_ALIGN_PARAGRAPH.CENTER
     assert patch.runs[0].bold is True
     assert patch.paragraph_format.space_after == Pt(12)
+    assert [run.text for run in patch.hyperlinks[0].runs] == [" ", "me"]
+    assert patch.hyperlinks[0].url == before_link.url
+    bookmark_elements = "w:bookmarkStart | w:bookmarkEnd"
+    assert [e.attrib for e in patch._p.xpath(bookmark_elements)] == [
+        e.attrib for e in before.paragraphs[0]._p.xpath(bookmark_elements)
+    ]
     assert anchor.text == "Insert table after me"
     assert inserted.cell(0, 0).text == "inserted"
     assert section_break.text == ""

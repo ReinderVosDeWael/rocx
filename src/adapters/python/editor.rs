@@ -176,6 +176,77 @@ struct PyBodyParagraph {
     has_opaque_content: bool,
     #[pyo3(get)]
     inline_items: Vec<Py<PyImportedInline>>,
+    #[pyo3(get)]
+    inline_structure: Vec<Py<PyAny>>,
+}
+
+#[pyclass(name = "InlineAnchor", frozen, eq, module = "rocx.editor")]
+#[derive(PartialEq)]
+struct PyInlineAnchor {
+    inner: editor::InlineAnchor,
+}
+
+#[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
+struct PyImportedRun {
+    #[pyo3(get)]
+    anchor: Py<PyInlineAnchor>,
+    #[pyo3(get)]
+    items: Vec<Py<PyImportedInline>>,
+}
+
+#[pyclass(name = "ImportedHyperlink", frozen, module = "rocx.editor")]
+struct PyImportedHyperlink {
+    #[pyo3(get)]
+    anchor: Py<PyInlineAnchor>,
+    #[pyo3(get)]
+    relationship_id: Option<String>,
+    #[pyo3(get)]
+    bookmark: Option<String>,
+    #[pyo3(get)]
+    children: Vec<Py<PyAny>>,
+}
+
+fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<Py<PyAny>> {
+    use editor::ImportedInlineNode;
+    let anchor = |inner: &editor::InlineAnchor| {
+        Py::new(
+            py,
+            PyInlineAnchor {
+                inner: inner.clone(),
+            },
+        )
+    };
+    Ok(match node {
+        ImportedInlineNode::Run(run) => Py::new(
+            py,
+            PyImportedRun {
+                anchor: anchor(&run.anchor)?,
+                items: run
+                    .items
+                    .iter()
+                    .map(|item| Py::new(py, PyImportedInline::from(item)))
+                    .collect::<PyResult<_>>()?,
+            },
+        )?
+        .into_any(),
+        ImportedInlineNode::Hyperlink(link) => Py::new(
+            py,
+            PyImportedHyperlink {
+                anchor: anchor(&link.anchor)?,
+                relationship_id: link.relationship_id.clone(),
+                bookmark: link.bookmark.clone(),
+                children: link
+                    .children
+                    .iter()
+                    .map(|child| inline_object(py, child))
+                    .collect::<PyResult<_>>()?,
+            },
+        )?
+        .into_any(),
+        ImportedInlineNode::Opaque(xml) => {
+            Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any()
+        }
+    })
 }
 
 #[pyclass(name = "ImportedInline", frozen, module = "rocx.editor")]
@@ -562,6 +633,11 @@ impl PyImportedDocument {
                             .iter()
                             .map(|item| Py::new(py, PyImportedInline::from(item)))
                             .collect::<PyResult<_>>()?,
+                        inline_structure: p
+                            .inline_structure
+                            .iter()
+                            .map(|node| inline_object(py, node))
+                            .collect::<PyResult<_>>()?,
                     },
                 )?
                 .into_any()),
@@ -571,6 +647,15 @@ impl PyImportedDocument {
                 }
             })
             .collect()
+    }
+
+    /// Resolve an inline address from this snapshot for read-only inspection.
+    fn inline_at(&self, py: Python<'_>, target: PyRef<'_, PyInlineAnchor>) -> PyResult<Py<PyAny>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        inline_object(py, doc.inline_at(&target.inner).map_err(rust_error)?)
     }
 
     #[pyo3(signature = (edits, *, table_insertions=None))]
@@ -615,6 +700,9 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyParagraphAnchor>()?;
     module.add_class::<PyBodyParagraph>()?;
     module.add_class::<PyImportedInline>()?;
+    module.add_class::<PyInlineAnchor>()?;
+    module.add_class::<PyImportedRun>()?;
+    module.add_class::<PyImportedHyperlink>()?;
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
     module.add_class::<PyImportedTableRow>()?;

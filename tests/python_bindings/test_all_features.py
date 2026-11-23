@@ -6,7 +6,7 @@ import zipfile
 
 from lxml import etree
 import pytest
-from rocx.editor import BodyParagraph, BodyTable, ImportedDocument
+from rocx.editor import BodyParagraph, BodyTable, ImportedDocument, ImportedHyperlink, ImportedRun
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("check_examples", ROOT / "tools/check_examples.py")
@@ -40,13 +40,22 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
         ("text", checks.EDIT_TABLE_LABEL),
     ]
     for data in (rust.read_bytes(), edited):
+        imported = ImportedDocument.open(data)
         target, = (
-            block for block in ImportedDocument.open(data).body
+            block for block in imported.body
             if isinstance(block, BodyParagraph) and block.text == checks.EDIT_LABEL
         )
         assert [(item.kind, item.value) for item in target.inline_items] == [
             ("text", checks.EDIT_LABEL),
         ]
+        sample, = (block for block in imported.body if isinstance(block, BodyParagraph)
+                   and block.text == checks.INLINE_LABEL + "".join(checks.INLINE_LINK_RUNS))
+        label, link = sample.inline_structure
+        assert isinstance(label, ImportedRun) and isinstance(link, ImportedHyperlink)
+        assert imported.inline_at(link.anchor).bookmark == "CatalogBookmark"
+        assert all(isinstance(child, ImportedRun) for child in link.children)
+        assert [[item.value for item in imported.inline_at(run.anchor).items]
+                for run in link.children] == [[text] for text in checks.INLINE_LINK_RUNS]
     suffixes = [".header-source.docx", ".header-shared.docx", ".header-local.docx"]
     for suffix in suffixes:
         checks.exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
@@ -70,6 +79,20 @@ def test_edit_coverage_rejects_unchanged_catalog(catalogs) -> None:
     rust, _ = catalogs
     with pytest.raises(AssertionError):
         checks.verify_edited(rust.read_bytes(), rust.read_bytes())
+
+
+def test_inline_coverage_rejects_merged_runs_with_identical_text(catalogs) -> None:
+    rust, _ = catalogs
+    with zipfile.ZipFile(rust) as source:
+        root = etree.fromstring(source.read("word/document.xml"))
+    link, = root.xpath("/w:document/w:body/w:p[w:r/w:t=$label]/w:hyperlink",
+                       namespaces=checks.NS, label=checks.INLINE_LABEL)
+    text = link[0].find("w:t", checks.NS)
+    text.text += link[1].find("w:t", checks.NS).text
+    link.remove(link[1])
+    assert "".join(link.itertext()) == "".join(checks.INLINE_LINK_RUNS)
+    with pytest.raises(AssertionError):
+        checks.verify_inline_structure(root)
 
 
 @pytest.mark.parametrize("change", ["position", "shape", "width", "bold", "source"])

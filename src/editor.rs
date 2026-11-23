@@ -144,9 +144,11 @@ pub struct ImportedParagraph {
     /// Ordered content from direct runs and hyperlink runs. This view flattens
     /// run and hyperlink boundaries and is not an inline edit target.
     pub inline_items: Vec<ImportedInline>,
+    /// Ordered direct inline nodes, retaining run and hyperlink boundaries.
+    pub inline_structure: Vec<ImportedInlineNode>,
 }
 
-/// Read-only items from a direct body paragraph.
+/// Read-only projected run content and opaque element names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ImportedInline {
@@ -156,6 +158,55 @@ pub enum ImportedInline {
     Break(BreakType),
     /// Source element name, with unsupported content left in the package.
     Opaque(String),
+}
+
+/// Read-only address of a run or hyperlink in one direct body paragraph.
+///
+/// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
+/// bytes creates a different snapshot.
+#[derive(Clone, Debug)]
+pub struct InlineAnchor {
+    paragraph: ParagraphAnchor,
+    path: Vec<usize>,
+}
+
+impl PartialEq for InlineAnchor {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.paragraph.snapshot, &other.paragraph.snapshot)
+            && self.paragraph.body_index == other.paragraph.body_index
+            && self.path == other.path
+    }
+}
+
+impl Eq for InlineAnchor {}
+
+/// One node in the direct body inline view.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ImportedInlineNode {
+    Run(ImportedRun),
+    Hyperlink(ImportedHyperlink),
+    /// Unsupported element, retained in place without inspecting its contents.
+    Opaque(String),
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedRun {
+    pub anchor: InlineAnchor,
+    /// The run's text, tabs, breaks, and opaque children; excludes run properties.
+    pub items: Vec<ImportedInline>,
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedHyperlink {
+    pub anchor: InlineAnchor,
+    /// Explicit `r:id`, local to the main document part; not a resolved URL.
+    pub relationship_id: Option<String>,
+    /// Explicit `w:anchor`; the bookmark reference is not resolved.
+    pub bookmark: Option<String>,
+    pub children: Vec<ImportedInlineNode>,
 }
 
 /// A direct body section identified by its half-open range in `body()`.
@@ -252,12 +303,19 @@ impl ImportedDocument {
             .enumerate()
             .map(|(body_index, node)| match node.name.as_str() {
                 "w:p" => {
+                    let anchor = ParagraphAnchor {
+                        snapshot: snapshot.clone(),
+                        body_index,
+                    };
+                    let mut inline_items = Vec::new();
+                    let inline_structure = read_inline_nodes(
+                        node.elements().filter(|child| child.name != "w:pPr"),
+                        &anchor,
+                        &mut Vec::new(),
+                        &mut inline_items,
+                    );
                     let mut text = String::new();
                     let mut has_opaque_content = false;
-                    let mut inline_items = Vec::new();
-                    for child in node.elements().filter(|child| child.name != "w:pPr") {
-                        read_inline(child, &mut inline_items);
-                    }
                     for item in &inline_items {
                         match item {
                             ImportedInline::Text(value) => text.push_str(value),
@@ -273,15 +331,13 @@ impl ImportedDocument {
                         .and_then(|props| props.child("w:jc"))
                         .and_then(|jc| jc.get("w:val"));
                     BodyBlock::Paragraph(ImportedParagraph {
-                        anchor: ParagraphAnchor {
-                            snapshot: snapshot.clone(),
-                            body_index,
-                        },
+                        anchor,
                         text,
                         alignment: alignment_xml.and_then(read_alignment),
                         alignment_xml: alignment_xml.map(str::to_owned),
                         has_opaque_content,
                         inline_items,
+                        inline_structure,
                     })
                 }
                 "w:tbl" => BodyBlock::Table(read_table(node, &snapshot, body_index)),
@@ -298,6 +354,26 @@ impl ImportedDocument {
 
     pub fn body(&self) -> &[BodyBlock] {
         &self.body
+    }
+
+    /// Read a run or hyperlink from this snapshot. An address from another
+    /// snapshot is rejected, even if it points at the same position.
+    pub fn inline_at(&self, target: &InlineAnchor) -> Result<&ImportedInlineNode> {
+        self.validate_target(&target.paragraph)?;
+        let invalid = || unsupported("inline target not found");
+        let Some(BodyBlock::Paragraph(paragraph)) = self.body.get(target.paragraph.body_index)
+        else {
+            return Err(invalid());
+        };
+        let (last, parents) = target.path.split_last().ok_or_else(invalid)?;
+        let mut nodes = paragraph.inline_structure.as_slice();
+        for &index in parents {
+            let Some(ImportedInlineNode::Hyperlink(link)) = nodes.get(index) else {
+                return Err(invalid());
+            };
+            nodes = &link.children;
+        }
+        nodes.get(*last).ok_or_else(invalid)
     }
 
     /// Validate and stage the whole batch; neither the snapshot nor the source is modified.
@@ -439,38 +515,79 @@ fn read_alignment(value: &str) -> Option<Alignment> {
     .find(|alignment| alignment.xml() == value)
 }
 
-fn read_inline(node: &Node, items: &mut Vec<ImportedInline>) {
-    match node.name.as_str() {
-        "w:r" => {
-            for item in node.elements() {
-                match item.name.as_str() {
-                    "w:rPr" => (),
-                    "w:t" => {
-                        let mut text = String::new();
-                        for child in &item.children {
-                            if let Content::Text(value) = child {
-                                text.push_str(value);
-                            }
-                        }
-                        items.push(ImportedInline::Text(text));
-                        if item.elements().next().is_some() {
-                            items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
-                        }
+fn read_inline_nodes<'a>(
+    nodes: impl Iterator<Item = &'a Node>,
+    paragraph: &ParagraphAnchor,
+    path: &mut Vec<usize>,
+    flat: &mut Vec<ImportedInline>,
+) -> Vec<ImportedInlineNode> {
+    nodes
+        .enumerate()
+        .map(|(index, node)| {
+            path.push(index);
+            let anchor = || InlineAnchor {
+                paragraph: paragraph.clone(),
+                path: path.clone(),
+            };
+            let item = match node.name.as_str() {
+                "w:r" => {
+                    let mut items = Vec::new();
+                    read_run(node, &mut items);
+                    flat.extend(items.iter().cloned());
+                    ImportedInlineNode::Run(ImportedRun {
+                        anchor: anchor(),
+                        items,
+                    })
+                }
+                "w:hyperlink" => ImportedInlineNode::Hyperlink(ImportedHyperlink {
+                    anchor: anchor(),
+                    relationship_id: node.get("r:id").map(str::to_owned),
+                    bookmark: node.get("w:anchor").map(str::to_owned),
+                    children: read_inline_nodes(node.elements(), paragraph, path, flat),
+                }),
+                name => {
+                    flat.push(ImportedInline::Opaque(name.to_owned()));
+                    ImportedInlineNode::Opaque(name.to_owned())
+                }
+            };
+            path.pop();
+            item
+        })
+        .collect()
+}
+
+fn read_run(node: &Node, items: &mut Vec<ImportedInline>) {
+    for item in node.elements() {
+        match item.name.as_str() {
+            "w:rPr" => (),
+            "w:t" => {
+                let mut text = String::new();
+                for child in &item.children {
+                    if let Content::Text(value) = child {
+                        text.push_str(value);
                     }
-                    "w:tab" => items.push(ImportedInline::Tab),
-                    "w:cr" => items.push(ImportedInline::Break(BreakType::Line)),
-                    "w:br" => items.push(match item.get("w:type") {
-                        None | Some("textWrapping") => {
-                            ImportedInline::Break(BreakType::TextWrapping)
-                        }
-                        Some("page") => ImportedInline::Break(BreakType::Page),
-                        Some("column") => ImportedInline::Break(BreakType::Column),
-                        Some(_) => ImportedInline::Opaque(item.name.as_str().to_owned()),
-                    }),
-                    _ => items.push(ImportedInline::Opaque(item.name.as_str().to_owned())),
+                }
+                items.push(ImportedInline::Text(text));
+                if item.elements().next().is_some() {
+                    items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
                 }
             }
+            "w:tab" => items.push(ImportedInline::Tab),
+            "w:cr" => items.push(ImportedInline::Break(BreakType::Line)),
+            "w:br" => items.push(match item.get("w:type") {
+                None | Some("textWrapping") => ImportedInline::Break(BreakType::TextWrapping),
+                Some("page") => ImportedInline::Break(BreakType::Page),
+                Some("column") => ImportedInline::Break(BreakType::Column),
+                Some(_) => ImportedInline::Opaque(item.name.as_str().to_owned()),
+            }),
+            _ => items.push(ImportedInline::Opaque(item.name.as_str().to_owned())),
         }
+    }
+}
+
+fn read_inline(node: &Node, items: &mut Vec<ImportedInline>) {
+    match node.name.as_str() {
+        "w:r" => read_run(node, items),
         "w:hyperlink" => {
             for child in node.elements() {
                 read_inline(child, items);

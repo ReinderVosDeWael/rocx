@@ -8,6 +8,8 @@ mod tables;
 pub const STAMP: &str = "2026-11-19T00:00:00Z";
 const EDIT_LABEL: &str =
     "Imported editor: this paragraph changes from left to center in the edited catalog.";
+const INLINE_LABEL: &str = "Imported editor inline structure: ";
+const INLINE_LINK_RUNS: [&str; 2] = ["jump to ", "CatalogBookmark"];
 pub fn p(text: impl Into<String>) -> Value<Block> {
     Paragraph::new(text.into()).into()
 }
@@ -521,6 +523,40 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(bytes, plan.to_bytes()?);
     snapshot.save_with_template_and_options(output, &template, &options)?;
     let imported = editor::ImportedDocument::open(&bytes)?;
+    let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
+    let (paragraph_index, paragraph) = imported
+        .body()
+        .iter()
+        .enumerate()
+        .find_map(|(index, block)| match block {
+            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == inline_label => {
+                Some((index, paragraph))
+            }
+            _ => None,
+        })
+        .expect("labeled inline structure");
+    use editor::ImportedInlineNode::{Hyperlink as Link, Run};
+    let [Run(label), Link(link)] = paragraph.inline_structure.as_slice() else {
+        panic!("expected a standalone run and hyperlink");
+    };
+    assert_eq!(
+        label.items,
+        [editor::ImportedInline::Text(INLINE_LABEL.into())]
+    );
+    assert_eq!(link.bookmark.as_deref(), Some("CatalogBookmark"));
+    assert_eq!(link.relationship_id, None);
+    assert!(
+        matches!(imported.inline_at(&link.anchor)?, Link(found) if found.anchor == link.anchor)
+    );
+    let [Run(first), Run(second)] = link.children.as_slice() else {
+        panic!("expected two hyperlink runs");
+    };
+    for (run, text) in [first, second].into_iter().zip(INLINE_LINK_RUNS) {
+        assert_eq!(run.items, [editor::ImportedInline::Text(text.into())]);
+        assert!(
+            matches!(imported.inline_at(&run.anchor)?, Run(found) if found.anchor == run.anchor)
+        );
+    }
     let targets: Vec<_> = imported
         .body()
         .iter()
@@ -568,6 +604,11 @@ pub async fn generate(output: &Path) -> Result<()> {
     // Typed physical-table readback from the edited original package.
     let reopened = editor::ImportedDocument::open(&edited)?;
     let after = preview.insertions()[0].after_body_index + 1;
+    assert!(reopened.inline_at(&link.anchor).is_err());
+    assert!(matches!(
+        &reopened.body()[paragraph_index + 1],
+        editor::BodyBlock::Paragraph(p) if p.text == inline_label
+    ));
     let editor::BodyBlock::Table(table) = &reopened.body()[after] else {
         panic!("expected inserted table")
     };

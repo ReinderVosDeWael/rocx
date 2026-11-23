@@ -77,6 +77,20 @@ pub fn blocks(out: &mut BlockChildren) -> Result<()> {
         ])
         .into(),
     );
+    out.push(
+        Paragraph::from_children(vec![
+            TextRun::new(INLINE_LABEL).into(),
+            Hyperlink::new(
+                HyperlinkTarget::bookmark(name.clone()),
+                INLINE_LINK_RUNS
+                    .into_iter()
+                    .map(|text| TextRun::new(text).into())
+                    .collect::<InlineChildren>(),
+            )
+            .into(),
+        ])
+        .into(),
+    );
     let overlap = BookmarkName::new("OverlappingBookmark")?;
     let review = RangeId::new("cross-paragraph-review")?;
     out.push(

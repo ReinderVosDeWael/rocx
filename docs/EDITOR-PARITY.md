@@ -12,6 +12,19 @@ children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
 
+Direct body paragraphs retain run and hyperlink boundaries through
+`inline_structure`. Hyperlinks expose their explicit owner-local relationship
+ID and bookmark reference, without resolving either. Runs expose ordered text,
+tabs, breaks and opaque run children, but not run or hyperlink formatting.
+Unsupported inline elements are opaque names (not traversed) and stay in the
+package. The existing `text` and `inline_items` projections are unchanged.
+Runs (including empty ones) and hyperlinks have read-only `InlineAnchor`
+values; `ImportedDocument::inline_at` in Rust and
+`ImportedDocument.inline_at` in Python reject anchors from another open,
+even when both snapshots came from identical bytes. Individual run items and
+opaque nodes are not addressable. Table-cell and header paragraph views
+still only offer the flat projection. No inline edit operations are enabled.
+
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
 For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding; imported field edits are currently rejected. Those limits are not expanded merely by listing editor goals here.

@@ -113,9 +113,10 @@ immutable projection; links derive theirs from children without another cache.
 Targets retain Unicode and original percent escapes/query/fragment syntax. The
 external relationship is registered against the actual owning part, with IDs and
 deduplication scoped to that owner. No target is resolved over the network.
-Imported links remain opaque XML rather than a typed import model. Structural
-template edits can replace across display runs inside one link, but not across its
-boundary, and do not rewrite targets. Rust/Python tests, relocated-owner fixtures,
+Direct body hyperlinks have a read-only [typed inspection view](EDITOR-PARITY.md)
+with ordered children and explicit source references, not resolved targets.
+Structural template edits can replace across display runs inside one link, but
+not across its boundary, and do not rewrite targets. Rust/Python tests, relocated-owner fixtures,
 independent Python readback with target mutation controls, and official-schema
 validation cover generation; they do not establish browser/Word navigation safety.
 

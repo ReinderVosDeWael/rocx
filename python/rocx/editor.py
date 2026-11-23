@@ -1,4 +1,4 @@
-"""Inspect and edit an imported DOCX using snapshot-scoped paragraph anchors."""
+"""Inspect and edit an imported DOCX using snapshot-scoped anchors."""
 
 from ._native import (
     AlignmentChange,
@@ -14,10 +14,13 @@ from ._native import (
     ImportedCellParagraph,
     ImportedHeader,
     ImportedHeaderParagraph,
+    ImportedHyperlink,
     ImportedInline,
+    ImportedRun,
     ImportedSection,
     ImportedTableCell,
     ImportedTableRow,
+    InlineAnchor,
     ParagraphAlignmentEdit,
     ParagraphAnchor,
     TableInsertion,
@@ -39,10 +42,13 @@ __all__ = [
     "ImportedCellParagraph",
     "ImportedHeader",
     "ImportedHeaderParagraph",
+    "ImportedHyperlink",
     "ImportedInline",
+    "ImportedRun",
     "ImportedSection",
     "ImportedTableCell",
     "ImportedTableRow",
+    "InlineAnchor",
     "ParagraphAlignmentEdit",
     "ParagraphAnchor",
     "TableInsertion",

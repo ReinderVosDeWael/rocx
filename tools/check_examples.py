@@ -32,6 +32,8 @@ NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
       "r": "http://schemas.openxmlformats.org/package/2006/relationships"}
 EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the edited catalog."
 EDIT_TABLE_LABEL = "Imported editor table: bold label"
+INLINE_LABEL = "Imported editor inline structure: "
+INLINE_LINK_RUNS = ["jump to ", "CatalogBookmark"]
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -89,6 +91,25 @@ def exact_bytes(rust: bytes, python: bytes) -> str:
     return hashlib.sha256(rust).hexdigest()
 
 
+def verify_inline_structure(document) -> None:
+    paragraphs = document.xpath(
+        "/w:document/w:body/w:p[w:r/w:t=$label]", namespaces=NS, label=INLINE_LABEL
+    )
+    assert len(paragraphs) == 1
+    children = paragraphs[0].xpath("*[not(self::w:pPr)]", namespaces=NS)
+    assert len(children) == 2
+    run, link = children
+    assert run.tag == f"{{{NS['w']}}}r"
+    assert run.xpath("w:t/text()", namespaces=NS) == [INLINE_LABEL]
+    assert link.tag == f"{{{NS['w']}}}hyperlink"
+    assert link.xpath("@w:anchor", namespaces=NS) == ["CatalogBookmark"]
+    assert not link.xpath("@odr:id", namespaces=NS)
+    assert [child.tag for child in link] == [f"{{{NS['w']}}}r"] * len(INLINE_LINK_RUNS)
+    assert [child.xpath("w:t/text()", namespaces=NS) for child in link] == [
+        [text] for text in INLINE_LINK_RUNS
+    ]
+
+
 def verify_edited(original: bytes, edited: bytes) -> None:
     """Check the labeled body edit and byte preservation of every other part."""
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(edited)) as result:
@@ -98,6 +119,7 @@ def verify_edited(original: bytes, edited: bytes) -> None:
                 assert source.read(name) == result.read(name), name
         for package, expected in [(source, "left"), (result, "center")]:
             document = etree.fromstring(package.read("word/document.xml"))
+            verify_inline_structure(document)
             paragraphs = document.xpath(
                 "/w:document/w:body/w:p[w:r/w:t=$label]", namespaces=NS, label=EDIT_LABEL
             )

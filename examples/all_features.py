@@ -9,11 +9,16 @@ import sys
 
 import rocx
 from rocx import declarative as d
-from rocx.editor import HeaderImageEdit, ImportedDocument, ParagraphAlignmentEdit, TableInsertion
+from rocx.editor import (
+    HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
+    TableInsertion,
+)
 
 STAMP = "2026-11-19T00:00:00Z"
 IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
 EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the edited catalog."
+INLINE_LABEL = "Imported editor inline structure: "
+INLINE_LINK_RUNS = ("jump to ", "CatalogBookmark")
 REGIONS = ["whole_table", "first_row", "last_row", "first_column", "last_column",
            "banding_1_row", "banding_2_row", "banding_1_column", "banding_2_column",
            "top_left_cell", "top_right_cell", "bottom_left_cell", "bottom_right_cell"]
@@ -190,6 +195,10 @@ def story_blocks() -> list:
     blocks.append(d.Paragraph(text="Inherited numbering style: numId=63 gets its levels from Catalog Bullets.", numbering=d.NumberingReference(63)))
     blocks.append(d.Paragraph(children=[link("External hyperlink: example.com (tooltip and history=true)")]))
     blocks.append(d.Paragraph(children=[d.Hyperlink(d.BookmarkTarget("CatalogBookmark"), [d.TextRun("Internal hyperlink: jump to CatalogBookmark")], history=False)]))
+    blocks.append(d.Paragraph(children=[
+        d.TextRun(INLINE_LABEL),
+        d.Hyperlink(d.BookmarkTarget("CatalogBookmark"), [d.TextRun(text) for text in INLINE_LINK_RUNS]),
+    ]))
     blocks.append(d.Paragraph(children=[d.RangeStart.bookmark("CatalogBookmark"), d.TextRun("Bookmark CatalogBookmark starts here. "),
         d.RangeStart.bookmark("OverlappingBookmark"), d.RangeStart.comment("cross-paragraph-review", "Cross-paragraph plain comment", "Range reviewer"),
         d.TextRun("Overlapping bookmark and comment begin.")]))
@@ -439,6 +448,17 @@ async def generate(output: pathlib.Path) -> bytes:
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)
     imported = ImportedDocument.open(data)
+    inline_block, = (block for block in imported.body
+                     if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
+    label, inline_link = inline_block.inline_structure
+    assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
+    assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]
+    assert inline_link.bookmark == "CatalogBookmark" and inline_link.relationship_id is None
+    assert imported.inline_at(inline_link.anchor).anchor == inline_link.anchor
+    for child, text in zip(inline_link.children, INLINE_LINK_RUNS, strict=True):
+        assert isinstance(child, ImportedRun)
+        assert [(item.kind, item.value) for item in child.items] == [("text", text)]
+        assert imported.inline_at(child.anchor).anchor == child.anchor
     targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]
     assert len(targets) == 1
     assert [(item.kind, item.value) for item in targets[0].inline_items] == [

@@ -1,4 +1,4 @@
-//! Synthetic package: a rocx-authored DOCX with hand-written WordprocessingML.
+//! Synthetic WordprocessingML and independently generated python-docx fixtures.
 use futures::executor::block_on;
 use rocx::{
     Alignment, Document, Paragraph, Section,
@@ -158,6 +158,7 @@ fn table_inspection_preserves_unknown_children_in_order() {
 fn inspects_ordered_inline_items_without_changing_the_text_projection() {
     use rocx::BreakType;
     use rocx::editor::ImportedInline::{Break, Opaque, Tab, Text};
+    use rocx::editor::ImportedInlineNode::{Hyperlink, Run};
     let xml = format!(
         r#"<w:document xmlns:w="{W}"><w:body><w:p><w:r><w:t xml:space="preserve">a </w:t><w:tab/><w:br/><w:br w:type="page"/><w:cr/><w:br w:type="column"/><w:drawing/></w:r><w:hyperlink w:anchor="bookmark"><w:r><w:t>b</w:t></w:r></w:hyperlink></w:p></w:body></w:document>"#
     );
@@ -177,6 +178,75 @@ fn inspects_ordered_inline_items_without_changing_the_text_projection() {
             Opaque("w:drawing".into()),
             Text("b".into()),
         ]
+    );
+    let [Run(run), Hyperlink(link)] = first.inline_structure.as_slice() else {
+        panic!("expected direct run followed by hyperlink");
+    };
+    assert_eq!(run.items, first.inline_items[..7]);
+    assert_eq!(link.bookmark.as_deref(), Some("bookmark"));
+    assert_eq!(link.relationship_id, None);
+}
+
+#[test]
+fn independent_body_inline_anchors_are_snapshot_scoped_and_read_only() {
+    use rocx::editor::ImportedInline::Text;
+    use rocx::editor::ImportedInlineNode::{Hyperlink, Opaque, Run};
+
+    let input = include_bytes!("fixtures/imported-editor.docx");
+    let doc = ImportedDocument::open(input).unwrap();
+    let p = paragraph(&doc, 0);
+    assert_eq!(p.text, "Patch me");
+    let [
+        Run(label),
+        Opaque(start),
+        Run(empty),
+        Hyperlink(link),
+        Opaque(end),
+    ] = p.inline_structure.as_slice()
+    else {
+        panic!("expected direct runs, hyperlink, and opaque bookmark endpoints");
+    };
+    assert_eq!(label.items, [Text("Patch".into())]);
+    assert_eq!(start, "w:bookmarkStart");
+    assert!(empty.items.is_empty());
+    assert_eq!(end, "w:bookmarkEnd");
+    assert_eq!(link.bookmark, None);
+    let relationship_id = link.relationship_id.as_deref().expect("explicit r:id");
+    let original = parts(input);
+    let relationships = std::str::from_utf8(&original["word/_rels/document.xml.rels"]).unwrap();
+    let relationships = roxmltree::Document::parse(relationships).unwrap();
+    let relationship = relationships
+        .descendants()
+        .find(|node| node.attribute("Id") == Some(relationship_id))
+        .unwrap();
+    assert_eq!(
+        relationship.attribute("Target"),
+        Some("https://example.invalid/body")
+    );
+    assert_eq!(relationship.attribute("TargetMode"), Some("External"));
+    let [Run(space), Run(word)] = link.children.as_slice() else {
+        panic!("expected distinct runs inside the hyperlink");
+    };
+    assert_eq!(space.items, [Text(" ".into())]);
+    assert_eq!(word.items, [Text("me".into())]);
+    assert_ne!(label.anchor, empty.anchor);
+    assert_ne!(link.anchor, space.anchor);
+    assert_ne!(space.anchor, word.anchor);
+    assert!(
+        matches!(doc.inline_at(&empty.anchor).unwrap(), Run(found) if found.anchor == empty.anchor)
+    );
+    assert!(
+        matches!(doc.inline_at(&link.anchor).unwrap(), Hyperlink(found) if found.anchor == link.anchor)
+    );
+    assert!(
+        matches!(doc.inline_at(&word.anchor).unwrap(), Run(found) if found.anchor == word.anchor)
+    );
+    let other = ImportedDocument::open(input).unwrap();
+    let error = other.inline_at(&word.anchor).unwrap_err();
+    assert!(error.to_string().contains("different document snapshot"));
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        original
     );
 }
 
