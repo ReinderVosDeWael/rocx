@@ -21,6 +21,32 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
+### Repository evaluation follow-ups
+
+Three independent probes on `19590c9` reproduced defects despite 261 passing
+Rust all-targets tests and 28 passing focused Python tests:
+
+- [#25](https://github.com/ReinderVosDeWael/rocx/issues/25): ordinary template
+  replacement can match across a visible nonbreaking hyphen.
+- [#26](https://github.com/ReinderVosDeWael/rocx/issues/26): an automatic nested
+  table inside a fixed-width inserted table can receive a zero-width grid.
+- [#27](https://github.com/ReinderVosDeWael/rocx/issues/27): saving to a Python
+  stream that accepts a partial write can report success with an incomplete DOCX.
+
+The architecture follow-up tracked preview memory in
+[#28](https://github.com/ReinderVosDeWael/rocx/issues/28): retaining three
+alignment previews of a document with a 12 MiB image added about 39 MiB RSS
+before encoding. For task 5, consider one internal transaction for body and
+header edits; the [mixed-batch acceptance case](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7109658618)
+is recorded under #3.
+
+Integrate the evaluation in isolated, proof-first slices: template run
+classification (#25), table layout and fragment compilation (#26), Python
+stream writes (#27), preview payload sharing (#28), mixed edit transactions
+(#3), and the packaged JavaScript declaration contract (#21). Verify the
+combined changes against the Rust and Python suites and exact catalog parity
+before pushing to the default branch.
+
 ### JavaScript parity review follow-up
 
 The adapter now retries after Wasm initialization failure (#24), rejects
