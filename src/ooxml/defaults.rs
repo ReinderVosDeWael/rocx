@@ -110,7 +110,7 @@ pub(crate) fn prepare(p: &mut Package, main: &str) -> Result<u32> {
             if !p.parts.contains_key(path) {
                 let mut bytes = Vec::new();
                 defaults.by_name(path)?.read_to_end(&mut bytes)?;
-                p.parts.insert(path.into(), bytes);
+                p.parts.insert(path.into(), bytes.into());
             }
             p.link(main, kind, path)?;
             p.content_type(path, mime)?;
@@ -164,7 +164,7 @@ mod drawing_id_tests {
         // Same drawing element emitted by python-docx, in a relocated header.
         package.parts.insert(
             "word/header1.part".into(),
-            br#"<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:p><w:r><w:drawing><wp:docPr id="42" name="Picture 1"/></w:drawing></w:r></w:p></w:hdr>"#.to_vec(),
+            br#"<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:p><w:r><w:drawing><wp:docPr id="42" name="Picture 1"/></w:drawing></w:r></w:p></w:hdr>"#.as_slice().into(),
         );
         assert_eq!(drawing_ceiling(&package), 42);
     }

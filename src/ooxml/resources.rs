@@ -40,7 +40,7 @@ impl MediaRegistry {
                 if package
                     .parts
                     .get(path)
-                    .is_some_and(|bytes| *bytes == image.data)
+                    .is_some_and(|bytes| bytes.as_ref() == image.data.as_slice())
                     && package.content_type_for(path)?.as_deref() == Some(&image.content_type)
                 {
                     return Ok(path.clone());
@@ -48,7 +48,9 @@ impl MediaRegistry {
             }
         }
         let path = package.unique("word/media/image", &image.extension);
-        package.parts.insert(path.clone(), image.data.clone());
+        package
+            .parts
+            .insert(path.clone(), image.data.as_slice().into());
         package.content_type(&path, &image.content_type)?;
         self.next = self.next.next()?;
         self.by_hash

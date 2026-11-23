@@ -293,6 +293,40 @@ fn patch_preserves_other_markup_and_parts_and_preview_is_non_mutating() {
 }
 
 #[test]
+fn retained_previews_write_independent_edits_after_source_drop() {
+    let input = include_bytes!("fixtures/imported-editor.docx");
+    let original = parts(input);
+    let alignments = [Alignment::Right, Alignment::Center];
+    let (unchanged, previews) = {
+        let doc = ImportedDocument::open(input).unwrap();
+        let target = &paragraph(&doc, 0).anchor;
+        let previews = alignments.map(|alignment| {
+            doc.preview(&[ParagraphAlignmentEdit {
+                target: target.clone(),
+                alignment,
+            }])
+            .unwrap()
+        });
+        (doc.preview(&[]).unwrap(), previews)
+    };
+
+    assert_eq!(parts(&unchanged.to_docx().unwrap()), original);
+    for (preview, alignment) in previews.iter().zip(alignments) {
+        let output = preview.to_docx().unwrap();
+        let reopened = ImportedDocument::open(&output).unwrap();
+        assert_eq!(paragraph(&reopened, 0).alignment, Some(alignment));
+
+        let output_parts = parts(&output);
+        assert_eq!(output_parts.len(), original.len());
+        for (name, payload) in &original {
+            if name != "word/document.xml" {
+                assert_eq!(output_parts.get(name), Some(payload), "part {name}");
+            }
+        }
+    }
+}
+
+#[test]
 fn inspects_explicit_and_implicit_sections_and_refuses_ambiguity() {
     let xml = format!(
         r#"<w:document xmlns:w="{W}"><w:body><w:p><w:pPr><w:sectPr><w:type w:val="continuous"/></w:sectPr></w:pPr></w:p><w:p><w:pPr><w:sectPr><w:type w:val="unknown"/></w:sectPr></w:pPr></w:p><w:tbl/></w:body></w:document>"#

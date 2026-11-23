@@ -13,13 +13,15 @@ use names::{relationship_type, relationships_path};
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read, Write},
+    sync::Arc,
 };
 const RELATIONSHIPS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
 const RELATIONSHIPS_MIME: &str = "application/vnd.openxmlformats-package.relationships+xml";
 const CONTENT_TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 #[derive(Clone, Debug)]
 pub(crate) struct Package {
-    pub parts: BTreeMap<String, Vec<u8>>,
+    // Snapshots share payloads; materializing edited XML replaces only its own entries.
+    pub parts: BTreeMap<String, Arc<[u8]>>,
     xml_cache: std::cell::RefCell<BTreeMap<String, CachedXml>>,
 }
 #[derive(Clone, Debug)]
@@ -76,7 +78,7 @@ impl Package {
                 .at(name)
                 .into());
             }
-            if parts.insert(name, bytes).is_some() {
+            if parts.insert(name, bytes.into()).is_some() {
                 return Err(Error::Validation("duplicate DOCX package part".into()));
             }
         }
@@ -414,7 +416,7 @@ impl Package {
     fn materialize(&mut self) {
         for (path, cached) in self.xml_cache.take() {
             if cached.dirty {
-                self.parts.insert(path, cached.node.bytes());
+                self.parts.insert(path, cached.node.bytes().into());
             }
         }
     }
@@ -536,10 +538,10 @@ impl PackagePlan {
         self.package
             .parts
             .iter()
-            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .map(|(name, bytes)| (name.as_str(), bytes.as_ref()))
     }
     pub fn part(&self, name: &PartName) -> Option<&[u8]> {
-        self.package.parts.get(name.zip_name()).map(Vec::as_slice)
+        self.package.parts.get(name.zip_name()).map(AsRef::as_ref)
     }
     pub fn validate(&self) -> Result<()> {
         self.package.validate_graph()
@@ -561,24 +563,42 @@ impl PackagePlan {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_plans_share_unchanged_media_with_the_source() {
+        let source = Package::load_with_limits(
+            include_bytes!("../../assets/default.docx"),
+            ReadLimits::default(),
+        )
+        .unwrap();
+        let media = PartName::new("docProps/thumbnail.jpeg").unwrap();
+        let unchanged = &source.parts[media.zip_name()];
+        let plans = [(); 3].map(|_| PackagePlan::new(source.clone()).unwrap());
+        for plan in &plans {
+            let bytes = plan.part(&media).unwrap();
+            assert_eq!(bytes.len(), unchanged.len());
+            assert_eq!(bytes.as_ptr(), unchanged.as_ptr(), "media was copied");
+        }
+    }
+
     #[test]
     fn reading_xml_preserves_payload_bytes_until_an_explicit_write() {
-        let original = br#"<root attr = 'old'><!-- preserve lexical bytes --></root>"#.to_vec();
+        let original = br#"<root attr = 'old'><!-- preserve lexical bytes --></root>"#.as_slice();
         let mut package = Package {
-            parts: BTreeMap::from([("opaque.xml".into(), original.clone())]),
+            parts: BTreeMap::from([("opaque.xml".into(), original.into())]),
             xml_cache: Default::default(),
         };
         let mut node = package.xml("opaque.xml").unwrap();
         node.set("attr", "uncommitted local mutation");
         package.materialize();
-        assert_eq!(package.parts["opaque.xml"], original);
+        assert_eq!(package.parts["opaque.xml"].as_ref(), original);
         package.put("opaque.xml", node).unwrap();
         assert_eq!(
             package.xml("opaque.xml").unwrap().get("attr"),
             Some("uncommitted local mutation")
         );
         package.materialize();
-        assert_ne!(package.parts["opaque.xml"], original);
+        assert_ne!(package.parts["opaque.xml"].as_ref(), original);
         assert_eq!(
             package.xml("opaque.xml").unwrap().get("attr"),
             Some("uncommitted local mutation")
@@ -587,7 +607,7 @@ mod tests {
     #[test]
     fn external_targets_are_explicit_and_internal_targets_are_validated() {
         let mut package = Package {
-            parts: BTreeMap::from([("main.xml".into(), b"<document/>".to_vec()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.to_vec())]),
+            parts: BTreeMap::from([("main.xml".into(), b"<document/>".as_slice().into()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.as_slice().into())]),
             xml_cache: Default::default(),
         };
         let external = package
@@ -600,7 +620,7 @@ mod tests {
         assert_eq!(external, "rId1");
         PackagePlan::new(package).unwrap().validate().unwrap();
         let mut package = Package {
-            parts: BTreeMap::from([("main.xml".into(), b"<document/>".to_vec()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.to_vec())]),
+            parts: BTreeMap::from([("main.xml".into(), b"<document/>".as_slice().into()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.as_slice().into())]),
             xml_cache: Default::default(),
         };
         package.link("main.xml", "image", "missing.png").unwrap();
