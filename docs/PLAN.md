@@ -217,9 +217,11 @@ documents; Word-specific interoperability is not a gate for this batch.
 
 ### Serial checkpoint: editor work
 
-The active developer assignments are table-cell structured inline readback
-and broader header/footer inspection under #3. Integrate the inspection slices
-before starting dependent editor mutations.
+Table-cell structured inline readback landed in `1c17f03` under #3. The
+feature branch passed 808 schema-required Python tests and schema/OPC checks
+on all 12 catalog artifacts. Exact Rust/Python catalog byte parity also passed
+after integration with the JavaScript changes. Broader header/footer inspection
+is the remaining active assignment.
 
 The independent #21 authoring slice landed in `a58282c`: JavaScript supports
 paragraph alignment, tabs, breaks, external links, image dimensions, and
@@ -232,9 +234,9 @@ Work through these tasks in order and checkpoint after task 10. Tasks 1–3
 passed on the python-docx fixture. Task 4 is in progress: direct body
 and default-header paragraphs have flat and structured inline readback,
 including read-only run/hyperlink anchors; direct sections and body tables
-are inspectable. The paired catalogs passed exact byte parity. Table-cell
-paragraphs still expose only flat inline projections; other stories are
-outside the implemented slice. Tasks 5–10 have not started.
+are inspectable. Paragraphs in direct body table cells now also expose runs,
+hyperlinks, and snapshot-scoped inline anchors. Other stories are outside
+the implemented slice. Tasks 5–10 have not started.
 
 1. Generate the [python-docx editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
    with formatted body text, an insertion anchor, and two sections sharing a
