@@ -104,14 +104,14 @@ Evidence / reproduction:
 
 | Application / platform | Open / readability | Key features | Limitations | Targeted findings |
 | --- | --- | --- | --- | --- |
-| LibreOffice 25.8.7.3 580(Build:3), Ubuntu 25.10 x86_64, kernel 6.17.0-41-generic | Not tested | Not tested | No interactive display available in this session | None; version command only |
+| LibreOffice 25.8.7.3 580(Build:3), Ubuntu 25.10 x86_64, kernel 6.17.0-41-generic | GUI not tested | GUI not tested | No interactive display available in this session | Headless PDF conversion and limited extracted-content checks below |
 | Desktop Word, platform/version not observed | Not tested | Not tested | No desktop Word observation available | None |
 
 - On Ubuntu 25.10 x86_64, `libreoffice --version` reported
   `LibreOffice 25.8.7.3 580(Build:3)`; `uname -a` reported kernel
   `6.17.0-41-generic`. Both `DISPLAY` and `WAYLAND_DISPLAY` were empty.
   No interactive open, readability or layout was observed. The installed
-  executable and its version are not a viewer-compatibility result.
+  executable and its version alone are not a viewer-compatibility result.
 - No desktop Word observation or redistributable Word-authored fixture has been
   established for this checklist. Those remain explicit gaps, as does interactive
   LibreOffice inspection.
@@ -127,6 +127,48 @@ Evidence / reproduction:
 - The quickstart and compact fixture commands above ran locally. Independent
   readback checked the quickstart text and the compact table, bullet paragraphs
   and inline image; ZIP integrity checks passed. Neither was opened in a GUI.
-- The generation command above was attempted locally but could not import
-  `rocx` (`ModuleNotFoundError`); regenerate in a provisioned environment
-  before making claims about the current source.
+
+## Headless LibreOffice conversion probe, 2026-11-23
+
+This is **not** an interactive viewer result: no GUI, repair prompt, visual
+readability, image appearance, formatting, or layout was observed. Conversion
+success does not prove that an interactive open has no repair warnings. Word
+desktop and Word-authored inputs were not tested. LibreOffice's field updates
+and PDF export are not evidence of Word's behavior.
+
+On Ubuntu 25.10 x86_64, kernel 6.17.0-41-generic, LibreOffice
+`25.8.7.3 580(Build:3)` ran with empty `DISPLAY` and `WAYLAND_DISPLAY`.
+`Xvfb`, `xvfb-run`, `Xorg`, `weston`, `Xvnc`, and `xpra` were not found;
+`Xwayland` was present but no Wayland display or compositor was available.
+The input files were generated from rocx commit `7d8ce6b`, then converted
+with a separate LibreOffice user profile. SHA-256 values were unchanged
+after export.
+
+| Input and provenance | SHA-256 | Headless result |
+| --- | --- | --- |
+| rocx Rust quickstart | `54af8daa7b1c954a4091811220af75753671c8e99df43d3fb50ea82f671d855e` | One-page PDF; extracted text contains both paragraphs, `café` and `🌍`. |
+| python-docx compact synthetic fixture | `d3432cfb8bfac5e49203373ef4276edcb233f7573c1ed0fd30ccca4275234d11` | One-page PDF; extracted text contains all four table labels, both list items, `café` and `🌍`; `pdfimages -list` reports one 24 × 12 RGB image on page 1. Image color and placement were not visually checked. |
+| rocx Rust edited catalog (generated template, not Word-authored) | `2272664cc4c39fa115779009731df2896d2ae92cb70190eca7b82550a170970b` | 25-page PDF; extracted text contains first-header and default-footer labels, the imported-editor paragraph and inserted table labels, and the `03 Styles` heading. This does not verify the style appearance, table geometry, or alignment. |
+
+Reproduce from the repository root with Rust, python-docx, LibreOffice and
+Poppler utilities installed. Use a fresh directory so prior exports cannot be
+mistaken for results; PDF text extraction is a content check, not a visual check.
+The compact fixture may have a different hash on another run.
+
+```sh
+run=$(mktemp -d /tmp/opencode/rocx-viewer-XXXXXX)
+mkdir "$run/input" "$run/pdf"
+cargo run --locked --example plain -- "$run/input/quickstart.docx"
+uv run --locked --group test python tools/generate_viewer_compatibility_fixture.py "$run/input/compact.docx"
+cargo run --locked --example all_features -- "$run/input/all_features.docx"
+sha256sum "$run/input/"{quickstart,compact,all_features.edited}.docx
+libreoffice "-env:UserInstallation=file://$run/lo-profile" --headless \
+    --convert-to pdf --outdir "$run/pdf" \
+    "$run/input/"{quickstart,compact,all_features.edited}.docx
+for file in "$run/pdf/"*.pdf; do
+    pdfinfo "$file"
+    pdftotext -layout "$file" -
+done
+pdfimages -list "$run/pdf/compact.pdf"
+sha256sum "$run/input/"{quickstart,compact,all_features.edited}.docx
+```

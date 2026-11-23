@@ -116,6 +116,8 @@ For repeatable interactive reader checks, fixture provenance and the current
 observation gaps, see the [viewer compatibility checklist](docs/VIEWER-COMPATIBILITY-CHECKLIST.md).
 No desktop Word or LibreOffice layout compatibility is established by the
 automated checks below.
+The checklist also records a limited LibreOffice headless PDF conversion probe;
+it is not an interactive open, repair-prompt check, or visual inspection.
 
 Rust/Python expected-content readback checks are complemented by deliberate
 mutations, namespace/relocation fixtures, domain-boundary compilation, structured
