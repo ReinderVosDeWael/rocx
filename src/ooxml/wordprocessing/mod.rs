@@ -25,6 +25,7 @@ mod content_control;
 mod fields;
 pub(crate) mod format;
 mod paragraph;
+pub(crate) mod run_child;
 pub(crate) mod sections;
 mod stories;
 pub(crate) mod styles;

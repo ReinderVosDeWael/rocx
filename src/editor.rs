@@ -4,6 +4,7 @@
 //! alignment, insert declarative tables, and append an image to an existing header.
 //! The package, not the typed inspection view, is the source of output.
 
+use crate::ooxml::wordprocessing::run_child::RunChild;
 use crate::ooxml::{WordParts, open_word_source};
 use crate::opc::{Package, PackagePlan, ReadLimits};
 use crate::xml::{Content, Node};
@@ -592,29 +593,17 @@ fn read_inline_nodes<'a>(
 
 fn read_run(node: &Node, items: &mut Vec<ImportedInline>) {
     for item in node.elements() {
-        match item.name.as_str() {
-            "w:rPr" => (),
-            "w:t" => {
-                let mut text = String::new();
-                for child in &item.children {
-                    if let Content::Text(value) = child {
-                        text.push_str(value);
-                    }
-                }
+        match RunChild::classify(item) {
+            RunChild::Properties => (),
+            RunChild::Text(text) => {
                 items.push(ImportedInline::Text(text));
                 if item.elements().next().is_some() {
                     items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
                 }
             }
-            "w:tab" => items.push(ImportedInline::Tab),
-            "w:cr" => items.push(ImportedInline::Break(BreakType::Line)),
-            "w:br" => items.push(match item.get("w:type") {
-                None | Some("textWrapping") => ImportedInline::Break(BreakType::TextWrapping),
-                Some("page") => ImportedInline::Break(BreakType::Page),
-                Some("column") => ImportedInline::Break(BreakType::Column),
-                Some(_) => ImportedInline::Opaque(item.name.as_str().to_owned()),
-            }),
-            _ => items.push(ImportedInline::Opaque(item.name.as_str().to_owned())),
+            RunChild::Tab => items.push(ImportedInline::Tab),
+            RunChild::Break(kind) => items.push(ImportedInline::Break(kind)),
+            RunChild::Opaque => items.push(ImportedInline::Opaque(item.name.as_str().to_owned())),
         }
     }
 }

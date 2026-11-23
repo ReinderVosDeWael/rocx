@@ -1,6 +1,7 @@
 //! Structural text edits. P1 §§17.3, 17.5, 17.13, 17.16; boundaries are library policy.
+use crate::ooxml::wordprocessing::run_child::RunChild;
 use crate::xml::{Content, Node, W};
-use crate::{Diagnostic, Error, Result, Rule};
+use crate::{BreakType, Diagnostic, Error, Result, Rule};
 use std::collections::BTreeMap;
 
 mod content_control;
@@ -60,7 +61,7 @@ fn collect(
     }
     // Properties are not paragraph content, even when they contain names
     // such as w:tab that also occur as inline run content.
-    if matches!(node.name.as_str(), "w:pPr" | "w:rPr") {
+    if !in_run && matches!(node.name.as_str(), "w:pPr" | "w:rPr") {
         return;
     }
     if node.name == "w:fldChar" {
@@ -72,8 +73,29 @@ fn collect(
         }
         return;
     }
-    if ["w:instrText"].contains(&node.name.as_str()) {
+    if node.name == "w:instrText" {
         position.group += 1;
+        return;
+    }
+    if in_run {
+        let value = match RunChild::classify(node) {
+            RunChild::Properties => return,
+            RunChild::Text(text) => text,
+            RunChild::Tab => "\t".into(),
+            RunChild::Break(BreakType::Line | BreakType::TextWrapping) => "\n".into(),
+            RunChild::Break(BreakType::Page | BreakType::Column) | RunChild::Opaque => {
+                // Unsupported children can have visible or structural effects.
+                position.group += 1;
+                return;
+            }
+        };
+        tokens.push(Token {
+            path: path.clone(),
+            before: value.clone(),
+            after: value,
+            group: position.group,
+            protected: protected || position.field_depth > 0,
+        });
         return;
     }
     let structured = matches!(
@@ -85,45 +107,11 @@ fn collect(
     if container {
         position.group += 1;
     }
-    let value: Option<String> = match node.name.as_str() {
-        "w:t" if in_run => Some(
-            node.children
-                .iter()
-                .filter_map(|c| {
-                    if let Content::Text(t) = c {
-                        Some(t.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-        ),
-        "w:tab" if in_run => Some("\t".into()),
-        "w:br" if in_run && node.get("w:type").is_none_or(|kind| kind == "textWrapping") => {
-            Some("\n".into())
-        }
-        "w:cr" if in_run => Some("\n".into()),
-        "w:br" if in_run => {
-            position.group += 1;
-            None
-        }
-        _ => None,
-    };
-    if let Some(value) = value {
-        tokens.push(Token {
-            path: path.clone(),
-            before: value.clone(),
-            after: value,
-            group: position.group,
-            protected: protected || position.field_depth > 0,
-        });
-    } else {
-        for (index, child) in node.children.iter().enumerate() {
-            if let Content::Element(child) = child {
-                path.push(index);
-                collect(child, path, position, protected, node.name == "w:r", tokens);
-                path.pop();
-            }
+    for (index, child) in node.children.iter().enumerate() {
+        if let Content::Element(child) = child {
+            path.push(index);
+            collect(child, path, position, protected, node.name == "w:r", tokens);
+            path.pop();
         }
     }
     if container {
