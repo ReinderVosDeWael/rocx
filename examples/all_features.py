@@ -14,6 +14,8 @@ from rocx.editor import (
     TableInsertion,
 )
 
+from javascript_workflow import blocks as javascript_blocks
+
 STAMP = "2026-11-19T00:00:00Z"
 IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
 EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the edited catalog."
@@ -354,6 +356,7 @@ async def generate(output: pathlib.Path) -> bytes:
     blocks.extend(formatting_blocks())
     blocks.extend(table_blocks())
     blocks.extend(story_blocks())
+    blocks.extend(javascript_blocks())
     blocks.append(heading("08 Authoring: ready, lazy, async, references, conditions and snapshot reuse"))
     blocks.append(p("Ready value: this paragraph was supplied immediately."))
     blocks.append(d.Paragraph(text=lambda: "Lazy value: this paragraph was produced by a factory."))

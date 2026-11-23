@@ -2,8 +2,10 @@
 
 The unified Rust/Python site uses MkDocs with Material and mkdocstrings-python.
 Dependencies are pinned in the `docs` dependency group and locked in `uv.lock`.
-Production Python dependencies are unchanged. JavaScript documentation is deferred
-until bindings exist. Rust references retain rustdoc styling and separate search.
+Production Python dependencies are unchanged. The
+[JavaScript package guide](../javascript/README.md) is maintained with the
+package rather than assembled into the site. Rust references retain rustdoc
+styling and separate search.
 
 ## Local setup and build
 

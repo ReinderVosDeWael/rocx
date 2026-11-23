@@ -212,8 +212,43 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
                 ), name
 
 
+def verify_javascript_workflow(data: bytes, *, standalone: bool = False) -> None:
+    """Independently read the labeled paragraph, following table and embedded PNG."""
+    output = docx.Document(io.BytesIO(data))
+    blocks = list(output.iter_inner_content())
+    start, = [i for i, block in enumerate(blocks)
+              if isinstance(block, docx.text.paragraph.Paragraph)
+              and block.text == "JavaScript authoring: Café 東京"]
+    paragraph, table, image = blocks[start:start + 3]
+    if standalone:
+        assert len(blocks) == 3 and start == 0
+    assert [(r.text, r.bold, r.italic) for r in paragraph.runs] == [
+        ("JavaScript authoring: ", True, False), ("Café 東京", None, True),
+    ]
+    assert isinstance(table, docx.table.Table)
+    assert [[cell.text for cell in row.cells] for row in table.rows] == [
+        ["Item", "Count"], ["Pages", "2"],
+    ]
+    assert isinstance(image, docx.text.paragraph.Paragraph)
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        document = etree.fromstring(package.read("word/document.xml"))
+        inline, = document.xpath("//wp:inline[wp:docPr/@descr=$description]", namespaces=NS,
+                                 description="JavaScript authoring sample image")
+        image_in_body, = document.xpath(
+            "//w:p[w:r/w:t[text()='JavaScript authoring: ']]"
+            "/following-sibling::*[2]/w:r/w:drawing/wp:inline", namespaces=NS)
+        assert inline is image_in_body
+        embed, = inline.xpath(".//a:blip/@odr:embed", namespaces=NS)
+        rel = output.part.rels[embed]
+        assert rel.reltype == f"{NS['odr']}/image" and not rel.is_external
+        target = str(rel.target_part.partname).lstrip("/")
+        assert target.startswith("word/media/")
+        assert package.read(target) == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
+
+
 def verify_content(data: bytes, template: bytes) -> None:
     """Read actual generated output, not source text or self-reported coverage."""
+    verify_javascript_workflow(data)
     output = docx.Document(io.BytesIO(data))
     with zipfile.ZipFile(io.BytesIO(data)) as package, zipfile.ZipFile(io.BytesIO(template)) as seed:
         document = etree.fromstring(package.read("word/document.xml"))

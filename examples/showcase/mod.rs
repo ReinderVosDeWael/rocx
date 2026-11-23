@@ -2,6 +2,7 @@
 use rocx::*;
 use std::path::Path;
 mod formatting;
+mod javascript;
 mod stories;
 mod tables;
 
@@ -192,6 +193,7 @@ pub async fn generate(output: &Path) -> Result<()> {
     formatting::blocks(&mut blocks);
     tables::blocks(&mut blocks);
     stories::blocks(&mut blocks)?;
+    blocks.extend(javascript::blocks());
 
     blocks.push(heading(
         "08 Authoring: ready, lazy, async, references, conditions and snapshot reuse",

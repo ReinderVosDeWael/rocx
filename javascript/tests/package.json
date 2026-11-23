@@ -1,0 +1,10 @@
+{
+  "name": "rocx-packed-consumer-test",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.65.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.8"
+  }
+}

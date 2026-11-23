@@ -1,0 +1,35 @@
+{
+  "name": "rocx-docx",
+  "version": "0.1.0",
+  "description": "Author DOCX documents in Node and browsers with the Rust rocx engine",
+  "type": "module",
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  },
+  "license": "LGPL-2.1-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ReinderVosDeWael/rocx.git",
+    "directory": "javascript"
+  },
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "node": "./node.js",
+      "default": "./browser.js"
+    }
+  },
+  "files": [
+    "browser.js",
+    "generate.js",
+    "index.d.ts",
+    "node.js",
+    "pkg/rocx.js",
+    "pkg/rocx_bg.wasm",
+    "rocx-source.tar.gz"
+  ],
+  "scripts": {
+    "prepack": "bash build.sh"
+  }
+}

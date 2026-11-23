@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/ReinderVosDeWael/rocx"
 homepage = "https://reindervosdewael.github.io/rocx/"
 documentation = "https://reindervosdewael.github.io/rocx/"
-exclude = ["/docs/PLAN.md", "/docs/ROADMAP-HISTORY.md", "/tools/js-wasm-probe/"]
+exclude = ["/docs/PLAN.md", "/docs/ROADMAP-HISTORY.md", "/javascript/"]
 
 [lib]
 crate-type = ["rlib", "cdylib"]

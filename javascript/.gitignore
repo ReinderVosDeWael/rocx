@@ -1,0 +1,7 @@
+/LICENSE
+/node_modules/
+/tests/node_modules/
+/pkg/
+/rocx-source.tar.gz
+/target/
+/*.tgz
