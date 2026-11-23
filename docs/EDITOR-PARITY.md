@@ -1,6 +1,16 @@
 # Editor declarative parity inventory
 
-This is the target inventory for the [editor plan](PLAN.md#next-feature-after-030-agent-editing-with-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection, paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
+This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Effective default headers expose section references, inherited status, shared part names, and ordered direct paragraph inline projections; other direct children are opaque. Header paragraphs have no edit anchors, inline boundaries are flattened, and first/even headers and other stories are not inspected by this view. It supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
+
+Direct body tables expose a snapshot-scoped table identity and ordered physical
+rows, cells, and cell paragraphs with the existing inline projection in Rust and
+Python. The table anchor is inspection-only: it cannot be used as a paragraph
+edit target. Rows and cells have no independent edit identities yet. Table, row,
+cell, and paragraph properties (including grids, spans, and merges) are not
+interpreted; physical cells are not expanded into a logical grid. Unsupported
+children, including nested tables and controls, are retained as opaque element
+names in their original order; their markup stays in the source package.
+Tables in other stories are not inspected by this slice.
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
@@ -36,4 +46,4 @@ Conditions, components, property references, lazy/async/deferred values, reuse a
 
 ## Acceptance cross-check
 
-Milestone 2 requires Word-authored fixtures proving body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. None of these planned checks is asserted as passed by this inventory.
+Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the active plan for verification status.

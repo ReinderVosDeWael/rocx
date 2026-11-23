@@ -1,11 +1,13 @@
 //! Default-header inspection and explicitly scoped editing.
 
-use super::{ALTERNATE, ImportedDocument, insertion, missing_body, unsupported};
-use crate::ResolvedImage;
-use crate::Result;
+use super::{
+    ALTERNATE, ImportedDocument, ImportedInline, ImportedSection, insertion, missing_body,
+    read_inline, unsupported,
+};
 use crate::ooxml::{WordParts, encode_header_image};
 use crate::opc::{Package, PackagePlan};
 use crate::xml::{Content, Node, W};
+use crate::{ResolvedImage, Result, SectionType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -29,6 +31,16 @@ pub struct ImportedHeader {
     pub section_index: usize,
     pub part_name: String,
     pub inherited: bool,
+    /// Direct children in document order; paragraphs have no edit anchors.
+    pub blocks: Vec<ImportedHeaderBlock>,
+}
+
+/// Read-only direct header content. Unsupported children remain in the package.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ImportedHeaderBlock {
+    Paragraph(Vec<ImportedInline>),
+    Opaque(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,16 +88,71 @@ impl HeaderImagePreview {
 }
 
 impl ImportedDocument {
+    /// Inspect direct section boundaries, including an implicit final section.
+    /// Ambiguous or hidden section boundaries are refused.
+    pub fn sections(&self) -> Result<Vec<ImportedSection>> {
+        let root = self.package.word(&self.main)?;
+        let mut body_start = 0;
+        section_slots(&root)?
+            .into_iter()
+            .map(|(_, body_end, props)| {
+                let section_type_xml = if let Some(props) = props {
+                    if props.child(ALTERNATE).is_some() {
+                        return Err(unsupported("ambiguous section properties"));
+                    }
+                    only_child(props, "w:type")?.and_then(|node| node.get("w:val"))
+                } else {
+                    None
+                };
+                let section_type = [
+                    SectionType::NextPage,
+                    SectionType::NextColumn,
+                    SectionType::Continuous,
+                    SectionType::EvenPage,
+                    SectionType::OddPage,
+                ]
+                .into_iter()
+                .find(|value| Some(value.xml()) == section_type_xml);
+                Ok(ImportedSection {
+                    body_start: std::mem::replace(&mut body_start, body_end),
+                    body_end,
+                    section_type,
+                    section_type_xml: section_type_xml.map(str::to_owned),
+                })
+            })
+            .collect()
+    }
+
     /// Inspect existing effective default headers. Sections without one are omitted.
     pub fn default_headers(&self) -> Result<Vec<ImportedHeader>> {
         let root = self.package.word(&self.main)?;
         let sections = header_sections(&self.package, &self.main, &root)?;
-        Ok(sections
+        sections
             .iter()
             .enumerate()
             .filter_map(|(section_index, section)| {
                 let header = section.effective[0].as_ref()?;
-                Some(ImportedHeader {
+                Some((section_index, section, header))
+            })
+            .map(|(section_index, section, header)| {
+                let root = self.package.word(&header.part)?;
+                if root.name != "w:hdr" {
+                    return Err(unsupported("invalid header root"));
+                }
+                let blocks = root
+                    .elements()
+                    .map(|node| {
+                        if node.name != "w:p" {
+                            return ImportedHeaderBlock::Opaque(node.name.to_string());
+                        }
+                        let mut items = Vec::new();
+                        for child in node.elements().filter(|child| child.name != "w:pPr") {
+                            read_inline(child, &mut items);
+                        }
+                        ImportedHeaderBlock::Paragraph(items)
+                    })
+                    .collect();
+                Ok(ImportedHeader {
                     anchor: HeaderAnchor {
                         snapshot: self.snapshot.clone(),
                         section_index,
@@ -93,9 +160,10 @@ impl ImportedDocument {
                     section_index,
                     part_name: header.part.clone(),
                     inherited: !section.explicit_default,
+                    blocks,
                 })
             })
-            .collect())
+            .collect()
     }
 
     /// Stage an image in one existing default header, with explicit sharing intent.
@@ -193,10 +261,11 @@ struct SectionHeaders {
     effective: [Option<HeaderRef>; 3],
 }
 
-fn header_sections(package: &Package, main: &str, root: &Node) -> Result<Vec<SectionHeaders>> {
+fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
     let body = only_child(root, "w:body")?.ok_or_else(missing_body)?;
     let mut slots = Vec::new();
     let mut terminal = None;
+    let mut body_end = 0;
     for (index, content) in body.children.iter().enumerate() {
         let Content::Element(node) = content else {
             continue;
@@ -204,12 +273,15 @@ fn header_sections(package: &Package, main: &str, root: &Node) -> Result<Vec<Sec
         if terminal.is_some() {
             return Err(unsupported("body section properties are not terminal"));
         }
+        if node.name != "w:sectPr" {
+            body_end += 1;
+        }
         match node.name.as_str() {
             "w:sectPr" => terminal = Some(node),
             "w:p" => {
                 if let Some(props) = only_child(node, "w:pPr")? {
                     if let Some(section) = only_child(props, "w:sectPr")? {
-                        slots.push((Slot::Paragraph(index), Some(section)));
+                        slots.push((Slot::Paragraph(index), body_end, Some(section)));
                     }
                     if props.elements().any(hides_section) {
                         return Err(unsupported("ambiguous section properties"));
@@ -223,13 +295,18 @@ fn header_sections(package: &Package, main: &str, root: &Node) -> Result<Vec<Sec
             _ => (),
         }
     }
-    slots.push((Slot::Terminal, terminal));
+    slots.push((Slot::Terminal, body_end, terminal));
+    Ok(slots)
+}
+
+fn header_sections(package: &Package, main: &str, root: &Node) -> Result<Vec<SectionHeaders>> {
+    let slots = section_slots(root)?;
     let relationships: BTreeMap<_, _> =
         package.relationships(main, "header")?.into_iter().collect();
     let mut resolved = BTreeMap::<String, HeaderRef>::new();
     let mut effective = [None, None, None];
     let mut sections = Vec::with_capacity(slots.len());
-    for (slot, props) in slots {
+    for (slot, _, props) in slots {
         let mut explicit = [false; 3];
         if let Some(props) = props {
             if props.child(ALTERNATE).is_some() {

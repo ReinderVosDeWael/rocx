@@ -6,6 +6,7 @@ import zipfile
 
 from lxml import etree
 import pytest
+from rocx.editor import BodyParagraph, BodyTable, ImportedDocument
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("check_examples", ROOT / "tools/check_examples.py")
@@ -28,9 +29,29 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     edited = rust.with_suffix(".edited.docx").read_bytes()
     checks.exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
     checks.verify_edited(rust.read_bytes(), edited)
+    edited_body = ImportedDocument.open(edited).body
+    target_index = next(i for i, block in enumerate(edited_body)
+                        if isinstance(block, BodyParagraph) and block.text == checks.EDIT_LABEL)
+    table = edited_body[target_index + 1]
+    assert isinstance(table, BodyTable)
+    assert len(table.children) == 1
+    assert len(table.children[0].children) == 2
+    assert [(item.kind, item.value) for item in table.children[0].children[0].blocks[0].inline_items] == [
+        ("text", checks.EDIT_TABLE_LABEL),
+    ]
+    for data in (rust.read_bytes(), edited):
+        target, = (
+            block for block in ImportedDocument.open(data).body
+            if isinstance(block, BodyParagraph) and block.text == checks.EDIT_LABEL
+        )
+        assert [(item.kind, item.value) for item in target.inline_items] == [
+            ("text", checks.EDIT_LABEL),
+        ]
     suffixes = [".header-source.docx", ".header-shared.docx", ".header-local.docx"]
     for suffix in suffixes:
         checks.exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
+        sections = ImportedDocument.open(rust.with_suffix(suffix).read_bytes()).sections
+        assert [(s.body_start, s.body_end) for s in sections] == [(0, 2), (2, 3)]
     checks.verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in suffixes))
 
 

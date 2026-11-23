@@ -532,6 +532,10 @@ pub async fn generate(output: &Path) -> Result<()> {
         })
         .collect();
     assert_eq!(targets.len(), 1);
+    assert_eq!(
+        targets[0].inline_items,
+        [editor::ImportedInline::Text(EDIT_LABEL.into())]
+    );
     let mut table = Table::new(vec![
         TableRow::new(vec![
             TableCell::new(vec![run(
@@ -560,7 +564,29 @@ pub async fn generate(output: &Path) -> Result<()> {
             table,
         }],
     )?;
-    std::fs::write(output.with_extension("edited.docx"), preview.to_docx()?)?;
+    let edited = preview.to_docx()?;
+    // Typed physical-table readback from the edited original package.
+    let reopened = editor::ImportedDocument::open(&edited)?;
+    let after = preview.insertions()[0].after_body_index + 1;
+    let editor::BodyBlock::Table(table) = &reopened.body()[after] else {
+        panic!("expected inserted table")
+    };
+    let [editor::ImportedTableChild::Row(row)] = table.children.as_slice() else {
+        panic!("expected row")
+    };
+    let editor::ImportedRowChild::Cell(cell) = &row.children[0] else {
+        panic!("expected cell")
+    };
+    let editor::ImportedCellBlock::Paragraph(items) = &cell.blocks[0] else {
+        panic!("expected paragraph")
+    };
+    assert_eq!(
+        items,
+        &[editor::ImportedInline::Text(
+            "Imported editor table: bold label".into()
+        )]
+    );
+    std::fs::write(output.with_extension("edited.docx"), edited)?;
 
     // Both previews start from the same snapshot: two sections share one header part.
     let mut first = Section::new(vec![p("Header image scope: first section.")]);
@@ -576,8 +602,19 @@ pub async fn generate(output: &Path) -> Result<()> {
     let source = source.resolve().await?.to_docx()?;
     std::fs::write(output.with_extension("header-source.docx"), &source)?;
     let imported = editor::ImportedDocument::open(&source)?;
+    assert_eq!(
+        imported
+            .sections()?
+            .iter()
+            .map(|section| (section.body_start, section.body_end))
+            .collect::<Vec<_>>(),
+        [(0, 2), (2, 3)]
+    );
     let headers = imported.default_headers()?;
     assert_eq!(headers[0].part_name, headers[1].part_name);
+    assert!(headers[1].blocks.iter().any(|block| matches!(block,
+        editor::ImportedHeaderBlock::Paragraph(items)
+        if items.iter().any(|item| matches!(item, editor::ImportedInline::Text(text) if text == "Header image scope: shared source header.")))));
     let target = &headers[1];
     let resolved = image("png", None).await?.expect("showcase image");
     for (mode, suffix) in [

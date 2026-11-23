@@ -6,7 +6,7 @@
 use crate::ooxml::{WordParts, open_word_source};
 use crate::opc::{Package, PackagePlan, ReadLimits};
 use crate::xml::{Content, Node};
-use crate::{Alignment, Diagnostic, Error, ResolvedTable, Result, Rule};
+use crate::{Alignment, BreakType, Diagnostic, Error, ResolvedTable, Result, Rule, SectionType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ mod header;
 mod insertion;
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
-    ImportedHeader,
+    ImportedHeader, ImportedHeaderBlock,
 };
 
 /// A target valid only for the snapshot that issued it.
@@ -29,9 +29,104 @@ pub struct ParagraphAnchor {
 #[non_exhaustive]
 pub enum BodyBlock {
     Paragraph(ImportedParagraph),
-    Table,
+    Table(ImportedTable),
     /// An unsupported element, identified by expanded XML name.
     Opaque(String),
+}
+
+/// Snapshot-scoped identity for a direct body table. Not currently an edit target.
+#[derive(Clone, Debug)]
+pub struct TableAnchor {
+    _snapshot: Arc<()>,
+    _body_index: usize,
+}
+
+/// Physical direct rows and cells; grid spans and merged cells are not expanded.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedTable {
+    pub anchor: TableAnchor,
+    pub children: Vec<ImportedTableChild>,
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ImportedTableChild {
+    Row(ImportedTableRow),
+    Opaque(String),
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedTableRow {
+    pub children: Vec<ImportedRowChild>,
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ImportedRowChild {
+    Cell(ImportedTableCell),
+    Opaque(String),
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedTableCell {
+    pub blocks: Vec<ImportedCellBlock>,
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ImportedCellBlock {
+    /// Text projection with the same inline rules as body paragraphs.
+    Paragraph(Vec<ImportedInline>),
+    /// Nested tables and unsupported blocks remain opaque in this slice.
+    Opaque(String),
+}
+
+fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTable {
+    ImportedTable {
+        anchor: TableAnchor {
+            _snapshot: snapshot.clone(),
+            _body_index: body_index,
+        },
+        children: node
+            .elements()
+            .filter(|n| !matches!(n.name.as_str(), "w:tblPr" | "w:tblGrid"))
+            .map(|n| {
+                if n.name != "w:tr" {
+                    return ImportedTableChild::Opaque(n.name.to_string());
+                }
+                ImportedTableChild::Row(ImportedTableRow {
+                    children: n
+                        .elements()
+                        .filter(|n| n.name != "w:trPr")
+                        .map(|n| {
+                            if n.name != "w:tc" {
+                                return ImportedRowChild::Opaque(n.name.to_string());
+                            }
+                            ImportedRowChild::Cell(ImportedTableCell {
+                                blocks: n
+                                    .elements()
+                                    .filter(|n| n.name != "w:tcPr")
+                                    .map(|n| {
+                                        if n.name != "w:p" {
+                                            return ImportedCellBlock::Opaque(n.name.to_string());
+                                        }
+                                        let mut items = Vec::new();
+                                        for child in n.elements().filter(|n| n.name != "w:pPr") {
+                                            read_inline(child, &mut items);
+                                        }
+                                        ImportedCellBlock::Paragraph(items)
+                                    })
+                                    .collect(),
+                            })
+                        })
+                        .collect(),
+                })
+            })
+            .collect(),
+    }
 }
 
 #[derive(Debug)]
@@ -46,6 +141,34 @@ pub struct ImportedParagraph {
     pub alignment_xml: Option<String>,
     /// Some inline content was omitted from the text projection.
     pub has_opaque_content: bool,
+    /// Ordered content from direct runs and hyperlink runs. This view flattens
+    /// run and hyperlink boundaries and is not an inline edit target.
+    pub inline_items: Vec<ImportedInline>,
+}
+
+/// Read-only items from a direct body paragraph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ImportedInline {
+    Text(String),
+    Tab,
+    /// `Line` denotes the `w:cr` form; an untyped `w:br` is `TextWrapping`.
+    Break(BreakType),
+    /// Source element name, with unsupported content left in the package.
+    Opaque(String),
+}
+
+/// A direct body section identified by its half-open range in `body()`.
+/// This is an inspection value, not an edit target.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedSection {
+    pub body_start: usize,
+    pub body_end: usize,
+    /// Recognized explicit section type. No default is inferred.
+    pub section_type: Option<SectionType>,
+    /// The explicit source value, including unknown values.
+    pub section_type_xml: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -131,8 +254,19 @@ impl ImportedDocument {
                 "w:p" => {
                     let mut text = String::new();
                     let mut has_opaque_content = false;
+                    let mut inline_items = Vec::new();
                     for child in node.elements().filter(|child| child.name != "w:pPr") {
-                        read_inline(child, &mut text, &mut has_opaque_content);
+                        read_inline(child, &mut inline_items);
+                    }
+                    for item in &inline_items {
+                        match item {
+                            ImportedInline::Text(value) => text.push_str(value),
+                            ImportedInline::Tab => text.push('\t'),
+                            ImportedInline::Break(BreakType::Line | BreakType::TextWrapping) => {
+                                text.push('\n')
+                            }
+                            _ => has_opaque_content = true,
+                        }
                     }
                     let alignment_xml = node
                         .child("w:pPr")
@@ -147,9 +281,10 @@ impl ImportedDocument {
                         alignment: alignment_xml.and_then(read_alignment),
                         alignment_xml: alignment_xml.map(str::to_owned),
                         has_opaque_content,
+                        inline_items,
                     })
                 }
-                "w:tbl" => BodyBlock::Table,
+                "w:tbl" => BodyBlock::Table(read_table(node, &snapshot, body_index)),
                 name => BodyBlock::Opaque(name.to_owned()),
             })
             .collect();
@@ -304,36 +439,44 @@ fn read_alignment(value: &str) -> Option<Alignment> {
     .find(|alignment| alignment.xml() == value)
 }
 
-fn read_inline(node: &Node, text: &mut String, opaque: &mut bool) {
+fn read_inline(node: &Node, items: &mut Vec<ImportedInline>) {
     match node.name.as_str() {
         "w:r" => {
             for item in node.elements() {
                 match item.name.as_str() {
                     "w:rPr" => (),
                     "w:t" => {
+                        let mut text = String::new();
                         for child in &item.children {
-                            match child {
-                                Content::Text(value) => text.push_str(value),
-                                Content::Element(_) => *opaque = true,
-                                Content::Raw(_) => (),
+                            if let Content::Text(value) = child {
+                                text.push_str(value);
                             }
                         }
+                        items.push(ImportedInline::Text(text));
+                        if item.elements().next().is_some() {
+                            items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
+                        }
                     }
-                    "w:tab" => text.push('\t'),
-                    "w:cr" => text.push('\n'),
-                    "w:br" if item.get("w:type").is_none_or(|v| v == "textWrapping") => {
-                        text.push('\n');
-                    }
-                    _ => *opaque = true,
+                    "w:tab" => items.push(ImportedInline::Tab),
+                    "w:cr" => items.push(ImportedInline::Break(BreakType::Line)),
+                    "w:br" => items.push(match item.get("w:type") {
+                        None | Some("textWrapping") => {
+                            ImportedInline::Break(BreakType::TextWrapping)
+                        }
+                        Some("page") => ImportedInline::Break(BreakType::Page),
+                        Some("column") => ImportedInline::Break(BreakType::Column),
+                        Some(_) => ImportedInline::Opaque(item.name.as_str().to_owned()),
+                    }),
+                    _ => items.push(ImportedInline::Opaque(item.name.as_str().to_owned())),
                 }
             }
         }
         "w:hyperlink" => {
             for child in node.elements() {
-                read_inline(child, text, opaque);
+                read_inline(child, items);
             }
         }
-        _ => *opaque = true,
+        _ => items.push(ImportedInline::Opaque(node.name.as_str().to_owned())),
     }
 }
 

@@ -44,6 +44,26 @@ struct PyImportedHeader {
     part_name: String,
     #[pyo3(get)]
     inherited: bool,
+    #[pyo3(get)]
+    blocks: Vec<Py<PyAny>>,
+}
+
+#[pyclass(name = "ImportedHeaderParagraph", frozen, module = "rocx.editor")]
+struct PyImportedHeaderParagraph {
+    #[pyo3(get)]
+    inline_items: Vec<Py<PyImportedInline>>,
+}
+
+#[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
+struct PyImportedSection {
+    #[pyo3(get)]
+    body_start: usize,
+    #[pyo3(get)]
+    body_end: usize,
+    #[pyo3(get)]
+    section_type: Option<&'static str>,
+    #[pyo3(get)]
+    section_type_xml: Option<String>,
 }
 
 #[pyclass(name = "HeaderImageEdit", frozen, module = "rocx.editor")]
@@ -154,10 +174,136 @@ struct PyBodyParagraph {
     alignment_xml: Option<String>,
     #[pyo3(get)]
     has_opaque_content: bool,
+    #[pyo3(get)]
+    inline_items: Vec<Py<PyImportedInline>>,
+}
+
+#[pyclass(name = "ImportedInline", frozen, module = "rocx.editor")]
+struct PyImportedInline {
+    #[pyo3(get)]
+    kind: &'static str,
+    #[pyo3(get)]
+    value: Option<String>,
+}
+
+impl From<&editor::ImportedInline> for PyImportedInline {
+    fn from(item: &editor::ImportedInline) -> Self {
+        use crate::BreakType;
+        use editor::ImportedInline::*;
+        let (kind, value) = match item {
+            Text(text) => ("text", Some(text.clone())),
+            Tab => ("tab", None),
+            Break(value) => (
+                "break",
+                Some(
+                    match value {
+                        BreakType::Line => "line",
+                        BreakType::Page => "page",
+                        BreakType::Column => "column",
+                        BreakType::TextWrapping => "textWrapping",
+                    }
+                    .to_owned(),
+                ),
+            ),
+            Opaque(name) => ("opaque", Some(name.clone())),
+        };
+        Self { kind, value }
+    }
 }
 
 #[pyclass(name = "BodyTable", frozen, module = "rocx.editor")]
-struct PyBodyTable {}
+struct PyBodyTable {
+    #[pyo3(get)]
+    anchor: Py<PyTableAnchor>,
+    #[pyo3(get)]
+    children: Vec<Py<PyAny>>,
+}
+
+#[pyclass(name = "TableAnchor", frozen, module = "rocx.editor")]
+struct PyTableAnchor {
+    _inner: editor::TableAnchor,
+}
+
+#[pyclass(name = "ImportedTableRow", frozen, module = "rocx.editor")]
+struct PyImportedTableRow {
+    #[pyo3(get)]
+    children: Vec<Py<PyAny>>,
+}
+
+#[pyclass(name = "ImportedTableCell", frozen, module = "rocx.editor")]
+struct PyImportedTableCell {
+    #[pyo3(get)]
+    blocks: Vec<Py<PyAny>>,
+}
+
+#[pyclass(name = "ImportedCellParagraph", frozen, module = "rocx.editor")]
+struct PyImportedCellParagraph {
+    #[pyo3(get)]
+    inline_items: Vec<Py<PyImportedInline>>,
+}
+
+fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<PyAny>> {
+    use editor::{ImportedCellBlock, ImportedRowChild, ImportedTableChild};
+    let children = table
+        .children
+        .iter()
+        .map(|child| match child {
+            ImportedTableChild::Opaque(xml) => {
+                Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
+            }
+            ImportedTableChild::Row(row) => {
+                let children = row
+                    .children
+                    .iter()
+                    .map(|child| match child {
+                        ImportedRowChild::Opaque(xml) => {
+                            Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
+                        }
+                        ImportedRowChild::Cell(cell) => {
+                            let blocks = cell
+                                .blocks
+                                .iter()
+                                .map(|block| match block {
+                                    ImportedCellBlock::Opaque(xml) => {
+                                        Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?
+                                            .into_any())
+                                    }
+                                    ImportedCellBlock::Paragraph(items) => Ok(Py::new(
+                                        py,
+                                        PyImportedCellParagraph {
+                                            inline_items: items
+                                                .iter()
+                                                .map(|item| {
+                                                    Py::new(py, PyImportedInline::from(item))
+                                                })
+                                                .collect::<PyResult<_>>()?,
+                                        },
+                                    )?
+                                    .into_any()),
+                                })
+                                .collect::<PyResult<_>>()?;
+                            Ok(Py::new(py, PyImportedTableCell { blocks })?.into_any())
+                        }
+                    })
+                    .collect::<PyResult<_>>()?;
+                Ok(Py::new(py, PyImportedTableRow { children })?.into_any())
+            }
+        })
+        .collect::<PyResult<_>>()?;
+    Ok(Py::new(
+        py,
+        PyBodyTable {
+            anchor: Py::new(
+                py,
+                PyTableAnchor {
+                    _inner: table.anchor.clone(),
+                },
+            )?,
+            children,
+        },
+    )?
+    .into_any())
+}
 
 #[pyclass(name = "BodyOpaque", frozen, module = "rocx.editor")]
 struct PyBodyOpaque {
@@ -305,6 +451,25 @@ impl PyImportedDocument {
     }
 
     #[getter]
+    fn sections(&self) -> PyResult<Vec<PyImportedSection>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .sections()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|section| PyImportedSection {
+                body_start: section.body_start,
+                body_end: section.body_end,
+                section_type: section.section_type.map(crate::SectionType::xml),
+                section_type_xml: section.section_type_xml,
+            })
+            .collect())
+    }
+
+    #[getter]
     fn default_headers(&self, py: Python<'_>) -> PyResult<Vec<PyImportedHeader>> {
         let doc = self
             .inner
@@ -324,6 +489,25 @@ impl PyImportedDocument {
                     section_index: header.section_index,
                     part_name: header.part_name,
                     inherited: header.inherited,
+                    blocks: header
+                        .blocks
+                        .iter()
+                        .map(|block| match block {
+                            editor::ImportedHeaderBlock::Opaque(xml) => {
+                                Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
+                            }
+                            editor::ImportedHeaderBlock::Paragraph(items) => Ok(Py::new(
+                                py,
+                                PyImportedHeaderParagraph {
+                                    inline_items: items
+                                        .iter()
+                                        .map(|item| Py::new(py, PyImportedInline::from(item)))
+                                        .collect::<PyResult<_>>()?,
+                                },
+                            )?
+                            .into_any()),
+                        })
+                        .collect::<PyResult<_>>()?,
                 })
             })
             .collect()
@@ -373,10 +557,15 @@ impl PyImportedDocument {
                         alignment: p.alignment.map(|v| alignment_name(v).to_owned()),
                         alignment_xml: p.alignment_xml.clone(),
                         has_opaque_content: p.has_opaque_content,
+                        inline_items: p
+                            .inline_items
+                            .iter()
+                            .map(|item| Py::new(py, PyImportedInline::from(item)))
+                            .collect::<PyResult<_>>()?,
                     },
                 )?
                 .into_any()),
-                BodyBlock::Table => Ok(Py::new(py, PyBodyTable {})?.into_any()),
+                BodyBlock::Table(table) => table_object(py, table),
                 BodyBlock::Opaque(xml) => {
                     Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
                 }
@@ -418,12 +607,19 @@ impl PyImportedDocument {
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;
+    module.add_class::<PyImportedHeaderParagraph>()?;
+    module.add_class::<PyImportedSection>()?;
     module.add_class::<PyHeaderImageEdit>()?;
     module.add_class::<PyHeaderImageChange>()?;
     module.add_class::<PyHeaderImagePreview>()?;
     module.add_class::<PyParagraphAnchor>()?;
     module.add_class::<PyBodyParagraph>()?;
+    module.add_class::<PyImportedInline>()?;
     module.add_class::<PyBodyTable>()?;
+    module.add_class::<PyTableAnchor>()?;
+    module.add_class::<PyImportedTableRow>()?;
+    module.add_class::<PyImportedTableCell>()?;
+    module.add_class::<PyImportedCellParagraph>()?;
     module.add_class::<PyBodyOpaque>()?;
     module.add_class::<PyParagraphAlignmentEdit>()?;
     module.add_class::<PyTableInsertion>()?;

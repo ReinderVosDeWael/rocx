@@ -103,13 +103,81 @@ fn reads_direct_body_blocks_and_paragraph_properties() {
     assert_eq!(first.alignment, Some(Alignment::Left));
     assert_eq!(first.alignment_xml.as_deref(), Some("left"));
     assert!(first.has_opaque_content);
-    assert!(matches!(&doc.body()[1], BodyBlock::Table));
+    let BodyBlock::Table(table) = &doc.body()[1] else {
+        panic!("expected table")
+    };
+    let [rocx::editor::ImportedTableChild::Row(row)] = table.children.as_slice() else {
+        panic!("expected row")
+    };
+    let [rocx::editor::ImportedRowChild::Cell(cell)] = row.children.as_slice() else {
+        panic!("expected cell")
+    };
+    let [rocx::editor::ImportedCellBlock::Paragraph(items)] = cell.blocks.as_slice() else {
+        panic!("expected paragraph")
+    };
+    assert_eq!(
+        items,
+        &[rocx::editor::ImportedInline::Text("in table".into())]
+    );
     assert!(matches!(&doc.body()[2], BodyBlock::Opaque(_)));
     let second = paragraph(&doc, 3);
     assert_eq!(second.text, "Second");
     assert_eq!(second.alignment, None);
     assert_eq!(second.alignment_xml, None);
     assert!(!second.has_opaque_content);
+}
+
+#[test]
+fn table_inspection_preserves_unknown_children_in_order() {
+    use rocx::editor::{ImportedCellBlock, ImportedRowChild, ImportedTableChild};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblPr/><w:customXml/><w:tr><w:trPr/><w:sdt/><w:tc><w:tcPr/><w:p><w:r><w:t>x</w:t><w:drawing/></w:r></w:p><w:tbl/><w:sdt/></w:tc></w:tr></w:tbl></w:body></w:document>"#
+    );
+    let doc = ImportedDocument::open(&fixture_with_body(&xml)).unwrap();
+    let BodyBlock::Table(table) = &doc.body()[0] else {
+        panic!()
+    };
+    assert!(
+        matches!(&table.children[0], ImportedTableChild::Opaque(name) if name == "w:customXml")
+    );
+    let ImportedTableChild::Row(row) = &table.children[1] else {
+        panic!()
+    };
+    assert!(matches!(&row.children[0], ImportedRowChild::Opaque(name) if name == "w:sdt"));
+    let ImportedRowChild::Cell(cell) = &row.children[1] else {
+        panic!()
+    };
+    assert!(
+        matches!(&cell.blocks[0], ImportedCellBlock::Paragraph(items) if matches!(&items[1], rocx::editor::ImportedInline::Opaque(name) if name == "w:drawing"))
+    );
+    assert!(matches!(&cell.blocks[1], ImportedCellBlock::Opaque(name) if name == "w:tbl"));
+    assert!(matches!(&cell.blocks[2], ImportedCellBlock::Opaque(name) if name == "w:sdt"));
+}
+
+#[test]
+fn inspects_ordered_inline_items_without_changing_the_text_projection() {
+    use rocx::BreakType;
+    use rocx::editor::ImportedInline::{Break, Opaque, Tab, Text};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p><w:r><w:t xml:space="preserve">a </w:t><w:tab/><w:br/><w:br w:type="page"/><w:cr/><w:br w:type="column"/><w:drawing/></w:r><w:hyperlink w:anchor="bookmark"><w:r><w:t>b</w:t></w:r></w:hyperlink></w:p></w:body></w:document>"#
+    );
+    let doc = ImportedDocument::open(&fixture_with_body(&xml)).unwrap();
+    let first = paragraph(&doc, 0);
+    assert_eq!(first.text, "a \t\n\nb");
+    assert!(first.has_opaque_content);
+    assert_eq!(
+        first.inline_items,
+        [
+            Text("a ".into()),
+            Tab,
+            Break(BreakType::TextWrapping),
+            Break(BreakType::Page),
+            Break(BreakType::Line),
+            Break(BreakType::Column),
+            Opaque("w:drawing".into()),
+            Text("b".into()),
+        ]
+    );
 }
 
 #[test]
@@ -152,6 +220,37 @@ fn patch_preserves_other_markup_and_parts_and_preview_is_non_mutating() {
         .find(|n| n.has_tag_name((W, "jc")))
         .unwrap();
     assert_eq!(jc.attribute((W, "val")), Some("right"));
+}
+
+#[test]
+fn inspects_explicit_and_implicit_sections_and_refuses_ambiguity() {
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p><w:pPr><w:sectPr><w:type w:val="continuous"/></w:sectPr></w:pPr></w:p><w:p><w:pPr><w:sectPr><w:type w:val="unknown"/></w:sectPr></w:pPr></w:p><w:tbl/></w:body></w:document>"#
+    );
+    let doc = ImportedDocument::open(&fixture_with_body(&xml)).unwrap();
+    let sections = doc.sections().unwrap();
+    assert_eq!(
+        sections
+            .iter()
+            .map(|s| (s.body_start, s.body_end, s.section_type_xml.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            (0, 1, Some("continuous")),
+            (1, 2, Some("unknown")),
+            (2, 3, None),
+        ]
+    );
+    assert_eq!(
+        sections[0].section_type,
+        Some(rocx::SectionType::Continuous)
+    );
+    assert_eq!(sections[1].section_type, None);
+    let duplicate = xml.replace(
+        r#"<w:type w:val="continuous"/>"#,
+        r#"<w:type w:val="continuous"/><w:type w:val="nextPage"/>"#,
+    );
+    let doc = ImportedDocument::open(&fixture_with_body(&duplicate)).unwrap();
+    assert!(doc.sections().is_err());
 }
 
 #[test]
@@ -619,6 +718,9 @@ fn shared_header_edit_reports_all_consumers_and_owns_image_relationship() {
         [false, true, true]
     );
     assert!(headers.iter().all(|h| h.part_name == headers[0].part_name));
+    assert!(matches!(&headers[1].blocks[..],
+        [rocx::editor::ImportedHeaderBlock::Paragraph(items)]
+        if matches!(&items[..], [rocx::editor::ImportedInline::Text(text)] if text == "original")));
     let edit = HeaderImageEdit {
         target: headers[1].anchor.clone(),
         mode: HeaderEditMode::Shared,
@@ -639,6 +741,24 @@ fn shared_header_edit_reports_all_consumers_and_owns_image_relationship() {
             assert_eq!(output.get(name), Some(bytes), "{name}");
         }
     }
+}
+
+#[test]
+fn header_story_preserves_order_and_opaque_children() {
+    use rocx::editor::{ImportedHeaderBlock, ImportedInline};
+    let input = header_fixture(
+        "<w:p><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t></w:r></w:p><w:tbl/><w:p><w:r><w:drawing/></w:r></w:p>",
+        false,
+    );
+    let doc = ImportedDocument::open(&input).unwrap();
+    let headers = doc.default_headers().unwrap();
+    assert!(matches!(&headers[0].blocks[..], [
+        ImportedHeaderBlock::Paragraph(first),
+        ImportedHeaderBlock::Opaque(table),
+        ImportedHeaderBlock::Paragraph(last),
+    ] if matches!(&first[..], [ImportedInline::Text(a), ImportedInline::Tab, ImportedInline::Text(b)] if a == "A" && b == "B")
+        && table == "w:tbl"
+        && matches!(&last[..], [ImportedInline::Opaque(name)] if name == "w:drawing")));
 }
 
 #[test]

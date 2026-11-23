@@ -441,6 +441,9 @@ async def generate(output: pathlib.Path) -> bytes:
     imported = ImportedDocument.open(data)
     targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]
     assert len(targets) == 1
+    assert [(item.kind, item.value) for item in targets[0].inline_items] == [
+        ("text", EDIT_LABEL),
+    ]
     table = d.Table([d.TableRow([
         d.TableCell([run("Imported editor table: bold label", bold=True)]),
         cell("Fixed-width second column"),
@@ -448,7 +451,15 @@ async def generate(output: pathlib.Path) -> bytes:
     insertion = TableInsertion(targets[0].anchor, await table.resolve())
     preview = imported.preview([ParagraphAlignmentEdit(targets[0].anchor, "center")],
                                table_insertions=[insertion])
-    output.with_suffix(".edited.docx").write_bytes(preview.to_docx())
+    edited = preview.to_docx()
+    # Typed physical-table readback from the edited original package.
+    reopened = ImportedDocument.open(edited)
+    inserted = reopened.body[preview.insertions[0].after_body_index + 1]
+    items = inserted.children[0].children[0].blocks[0].inline_items
+    assert [(item.kind, item.value) for item in items] == [
+        ("text", "Imported editor table: bold label"),
+    ]
+    output.with_suffix(".edited.docx").write_bytes(edited)
 
     # Independent previews where both sections share one simple header.
     source = d.Document([
@@ -459,8 +470,14 @@ async def generate(output: pathlib.Path) -> bytes:
     source_bytes = await (await source.resolve()).to_bytes()
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
+    assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
     target = next(header for header in header_doc.default_headers
                   if header.section_index == 1)
+    assert any(
+        (item.kind, item.value) == ("text", "Header image scope: shared source header.")
+        for block in target.blocks if hasattr(block, "inline_items")
+        for item in block.inline_items
+    )
     resolved_image = await image("png").resolve()
     for mode, suffix in [("shared", ".header-shared.docx"),
                          ("section_local", ".header-local.docx")]:
