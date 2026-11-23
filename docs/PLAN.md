@@ -21,6 +21,18 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
+### JavaScript parity review follow-up
+
+Fix the three reproduced adapter defects: retry after Wasm initialization
+failure (#24), reject malformed UTF-16 rather than replacing it (#20), and
+accept valid `Uint8Array` views from other JavaScript realms (#23). Add
+path-aware diagnostics as a separate adapter improvement (#22). Track broader
+authoring parity in #21; keep editor parity separate. Run packed consumer
+verification, including exact byte parity, before treating the fixes as
+complete. The Rust/Python release gates below still apply.
+
+### Earlier issue sweep
+
 Audit all nine issues open at the start of this sweep. Use one isolated topic
 worktree per issue that needs changes. For reproducible regressions, record
 the failing test before the fix and verify it again after integration.
