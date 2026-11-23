@@ -144,10 +144,18 @@ fn edit_paragraph(
     needle: &str,
     replacement: &str,
     position: &mut Position,
+    protected: bool,
     dirty: &mut bool,
 ) -> Result<()> {
     let mut tokens = Vec::new();
-    collect(node, &mut Vec::new(), position, false, false, &mut tokens);
+    collect(
+        node,
+        &mut Vec::new(),
+        position,
+        protected,
+        false,
+        &mut tokens,
+    );
     let joined: String = tokens.iter().map(|t| t.before.as_str()).collect();
     for start in joined
         .match_indices(needle)
@@ -225,6 +233,7 @@ fn visit(
     needle: &str,
     replacement: &str,
     position: &mut Position,
+    protected: bool,
     dirty: &mut bool,
 ) -> Result<()> {
     if node.name.namespace() != Some(W) {
@@ -238,11 +247,12 @@ fn visit(
     } else {
         position
     };
+    let protected = protected || node.name == "w:sdt";
     if node.name == "w:p" {
-        edit_paragraph(node, needle, replacement, position, dirty)?;
+        edit_paragraph(node, needle, replacement, position, protected, dirty)?;
     }
     for child in node.elements_mut() {
-        visit(child, needle, replacement, position, dirty)?;
+        visit(child, needle, replacement, position, protected, dirty)?;
     }
     Ok(())
 }
@@ -261,6 +271,7 @@ pub(crate) fn replacements(root: &mut Node, replacements: &[(String, String)]) -
             needle,
             replacement,
             &mut Position::default(),
+            false,
             &mut dirty,
         )?;
     }
