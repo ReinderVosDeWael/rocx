@@ -13,11 +13,18 @@ generateDocx(
 | Input | Shape |
 | --- | --- |
 | `DocumentDeclaration` | `blocks: readonly Block[]`; one section with default page layout |
-| Paragraph block | `kind: "paragraph"`, `runs: readonly Run[]` |
-| Table block | `kind: "table"`, `rows: readonly (readonly string[])[]`; a nonempty rectangular grid |
+| Paragraph block | `kind: "paragraph"`, `runs: readonly Inline[]`, optional `alignment` |
+| Table block | `kind: "table"`, `rows: readonly (readonly (string \| TableCell)[])[]`; a nonempty rectangular grid |
+| Rich table cell | `blocks: readonly Block[]` (including nested tables, up to 32 table levels); strings remain shorthand for a plain paragraph |
 | Text run | `kind: "text"`, `text: string`, optional `bold` and `italic` booleans |
-| Image run | `kind: "image"`, `bytes: Uint8Array` containing an encoded image, optional `altText: string` |
+| Image run | `kind: "image"`, `bytes: Uint8Array` containing an encoded image, optional `altText: string` and positive `width` and `height` in points |
+| Tab run | `kind: "tab"` |
+| Break run | `kind: "break"`, optional `breakType`: `"line"` (default), `"page"`, `"column"`, or `"textWrapping"` |
+| External hyperlink | `kind: "hyperlink"`, `target: string` (absolute URI/IRI), `runs: readonly Run[]` (text/image/tab/break, no links) |
 | `GenerateOptions` | Optional `timestamp`: UTC ISO time with seconds and optional milliseconds; defaults to the current time |
+
+An image with one dimension retains its intrinsic aspect ratio; with neither
+it retains its intrinsic size.
 
 The result is a complete DOCX file in memory. Write the bytes to disk in Node
 or download them as a Blob in a browser. Invalid declarations or rendering

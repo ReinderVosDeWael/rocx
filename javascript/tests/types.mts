@@ -20,5 +20,9 @@ void errorContext;
 
 // @ts-expect-error Images take bytes, not a filename.
 void generateDocx({ blocks: [{ kind: "paragraph", runs: [{ kind: "image", bytes: "test.png" }] }] });
-// @ts-expect-error Table cells are plain text.
+// @ts-expect-error Table cells are text or an object containing blocks.
 void generateDocx({ blocks: [{ kind: "table", rows: [[42]] }] });
+void generateDocx({ blocks: [{ kind: "paragraph", runs: [
+  // @ts-expect-error Hyperlinks cannot contain another hyperlink.
+  { kind: "hyperlink", target: "https://example.org", runs: [{ kind: "hyperlink", target: "https://example.org", runs: [] }] },
+] }] });

@@ -82,17 +82,23 @@ npm install /tmp/rocx-docx-0.1.0.tgz
 
 ## Authoring scope
 
-- One section with default layout; paragraphs hold text and inline image runs.
+- One section with default layout. Paragraphs can set `alignment` and combine
+  text, inline images, tabs, breaks, and external hyperlinks in `runs`.
   Text accepts optional `bold` and `italic`; `false` is an explicit override.
-- Tables accept a nonempty rectangular grid of plain-text cells.
+  Breaks default to `"line"`; links take an absolute URI/IRI and their own
+  display runs (no nested hyperlinks). rocx does not fetch link targets.
+- Tables accept a nonempty rectangular grid. Each cell is a string (shorthand
+  for one plain paragraph) or `{ blocks: [...] }`. Cell blocks can include
+  formatted paragraphs and nested tables, up to 32 table levels.
 - Image runs accept already-encoded `Uint8Array` bytes, not a file path, URL, or
   decoded pixels. PNG is exercised in the cross-runtime check; image format
   detection uses the same PNG, JPEG, GIF, BMP, and TIFF reader as native rocx.
-  Images use their intrinsic dimensions. The optional `altText` becomes the
-  picture description. Views, including views created in another JavaScript
-  realm, use only their selected bytes.
+  Optional positive `width` and `height` are in points. Supply neither for
+  intrinsic size, or just one to keep the intrinsic aspect ratio. The
+  optional `altText` becomes the picture description. Views, including views
+  created in another JavaScript realm, use only their selected bytes.
 - `generateDocx` rejects with an `Error` for invalid declarations or a rocx
-  rendering error. Text, table cells, and image descriptions must contain
+  rendering error. All input strings used as document content must contain
   well-formed Unicode (no unpaired UTF-16 surrogates). Await file reads/fetches
   before calling it; declarations do not accept callbacks or promises. Do not
   mutate them until the call settles.
@@ -104,8 +110,9 @@ npm install /tmp/rocx-docx-0.1.0.tgz
 
 The [Rust/Python catalog](https://github.com/ReinderVosDeWael/rocx/blob/main/examples/ALL_FEATURES.md)
 tracks the broader engine surface. The JavaScript binding does not expose
-custom styles, lists, links, fields, notes, rich table cells, image transforms,
-shapes or charts. It also omits multiple sections, headers and footers,
+custom styles, lists, internal bookmark links, fields, notes, table formatting
+and merges, image transforms beyond sizing, shapes, or charts. It also omits
+multiple sections, headers and footers,
 document metadata beyond the timestamp, deferred producers, templates, and
 editing existing DOCX files. The quickstart is not a promise of further parity.
 

@@ -4,11 +4,17 @@ export interface DocumentDeclaration {
 }
 
 export type Block = Paragraph | Table;
-export type Run = TextRun | ImageRun;
+export type Run = TextRun | ImageRun | Tab | Break;
+export type Inline = Run | Hyperlink;
+
+export type Alignment =
+  | "left" | "center" | "right" | "justify" | "distribute"
+  | "justifyMedium" | "justifyHigh" | "justifyLow" | "thaiJustify";
 
 export interface Paragraph {
   readonly kind: "paragraph";
-  readonly runs: readonly Run[];
+  readonly runs: readonly Inline[];
+  readonly alignment?: Alignment;
 }
 
 export interface TextRun {
@@ -23,12 +29,38 @@ export interface ImageRun {
   /** Encoded image bytes (not pixels, a path, or a URL). */
   readonly bytes: Uint8Array;
   readonly altText?: string;
+  /** Width in points. If only one dimension is given, preserve the aspect ratio. */
+  readonly width?: number;
+  /** Height in points. If neither dimension is given, use the intrinsic size. */
+  readonly height?: number;
+}
+
+export interface Tab {
+  readonly kind: "tab";
+}
+
+export interface Break {
+  readonly kind: "break";
+  /** Defaults to a line break. */
+  readonly breakType?: "line" | "page" | "column" | "textWrapping";
+}
+
+export interface Hyperlink {
+  readonly kind: "hyperlink";
+  /** Absolute external URI/IRI; no internal bookmarks. */
+  readonly target: string;
+  readonly runs: readonly Run[];
+}
+
+export interface TableCell {
+  /** Ordered blocks, including paragraphs and nested tables. */
+  readonly blocks: readonly Block[];
 }
 
 export interface Table {
   readonly kind: "table";
-  /** Nonempty rectangular grid of plain-text cells. */
-  readonly rows: readonly (readonly string[])[];
+  /** Nonempty rectangular grid; a string is shorthand for a plain paragraph. */
+  readonly rows: readonly (readonly (string | TableCell)[])[];
 }
 
 export interface GenerateOptions {

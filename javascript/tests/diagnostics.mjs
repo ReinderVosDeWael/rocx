@@ -61,3 +61,25 @@ await rejectsWith(render(paragraph(text("\0"))), {
   message: /invalid XML 1\.0 character/,
   rule: "invalid_xml",
 });
+
+const hyperlink = (target, ...runs) => ({ kind: "hyperlink", target, runs });
+const richTable = (...blocks) => table([[{ blocks }]]);
+await rejectsWith(render(richTable(paragraph(hyperlink("./relative", text("link"))))), {
+  message: /absolute external URI\/IRI/,
+  path: "blocks[0].rows[0][0].blocks[0].runs[0].target",
+  rule: "invalid_relationship",
+});
+await rejectsWith(render(paragraph(hyperlink("https://example.org/", hyperlink("https://example.org/")))), {
+  message: /no nested hyperlinks/,
+  path: "blocks[0].runs[0].runs[0]",
+});
+await rejectsWith(render(richTable(paragraph(hyperlink("https://example.org/", text("\uD800"))))), {
+  message: /malformed UTF-16/,
+  path: "blocks[0].rows[0][0].blocks[0].runs[0].runs[0]",
+});
+const cyclicTable = richTable();
+cyclicTable.rows[0][0].blocks.push(cyclicTable);
+await rejectsWith(render(cyclicTable), {
+  message: /at most 32 levels/,
+  path: "blocks[0]" + ".rows[0][0].blocks[0]".repeat(32),
+});

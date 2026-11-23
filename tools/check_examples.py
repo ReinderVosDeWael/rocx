@@ -253,7 +253,7 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
 
 
 def verify_javascript_workflow(data: bytes, *, standalone: bool = False) -> None:
-    """Independently read the labeled paragraph, following table and embedded PNG."""
+    """Independently read the labeled paragraph, rich table and sized PNG."""
     output = docx.Document(io.BytesIO(data))
     blocks = list(output.iter_inner_content())
     start, = [i for i, block in enumerate(blocks)
@@ -265,10 +265,20 @@ def verify_javascript_workflow(data: bytes, *, standalone: bool = False) -> None
     assert [(r.text, r.bold, r.italic) for r in paragraph.runs] == [
         ("JavaScript authoring: ", True, False), ("Café 東京", None, True),
     ]
+    assert paragraph.alignment == docx.enum.text.WD_ALIGN_PARAGRAPH.CENTER
     assert isinstance(table, docx.table.Table)
-    assert [[cell.text for cell in row.cells] for row in table.rows] == [
-        ["Item", "Count"], ["Pages", "2"],
-    ]
+    assert [len(row.cells) for row in table.rows] == [2, 2]
+    assert [cell.text for cell in table.rows[0].cells] == ["Item", "Details"]
+    assert table.cell(1, 0).text == "Pages"
+    detail, nested, trailing = table.cell(1, 1).iter_inner_content()
+    assert isinstance(detail, docx.text.paragraph.Paragraph)
+    assert detail.text == "2\tReport details\nVerified"
+    assert detail.runs[0].bold is True
+    hyperlink, = detail.hyperlinks
+    assert hyperlink.url == "https://example.org/report"
+    assert hyperlink.runs[0].text == "Report details" and hyperlink.runs[0].italic is True
+    assert isinstance(nested, docx.table.Table) and nested.cell(0, 0).text == "Nested detail"
+    assert isinstance(trailing, docx.text.paragraph.Paragraph) and trailing.text == ""
     assert isinstance(image, docx.text.paragraph.Paragraph)
     with zipfile.ZipFile(io.BytesIO(data)) as package:
         document = etree.fromstring(package.read("word/document.xml"))
@@ -278,6 +288,7 @@ def verify_javascript_workflow(data: bytes, *, standalone: bool = False) -> None
             "//w:p[w:r/w:t[text()='JavaScript authoring: ']]"
             "/following-sibling::*[2]/w:r/w:drawing/wp:inline", namespaces=NS)
         assert inline is image_in_body
+        assert inline.xpath("wp:extent/@cx | wp:extent/@cy", namespaces=NS) == ["914400", "457200"]
         embed, = inline.xpath(".//a:blip/@odr:embed", namespaces=NS)
         rel = output.part.rels[embed]
         assert rel.reltype == f"{NS['odr']}/image" and not rel.is_external
