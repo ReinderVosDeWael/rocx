@@ -1,8 +1,7 @@
 # Active plan — editing existing DOCX files
 
-Release the current editor checkpoint as 0.3.0 once the dependency refresh,
-registry setup, and release preflight are verified. The unrelated backlog
-remains deferred.
+The current editor checkpoint shipped in 0.3.0. Resume the editor work below;
+the unrelated backlog remains deferred.
 
 The [engine audit](ENGINE-AUDIT.md) records four correctness and preservation
 defects (#10–#13). Each failed its regression before the fix and passed
@@ -27,7 +26,7 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 | [#2](https://github.com/ReinderVosDeWael/rocx/issues/2) | Existing `RunFormat` builders cover the request; three focused tests and three doctests passed without code changes. |
 | [#3](https://github.com/ReinderVosDeWael/rocx/issues/3) | Direct-body tables and default-header stories are inspectable in Rust and Python; focused tests and exact catalog parity passed. Continue checkpoint task 4 with richer inline targets. |
 | [#4](https://github.com/ReinderVosDeWael/rocx/issues/4) | Canonical links and package metadata updated. `/rocx/` returns HTTP 200; the legacy path returns 404. Docs tests and strict build passed; private publisher verification remains. |
-| [#5](https://github.com/ReinderVosDeWael/rocx/issues/5) | Preflight extracts the published quickstarts and tests the built wheels and packaged crate. Four smoke-tool tests passed, and the freshly built crate and wheel passed on Linux x86_64. Hosted matrix and exact registry-version runs remain. |
+| [#5](https://github.com/ReinderVosDeWael/rocx/issues/5) | Hosted quickstarts passed on Linux x86_64, Windows x86_64 and macOS arm64 (universal2 wheel). Clean installs of the published 0.3.0 crate and Linux x86_64 wheel also passed. |
 | [#6](https://github.com/ReinderVosDeWael/rocx/issues/6) | [Branded report](website/branded-report.md) linked from README and the site. Exact Rust/Python output, unchanged template and header parts, and strict docs build verified. |
 | [#7](https://github.com/ReinderVosDeWael/rocx/issues/7) | Added a [viewer checklist](VIEWER-COMPATIBILITY-CHECKLIST.md); verified app results are still needed. |
 | [#8](https://github.com/ReinderVosDeWael/rocx/issues/8) | [Evaluation complete](PYTHON-SYNC-EVALUATION.md): keep the async API. The local probe passed script execution, active-loop rejection, async producer, exact DOCX byte comparison, and independent readback. |
@@ -156,7 +155,7 @@ not started.
 10. Run the acceptance suite: typed all-features readback, both examples and
     coverage checks, preservation, and exact Rust/Python DOCX byte parity.
 
-## Active: 0.3.0 release
+## Released: 0.3.0
 
 ### Release checklist
 
@@ -173,7 +172,13 @@ not started.
 
 The maintainer confirmed the pending PyPI publisher. The `pypi` and `crates-io`
 GitHub environments exist, and the repository has the crates.io bootstrap
-secret. Confirm the hosted non-publishing preflight before pushing `v0.3.0`.
+secret. The [hosted non-publishing preflight](https://github.com/ReinderVosDeWael/rocx/actions/runs/45190233113)
+passed for `0a54aaa`, including all three wheel families and the source
+distribution. The [tag-triggered publish run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45191346555)
+succeeded. Version 0.3.0 is live on [crates.io](https://crates.io/crates/rocx/0.3.0)
+and [PyPI](https://pypi.org/project/rocx/0.3.0/). Clean registry quickstarts
+passed on Linux x86_64, using Rust 1.88 and CPython 3.12. Follow up by configuring
+crates.io trusted publishing and removing the bootstrap token.
 
 ### Baseline before the dependency refresh
 
@@ -187,8 +192,6 @@ secret. Confirm the hosted non-publishing preflight before pushing `v0.3.0`.
 - The earlier version gate, offline lock check, Cargo packaging and isolated
   CPython 3.12 wheel probe also passed. Cargo packaging used `--allow-dirty`
   for local preflight.
-- Hosted release preflight has not run. No tag was created or pushed, and no
-  deployment or publication was performed.
 
 ## Deferred backlog
 
