@@ -3,6 +3,8 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import subprocess
+import sys
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from lxml import etree
@@ -259,12 +261,11 @@ async def test_invalid_extended_properties_relationship_fails(validator, mutatio
         validator.validate(data)
 
 
-async def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fails(validator, tmp_path):
+def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fails(validator, tmp_path):
     import test_notes
-    spec = importlib.util.spec_from_file_location("visual_catalog", ROOT / "examples/all_features.py")
-    example = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(example)
-    data = await example.generate(tmp_path / "all-features.docx")
+    catalog = tmp_path / "all-features.docx"
+    subprocess.run([sys.executable, ROOT / "examples/all_features.py", catalog], check=True)
+    data = catalog.read_bytes()
     checked = validator.validate(data)
     assert {"word/charts/chart1.xml", "docProps/custom.xml", "docProps/app.xml"} <= set(checked)
     def duplicate_company(root):
