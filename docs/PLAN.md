@@ -19,7 +19,7 @@ are not release blockers.
 ## Release candidate status
 
 - Verification's Rust formatting failure is addressed with a formatting-only
-  fix and an opt-in pre-commit hook that checks staged files. The hosted
+  fix and an opt-in prek hook that checks Rust formatting. The hosted
   formatting check remains required independently of local hook setup.
 - The Rust and Python manifests, lockfiles, and Python runtime report `0.3.0`.
 - The recorded local baseline passed 269 Rust tests, three doctests, 741

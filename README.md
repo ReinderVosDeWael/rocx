@@ -57,13 +57,14 @@ differences and the limits of each feature.
 
 ## Contributing
 
-Enable the repository's pre-commit hook once per clone:
+Install [prek](https://prek.j178.dev/) and enable its Git hook once per clone:
 
 ```sh
-git config --local core.hooksPath .githooks
+uv tool install prek
+prek install
 ```
 
-With Cargo and `rustfmt` installed, the hook runs `cargo fmt --check` against
-the staged snapshot. If it fails, run `cargo fmt` and stage the intended
-formatting changes before retrying. GitHub Actions also checks formatting
-whether or not the hook is installed.
+With Cargo and `rustfmt` installed, prek runs `cargo fmt --check` before each
+commit, temporarily setting aside unstaged edits to tracked files. If it
+fails, run `cargo fmt` and stage the intended formatting changes before
+retrying. GitHub Actions checks formatting even if prek is not installed.
