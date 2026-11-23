@@ -19,7 +19,27 @@ The Rust 1.88 check, Rust suite, three doctests, Clippy, Wasm target check,
 767 schema-required Python tests, strict docs build, and exact DOCX byte parity
 passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status.
 
-## Parallel GitHub issue work
+## Current GitHub issue sweep
+
+Audit all nine issues open at the start of this sweep. Use one isolated topic
+worktree per issue that needs changes. For reproducible regressions, record
+the failing test before the fix and verify it again after integration.
+Close issues only after their acceptance criteria are met on the default
+branch; keep umbrella or externally blocked work open.
+
+| Issue | Scope |
+| --- | --- |
+| #2 | Closed as already fixed by `ab59df3`; all three builder regression tests passed on the default branch. |
+| #4 | GitHub Pages reports the canonical `/rocx/` path. The PyPI OIDC publish and crates.io bootstrap publish both succeeded for 0.3.0; crates.io trusted-publisher setup is not verified. Recheck hosted quickstarts and the strict docs build. |
+| #3, #7, #9 | Advance the editor checkpoint, viewer evidence, and JavaScript package respectively; verify the remaining acceptance criteria independently. |
+| #16, #17 | Reproduce tab-stop corruption and ordinary replacement inside structured content controls; fix template traversal without changing targeted replacement. |
+| #18, #19 | Reproduce invalid partial page margins and merged authored section stories; verify generated schema and readback behavior. |
+
+The next release is conditional on resolving the open issues, confirming
+registry setup, and passing the local and hosted preflight in
+[RELEASING.md](RELEASING.md). Do not use a publishing tag to test the pipeline.
+
+## Prior parallel GitHub issue work
 
 | Issue | First slice |
 | --- | --- |
