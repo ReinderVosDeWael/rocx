@@ -9,8 +9,9 @@
 
 ### Existing documents
 
-- Inspect run and hyperlink boundaries in direct body paragraphs with
-  snapshot-scoped read-only addresses in Rust and Python.
+- Inspect run and hyperlink boundaries in direct body and default-header
+  paragraphs with snapshot-scoped read-only addresses in Rust and Python.
+  Inherited aliases of one physical header share addresses.
 
 ### JavaScript
 

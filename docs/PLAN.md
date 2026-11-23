@@ -31,23 +31,26 @@ branch; keep umbrella or externally blocked work open.
 | --- | --- |
 | #2 | Closed as already fixed by `ab59df3`; all three builder regression tests passed on the default branch. |
 | #4 | Canonical Pages URLs returned HTTP 200; the old site path returned 404. Both hosted quickstarts ran outside the checkout against registry packages and passed independent readback. Strict build: 516 HTML pages; docs tests: 11 passed. The 0.3.0 PyPI OIDC run succeeded; crates.io used the bootstrap token. Private crates.io trusted-publisher verification remains. |
-| #7 | The maintainer narrowed acceptance to LibreOffice. The [matrix](VIEWER-COMPATIBILITY-CHECKLIST.md) records Writer GUI observations on four synthetic files, including the before/after catalog edit, and separate headless, readback and payload checks. Desktop Word remains untested. Confirm the hosted matrix before closing. |
-| #3 | Direct body run and hyperlink inspection now exposes snapshot-scoped read-only anchors in Rust and Python. Next extend this to default-header paragraphs and account for inherited aliases of the same physical header. The umbrella remains open for broader typed stories and structured edits, including revisions. |
+| #7 | Closed under the revised LibreOffice-only scope. The [hosted matrix](https://reindervosdewael.github.io/rocx/viewer-compatibility/) records Writer GUI observations on four synthetic files, including the before/after catalog edit, and separate headless, readback and payload checks. Desktop Word remains untested. |
+| #3 | Direct body and default-header paragraphs expose runs, hyperlinks, and snapshot-scoped read-only anchors in Rust and Python. Aliases of one physical header share inline anchors; distinct parts do not. The umbrella remains open for broader typed stories and structured edits, including revisions. |
 | #9 | The [JavaScript package](../javascript/README.md) replaces the prototype. [Hosted CI](https://github.com/ReinderVosDeWael/rocx/actions/runs/45219366575) verified Node 22/24 and Chromium consumers and uploaded the installable artifacts. The [package guide](https://reindervosdewael.github.io/rocx/javascript/) and [API reference](https://reindervosdewael.github.io/rocx/api/javascript/) are live; the strict build checked 523 pages. No npm registry upload. |
 | #16 | Independent fixture reproduced tab-stop corruption; the fix preserves tab-stop markup and still replaces literal run tabs. Source and output passed schema/OPC validation. |
 | #17 | Block, row, and cell fixtures reproduced unguarded replacement and passed schema/OPC validation. Ordinary matches inside these controls are rejected; unrelated paragraphs and supported targeted replacement still work. |
 | #18 | A schema-valid template without margins reproduced invalid output. Partial patches now fill required built-in defaults and preserve existing margins. Both cases passed schema/OPC validation and readback. |
 | #19 | Eight fresh-document checks reproduced shared/explicit references before the fix. Explicit stories now use separate parts and omissions inherit; the independent template append check remains unchanged. Focused integration (including exact DOCX byte parity) passed 59 tests. |
 
-Issues #2, #9, and #16–#19 are closed on the default branch. The integrated Rust
+Issues #2, #7, #9, and #16–#19 are closed on the default branch. The integrated Rust
 all-targets suite, three doctests, native and Wasm Clippy, Rust 1.88 check,
 787 schema-required Python tests, exact catalog DOCX byte parity, and a
 strict 520-page docs build passed. Rust crate packaging, the Python source
 archive and isolated wheel, and rebuilding the JavaScript tarball from its
 bundled source passed locally. The [hosted Verification run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45219366683)
-also passed.
+also passed. The default-header follow-up passed the Rust suite, three
+doctests, Clippy, Rust 1.88, 791 schema-required Python tests, the strict
+523-page docs build, and exact DOCX byte parity and schema/OPC validation
+for all six catalog pairs.
 
-The next release is conditional on resolving #3, #4, and #7, confirming
+The next release is conditional on resolving #3 and #4, confirming
 registry setup, and passing the local and hosted preflight in
 [RELEASING.md](RELEASING.md). Do not use a publishing tag to test the pipeline.
 
@@ -66,8 +69,8 @@ registry setup, and passing the local and hosted preflight in
 
 After integrating the checkpoint with `main`, all six paired catalog artifacts
 matched byte for byte, and 21 Rust editor tests and 29 focused Python tests passed.
-Finish editor checkpoint task 4 before moving on to task 5. Extend the typed
-inspection contract beyond the current direct body and default-header slice.
+Finish editor checkpoint task 4 before moving on to task 5. Extend structured
+inline inspection to table-cell paragraphs and broaden story inspection.
 Keep the JavaScript tarball out of the Rust/Python release path; viewer results and
 hosted release preflight remain separate.
 Repository commits, pushes, and release tags are authorized by `AGENTS.md`.
@@ -126,9 +129,9 @@ existing declarative and template APIs intact.
 The editor opens a Transitional DOCX in Rust and Python, exposes direct body
 paragraphs, tables, and placeholders for unsupported blocks, and previews
 alignment patches and declarative table insertions in one batch. Direct body
-paragraphs expose run and hyperlink structure with snapshot-scoped read-only
-anchors alongside their existing flat projections. Inline edits are not yet
-available. The section view reports body ranges and explicit section types,
+and default-header paragraphs expose run and hyperlink structure with
+snapshot-scoped read-only anchors alongside their flat projections. Inline
+edits are not yet available. The section view reports body ranges and explicit section types,
 without inferring defaults. Tables can contain formatted paragraphs, nested
 tables, fractions, and external links. The editor sizes
 automatic tables only in simple single-column sections and rejects insertion
@@ -136,8 +139,9 @@ inside active or ambiguous supported ranges. Other inline objects, numbering,
 comments, revisions, and content controls in inserted tables remain open.
 
 The editor inspects existing default headers with inherited section references,
-ordered paragraph projections, and opaque unsupported direct children. It
-also appends an inline image through a separate preview. Shared mode lists all sections that
+ordered paragraph projections, and opaque unsupported direct children. Header
+inspection is lazy and distinguishes physical part identity from section
+selection. A separate preview appends an inline image. Shared mode lists all sections that
 reference or inherit that part, including first/even aliases. Section-local
 mode forks a supported text-and-link header, keeps the original part and its
 relationships, and reports any following section explicitly redirected back
@@ -158,10 +162,10 @@ documents; Word-specific interoperability is not a gate for this batch.
 
 Work through these tasks in order and checkpoint after task 10. Tasks 1–3
 passed on the python-docx fixture. Task 4 is in progress: direct body
-paragraphs have flat and structured inline readback, including read-only
-run/hyperlink anchors, and direct sections, body tables, and default headers
-are inspectable. The paired catalogs passed exact byte parity. Table-cell and
-header paragraphs still expose flat inline projections; other stories are
+and default-header paragraphs have flat and structured inline readback,
+including read-only run/hyperlink anchors; direct sections and body tables
+are inspectable. The paired catalogs passed exact byte parity. Table-cell
+paragraphs still expose only flat inline projections; other stories are
 outside the implemented slice. Tasks 5–10 have not started.
 
 1. Generate the [python-docx editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
