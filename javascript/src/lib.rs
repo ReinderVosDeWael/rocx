@@ -1,5 +1,5 @@
 //! JavaScript authoring adapter. Resolution and DOCX generation stay in rocx.
-use js_sys::{Error, Object, Uint8Array};
+use js_sys::{Error, Object, Reflect, Uint8Array};
 use rocx::{
     AltText, Block, Document, ImageRun, Inline, Paragraph, RunFormat, Section, Table, TableCell,
     TableRow, TextRun, Value,
@@ -81,14 +81,31 @@ fn error(message: impl std::fmt::Display) -> Error {
     Error::new(&message.to_string())
 }
 
+fn with_property(error: Error, key: &str, value: &str) -> Error {
+    // Diagnostics are optional; keep the original error if setting one fails.
+    let _ = Reflect::set(&error, &key.into(), &value.into());
+    error
+}
+
+fn at(error: Error, path: &str) -> Error {
+    with_property(error, "path", path)
+}
+
+fn core_error(source: rocx::Error) -> Error {
+    let error = error(&source);
+    // Core declaration paths can name synthetic sections and other Rust-only
+    // fields. Don't expose them as paths into the public JS input.
+    match source.rule() {
+        Some(rule) => with_property(error, "rule", rule.code()),
+        None => error,
+    }
+}
+
 fn decode<T: serde::de::DeserializeOwned>(value: JsValue) -> Result<T, Error> {
     serde_wasm_bindgen::from_value(value).map_err(|err| error(format!("Invalid document: {err}")))
 }
 
-fn decode_fields<T: serde::de::DeserializeOwned>(
-    value: JsValue,
-    allowed: &[&str],
-) -> Result<T, Error> {
+fn check_fields(value: &JsValue, allowed: &[&str]) -> Result<(), Error> {
     if !value.is_object() {
         return Err(error("Invalid document: expected an object"));
     }
@@ -101,6 +118,14 @@ fn decode_fields<T: serde::de::DeserializeOwned>(
             return Err(error(format!("Invalid document: unknown field `{key}`")));
         }
     }
+    Ok(())
+}
+
+fn decode_fields<T: serde::de::DeserializeOwned>(
+    value: JsValue,
+    allowed: &[&str],
+) -> Result<T, Error> {
+    check_fields(&value, allowed)?;
     decode(value)
 }
 
@@ -160,22 +185,38 @@ fn image_bytes(bytes: &JsValue) -> Result<Vec<u8>, Error> {
 }
 
 impl BlockInput {
-    fn into_block(self) -> Result<Value<Block>, Error> {
-        match decode::<BlockTag>(self.0.clone())?.kind {
+    fn into_block(self, index: usize) -> Result<Value<Block>, Error> {
+        let path = format!("blocks[{index}]");
+        match decode::<BlockTag>(self.0.clone())
+            .map_err(|err| at(err, &path))?
+            .kind
+        {
             BlockKind::Paragraph => {
-                let ParagraphInput { runs, .. } = decode_fields(self.0, &["kind", "runs"])?;
+                let ParagraphInput { runs, .. } =
+                    decode_fields(self.0, &["kind", "runs"]).map_err(|err| at(err, &path))?;
                 Ok(Paragraph::from_children(
                     runs.into_iter()
-                        .map(RunInput::into_inline)
+                        .enumerate()
+                        .map(|(index, run)| {
+                            run.into_inline()
+                                .map_err(|err| at(err, &format!("{path}.runs[{index}]")))
+                        })
                         .collect::<Result<_, _>>()?,
                 )
                 .into())
             }
             BlockKind::Table => {
-                let TableInput { rows, .. } = decode_fields(self.0, &["kind", "rows"])?;
-                let width = rows.first().map_or(0, Vec::len);
-                if width == 0 || rows.iter().any(|row| row.len() != width) {
-                    return Err(error("Table rows must form a non-empty rectangular grid"));
+                let TableInput { rows, .. } =
+                    decode_fields(self.0, &["kind", "rows"]).map_err(|err| at(err, &path))?;
+                let invalid_grid = || error("Table rows must form a non-empty rectangular grid");
+                let Some(first) = rows.first() else {
+                    return Err(at(invalid_grid(), &format!("{path}.rows")));
+                };
+                if let Some(index) = rows
+                    .iter()
+                    .position(|row| row.is_empty() || row.len() != first.len())
+                {
+                    return Err(at(invalid_grid(), &format!("{path}.rows[{index}]")));
                 }
                 Ok(Table::new(
                     rows.into_iter()
@@ -199,17 +240,19 @@ impl BlockInput {
 
 #[wasm_bindgen]
 pub async fn render_docx(declaration: JsValue, timestamp: String) -> Result<Vec<u8>, JsValue> {
-    let declaration: Declaration = decode_fields(declaration, &["blocks"])?;
+    check_fields(&declaration, &["blocks"])?;
+    let declaration: Declaration = decode(declaration).map_err(|err| at(err, "blocks"))?;
     let blocks = declaration
         .blocks
         .into_iter()
-        .map(BlockInput::into_block)
+        .enumerate()
+        .map(|(index, block)| block.into_block(index))
         .collect::<Result<_, _>>()?;
     // wasm32-unknown-unknown has no std wall clock; the JS entry supplies one.
     let resolved = Document::new(vec![Section::new(blocks).into()])
         .with_timestamp(Some(timestamp))
         .resolve()
         .await
-        .map_err(error)?;
-    resolved.to_docx().map_err(|err| error(err).into())
+        .map_err(core_error)?;
+    resolved.to_docx().map_err(|err| core_error(err).into())
 }
