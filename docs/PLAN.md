@@ -40,12 +40,16 @@ before encoding. For task 5, consider one internal transaction for body and
 header edits; the [mixed-batch acceptance case](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7109658618)
 is recorded under #3.
 
-Integrate the evaluation in isolated, proof-first slices: template run
-classification (#25), table layout and fragment compilation (#26), Python
-stream writes (#27), preview payload sharing (#28), mixed edit transactions
-(#3), and the packaged JavaScript declaration contract (#21). Verify the
-combined changes against the Rust and Python suites and exact catalog parity
-before pushing to the default branch.
+Six isolated development worktrees established these baselines before changes:
+
+| Slice | Baseline evidence | Implemented behavior |
+| --- | --- | --- |
+| #25 | Replacing `ABCD` changed `AB` + nonbreaking hyphen + `CD` to `X-`. | A shared run-child classifier prevents matching across opaque content. The all-features fixture identified a zero-width comment reference that must stay transparent to matching; its readback and markup are preserved. |
+| #26 | Two nested grid widths were `0, 0` instead of `900, 900` in an inserted table; authored spanning cells also used the wrong width. | The shared codec passes the spanned grid width to child blocks. Fragment rendering no longer constructs a synthetic whole document. |
+| #27 | `save()` returned after a stream accepted just 97 bytes. | Short writes continue until complete; stalled or invalid counts raise an I/O error. |
+| #28 | Separate previews allocated distinct copies of the same unchanged media. | Shared immutable part bytes reduced median peak RSS for 12 retained previews from 268,016 to 54,200 KiB in the developer's probe. |
+| #3 | Separate body and header previews succeeded; the combined call failed. | One transaction supports body edits and shared or local header images, checks aliases and conflicts, and rejects the whole batch on failure. |
+| #21 | A temporary declaration-only field passed the old packed tests but the installed Wasm rejected it. | The packed consumer requires every declared field and variant in a typed fixture and exercises runtime validation. |
 
 ### JavaScript parity review follow-up
 

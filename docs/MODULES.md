@@ -13,6 +13,7 @@ Version 0.2 implements the reorganization described in
 | `opc` | Validated part names and relationship identities/targets, archive budgets, parsed-part cache and package write plan | No Word defaults or Word schema ordering |
 | `xml` | Expanded names, namespace-aware writing, generic character/name rules and parsing budgets | Schema ordering is injected by the OOXML layer |
 | `template` | Pure edit requests, scopes, token-span transformations and structural-boundary rules | Reuses text encoding, preserves untouched tokens, never calls an application renderer |
+| `editor` | Typed inspection of imported Word content, snapshot-scoped anchors, edit validation and preview | Stages edits against the original package; uses OOXML codecs for inserted declarations and keeps unknown content in the imported representation |
 | `application` | Compile/render/save entrypoints, render options and file-template configuration | Coordinates effects and compilation |
 | `adapters` | Atomic filesystem writes, asset reads, default clock, image inspection and optional PyO3 conversion | All platform/language-specific behavior |
 
@@ -40,7 +41,9 @@ flowchart LR
   parts through exact relationship types, and distinguishes external targets.
   Internal target validation runs before encoding the plan. External references
   are retained/serialized and are never fetched.
-- Parsed/edited XML is cached per package operation and encoded at materialization.
+- Package snapshots share immutable part payloads. Each preview replaces only
+  the payloads it writes and can still be encoded after its source is dropped.
+  Parsed/edited XML is cached per package operation and encoded at materialization.
   Media registration indexes payload candidates, confirms byte equality, and
   supports resources outside the conventional media directory. Style identities
   are indexed once after definitions are applied.

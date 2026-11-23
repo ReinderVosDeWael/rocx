@@ -6,12 +6,18 @@
 
 - Give each fresh section its own explicitly declared headers and footers.
   Omitting a later story inherits it from the preceding section.
+- Size automatic nested tables using the containing cell's grid width,
+  including cells that span columns.
+- Complete short writes to Python binary streams and report an error if the
+  destination stops accepting bytes.
 
 ### Existing documents
 
 - Inspect run and hyperlink boundaries in direct body and default-header
   paragraphs with snapshot-scoped read-only addresses in Rust and Python.
   Inherited aliases of one physical header share addresses.
+- Combine body alignment, table insertion, and default-header image edits in
+  one atomic preview. Retained previews share unchanged package payloads.
 
 ### JavaScript
 
@@ -22,6 +28,8 @@
 ### Template fixes
 
 - Preserve paragraph tab-stop definitions when replacing literal tabs in text.
+- Reject text replacements that would match across a nonbreaking hyphen or
+  another opaque run child with unknown text semantics.
 - Reject ordinary replacements in block, row, and cell content controls;
   supported targeted replacements remain available.
 - Fill required page margins with built-in defaults when a template lacks

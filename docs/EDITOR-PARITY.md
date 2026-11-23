@@ -35,6 +35,12 @@ part produce equal inline anchors, but distinct parts do not, even when their
 contents and relationship IDs match. The header image edit still takes a
 separate, section-scoped `HeaderAnchor`.
 
+Rust's `preview_transaction` and Python's `preview(..., header_images=...)`
+can stage body alignment, table insertion, and header image edits against the
+same snapshot. A shared edit conflicts with any other image edit on that
+physical header. Distinct sections may each fork the same original header
+with section-local edits. A rejected operation produces no partial preview.
+
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
 For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding; imported field edits are currently rejected. Those limits are not expanded merely by listing editor goals here.
