@@ -47,6 +47,7 @@ fn collect(
     path: &mut Vec<usize>,
     position: &mut Position,
     protected: bool,
+    in_run: bool,
     tokens: &mut Vec<Token>,
 ) {
     if node.name.namespace() != Some(W) {
@@ -55,6 +56,11 @@ fn collect(
     }
     if node.name == "w:p" && !path.is_empty() {
         position.group += 1;
+        return;
+    }
+    // Properties are not paragraph content, even when they contain names
+    // such as w:tab that also occur as inline run content.
+    if matches!(node.name.as_str(), "w:pPr" | "w:rPr") {
         return;
     }
     if node.name == "w:fldChar" {
@@ -80,7 +86,7 @@ fn collect(
         position.group += 1;
     }
     let value: Option<String> = match node.name.as_str() {
-        "w:t" => Some(
+        "w:t" if in_run => Some(
             node.children
                 .iter()
                 .filter_map(|c| {
@@ -92,10 +98,12 @@ fn collect(
                 })
                 .collect(),
         ),
-        "w:tab" => Some("\t".into()),
-        "w:br" if node.get("w:type").is_none_or(|kind| kind == "textWrapping") => Some("\n".into()),
-        "w:cr" => Some("\n".into()),
-        "w:br" => {
+        "w:tab" if in_run => Some("\t".into()),
+        "w:br" if in_run && node.get("w:type").is_none_or(|kind| kind == "textWrapping") => {
+            Some("\n".into())
+        }
+        "w:cr" if in_run => Some("\n".into()),
+        "w:br" if in_run => {
             position.group += 1;
             None
         }
@@ -113,7 +121,7 @@ fn collect(
         for (index, child) in node.children.iter().enumerate() {
             if let Content::Element(child) = child {
                 path.push(index);
-                collect(child, path, position, protected, tokens);
+                collect(child, path, position, protected, node.name == "w:r", tokens);
                 path.pop();
             }
         }
@@ -139,7 +147,7 @@ fn edit_paragraph(
     dirty: &mut bool,
 ) -> Result<()> {
     let mut tokens = Vec::new();
-    collect(node, &mut Vec::new(), position, false, &mut tokens);
+    collect(node, &mut Vec::new(), position, false, false, &mut tokens);
     let joined: String = tokens.iter().map(|t| t.before.as_str()).collect();
     for start in joined
         .match_indices(needle)
