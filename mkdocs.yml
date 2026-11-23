@@ -42,6 +42,7 @@ nav:
       - Revisions: contracts/REVISIONS.md
       - Content controls: contracts/CONTENT_CONTROLS.md
   - Recipes: recipes.md
+  - Branded report: branded-report.md
   - Visual catalog: catalog.md
   - API reference:
       - Rust: api/rust/rocx/index.html

@@ -53,6 +53,7 @@ differences and the limits of each feature.
 - [Migration guide](docs/MIGRATION.md)
 - [Changelog](CHANGELOG.md)
 - [Visual catalog](https://reindervosdewael.github.io/rocx/catalog/)
+- [Runnable branded-report example](https://reindervosdewael.github.io/rocx/branded-report/)
 - [License](LICENSE)
 
 ## Contributing

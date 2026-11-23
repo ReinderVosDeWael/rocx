@@ -5,6 +5,7 @@ code and let `rocx` build the document. The two APIs have different syntax and
 async behavior.
 
 - [Start with a runnable example](getting-started.md).
+- [Build a branded report from data and an editable template](branded-report.md).
 - Browse the feature guides for supported properties and limitations.
 - [Download the paired visual catalogs](catalog.md) to inspect actual output.
 - Read the [Rust API](api/rust/rocx/index.html) or [Python API](api/python.md).
