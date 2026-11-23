@@ -16,3 +16,13 @@ To regenerate it from the repository root:
 ```sh
 uv run --with python-docx==1.2.0 --no-project python tests/fixtures/generate_imported_editor.py
 ```
+
+`imported-table-cells.docx` is a separate python-docx fixture for physical
+table-cell identity. It includes matching text in a body paragraph and across
+tables, rows, cells, and paragraphs; a cell with a tab, line break, bookmark
+endpoints and a two-run external hyperlink; and a nested table followed by a
+direct paragraph and an empty paragraph.
+
+```sh
+uv run --with python-docx==1.2.0 --no-project python tests/fixtures/generate_imported_table_cells.py
+```

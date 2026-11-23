@@ -32,7 +32,8 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     edited = rust.with_suffix(".edited.docx").read_bytes()
     checks.exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
     checks.verify_edited(rust.read_bytes(), edited)
-    edited_body = ImportedDocument.open(edited).body
+    reopened = ImportedDocument.open(edited)
+    edited_body = reopened.body
     target_index = next(i for i, block in enumerate(edited_body)
                         if isinstance(block, BodyParagraph) and block.text == checks.EDIT_LABEL)
     table = edited_body[target_index + 1]
@@ -42,6 +43,13 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     assert [(item.kind, item.value) for item in table.children[0].children[0].blocks[0].inline_items] == [
         ("text", checks.EDIT_TABLE_LABEL),
     ]
+    first, second = table.children[0].children
+    label, = first.blocks[0].inline_structure
+    prefix, suffix = second.blocks[0].inline_structure
+    assert all(isinstance(node, ImportedRun) for node in (label, prefix, suffix))
+    assert label.anchor != prefix.anchor
+    assert [[item.value for item in reopened.inline_at(run.anchor).items]
+            for run in (prefix, suffix)] == [["Fixed-width "], ["second column"]]
     for data in (rust.read_bytes(), edited):
         imported = ImportedDocument.open(data)
         target, = (
@@ -145,7 +153,7 @@ def test_inline_coverage_rejects_merged_runs_with_identical_text(catalogs) -> No
         checks.verify_inline_structure(root)
 
 
-@pytest.mark.parametrize("change", ["position", "shape", "width", "bold", "source"])
+@pytest.mark.parametrize("change", ["position", "shape", "width", "bold", "source", "merge_runs"])
 def test_edit_coverage_rejects_changed_inserted_table(catalogs, change) -> None:
     rust, _ = catalogs
     original = rust.read_bytes()
@@ -176,6 +184,13 @@ def test_edit_coverage_rejects_changed_inserted_table(catalogs, change) -> None:
                 elif change == "bold":
                     bold = table.xpath(".//w:rPr/w:b", namespaces=checks.NS)[0]
                     bold.getparent().remove(bold)
+                elif change == "merge_runs":
+                    paragraph, = table.xpath("w:tr/w:tc[2]/w:p", namespaces=checks.NS)
+                    first, second = paragraph.xpath("w:r", namespaces=checks.NS)
+                    text = first.find("w:t", checks.NS)
+                    text.text += second.find("w:t", checks.NS).text
+                    paragraph.remove(second)
+                    assert "".join(paragraph.itertext()) == "Fixed-width second column"
                 data = etree.tostring(root)
             target.writestr(name, data)
     with pytest.raises(AssertionError):

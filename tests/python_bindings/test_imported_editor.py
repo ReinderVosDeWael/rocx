@@ -41,6 +41,58 @@ def _parts(data):
         return {name: package.read(name) for name in package.namelist()}
 
 
+def test_python_docx_table_cell_inline_anchors():
+    source = (FIXTURES / "imported-table-cells.docx").read_bytes()
+    independent = docx.Document(io.BytesIO(source))
+    physical_cell = independent.tables[0].cell(0, 0)
+    assert physical_cell.paragraphs[0].text == "Cell label\t\ncell link"
+    assert physical_cell.tables[0].cell(0, 0).text == "Opaque nested text"
+    before_link, = physical_cell.paragraphs[0].hyperlinks
+    assert before_link.url == "https://example.invalid/cell"
+    assert [run.text for run in before_link.runs] == ["cell ", "link"]
+
+    imported = ImportedDocument.open(source)
+    first, other_cell = imported.body[1].children[0].children
+    paragraph, nested, later, empty = first.blocks
+    assert isinstance(paragraph, ImportedCellParagraph)
+    assert isinstance(nested, BodyOpaque) and nested.xml == "w:tbl"
+    assert empty.inline_items == empty.inline_structure == []
+    label, start, link, end = paragraph.inline_structure
+    assert isinstance(label, ImportedRun)
+    assert all(isinstance(node, BodyOpaque) for node in (start, end))
+    assert [start.xml, end.xml] == ["w:bookmarkStart", "w:bookmarkEnd"]
+    assert isinstance(link, ImportedHyperlink) and link.bookmark is None
+    assert link.relationship_id == before_link._element.get(docx.oxml.ns.qn("r:id"))
+    assert all(isinstance(run, ImportedRun) for run in link.children)
+    assert [[item.value for item in run.items] for run in link.children] == [["cell "], ["link"]]
+    assert [(item.kind, item.value) for item in paragraph.inline_items] == [
+        ("text", "Cell label"), ("tab", None), ("break", "textWrapping"),
+        ("opaque", "w:bookmarkStart"), ("text", "cell "), ("text", "link"),
+        ("opaque", "w:bookmarkEnd"),
+    ]
+    later_nodes = [
+        imported.body[0].inline_structure[0],
+        later.inline_structure[0],
+        other_cell.blocks[0].inline_structure[0],
+        imported.body[1].children[1].children[0].blocks[0].inline_structure[0],
+        imported.body[2].children[0].children[0].blocks[0].inline_structure[0],
+    ]
+    assert [node.items[0].value for node in later_nodes] == ["Cell label"] * 5
+    seen = []
+    for node in [label, link, *link.children, *later_nodes]:
+        assert node.anchor not in seen
+        seen.append(node.anchor)
+        resolved = imported.inline_at(node.anchor)
+        assert type(resolved) is type(node)
+        assert resolved.anchor == node.anchor
+    assert imported.body[1].children[0].children[0].blocks[0].inline_structure[0].anchor == label.anchor
+    output = imported.preview([]).to_docx()
+    assert _parts(output) == _parts(source)
+    for data in (source, output):
+        with pytest.raises(ValueError, match="different document snapshot"):
+            ImportedDocument.open(data).inline_at(link.children[1].anchor)
+
+
 def test_python_docx_header_story_with_opaque_table():
     source = docx.Document()
     header = source.sections[0].header

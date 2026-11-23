@@ -146,7 +146,12 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             assert cells[0].xpath(".//w:t/text()", namespaces=NS) == [EDIT_TABLE_LABEL]
             assert cells[0].xpath(".//w:r[w:t=$label]/w:rPr/w:b/@w:val",
                                   namespaces=NS, label=EDIT_TABLE_LABEL) == ["1"]
-            assert cells[1].xpath(".//w:t/text()", namespaces=NS) == ["Fixed-width second column"]
+            second_paragraph, = cells[1].xpath("w:p", namespaces=NS)
+            second_runs = second_paragraph.xpath("*[not(self::w:pPr)]", namespaces=NS)
+            assert [run.tag for run in second_runs] == [f"{{{NS['w']}}}r"] * 2
+            assert [run.xpath("w:t/text()", namespaces=NS) for run in second_runs] == [
+                ["Fixed-width "], ["second column"],
+            ]
 
 
 def verify_header_inline_structure(root, rels) -> None:

@@ -584,7 +584,14 @@ pub async fn generate(output: &Path) -> Result<()> {
                 RunFormat::default().with_bold(true),
             )])
             .into(),
-            cell("Fixed-width second column"),
+            TableCell::new(vec![
+                Paragraph::from_children(vec![
+                    TextRun::new("Fixed-width ").into(),
+                    TextRun::new("second column").into(),
+                ])
+                .into(),
+            ])
+            .into(),
         ])
         .into(),
     ]);
@@ -632,6 +639,26 @@ pub async fn generate(output: &Path) -> Result<()> {
             "Imported editor table: bold label".into()
         )]
     );
+    let [Run(first)] = cell.inline_structure(0).unwrap() else {
+        panic!("expected one run in first cell");
+    };
+    let editor::ImportedRowChild::Cell(second) = &row.children[1] else {
+        panic!("expected second cell");
+    };
+    let [Run(prefix), Run(suffix)] = second.inline_structure(0).unwrap() else {
+        panic!("expected two runs in second cell");
+    };
+    assert_eq!(
+        prefix.items,
+        [editor::ImportedInline::Text("Fixed-width ".into())]
+    );
+    assert_eq!(
+        suffix.items,
+        [editor::ImportedInline::Text("second column".into())]
+    );
+    assert_ne!(first.anchor, prefix.anchor);
+    assert!(matches!(reopened.inline_at(&suffix.anchor)?, Run(run) if run.anchor == suffix.anchor));
+    assert!(imported.inline_at(&suffix.anchor).is_err());
     std::fs::write(output.with_extension("edited.docx"), edited)?;
 
     // Both previews start from the same snapshot: two sections share one header part.

@@ -152,6 +152,127 @@ fn table_inspection_preserves_unknown_children_in_order() {
     );
     assert!(matches!(&cell.blocks[1], ImportedCellBlock::Opaque(name) if name == "w:tbl"));
     assert!(matches!(&cell.blocks[2], ImportedCellBlock::Opaque(name) if name == "w:sdt"));
+    let [node @ rocx::editor::ImportedInlineNode::Run(run)] = cell.inline_structure(0).unwrap()
+    else {
+        panic!("expected run in cell after opaque table and row children");
+    };
+    assert!(std::ptr::eq(doc.inline_at(&run.anchor).unwrap(), node));
+    assert!(cell.inline_structure(1).is_none());
+    assert!(cell.inline_structure(2).is_none());
+}
+
+#[test]
+fn independent_table_cell_inline_anchors_identify_physical_locations() {
+    use rocx::editor::ImportedInline::{self, Break, Tab, Text};
+    use rocx::editor::ImportedInlineNode::{Hyperlink, Opaque, Run};
+    use rocx::editor::{ImportedCellBlock, ImportedRowChild, ImportedTableChild};
+
+    let input = include_bytes!("fixtures/imported-table-cells.docx");
+    let doc = ImportedDocument::open(input).unwrap();
+    let cell_at = |table: usize, row: usize, cell: usize| {
+        let BodyBlock::Table(table) = &doc.body()[table] else {
+            panic!("expected table");
+        };
+        let ImportedTableChild::Row(row) = &table.children[row] else {
+            panic!("expected row");
+        };
+        let ImportedRowChild::Cell(cell) = &row.children[cell] else {
+            panic!("expected cell");
+        };
+        cell
+    };
+    let first = cell_at(1, 0, 0);
+    let [
+        label_node @ Run(label),
+        Opaque(start),
+        link_node @ Hyperlink(link),
+        Opaque(end),
+    ] = first.inline_structure(0).unwrap()
+    else {
+        panic!("expected a run and a link bracketed by opaque bookmark endpoints");
+    };
+    assert_eq!(
+        label.items,
+        [
+            Text("Cell label".into()),
+            Tab,
+            Break(rocx::BreakType::TextWrapping)
+        ]
+    );
+    assert_eq!(
+        (start.as_str(), end.as_str()),
+        ("w:bookmarkStart", "w:bookmarkEnd")
+    );
+    assert_eq!(link.bookmark, None);
+    let [Run(prefix), last_node @ Run(suffix)] = link.children.as_slice() else {
+        panic!("expected two hyperlink runs");
+    };
+    assert_eq!(prefix.items, [Text("cell ".into())]);
+    assert_eq!(suffix.items, [Text("link".into())]);
+    let ImportedCellBlock::Paragraph(items) = &first.blocks[0] else {
+        panic!("expected paragraph");
+    };
+    assert_eq!(
+        items,
+        &[
+            Text("Cell label".into()),
+            Tab,
+            Break(rocx::BreakType::TextWrapping),
+            ImportedInline::Opaque("w:bookmarkStart".into()),
+            Text("cell ".into()),
+            Text("link".into()),
+            ImportedInline::Opaque("w:bookmarkEnd".into()),
+        ]
+    );
+    assert!(matches!(&first.blocks[1], ImportedCellBlock::Opaque(name) if name == "w:tbl"));
+    assert!(first.inline_structure(1).is_none());
+    assert!(first.inline_structure(3).unwrap().is_empty());
+    assert!(first.inline_structure(4).is_none());
+
+    for (node, anchor) in [
+        (label_node, &label.anchor),
+        (link_node, &link.anchor),
+        (last_node, &suffix.anchor),
+    ] {
+        assert!(std::ptr::eq(doc.inline_at(anchor).unwrap(), node));
+    }
+    let mut seen = vec![&label.anchor];
+    for node in [
+        &paragraph(&doc, 0).inline_structure[0],
+        &first.inline_structure(2).unwrap()[0],
+        &cell_at(1, 0, 1).inline_structure(0).unwrap()[0],
+        &cell_at(1, 1, 0).inline_structure(0).unwrap()[0],
+        &cell_at(2, 0, 0).inline_structure(0).unwrap()[0],
+    ] {
+        let Run(run) = node else {
+            panic!("expected run")
+        };
+        assert_eq!(run.items, [Text("Cell label".into())]);
+        assert!(!seen.contains(&&run.anchor));
+        seen.push(&run.anchor);
+        assert!(std::ptr::eq(doc.inline_at(&run.anchor).unwrap(), node));
+    }
+
+    let original = parts(input);
+    let rels = std::str::from_utf8(&original["word/_rels/document.xml.rels"]).unwrap();
+    let rels = roxmltree::Document::parse(rels).unwrap();
+    let id = link.relationship_id.as_deref().expect("explicit r:id");
+    let relationship = rels
+        .descendants()
+        .find(|n| n.attribute("Id") == Some(id))
+        .unwrap();
+    assert_eq!(
+        relationship.attribute("Target"),
+        Some("https://example.invalid/cell")
+    );
+    assert_eq!(relationship.attribute("TargetMode"), Some("External"));
+    let output = doc.preview(&[]).unwrap().to_docx().unwrap();
+    assert_eq!(parts(&output), original);
+    for bytes in [input.as_slice(), &output] {
+        let reopened = ImportedDocument::open(bytes).unwrap();
+        let error = reopened.inline_at(&suffix.anchor).unwrap_err();
+        assert!(error.to_string().contains("different document snapshot"));
+    }
 }
 
 #[test]

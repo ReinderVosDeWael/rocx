@@ -472,7 +472,7 @@ async def generate(output: pathlib.Path) -> bytes:
     ]
     table = d.Table([d.TableRow([
         d.TableCell([run("Imported editor table: bold label", bold=True)]),
-        cell("Fixed-width second column"),
+        d.TableCell([d.Paragraph(children=[d.TextRun("Fixed-width "), d.TextRun("second column")])]),
     ])], column_widths=[2160, 2160], layout="fixed")
     resolved_table = await table.resolve()
     insertion = TableInsertion(targets[0].anchor, resolved_table)
@@ -481,11 +481,24 @@ async def generate(output: pathlib.Path) -> bytes:
     edited = preview.to_docx()
     # Typed physical-table readback from the edited original package.
     reopened = ImportedDocument.open(edited)
-    inserted = reopened.body[preview.insertions[0].after_body_index + 1]
-    items = inserted.children[0].children[0].blocks[0].inline_items
-    assert [(item.kind, item.value) for item in items] == [
+    table_index = preview.insertions[0].after_body_index + 1
+    inserted = reopened.body[table_index]
+    first, second = inserted.children[0].children
+    first_block = first.blocks[0]
+    assert [(item.kind, item.value) for item in first_block.inline_items] == [
         ("text", "Imported editor table: bold label"),
     ]
+    first_run, = first_block.inline_structure
+    prefix, suffix = second.blocks[0].inline_structure
+    assert all(isinstance(node, ImportedRun) for node in (first_run, prefix, suffix))
+    assert [[item.value for item in node.items] for node in (prefix, suffix)] == [
+        ["Fixed-width "], ["second column"],
+    ]
+    assert first_run.anchor != prefix.anchor
+    assert reopened.inline_at(suffix.anchor).anchor == suffix.anchor
+    reopened_again = ImportedDocument.open(edited)
+    other_cell = reopened_again.body[table_index].children[0].children[1]
+    assert other_cell.blocks[0].inline_structure[1].anchor != suffix.anchor
     output.with_suffix(".edited.docx").write_bytes(edited)
 
     # Mixed previews starting from one snapshot where both sections share a header.

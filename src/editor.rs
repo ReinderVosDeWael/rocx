@@ -75,6 +75,17 @@ pub enum ImportedRowChild {
 #[non_exhaustive]
 pub struct ImportedTableCell {
     pub blocks: Vec<ImportedCellBlock>,
+    inline_structure: Vec<Option<Vec<ImportedInlineNode>>>,
+}
+
+impl ImportedTableCell {
+    /// Ordered runs, hyperlinks, and opaque inline nodes in a direct paragraph.
+    ///
+    /// `block_index` indexes `blocks`, including opaque blocks. Returns `None`
+    /// for opaque or absent blocks, and an empty slice for an empty paragraph.
+    pub fn inline_structure(&self, block_index: usize) -> Option<&[ImportedInlineNode]> {
+        self.inline_structure.get(block_index)?.as_deref()
+    }
 }
 
 #[derive(Debug)]
@@ -95,7 +106,8 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
         children: node
             .elements()
             .filter(|n| !matches!(n.name.as_str(), "w:tblPr" | "w:tblGrid"))
-            .map(|n| {
+            .enumerate()
+            .map(|(row_index, n)| {
                 if n.name != "w:tr" {
                     return ImportedTableChild::Opaque(n.name.to_string());
                 }
@@ -103,25 +115,38 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                     children: n
                         .elements()
                         .filter(|n| n.name != "w:trPr")
-                        .map(|n| {
+                        .enumerate()
+                        .map(|(cell_index, n)| {
                             if n.name != "w:tc" {
                                 return ImportedRowChild::Opaque(n.name.to_string());
                             }
+                            let (blocks, inline_structure) = n
+                                .elements()
+                                .filter(|n| n.name != "w:tcPr")
+                                .enumerate()
+                                .map(|(block_index, n)| {
+                                    if n.name != "w:p" {
+                                        return (
+                                            ImportedCellBlock::Opaque(n.name.to_string()),
+                                            None,
+                                        );
+                                    }
+                                    let (items, structure) = read_paragraph_inlines(
+                                        n,
+                                        snapshot,
+                                        InlineLocation::TableCell {
+                                            body_index,
+                                            row_index,
+                                            cell_index,
+                                            block_index,
+                                        },
+                                    );
+                                    (ImportedCellBlock::Paragraph(items), Some(structure))
+                                })
+                                .unzip();
                             ImportedRowChild::Cell(ImportedTableCell {
-                                blocks: n
-                                    .elements()
-                                    .filter(|n| n.name != "w:tcPr")
-                                    .map(|n| {
-                                        if n.name != "w:p" {
-                                            return ImportedCellBlock::Opaque(n.name.to_string());
-                                        }
-                                        let mut items = Vec::new();
-                                        for child in n.elements().filter(|n| n.name != "w:pPr") {
-                                            read_inline(child, &mut items);
-                                        }
-                                        ImportedCellBlock::Paragraph(items)
-                                    })
-                                    .collect(),
+                                blocks,
+                                inline_structure,
                             })
                         })
                         .collect(),
@@ -162,8 +187,8 @@ pub enum ImportedInline {
     Opaque(String),
 }
 
-/// Read-only address of a run or hyperlink in a direct body or default-header
-/// paragraph.
+/// Read-only address of a run or hyperlink in a direct body, body table-cell,
+/// or default-header paragraph.
 ///
 /// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
 /// bytes creates a different snapshot. Within a snapshot, section aliases of
@@ -178,7 +203,16 @@ pub struct InlineAnchor {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum InlineLocation {
     Body(usize),
-    DefaultHeader { part: Arc<str>, block_index: usize },
+    TableCell {
+        body_index: usize,
+        row_index: usize,
+        cell_index: usize,
+        block_index: usize,
+    },
+    DefaultHeader {
+        part: Arc<str>,
+        block_index: usize,
+    },
 }
 
 impl PartialEq for InlineAnchor {
@@ -371,7 +405,7 @@ impl ImportedDocument {
         &self.body
     }
 
-    /// Read a body or default-header run or hyperlink from this snapshot.
+    /// Read a body, body table-cell, or default-header run or hyperlink from this snapshot.
     /// An address from another snapshot is rejected, even at the same position.
     pub fn inline_at(&self, target: &InlineAnchor) -> Result<&ImportedInlineNode> {
         self.validate_snapshot(&target.snapshot)?;
@@ -382,6 +416,23 @@ impl ImportedDocument {
                     return Err(invalid());
                 };
                 paragraph.inline_structure.as_slice()
+            }
+            InlineLocation::TableCell {
+                body_index,
+                row_index,
+                cell_index,
+                block_index,
+            } => {
+                let Some(BodyBlock::Table(table)) = self.body.get(*body_index) else {
+                    return Err(invalid());
+                };
+                let Some(ImportedTableChild::Row(row)) = table.children.get(*row_index) else {
+                    return Err(invalid());
+                };
+                let Some(ImportedRowChild::Cell(cell)) = row.children.get(*cell_index) else {
+                    return Err(invalid());
+                };
+                cell.inline_structure(*block_index).ok_or_else(invalid)?
             }
             InlineLocation::DefaultHeader { part, block_index } => self
                 .default_header_inspection
@@ -646,18 +697,6 @@ fn read_run(node: &Node, items: &mut Vec<ImportedInline>) {
                 items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
             }
         }
-    }
-}
-
-fn read_inline(node: &Node, items: &mut Vec<ImportedInline>) {
-    match node.name.as_str() {
-        "w:r" => read_run(node, items),
-        "w:hyperlink" => {
-            for child in node.elements() {
-                read_inline(child, items);
-            }
-        }
-        _ => items.push(ImportedInline::Opaque(node.name.as_str().to_owned())),
     }
 }
 

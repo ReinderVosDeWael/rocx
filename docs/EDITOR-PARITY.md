@@ -3,8 +3,8 @@
 This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Effective default headers expose section references, inherited status, shared part names, and ordered direct paragraphs; other direct children are opaque. Header paragraphs have no edit anchors, and first/even headers and other stories are not inspected by this view. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
-rows, cells, and cell paragraphs with the existing inline projection in Rust and
-Python. The table anchor is inspection-only: it cannot be used as a paragraph
+rows, cells, and cell paragraphs with flat and structured inline projections in
+Rust and Python. The table anchor is inspection-only: it cannot be used as a paragraph
 edit target. Rows and cells have no independent edit identities yet. Table, row,
 cell, and paragraph properties (including grids, spans, and merges) are not
 interpreted; physical cells are not expanded into a logical grid. Unsupported
@@ -22,8 +22,16 @@ Runs (including empty ones) and hyperlinks have read-only `InlineAnchor`
 values; `ImportedDocument::inline_at` in Rust and
 `ImportedDocument.inline_at` in Python reject anchors from another open,
 even when both snapshots came from identical bytes. Individual run items and
-opaque nodes are not addressable. Table-cell paragraphs still only offer
-the flat projection. No inline edit operations are enabled.
+opaque nodes are not addressable. No inline edit operations are enabled.
+
+Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
+`ImportedTableCell::inline_structure(block_index)`. The index is the position in
+`blocks`, including opaque blocks. An empty paragraph returns an empty slice;
+an opaque or missing block returns `None`. Python exposes
+`ImportedCellParagraph.inline_structure` alongside `inline_items`. Inline
+anchors distinguish physical tables, rows, cells, and paragraphs, even when
+the nodes contain identical text. A cell hyperlink's relationship ID is local
+to the main document part.
 
 Rust keeps the flat `ImportedHeaderBlock::Paragraph` payload and adds
 `ImportedHeader::inline_structure(block_index)`, keyed by the original block

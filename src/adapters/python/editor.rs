@@ -319,6 +319,8 @@ struct PyImportedTableCell {
 struct PyImportedCellParagraph {
     #[pyo3(get)]
     inline_items: Vec<Py<PyImportedInline>>,
+    #[pyo3(get)]
+    inline_structure: Vec<Py<PyAny>>,
 }
 
 fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<PyAny>> {
@@ -342,7 +344,8 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                             let blocks = cell
                                 .blocks
                                 .iter()
-                                .map(|block| match block {
+                                .enumerate()
+                                .map(|(index, block)| match block {
                                     ImportedCellBlock::Opaque(xml) => {
                                         Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?
                                             .into_any())
@@ -355,6 +358,12 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                                                 .map(|item| {
                                                     Py::new(py, PyImportedInline::from(item))
                                                 })
+                                                .collect::<PyResult<_>>()?,
+                                            inline_structure: cell
+                                                .inline_structure(index)
+                                                .unwrap_or_default()
+                                                .iter()
+                                                .map(|node| inline_object(py, node))
                                                 .collect::<PyResult<_>>()?,
                                         },
                                     )?

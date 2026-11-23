@@ -1,5 +1,9 @@
 """Inspect and edit an imported DOCX using snapshot-scoped anchors.
 
+Direct paragraphs in body table cells expose ``inline_items`` and
+``inline_structure``. Use ``ImportedDocument.inline_at`` to resolve a run or
+hyperlink anchor in the same snapshot. These anchors are read-only.
+
 Pass table insertions and header image edits to ``ImportedDocument.preview``
 with ``table_insertions=`` and ``header_images=`` to stage them alongside
 paragraph alignment edits in one transaction. ``EditPreview.header_changes``
