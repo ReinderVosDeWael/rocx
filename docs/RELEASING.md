@@ -23,11 +23,10 @@ No PyPI token is stored in GitHub. The publish job exchanges a GitHub OIDC token
 for a short-lived PyPI credential.
 
 crates.io trusted publishing uses the environment `crates-io` and the same
-workflow filename. Because `rocx` is not yet on crates.io, the first release
-needs a repository or `crates-io` environment secret named
-`CARGO_REGISTRY_TOKEN`. The workflow uses that secret when present; otherwise it
-authenticates through `rust-lang/crates-io-auth-action`. After the first release,
-configure the crates.io trusted publisher and delete the secret:
+workflow filename. Version 0.3.0 used the bootstrap `CARGO_REGISTRY_TOKEN`
+secret. The workflow still uses that secret when present; otherwise it
+authenticates through `rust-lang/crates-io-auth-action`. Verify the following
+trusted-publisher configuration in crates.io before removing the secret:
 
 | Field | Value |
 | --- | --- |
@@ -39,10 +38,12 @@ Environment protection rules (for example required reviewers) are strongly
 recommended for both environments.
 
 These tables specify the intended configuration, not a verification of private
-registry settings. Before pushing any publishing tag, manually verify each
-trusted publisher's repository, workflow and environment in its registry and
-confirm the corresponding GitHub environment and credentials. A repository
-rename does not itself prove that an existing publisher was updated.
+registry settings. The [0.3.0 publish run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45191346555)
+verified PyPI OIDC at that commit, but skipped crates.io OIDC. Before pushing
+any publishing tag, manually verify each trusted publisher's repository,
+workflow and environment in its registry and confirm the corresponding GitHub
+environment and credentials. A repository rename does not itself prove that
+an existing publisher was updated.
 
 ## Release checklist
 

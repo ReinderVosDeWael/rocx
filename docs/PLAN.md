@@ -30,7 +30,7 @@ branch; keep umbrella or externally blocked work open.
 | Issue | Scope |
 | --- | --- |
 | #2 | Closed as already fixed by `ab59df3`; all three builder regression tests passed on the default branch. |
-| #4 | GitHub Pages reports the canonical `/rocx/` path. The PyPI OIDC publish and crates.io bootstrap publish both succeeded for 0.3.0; crates.io trusted-publisher setup is not verified. Recheck hosted quickstarts and the strict docs build. |
+| #4 | GitHub Pages reports the canonical `/rocx/` path. The strict docs build checked 516 HTML pages and all 11 docs tests passed. The PyPI OIDC publish and crates.io bootstrap publish both succeeded for 0.3.0; crates.io trusted-publisher setup is not verified. Recheck hosted quickstarts. |
 | #3, #7, #9 | Advance the editor checkpoint, viewer evidence, and JavaScript package respectively; verify the remaining acceptance criteria independently. |
 | #16, #17 | Reproduce tab-stop corruption and ordinary replacement inside structured content controls; fix template traversal without changing targeted replacement. |
 | #18, #19 | Reproduce invalid partial page margins and merged authored section stories; verify generated schema and readback behavior. |
