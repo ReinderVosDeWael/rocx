@@ -1227,6 +1227,139 @@ fn header_story_preserves_order_and_opaque_children() {
 }
 
 #[test]
+fn story_inspection_tracks_slots_but_anchors_follow_physical_parts() {
+    use rocx::HeaderFooterType::{Default, Even, First};
+    use rocx::editor::{
+        ImportedInline::Text,
+        ImportedInlineNode::{Hyperlink, Run},
+        ImportedStoryBlock::Opaque,
+        SectionStoryKind::{Footer, Header},
+    };
+    let content = r#"<w:p><w:hyperlink r:id="link1"><w:r><w:t>same</w:t></w:r></w:hyperlink></w:p><w:tbl/><w:p/>"#;
+    let mut entries = parts(&header_fixture(content, true));
+    let document = String::from_utf8(entries["word/document.xml"].clone())
+        .unwrap()
+        .replace(
+            "r:id=\"headerTest\"/>",
+            concat!(
+                "r:id=\"headerTest\"/>",
+                "<w:headerReference w:type=\"first\" r:id=\"samePart\"/>",
+                "<w:footerReference w:type=\"even\" r:id=\"footerTest\"/>"
+            ),
+        )
+        .replace(
+            "<w:p/><w:sectPr/>",
+            "<w:p/><w:sectPr><w:footerReference w:type=\"even\" r:id=\"footerTest\"/></w:sectPr>",
+        );
+    entries.insert("word/document.xml".into(), document.as_bytes().to_vec());
+    let rels_name = "word/_rels/document.xml.rels";
+    let rels = String::from_utf8(entries[rels_name].clone()).unwrap().replace(
+        "</Relationships>",
+        concat!(
+            r#"<Relationship Id="samePart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="./headerTest.xml"/>"#,
+            r#"<Relationship Id="footerTest" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footerTest.xml"/>"#,
+            "</Relationships>"
+        ),
+    );
+    entries.insert(rels_name.into(), rels.into_bytes());
+    let types_name = "[Content_Types].xml";
+    let types = String::from_utf8(entries[types_name].clone()).unwrap().replace(
+        "</Types>",
+        r#"<Override PartName="/word/footerTest.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>"#,
+    );
+    entries.insert(types_name.into(), types.into_bytes());
+    let footer = String::from_utf8(entries["word/headerTest.xml"].clone())
+        .unwrap()
+        .replace("w:hdr", "w:ftr");
+    let footer_rels = entries["word/_rels/headerTest.xml.rels"].clone();
+    // Identical local relationship ID, but owned by another physical part.
+    entries.insert("word/_rels/footerTest.xml.rels".into(), footer_rels);
+    entries.insert("word/footerTest.xml".into(), footer.as_bytes().to_vec());
+    let input = package_bytes(entries.clone());
+    let doc = ImportedDocument::open(&input).unwrap();
+    let stories = doc.stories().unwrap();
+    assert_eq!(
+        stories
+            .iter()
+            .map(|s| (s.section_index, s.kind, s.variant, s.inherited))
+            .collect::<Vec<_>>(),
+        [
+            (0, Header, Default, false),
+            (0, Header, First, false),
+            (0, Footer, Even, false),
+            (1, Header, Default, true),
+            (1, Header, First, true),
+            (1, Footer, Even, true),
+            (2, Header, Default, true),
+            (2, Header, First, true),
+            (2, Footer, Even, false),
+        ]
+    );
+    let mut anchors = Vec::new();
+    for story in &stories {
+        assert!(matches!(&story.blocks[1], Opaque(name) if name == "w:tbl"));
+        assert!(story.inline_structure(1).is_none());
+        assert!(story.inline_structure(2).unwrap().is_empty());
+        assert!(story.inline_structure(3).is_none());
+        let [Hyperlink(link)] = story.inline_structure(0).unwrap() else {
+            panic!("expected hyperlink");
+        };
+        let [Run(run)] = link.children.as_slice() else {
+            panic!("expected hyperlink run");
+        };
+        assert_eq!(link.relationship_id.as_deref(), Some("link1"));
+        assert!(matches!(doc.inline_at(&run.anchor).unwrap(), Run(found)
+            if found.items == [Text("same".into())]));
+        anchors.push(&link.anchor);
+    }
+    for (story, anchor) in stories.iter().zip(&anchors) {
+        let first_alias = if story.kind == Header { 0 } else { 2 };
+        assert_eq!(story.part_name, stories[first_alias].part_name);
+        assert_eq!(*anchor, anchors[first_alias]);
+    }
+    assert_ne!(stories[0].part_name, stories[2].part_name);
+    assert_ne!(anchors[0], anchors[2]);
+    let headers = doc.default_headers().unwrap();
+    assert!(
+        matches!(headers[0].inline_structure(0).unwrap(), [Hyperlink(link)]
+        if &link.anchor == anchors[0])
+    );
+    assert!(
+        ImportedDocument::open(&input)
+            .unwrap()
+            .inline_at(anchors[2])
+            .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        entries
+    );
+
+    // Broader validation must not change the legacy API's inspection scope.
+    for (bad_footer, message) in [
+        (footer.replace("w:ftr", "w:hdr"), "invalid footer root"),
+        (footer, "duplicate footer reference type"),
+    ] {
+        let mut malformed = entries.clone();
+        malformed.insert("word/footerTest.xml".into(), bad_footer.into_bytes());
+        if message.starts_with("duplicate") {
+            let reference = r#"<w:footerReference w:type="even" r:id="footerTest"/>"#;
+            malformed.insert(
+                "word/document.xml".into(),
+                document
+                    .replace(reference, &reference.repeat(2))
+                    .into_bytes(),
+            );
+        }
+        let doc = ImportedDocument::open(&package_bytes(malformed)).unwrap();
+        assert_eq!(doc.default_headers().unwrap().len(), 3);
+        let error = doc.stories().unwrap_err().to_string();
+        assert!(error.contains(message), "{error}");
+        assert_eq!(doc.default_headers().unwrap().len(), 3);
+    }
+}
+
+#[test]
 fn independent_default_header_inline_anchors_identify_the_physical_part() {
     use rocx::editor::{
         HeaderEditMode, HeaderImageEdit,

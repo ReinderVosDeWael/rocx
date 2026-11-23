@@ -681,6 +681,22 @@ pub async fn generate(output: &Path) -> Result<()> {
         ])
         .into(),
     );
+    for (variant, name) in [
+        (HeaderFooterType::Default, "default"),
+        (HeaderFooterType::First, "first"),
+        (HeaderFooterType::Even, "even"),
+    ] {
+        if variant != HeaderFooterType::Default {
+            first.headers.insert(
+                variant,
+                Header::new(vec![p(format!("Story inspection: {name} header"))]).into(),
+            );
+        }
+        first.footers.insert(
+            variant,
+            Footer::new(vec![p(format!("Story inspection: {name} footer"))]).into(),
+        );
+    }
     let second = Section::new(vec![p(
         "Header image scope: second section shares the same header.",
     )]);
@@ -737,6 +753,26 @@ pub async fn generate(output: &Path) -> Result<()> {
             if found.items == [editor::ImportedInline::Text(text.into())]));
     }
     assert_eq!(link.children.len(), HEADER_LINK_RUNS.len());
+    let stories = imported.stories()?;
+    let (explicit, inherited) = stories.split_at(6);
+    assert_eq!(inherited.len(), explicit.len());
+    for (first, second) in explicit.iter().zip(inherited) {
+        assert_eq!((first.section_index, second.section_index), (0, 1));
+        assert!(!first.inherited && second.inherited);
+        assert_eq!((first.kind, first.variant), (second.kind, second.variant));
+        assert_eq!(first.part_name, second.part_name);
+        let (Some(Run(a)), Some(Run(b))) = (
+            first.inline_structure(1).and_then(|nodes| nodes.first()),
+            second.inline_structure(1).and_then(|nodes| nodes.first()),
+        ) else {
+            panic!("expected labeled story runs");
+        };
+        assert_eq!(a.anchor, b.anchor);
+        assert!(matches!(imported.inline_at(&b.anchor)?, Run(run) if run.anchor == a.anchor));
+    }
+    assert!(
+        matches!(stories[0].inline_structure(1).unwrap(), [Run(run), _] if run.anchor == label.anchor)
+    );
     let editor::BodyBlock::Paragraph(body_target) = &imported.body()[0] else {
         panic!("expected labeled body paragraph")
     };

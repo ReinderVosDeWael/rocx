@@ -501,15 +501,21 @@ async def generate(output: pathlib.Path) -> bytes:
     assert other_cell.blocks[0].inline_structure[1].anchor != suffix.anchor
     output.with_suffix(".edited.docx").write_bytes(edited)
 
-    # Mixed previews starting from one snapshot where both sections share a header.
+    # Inspect inherited header/footer slots before editing the default header.
     header_paragraph = d.Paragraph(children=[
         d.TextRun(HEADER_INLINE_LABEL),
         d.Hyperlink("https://example.invalid/catalog-header",
                     [d.TextRun(text) for text in HEADER_LINK_RUNS]),
     ])
+    variants = ("default", "first", "even")
+    headers = {"default": d.Header([header_paragraph])}
+    headers.update({variant: d.Header([p(f"Story inspection: {variant} header")])
+                    for variant in variants[1:]})
+    footers = {variant: d.Footer([p(f"Story inspection: {variant} footer")])
+               for variant in variants}
     source = d.Document([
         d.Section([p(HEADER_BATCH_LABEL)],
-                  headers={"default": d.Header([header_paragraph])}),
+                  headers=headers, footers=footers),
         d.Section([p("Header image scope: second section shares the same header.")]),
     ], timestamp=STAMP)
     source_bytes = await (await source.resolve()).to_bytes()
@@ -532,6 +538,17 @@ async def generate(output: pathlib.Path) -> bytes:
     assert all(isinstance(run, ImportedRun) for run in header_link.children)
     assert [[item.value for item in header_doc.inline_at(run.anchor).items]
             for run in header_link.children] == [[text] for text in HEADER_LINK_RUNS]
+    stories = header_doc.stories
+    assert [(s.section_index, s.kind, s.variant, s.inherited) for s in stories] == [
+        (index, kind, variant, bool(index))
+        for index in range(2) for kind in ("header", "footer") for variant in variants
+    ]
+    for explicit, inherited in zip(stories[:6], stories[6:], strict=True):
+        assert explicit.part_name == inherited.part_name
+        first_run = explicit.blocks[1].inline_structure[0]
+        second_run = inherited.blocks[1].inline_structure[0]
+        assert first_run.anchor == second_run.anchor == header_doc.inline_at(second_run.anchor).anchor
+    assert stories[0].blocks[1].inline_structure[0].anchor == label.anchor
     resolved_image = await image("png").resolve()
     body_target = header_doc.body[0]
     assert body_target.text == HEADER_BATCH_LABEL

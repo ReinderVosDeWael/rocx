@@ -10,7 +10,7 @@
 //! A separate edited catalog demonstrates section and inline readback, a batched alignment patch and anchored table insertion.
 //! Labeled direct runs and a hyperlink are inspected through snapshot-scoped addresses.
 //! The inserted table demonstrates distinct run anchors across physical cells.
-//! Separate labeled header artifacts inspect shared inline anchors and combine
+//! Separate labeled header/footer artifacts inspect inherited stories and shared inline anchors, and combine
 //! alignment, a table insertion, and either shared or section-local image editing.
 //! Document properties also include the company and manager.
 //! Includes chainable authoring builders and omitted/true/false formatting.

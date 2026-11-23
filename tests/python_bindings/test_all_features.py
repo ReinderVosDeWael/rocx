@@ -8,7 +8,7 @@ from lxml import etree
 import pytest
 from rocx.editor import (
     BodyParagraph, BodyTable, ImportedDocument, ImportedHeaderParagraph, ImportedHyperlink,
-    ImportedRun,
+    ImportedRun, ImportedStoryParagraph,
 )
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -74,6 +74,23 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
         expected = [(0, 2), (2, 3)] if suffix == ".header-source.docx" else [(0, 3), (3, 4)]
         assert [(s.body_start, s.body_end) for s in imported.sections] == expected
         first, second = imported.default_headers
+        stories = imported.stories
+        assert [(s.section_index, s.kind, s.variant) for s in stories] == [
+            (index, kind, variant) for index in range(2)
+            for kind in ("header", "footer") for variant in ("default", "first", "even")
+        ]
+        for explicit, alias in zip(stories[:6], stories[6:], strict=True):
+            assert not explicit.inherited
+            local_default = (explicit.kind, explicit.variant, suffix) == (
+                "header", "default", ".header-local.docx",
+            )
+            assert alias.inherited == (not local_default)
+            assert (alias.part_name == explicit.part_name) == (not local_default)
+            paragraph = alias.blocks[1]
+            assert isinstance(paragraph, ImportedStoryParagraph)
+            anchor = paragraph.inline_structure[0].anchor
+            assert (anchor == explicit.blocks[1].inline_structure[0].anchor) == (not local_default)
+            assert imported.inline_at(anchor).anchor == anchor
         anchors = []
         for header in (first, second):
             paragraph = header.blocks[1]
@@ -109,6 +126,21 @@ def test_header_scope_coverage_rejects_wrong_preview(catalogs) -> None:
             broken.writestr(name, (before if name == "word/document.xml" else after).read(name))
     with pytest.raises(AssertionError):
         checks.verify_header_scopes(source, header_only.getvalue(), local)
+
+
+def test_story_coverage_rejects_explicit_alias_in_inheriting_section(catalogs) -> None:
+    rust, _ = catalogs
+    altered = io.BytesIO()
+    with zipfile.ZipFile(rust.with_suffix(".header-source.docx")) as original, \
+            zipfile.ZipFile(altered, "w") as output:
+        body = etree.fromstring(original.read("word/document.xml"))
+        first, second = body.xpath("//w:sectPr", namespaces=checks.NS)
+        footer, = first.xpath("w:footerReference[@w:type='even']", namespaces=checks.NS)
+        second.insert(0, etree.fromstring(etree.tostring(footer)))
+        for name in original.namelist():
+            output.writestr(name, etree.tostring(body) if name == "word/document.xml" else original.read(name))
+    with pytest.raises(AssertionError):
+        checks.verify_inherited_stories(altered.getvalue())
 
 
 @pytest.mark.parametrize("change", ["merge_runs", "relationship_target"])

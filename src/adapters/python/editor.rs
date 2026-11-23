@@ -48,13 +48,61 @@ struct PyImportedHeader {
     blocks: Vec<Py<PyAny>>,
 }
 
-/// A direct default-header paragraph with flat and structured inline views.
+/// A direct header/footer paragraph with flat and structured inline views.
 #[pyclass(name = "ImportedHeaderParagraph", frozen, module = "rocx.editor")]
 struct PyImportedHeaderParagraph {
     #[pyo3(get)]
     inline_items: Vec<Py<PyImportedInline>>,
     #[pyo3(get)]
     inline_structure: Vec<Py<PyAny>>,
+}
+
+/// A section's effective reference to an existing header or footer part.
+#[pyclass(name = "ImportedStory", frozen, module = "rocx.editor")]
+struct PyImportedStory {
+    #[pyo3(get)]
+    section_index: usize,
+    #[pyo3(get)]
+    kind: &'static str,
+    #[pyo3(get)]
+    variant: &'static str,
+    #[pyo3(get)]
+    part_name: String,
+    #[pyo3(get)]
+    inherited: bool,
+    #[pyo3(get)]
+    blocks: Vec<Py<PyAny>>,
+}
+
+fn story_blocks<'a>(
+    py: Python<'_>,
+    blocks: &[editor::ImportedStoryBlock],
+    structure: impl Fn(usize) -> Option<&'a [editor::ImportedInlineNode]>,
+) -> PyResult<Vec<Py<PyAny>>> {
+    blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| match block {
+            editor::ImportedStoryBlock::Opaque(xml) => {
+                Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
+            }
+            editor::ImportedStoryBlock::Paragraph(items) => Ok(Py::new(
+                py,
+                PyImportedHeaderParagraph {
+                    inline_items: items
+                        .iter()
+                        .map(|item| Py::new(py, PyImportedInline::from(item)))
+                        .collect::<PyResult<_>>()?,
+                    inline_structure: structure(index)
+                        .expect("story paragraph structure")
+                        .iter()
+                        .map(|node| inline_object(py, node))
+                        .collect::<PyResult<_>>()?,
+                },
+            )?
+            .into_any()),
+        })
+        .collect()
 }
 
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
@@ -587,32 +635,33 @@ impl PyImportedDocument {
                     section_index: header.section_index,
                     part_name: header.part_name.clone(),
                     inherited: header.inherited,
-                    blocks: header
-                        .blocks
-                        .iter()
-                        .enumerate()
-                        .map(|(index, block)| match block {
-                            editor::ImportedHeaderBlock::Opaque(xml) => {
-                                Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
-                            }
-                            editor::ImportedHeaderBlock::Paragraph(items) => Ok(Py::new(
-                                py,
-                                PyImportedHeaderParagraph {
-                                    inline_items: items
-                                        .iter()
-                                        .map(|item| Py::new(py, PyImportedInline::from(item)))
-                                        .collect::<PyResult<_>>()?,
-                                    inline_structure: header
-                                        .inline_structure(index)
-                                        .expect("header paragraph structure")
-                                        .iter()
-                                        .map(|node| inline_object(py, node))
-                                        .collect::<PyResult<_>>()?,
-                                },
-                            )?
-                            .into_any()),
-                        })
-                        .collect::<PyResult<_>>()?,
+                    blocks: story_blocks(py, &header.blocks, |index| {
+                        header.inline_structure(index)
+                    })?,
+                })
+            })
+            .collect()
+    }
+
+    /// Effective header/footer references in section, kind, and variant order.
+    /// Absent slots are omitted; page selection settings do not filter the view.
+    #[getter]
+    fn stories(&self, py: Python<'_>) -> PyResult<Vec<PyImportedStory>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.stories()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|story| {
+                Ok(PyImportedStory {
+                    section_index: story.section_index,
+                    kind: story.kind.as_str(),
+                    variant: story.variant.xml(),
+                    part_name: story.part_name.clone(),
+                    inherited: story.inherited,
+                    blocks: story_blocks(py, &story.blocks, |index| story.inline_structure(index))?,
                 })
             })
             .collect()
@@ -728,6 +777,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;
+    module.add_class::<PyImportedStory>()?;
     module.add_class::<PyImportedSection>()?;
     module.add_class::<PyHeaderImageEdit>()?;
     module.add_class::<PyHeaderImageChange>()?;

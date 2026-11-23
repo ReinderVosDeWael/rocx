@@ -1,4 +1,4 @@
-//! Default-header inspection and explicitly scoped editing.
+//! Header/footer inspection and explicitly scoped default-header editing.
 
 use super::{
     ALTERNATE, EditPreview, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedSection,
@@ -7,12 +7,14 @@ use super::{
 use crate::ooxml::{WordParts, encode_header_image};
 use crate::opc::Package;
 use crate::xml::{Content, Node, W};
-use crate::{ResolvedImage, Result, SectionType};
+use crate::{HeaderFooterType, ResolvedImage, Result, SectionType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 const HEADER_MIME: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
+const FOOTER_MIME: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
 const MC: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 const W14: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
 const XML: &str = "http://www.w3.org/XML/1998/namespace";
@@ -35,7 +37,7 @@ pub struct ImportedHeader {
     pub inherited: bool,
     /// Direct children in document order; paragraphs have no edit anchors.
     pub blocks: Vec<ImportedHeaderBlock>,
-    physical: Arc<DefaultHeaderPart>,
+    physical: Arc<StoryPart>,
 }
 
 impl ImportedHeader {
@@ -47,7 +49,7 @@ impl ImportedHeader {
     }
 }
 
-/// Read-only direct header content. Unsupported children remain in the package.
+/// Read-only direct header/footer content. Unsupported children remain in the package.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum ImportedHeaderBlock {
@@ -55,32 +57,90 @@ pub enum ImportedHeaderBlock {
     Opaque(String),
 }
 
+pub use ImportedHeaderBlock as ImportedStoryBlock;
+
+/// Whether the story is at the top or bottom of a page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SectionStoryKind {
+    Header,
+    Footer,
+}
+
+impl SectionStoryKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Header => "header",
+            Self::Footer => "footer",
+        }
+    }
+
+    fn part_type(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Header => ("w:headerReference", "w:hdr", HEADER_MIME),
+            Self::Footer => ("w:footerReference", "w:ftr", FOOTER_MIME),
+        }
+    }
+}
+
+const VARIANTS: [HeaderFooterType; 3] = [
+    HeaderFooterType::Default,
+    HeaderFooterType::First,
+    HeaderFooterType::Even,
+];
+
+/// A section's effective reference to an existing header or footer part.
 #[derive(Debug)]
-struct DefaultHeaderPart {
+#[non_exhaustive]
+pub struct ImportedStory {
+    pub section_index: usize,
+    pub kind: SectionStoryKind,
+    /// The reference slot in a section's properties, not a pagination result.
+    pub variant: HeaderFooterType,
+    /// Physical package part name. Aliases of one part share inline anchors.
+    pub part_name: String,
+    /// Whether this slot takes its reference from an earlier section.
+    pub inherited: bool,
+    /// Direct children in source order. Unsupported children are opaque.
+    pub blocks: Vec<ImportedStoryBlock>,
+    physical: Arc<StoryPart>,
+}
+
+impl ImportedStory {
+    /// Structured inlines by direct block index. Returns `None` for an opaque
+    /// or missing block, and an empty slice for an empty paragraph.
+    pub fn inline_structure(&self, block_index: usize) -> Option<&[ImportedInlineNode]> {
+        self.physical.inline_structure(block_index)
+    }
+}
+
+#[derive(Debug)]
+struct StoryPart {
     blocks: Vec<ImportedHeaderBlock>,
     structures: Vec<Option<Vec<ImportedInlineNode>>>,
 }
 
-impl DefaultHeaderPart {
+impl StoryPart {
     fn inline_structure(&self, index: usize) -> Option<&[ImportedInlineNode]> {
         self.structures.get(index)?.as_deref()
     }
 }
 
 #[derive(Debug)]
-struct DefaultHeaderAlias {
+struct StoryAlias {
     section_index: usize,
+    kind: SectionStoryKind,
+    variant: HeaderFooterType,
     part_name: Arc<str>,
     inherited: bool,
 }
 
 #[derive(Debug, Default)]
-pub(super) struct DefaultHeaderInspection {
-    aliases: Vec<DefaultHeaderAlias>,
-    parts: BTreeMap<Arc<str>, Arc<DefaultHeaderPart>>,
+pub(super) struct StoryInspection {
+    aliases: Vec<StoryAlias>,
+    parts: BTreeMap<Arc<str>, Arc<StoryPart>>,
 }
 
-impl DefaultHeaderInspection {
+impl StoryInspection {
     pub(super) fn inline_structure(
         &self,
         part: &str,
@@ -180,9 +240,9 @@ impl ImportedDocument {
         if self.default_header_inspection.get().is_none() {
             // Only cache a successful inspection; concurrent readers may compute
             // equivalent views, but all anchors are issued from the stored view.
-            let _ = self
-                .default_header_inspection
-                .set(self.inspect_default_headers()?);
+            let _ = self.default_header_inspection.set(
+                self.inspect_stories(&[(SectionStoryKind::Header, &[HeaderFooterType::Default])])?,
+            );
         }
         let inspection = self.default_header_inspection.get().unwrap();
         Ok(inspection
@@ -205,55 +265,107 @@ impl ImportedDocument {
             .collect())
     }
 
-    fn inspect_default_headers(&self) -> Result<DefaultHeaderInspection> {
-        let root = self.package.word(&self.main)?;
-        let sections = header_sections(&self.package, &self.main, &root)?;
-        let mut inspection = DefaultHeaderInspection::default();
-        for (section_index, section) in sections.iter().enumerate() {
-            let Some(header) = &section.effective[0] else {
-                continue;
-            };
-            let part_name =
-                if let Some((name, _)) = inspection.parts.get_key_value(header.part.as_str()) {
-                    name.clone()
-                } else {
-                    let part_name: Arc<str> = header.part.as_str().into();
-                    let root = self.package.word(&header.part)?;
-                    if root.name != "w:hdr" {
-                        return Err(unsupported("invalid header root"));
-                    }
-                    let mut blocks = Vec::new();
-                    let mut structures = Vec::new();
-                    for (block_index, node) in root.elements().enumerate() {
-                        if node.name == "w:p" {
-                            let (items, structure) = read_paragraph_inlines(
-                                node,
-                                &self.snapshot,
-                                InlineLocation::DefaultHeader {
-                                    part: part_name.clone(),
-                                    block_index,
-                                },
-                            );
-                            blocks.push(ImportedHeaderBlock::Paragraph(items));
-                            structures.push(Some(structure));
-                        } else {
-                            blocks.push(ImportedHeaderBlock::Opaque(node.name.to_string()));
-                            structures.push(None);
-                        }
-                    }
-                    inspection.parts.insert(
-                        part_name.clone(),
-                        Arc::new(DefaultHeaderPart { blocks, structures }),
-                    );
-                    part_name
-                };
-            inspection.aliases.push(DefaultHeaderAlias {
-                section_index,
-                part_name,
-                inherited: !section.explicit_default,
-            });
+    /// Inspect effective header and footer slots in section order, with headers
+    /// before footers and variants default, first, then even. Each slot inherits
+    /// independently; slots without any reference are omitted. This does not
+    /// determine which story is displayed on a page (`titlePg` and
+    /// `evenAndOddHeaders` do not filter the result).
+    pub fn stories(&self) -> Result<Vec<ImportedStory>> {
+        if self.story_inspection.get().is_none() {
+            let _ = self.story_inspection.set(self.inspect_stories(&[
+                (SectionStoryKind::Header, &VARIANTS),
+                (SectionStoryKind::Footer, &VARIANTS),
+            ])?);
         }
+        let inspection = self.story_inspection.get().unwrap();
+        Ok(inspection
+            .aliases
+            .iter()
+            .map(|alias| {
+                let physical = inspection.parts[&alias.part_name].clone();
+                ImportedStory {
+                    section_index: alias.section_index,
+                    kind: alias.kind,
+                    variant: alias.variant,
+                    part_name: alias.part_name.to_string(),
+                    inherited: alias.inherited,
+                    blocks: physical.blocks.clone(),
+                    physical,
+                }
+            })
+            .collect())
+    }
+
+    fn inspect_stories(
+        &self,
+        selection: &[(SectionStoryKind, &[HeaderFooterType])],
+    ) -> Result<StoryInspection> {
+        let root = self.package.word(&self.main)?;
+        let slots = section_slots(&root)?;
+        let mut inspection = StoryInspection::default();
+        for &(kind, variants) in selection {
+            let sections = story_sections(&self.package, &self.main, &slots, kind)?;
+            for (section_index, section) in sections.iter().enumerate() {
+                for &variant in variants {
+                    let index = variant as usize;
+                    let Some(reference) = &section.effective[index] else {
+                        continue;
+                    };
+                    let part_name = if let Some((name, _)) =
+                        inspection.parts.get_key_value(reference.part.as_str())
+                    {
+                        name.clone()
+                    } else {
+                        let part: Arc<str> = reference.part.as_str().into();
+                        let physical = self.inspect_story_part(&part, kind)?;
+                        inspection.parts.insert(part.clone(), Arc::new(physical));
+                        part
+                    };
+                    inspection.aliases.push(StoryAlias {
+                        section_index,
+                        kind,
+                        variant,
+                        part_name,
+                        inherited: !section.explicit[index],
+                    });
+                }
+            }
+        }
+        inspection.aliases.sort_by_key(|alias| {
+            (
+                alias.section_index,
+                alias.kind as usize,
+                alias.variant as usize,
+            )
+        });
         Ok(inspection)
+    }
+
+    fn inspect_story_part(&self, part: &Arc<str>, kind: SectionStoryKind) -> Result<StoryPart> {
+        let root = self.package.word(part)?;
+        if root.name != kind.part_type().1 {
+            return Err(unsupported(&format!("invalid {} root", kind.as_str())));
+        }
+        let mut blocks = Vec::new();
+        let mut structures = Vec::new();
+        for (block_index, node) in root.elements().enumerate() {
+            if node.name == "w:p" {
+                let (items, structure) = read_paragraph_inlines(
+                    node,
+                    &self.snapshot,
+                    InlineLocation::Story {
+                        part: part.clone(),
+                        block_index,
+                    },
+                );
+                blocks.push(ImportedStoryBlock::Paragraph(items));
+                structures.push(Some(structure));
+            } else {
+                blocks.push(ImportedStoryBlock::Opaque(node.name.to_string()));
+                structures.push(None);
+            }
+        }
+        Ok(StoryPart { blocks, structures })
     }
 
     /// Stage an image in one existing default header, with explicit sharing intent.
@@ -279,7 +391,12 @@ impl ImportedDocument {
                 ));
             }
         }
-        let sections = header_sections(&self.package, &self.main, root)?;
+        let sections = story_sections(
+            &self.package,
+            &self.main,
+            &section_slots(root)?,
+            SectionStoryKind::Header,
+        )?;
         let mut sources = BTreeMap::new();
         for (&index, edit) in &targets {
             let source = default_source(&sections, index)?;
@@ -295,7 +412,7 @@ impl ImportedDocument {
     }
 }
 
-fn default_source(sections: &[SectionHeaders], index: usize) -> Result<&HeaderRef> {
+fn default_source(sections: &[SectionStoryRefs], index: usize) -> Result<&StoryRef> {
     sections
         .get(index)
         .and_then(|section| section.effective[0].as_ref())
@@ -304,7 +421,7 @@ fn default_source(sections: &[SectionHeaders], index: usize) -> Result<&HeaderRe
 
 #[derive(Default)]
 pub(super) struct HeaderBatch<'a> {
-    sections: Vec<SectionHeaders>,
+    sections: Vec<SectionStoryRefs>,
     targets: BTreeMap<usize, &'a HeaderImageEdit>,
 }
 
@@ -380,9 +497,10 @@ impl HeaderBatch<'_> {
                 set_default_reference(body, sections[index].slot, &id)?;
                 // A following section with its own local edit gets that new
                 // reference, not a restoration. It still forks the original.
-                if let Some(next) = sections.get(index + 1).filter(|part| {
-                    !part.explicit_default && !self.targets.contains_key(&(index + 1))
-                }) {
+                if let Some(next) = sections
+                    .get(index + 1)
+                    .filter(|part| !part.explicit[0] && !self.targets.contains_key(&(index + 1)))
+                {
                     set_default_reference(body, next.slot, &source.id)?;
                     restored_section = Some(index + 1);
                 }
@@ -409,15 +527,15 @@ enum Slot {
 }
 
 #[derive(Clone)]
-struct HeaderRef {
+struct StoryRef {
     id: String,
     part: String,
 }
 
-struct SectionHeaders {
+struct SectionStoryRefs {
     slot: Slot,
-    explicit_default: bool,
-    effective: [Option<HeaderRef>; 3],
+    explicit: [bool; 3],
+    effective: [Option<StoryRef>; 3],
 }
 
 fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
@@ -458,52 +576,54 @@ fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
     Ok(slots)
 }
 
-fn header_sections(package: &Package, main: &str, root: &Node) -> Result<Vec<SectionHeaders>> {
-    let slots = section_slots(root)?;
-    let relationships: BTreeMap<_, _> =
-        package.relationships(main, "header")?.into_iter().collect();
-    let mut resolved = BTreeMap::<String, HeaderRef>::new();
+fn story_sections(
+    package: &Package,
+    main: &str,
+    slots: &[(Slot, usize, Option<&Node>)],
+    kind: SectionStoryKind,
+) -> Result<Vec<SectionStoryRefs>> {
+    let (reference_name, _, mime) = kind.part_type();
+    let name = kind.as_str();
+    let relationships: BTreeMap<_, _> = package.relationships(main, name)?.into_iter().collect();
+    let mut resolved = BTreeMap::<String, StoryRef>::new();
     let mut effective = [None, None, None];
     let mut sections = Vec::with_capacity(slots.len());
-    for (slot, _, props) in slots {
+    for &(slot, _, props) in slots {
         let mut explicit = [false; 3];
         if let Some(props) = props {
             if props.child(ALTERNATE).is_some() {
-                return Err(unsupported(
-                    "ambiguous header reference in section properties",
-                ));
+                return Err(unsupported(&format!(
+                    "ambiguous {name} reference in section properties"
+                )));
             }
-            for child in props
-                .elements()
-                .filter(|node| node.name == "w:headerReference")
-            {
-                let variant = match child.get("w:type") {
-                    Some("default") => 0,
-                    Some("first") => 1,
-                    Some("even") => 2,
-                    _ => return Err(unsupported("unknown header reference type")),
-                };
+            for child in props.elements().filter(|node| node.name == reference_name) {
+                let variant = VARIANTS
+                    .iter()
+                    .position(|variant| Some(variant.xml()) == child.get("w:type"))
+                    .ok_or_else(|| unsupported(&format!("unknown {name} reference type")))?;
                 if std::mem::replace(&mut explicit[variant], true) {
-                    return Err(unsupported("duplicate header reference type in a section"));
+                    return Err(unsupported(&format!(
+                        "duplicate {name} reference type in a section"
+                    )));
                 }
                 let id = child
                     .get("r:id")
-                    .ok_or_else(|| unsupported("header reference has no ID"))?;
+                    .ok_or_else(|| unsupported(&format!("{name} reference has no ID")))?;
                 if !resolved.contains_key(id) {
                     if !relationships.contains_key(id) {
-                        return Err(unsupported(
-                            "header reference does not identify a header relationship",
-                        ));
+                        return Err(unsupported(&format!(
+                            "{name} reference does not identify a {name} relationship"
+                        )));
                     }
                     let (_, part) = package
                         .related(main, &format!("#{id}"))?
-                        .ok_or_else(|| unsupported("header target is missing"))?;
-                    if package.content_type_for(&part)?.as_deref() != Some(HEADER_MIME) {
-                        return Err(unsupported("incorrect header part content type"));
+                        .ok_or_else(|| unsupported(&format!("{name} target is missing")))?;
+                    if package.content_type_for(&part)?.as_deref() != Some(mime) {
+                        return Err(unsupported(&format!("incorrect {name} part content type")));
                     }
                     resolved.insert(
                         id.into(),
-                        HeaderRef {
+                        StoryRef {
                             id: id.into(),
                             part,
                         },
@@ -512,9 +632,9 @@ fn header_sections(package: &Package, main: &str, root: &Node) -> Result<Vec<Sec
                 effective[variant] = resolved.get(id).cloned();
             }
         }
-        sections.push(SectionHeaders {
+        sections.push(SectionStoryRefs {
             slot,
-            explicit_default: explicit[0],
+            explicit,
             effective: effective.clone(),
         });
     }

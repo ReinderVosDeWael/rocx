@@ -1,6 +1,6 @@
 //! Read and edit an existing Transitional DOCX without rebuilding it.
 //!
-//! Inspect direct body blocks and effective default headers, patch body paragraph
+//! Inspect direct body blocks and section headers and footers, patch body paragraph
 //! alignment, insert declarative tables, and append an image to an existing header.
 //! The package, not the typed inspection view, is the source of output.
 
@@ -16,7 +16,7 @@ mod header;
 mod insertion;
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
-    ImportedHeader, ImportedHeaderBlock,
+    ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
 
 /// A target valid only for the snapshot that issued it.
@@ -188,11 +188,11 @@ pub enum ImportedInline {
 }
 
 /// Read-only address of a run or hyperlink in a direct body, body table-cell,
-/// or default-header paragraph.
+/// header, or footer paragraph.
 ///
 /// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
 /// bytes creates a different snapshot. Within a snapshot, section aliases of
-/// one physical header part yield equal anchors for the same inline node.
+/// one physical story part yield equal anchors for the same inline node.
 #[derive(Clone, Debug)]
 pub struct InlineAnchor {
     snapshot: Arc<()>,
@@ -209,7 +209,7 @@ enum InlineLocation {
         cell_index: usize,
         block_index: usize,
     },
-    DefaultHeader {
+    Story {
         part: Arc<str>,
         block_index: usize,
     },
@@ -248,7 +248,7 @@ pub struct ImportedRun {
 pub struct ImportedHyperlink {
     pub anchor: InlineAnchor,
     /// Explicit `r:id`, local to the part containing the paragraph (main
-    /// document or header); not a resolved URL.
+    /// document, header, or footer); not a resolved URL.
     pub relationship_id: Option<String>,
     /// Explicit `w:anchor`; the bookmark reference is not resolved.
     pub bookmark: Option<String>,
@@ -337,7 +337,8 @@ pub struct ImportedDocument {
     main: String,
     body: Vec<BodyBlock>,
     snapshot: Arc<()>,
-    default_header_inspection: OnceLock<header::DefaultHeaderInspection>,
+    default_header_inspection: OnceLock<header::StoryInspection>,
+    story_inspection: OnceLock<header::StoryInspection>,
 }
 
 impl ImportedDocument {
@@ -398,6 +399,7 @@ impl ImportedDocument {
             body,
             snapshot,
             default_header_inspection: OnceLock::new(),
+            story_inspection: OnceLock::new(),
         })
     }
 
@@ -405,7 +407,7 @@ impl ImportedDocument {
         &self.body
     }
 
-    /// Read a body, body table-cell, or default-header run or hyperlink from this snapshot.
+    /// Read a body, body table-cell, header, or footer run or hyperlink from this snapshot.
     /// An address from another snapshot is rejected, even at the same position.
     pub fn inline_at(&self, target: &InlineAnchor) -> Result<&ImportedInlineNode> {
         self.validate_snapshot(&target.snapshot)?;
@@ -434,11 +436,14 @@ impl ImportedDocument {
                 };
                 cell.inline_structure(*block_index).ok_or_else(invalid)?
             }
-            InlineLocation::DefaultHeader { part, block_index } => self
-                .default_header_inspection
-                .get()
-                .and_then(|inspection| inspection.inline_structure(part, *block_index))
-                .ok_or_else(invalid)?,
+            InlineLocation::Story { part, block_index } => [
+                self.story_inspection.get(),
+                self.default_header_inspection.get(),
+            ]
+            .into_iter()
+            .flatten()
+            .find_map(|inspection| inspection.inline_structure(part, *block_index))
+            .ok_or_else(invalid)?,
         };
         let (last, parents) = target.path.split_last().ok_or_else(invalid)?;
         for &index in parents {

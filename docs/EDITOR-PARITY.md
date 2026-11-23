@@ -1,6 +1,6 @@
 # Editor declarative parity inventory
 
-This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Effective default headers expose section references, inherited status, shared part names, and ordered direct paragraphs; other direct children are opaque. Header paragraphs have no edit anchors, and first/even headers and other stories are not inspected by this view. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
+This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Default, first, and even headers and footers expose section references, inherited status, physical part names, and ordered direct paragraphs; other direct children are opaque. The broader story view is read-only. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
@@ -12,7 +12,7 @@ children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
 
-Direct body and default-header paragraphs retain run and hyperlink boundaries through
+Direct body, header, and footer paragraphs retain run and hyperlink boundaries through
 `inline_structure`. Hyperlinks expose their explicit owner-local relationship
 ID and bookmark reference, without resolving either. Runs expose ordered text,
 tabs, breaks and opaque run children, but not run or hyperlink formatting.
@@ -33,15 +33,23 @@ anchors distinguish physical tables, rows, cells, and paragraphs, even when
 the nodes contain identical text. A cell hyperlink's relationship ID is local
 to the main document part.
 
-Rust keeps the flat `ImportedHeaderBlock::Paragraph` payload and adds
-`ImportedHeader::inline_structure(block_index)`, keyed by the original block
-order (including opaque blocks). Python adds `ImportedHeaderParagraph.inline_structure`
-alongside `inline_items`. A successful first header inspection caches each
-physical default-header part once for borrowed lookup; opening a snapshot or
-looking up body inlines does not require parsing its headers. Aliases of the same
-part produce equal inline anchors, but distinct parts do not, even when their
-contents and relationship IDs match. The header image edit still takes a
-separate, section-scoped `HeaderAnchor`.
+Use `ImportedDocument::stories()` in Rust or `ImportedDocument.stories` in Python
+to read effective story references in section order: headers before footers,
+then default, first, and even. Each slot inherits independently across sections.
+Slots without a reference are omitted. The view does not simulate page selection
+or filter based on first-page or odd/even settings. Footnote, endnote, and comment
+stories are not included. Rust uses `SectionStoryKind` and `HeaderFooterType`;
+Python exposes `kind` and `variant` as lowercase strings.
+
+Rust's `ImportedStory::inline_structure(block_index)` follows the original block
+order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
+`ImportedHeaderBlock` type. In Python, `ImportedStoryParagraph` is an alias of
+`ImportedHeaderParagraph` and exposes `inline_items` and `inline_structure`.
+Story parsing is lazy and deduplicated by physical part within each view.
+Aliases of the same part produce equal inline anchors even across the two views,
+but distinct parts do not, even when their contents and relationship IDs match.
+`default_headers` retains its existing inspection scope and section-scoped
+`HeaderAnchor` for image edits; unrelated footer failures don't affect it.
 
 Rust's `preview_transaction` and Python's `preview(..., header_images=...)`
 can stage body alignment, table insertion, and header image edits against the

@@ -23,6 +23,8 @@ from rocx.editor import (
     ImportedHeaderParagraph,
     ImportedHyperlink,
     ImportedRun,
+    ImportedStory,
+    ImportedStoryParagraph,
     InlineAnchor,
     ImportedCellParagraph,
     ImportedTableCell,
@@ -129,6 +131,71 @@ def test_python_docx_header_story_with_opaque_table():
     assert imported.inline_at(run_b.anchor).items[0].value == "B"
     assert isinstance(first.blocks[1], BodyOpaque)
     assert first.blocks[1].xml == "w:tbl"
+    assert _parts(imported.preview([]).to_docx()) == _parts(data)
+
+
+def test_python_docx_section_stories_inherit_and_override_each_slot_independently():
+    source = docx.Document()
+    source.add_paragraph("Leading section without any stories")
+    second = source.add_section()
+    slots = [
+        ("header", "default", "header"),
+        ("header", "first", "first_page_header"),
+        ("header", "even", "even_page_header"),
+        ("footer", "default", "footer"),
+        ("footer", "first", "first_page_footer"),
+        ("footer", "even", "even_page_footer"),
+    ]
+    for kind, variant, attr in slots:
+        story = getattr(second, attr)
+        story.is_linked_to_previous = False
+        story.paragraphs[0].add_run(f"{kind} {variant}")
+    second.even_page_footer.add_table(rows=1, cols=1, width=docx.shared.Inches(1))
+    third = source.add_section()
+    third.first_page_footer.is_linked_to_previous = False
+    third.first_page_footer.paragraphs[0].add_run("overridden first footer")
+    source.add_section()
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+
+    independently_read = docx.Document(io.BytesIO(data))
+    assert independently_read.sections[0].header.is_linked_to_previous
+    assert not independently_read.sections[1].different_first_page_header_footer
+    assert not independently_read.settings.odd_and_even_pages_header_footer
+    assert independently_read.sections[1].even_page_footer.paragraphs[0].text == "footer even"
+    assert independently_read.sections[3].first_page_footer.paragraphs[0].text == "overridden first footer"
+
+    imported = ImportedDocument.open(data)
+    stories = imported.stories
+    assert all(isinstance(story, ImportedStory) for story in stories)
+    assert [(s.section_index, s.kind, s.variant) for s in stories] == [
+        (index, kind, variant) for index in range(1, 4) for kind, variant, _ in slots
+    ]
+    assert len({s.part_name for s in stories}) == 7
+    first_by_part = {}
+    for story in stories:
+        paragraph = story.blocks[0]
+        assert isinstance(paragraph, ImportedStoryParagraph)
+        run, = paragraph.inline_structure
+        assert isinstance(run, ImportedRun)
+        items = [(item.kind, item.value) for item in imported.inline_at(run.anchor).items]
+        overridden = story.section_index >= 2 and (story.kind, story.variant) == ("footer", "first")
+        label = "overridden first footer" if overridden else f"{story.kind} {story.variant}"
+        assert items == [(item.kind, item.value) for item in paragraph.inline_items] == [("text", label)]
+        assert story.inherited == (story.part_name in first_by_part)
+        assert first_by_part.setdefault(story.part_name, run.anchor) == run.anchor
+        if (story.kind, story.variant) == ("footer", "even"):
+            opaque, = story.blocks[1:]
+            assert isinstance(opaque, BodyOpaque) and opaque.xml == "w:tbl"
+    assert all(a != b for i, a in enumerate(first_by_part.values())
+               for b in list(first_by_part.values())[i + 1:])
+    for header in imported.default_headers:
+        broad = next(s for s in stories
+                     if (s.section_index, s.kind, s.variant) == (header.section_index, "header", "default"))
+        assert header.blocks[0].inline_structure[0].anchor == broad.blocks[0].inline_structure[0].anchor
+    with pytest.raises(ValueError, match="different document snapshot"):
+        ImportedDocument.open(data).inline_at(next(iter(first_by_part.values())))
     assert _parts(imported.preview([]).to_docx()) == _parts(data)
 
 

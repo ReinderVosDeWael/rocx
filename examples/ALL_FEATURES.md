@@ -26,8 +26,9 @@ Output:
 - `examples/all_features-rust.edited.docx` and
   `examples/all_features-python.edited.docx` (separate imported edits).
 - Paired `.header-source.docx`, `.header-shared.docx`, and `.header-local.docx`
-  artifacts: a simple two-section source and two independent transactions,
-  each combining an alignment patch, a table insertion, and a header image.
+  artifacts: a two-section source with six inherited header/footer slots and two
+  independent transactions, each combining an alignment patch, a table insertion,
+  and a default-header image.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -66,6 +67,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | 01 Paragraphs/headings | Heading 0/no heading through 9; all nine alignments; multiplier/exact/minimum line heights and legacy line spacing; before/after spacing; left/right/first-line/hanging point indents; keep-lines/next, widow control, page-break-before and explicit false values. |
 | 01 Imported editor | Both APIs inspect the generated body and preview an anchored center-alignment patch followed by a declarative two-column fixed-width table. Both reopen the edited package, inspect the physical cells, and resolve a read-only run anchor in the second cell. The first cell has a bold label; the second has two distinct runs that read “Fixed-width second column.” Coverage rejects merging those runs even when their visible text is unchanged. The table appears only in the edited catalog; other package parts retain their exact payload bytes. |
 | Combined body and default-header transaction | One default header is shared by two sections. Both APIs resolve the labeled header run and hyperlink's snapshot-scoped read-only anchors with `inline_at`. Inherited aliases of the same physical part yield equal inline anchors; the image edit target is still section-scoped. Both previews center the labeled body paragraph and insert a table immediately after it, in the same transaction as the header edit targeting the second section. Shared mode changes the header used by both; section-local copies it and changes only the second section. Exact byte parity and package checks cover all three artifacts, including body changes, part-local relationships, image counts, and untouched payloads. |
+| Inherited header/footer inspection | The same source labels five additional slots: first/even headers and default/first/even footers. The first section defines each; the second inherits each. Both APIs inspect all six slots in order and resolve their read-only inline anchors. Package and python-docx checks verify that editing the default header leaves the other slots inherited with unchanged content. |
 | 01 Tabs | All eight alignments including start/end/bar/clear; all six leaders; signed positions and explicit clear at −12 pt. |
 | 02 Runs | Bold/italic/strike/caps/small-caps/super/subscript; false overrides; literal fonts and point sizes; RGB/automatic color; all 16 theme slots with tint/shade; all seven underline styles; Unicode, preserved spaces, empty runs, literal tabs/newlines. A labeled chainable-setter sample shows omitted, enabled and explicitly disabled bold (with italic enabled); builders alter Rust authoring syntax only, not OOXML features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters). |
 | 02 Script requests | Independent paragraph bidi, run RTL/complex-script flags, complex-script bold/italic/size, three language slots and literal East Asian/complex-script fonts; true/false cases. |

@@ -214,6 +214,7 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
         return len(drawings)
 
     for data, edited in [(original, False), (shared, True), (local, True)]:
+        verify_inherited_stories(data)
         document = docx.Document(io.BytesIO(data))
         target = document.paragraphs[0]
         assert target.text == HEADER_BATCH_LABEL
@@ -255,6 +256,37 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
                 assert name.startswith("word/media/") or re.fullmatch(
                     r"word/(?:rocx-header\d+\.xml|_rels/(?:rocx-)?header\d+\.xml\.rels)", name
                 ), name
+
+
+def verify_inherited_stories(data: bytes) -> None:
+    """The labeled non-default-header slots are explicit once, then inherited."""
+    document = docx.Document(io.BytesIO(data))
+    first, second = document.sections
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        body = etree.fromstring(package.read("word/document.xml"))
+        rels = etree.fromstring(package.read("word/_rels/document.xml.rels"))
+        relationships = {r.get("Id"): r for r in rels}
+        source, inherited = body.xpath("//w:sectPr", namespaces=NS)
+        parts = set()
+        for kind in ("header", "footer"):
+            for variant, prefix in (("default", ""), ("first", "first_page_"), ("even", "even_page_")):
+                if (kind, variant) == ("header", "default"):
+                    continue  # Covered separately by verify_header_scopes.
+                path = f"w:{kind}Reference[@w:type='{variant}']/@odr:id"
+                rel_id, = source.xpath(path, namespaces=NS)
+                assert not inherited.xpath(path, namespaces=NS)
+                rel = relationships[rel_id]
+                assert rel.get("Type") == f"{NS['odr']}/{kind}"
+                part = posixpath.normpath(posixpath.join("word", rel.get("Target"))).lstrip("/")
+                assert part not in parts
+                parts.add(part)
+                root = etree.fromstring(package.read(part))
+                assert root.tag == f"{{{NS['w']}}}{'hdr' if kind == 'header' else 'ftr'}"
+                label = f"Story inspection: {variant} {kind}"
+                assert root.xpath("w:p/w:r/w:t/text()", namespaces=NS) == [label]
+                explicit, alias = (getattr(s, f"{prefix}{kind}") for s in (first, second))
+                assert not explicit.is_linked_to_previous and alias.is_linked_to_previous
+                assert explicit.paragraphs[1].text == alias.paragraphs[1].text == label
 
 
 def verify_javascript_workflow(data: bytes, *, standalone: bool = False) -> None:
