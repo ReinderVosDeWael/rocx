@@ -54,3 +54,17 @@ differences and the limits of each feature.
 - [Changelog](CHANGELOG.md)
 - [Visual catalog](https://reindervosdewael.github.io/rv-docx-rs/catalog/)
 - [License](LICENSE)
+
+## Contributing
+
+Install [prek](https://prek.j178.dev/) and enable its Git hook once per clone:
+
+```sh
+uv tool install prek
+prek install
+```
+
+With Cargo and `rustfmt` installed, prek runs `cargo fmt --check` before each
+commit, temporarily setting aside unstaged edits to tracked files. If it
+fails, run `cargo fmt` and stage the intended formatting changes before
+retrying. GitHub Actions checks formatting even if prek is not installed.
