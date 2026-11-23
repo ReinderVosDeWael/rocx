@@ -15,7 +15,9 @@ dependencies = []
 interop = ["python-docx==1.2.0"]
 
 [project.urls]
-Repository = "https://github.com/ReinderVosDeWael/rv-docx-rs"
+Repository = "https://github.com/ReinderVosDeWael/rocx"
+Documentation = "https://reindervosdewael.github.io/rocx/"
+Issues = "https://github.com/ReinderVosDeWael/rocx/issues"
 
 [dependency-groups]
 docs = [

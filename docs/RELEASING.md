@@ -15,7 +15,7 @@ for project `rocx`:
 | Field | Value |
 | --- | --- |
 | Owner | `ReinderVosDeWael` |
-| Repository | `rv-docx-rs` |
+| Repository | `rocx` |
 | Workflow | `publish.yml` |
 | Environment | `pypi` |
 
@@ -31,12 +31,18 @@ configure the crates.io trusted publisher and delete the secret:
 
 | Field | Value |
 | --- | --- |
-| Repository | `ReinderVosDeWael/rv-docx-rs` |
+| Repository | `ReinderVosDeWael/rocx` |
 | Workflow | `publish.yml` |
 | Environment | `crates-io` |
 
 Environment protection rules (for example required reviewers) are strongly
 recommended for both environments.
+
+These tables specify the intended configuration, not a verification of private
+registry settings. Before pushing any publishing tag, manually verify each
+trusted publisher's repository, workflow and environment in its registry and
+confirm the corresponding GitHub environment and credentials. A repository
+rename does not itself prove that an existing publisher was updated.
 
 ## Release checklist
 

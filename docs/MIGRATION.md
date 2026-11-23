@@ -1,5 +1,9 @@
 # Migration guide
 
+The documentation site is now at
+<https://reindervosdewael.github.io/rocx/>. The former `/rv-docx-rs/`
+Pages path returned HTTP 404 when checked; do not rely on a redirect.
+
 This guide separates the legacy `rv-docx-rs` rename/redesign from the
 `0.2 → 0.3` upgrade. Existing `rv-docx-rs` code may need updates; old
 constructor syntax and behavior are not guaranteed.
@@ -50,6 +54,6 @@ literals to keep inline placement. Use `with_anchor` to opt into
 
 ## Further guidance
 
-See [Getting started](https://reindervosdewael.github.io/rv-docx-rs/getting-started/)
+See [Getting started](https://reindervosdewael.github.io/rocx/getting-started/)
 for examples and the [compatibility guide](../COMPATIBILITY.md) for supported
 behavior and limitations.

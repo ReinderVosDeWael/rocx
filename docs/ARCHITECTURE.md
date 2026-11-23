@@ -30,8 +30,8 @@ coverage from the larger format.
 
 ### 1. XML names and preservation are the first correctness boundary
 
-Evidence: [xml.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/xml.rs), `Node::{parse,namespaces,sort_properties}`,
-and [package.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/package.rs), `Package::put`.
+Evidence: [xml.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/xml.rs), `Node::{parse,namespaces,sort_properties}`,
+and [package.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/package.rs), `Package::put`.
 
 `Node` stores prefix-qualified strings, not expanded names `(namespace URI,
 local name)`. Parsing normalizes known prefixes and adds a fixed namespace map;
@@ -58,8 +58,8 @@ Part 3 §§7–9, and the relevant Part 1 schema content models.
 
 ### 2. Packaging needs an OPC boundary and a relationship graph
 
-Evidence: [package.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/package.rs), `Package::{load,relation,related}`;
-[render.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/render.rs), `Renderer::{image,header_footer}` and
+Evidence: [package.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/package.rs), `Package::{load,relation,related}`;
+[render.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/render.rs), `Renderer::{image,header_footer}` and
 `render_with_template`.
 
 `Package::load` requires `word/document.xml`, seeds Word styles/settings/numbering
@@ -87,9 +87,9 @@ Part 2 §§6.2, 6.4–6.5 and Part 1 §11.3.10.
 
 ### 3. The domain needs stories, rich content, ranges, and resources
 
-Evidence: [model.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/model.rs), `Inline`, `ResolvedParagraph`,
-`ResolvedTextRun`, `ResolvedInlineKind`; [components.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/components.rs);
-[render.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/render.rs), `Renderer::comment`.
+Evidence: [model.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/model.rs), `Inline`, `ResolvedParagraph`,
+`ResolvedTextRun`, `ResolvedInlineKind`; [components.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/components.rs);
+[render.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/render.rs), `Renderer::comment`.
 
 An image, tab, or break is currently represented as a `ResolvedTextRun` with an
 extra kind field and a sometimes-empty text field. Paragraphs have a flat list
@@ -119,8 +119,8 @@ Part 1 §§17.5, 17.10–17.13, 17.16 and §20.4.
 
 ### 4. Make invalid authoring states harder to construct
 
-Evidence: [model.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/model.rs), `Paragraph::{text,children}`;
-[types.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/types.rs); [format.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/format.rs).
+Evidence: [model.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/model.rs), `Paragraph::{text,children}`;
+[types.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/types.rs); [format.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/format.rs).
 
 The Rust paragraph permits both optional text and optional children and rejects
 invalid combinations at resolution time. Numeric fields mix points, inches,
@@ -144,9 +144,9 @@ exact constructor syntax need not be copied into Python. References:
 
 ### 5. Separate the declarative program from the resolved document
 
-Evidence: [value.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/value.rs), `Value`, `Deferred`;
-[base.py](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/python/rv_docx/declarative/base.py), `_Resolution`, `DeferredProperty`;
-[document.py](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/python/rv_docx/declarative/document.py).
+Evidence: [value.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/value.rs), `Value`, `Deferred`;
+[base.py](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/python/rv_docx/declarative/base.py), `_Resolution`, `DeferredProperty`;
+[document.py](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/python/rv_docx/declarative/document.py).
 
 Rust consumes producers into snapshots; Python replaces public declaration
 fields in place and adds `_active` flags. Rust's shared `Deferred<T>` memoizes for
@@ -171,10 +171,10 @@ without pretending it can inspect arbitrary user futures for cycles.
 
 ### 6. Turn rendering into feature compilers with explicit context
 
-Evidence: [render.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/render.rs), `Renderer` and
-`render_with_template`; [image.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/image.rs);
-[components.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/components.rs), `ImageRun::resolve_at`;
-[model.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/model.rs), `Document::resolve`.
+Evidence: [render.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/render.rs), `Renderer` and
+`render_with_template`; [image.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/image.rs);
+[components.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/components.rs), `ImageRun::resolve_at`;
+[model.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/model.rs), `Document::resolve`.
 
 The renderer currently combines text encoding, comments, images, tables,
 headers/footers, sections, metadata, insertion, and package mutation. It repeatedly
@@ -201,8 +201,8 @@ streaming or persistent collections only when measured workloads justify them.
 
 ### 7. Templates need explicit edit semantics and preservation policy
 
-Evidence: [template.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/template.rs), `replacements`;
-[render.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/render.rs), `render_with_template`.
+Evidence: [template.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/template.rs), `replacements`;
+[render.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/render.rs), `render_with_template`.
 
 Replacement discovers stories by filename, recursively flattens paragraph text,
 and regenerates matching text/tab/break nodes. It has no explicit field,
@@ -219,8 +219,8 @@ OOXML text encoding and part/resource infrastructure, not an entire renderer.
 
 ### 8. The Python boundary should adapt languages, not define the domain
 
-Evidence: [python_bindings.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/python_bindings.rs), `document`,
-`paragraph`, and `rust_error`; [Python declarations](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/python/rv_docx/declarative/).
+Evidence: [python_bindings.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/python_bindings.rs), `document`,
+`paragraph`, and `rust_error`; [Python declarations](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/python/rv_docx/declarative/).
 
 Field lists appear in Python declarations, Rust declarations/resolved records,
 and conversion functions. The adapter constructs ready Rust declarations and
@@ -238,9 +238,9 @@ optional in a future packaging change.
 
 ### 9. Tests must establish OOXML correctness independently
 
-Evidence: [tests/features.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/tests/features.rs), `normalized`;
-[Python differential tests](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/tests/python_bindings/test_differential.py);
-[readback verifier](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/tests/python_docx/verify.py).
+Evidence: [tests/features.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/tests/features.rs), `normalized`;
+[Python differential tests](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/tests/python_bindings/test_differential.py);
+[readback verifier](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/tests/python_docx/verify.py).
 
 The existing content assertions and deliberate mutations are valuable. However,
 normalization sorts property children, so an ordering error can disappear from
@@ -261,11 +261,11 @@ and a consumer readback check complement each other; neither proves visual layou
 Keep independently generated fixtures with reproducible provenance as regression
 examples. Replace constructor-equality assertions when a chosen API change makes
 them obsolete. Put reusable fixture builders in test support rather than having
-[tests](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/tests/features.rs) import [example support](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/examples/support/mod.rs).
+[tests](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/tests/features.rs) import [example support](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/examples/support/mod.rs).
 
 ### 10. Use modules first; split crates when the boundary earns it
 
-Evidence: [lib.rs](https://github.com/ReinderVosDeWael/rv-docx-rs/blob/85faea7/src/lib.rs), wildcard root re-exports;
+Evidence: [lib.rs](https://github.com/ReinderVosDeWael/rocx/blob/85faea7/src/lib.rs), wildcard root re-exports;
 [Cargo.toml](../Cargo.toml) and [pyproject.toml](../pyproject.toml).
 
 Keep one Rust crate initially, with explicit internal modules and a curated

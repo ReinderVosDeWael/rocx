@@ -103,7 +103,7 @@ positions; inserted text belongs to the first matched run. This does not promise
 universal editing of every Word range structure. Known generated properties are
 schema-ordered; unrelated imported children are not blanket-sorted.
 
-See the [template-editing recipe](https://reindervosdewael.github.io/rv-docx-rs/recipes/#edit-an-existing-document)
+See the [template-editing recipe](https://reindervosdewael.github.io/rocx/recipes/#edit-an-existing-document)
 for a paired example that saves to a new file.
 
 Compilation completes before path output is replaced using a sibling temporary

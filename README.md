@@ -6,10 +6,10 @@ documents, or calculate fields such as page numbers.
 
 Start here:
 
-- [Getting started](https://reindervosdewael.github.io/rv-docx-rs/getting-started/)
-- [Feature guides](https://reindervosdewael.github.io/rv-docx-rs/)
-- [Rust API reference](https://reindervosdewael.github.io/rv-docx-rs/api/rust/rocx/)
-- [Python API reference](https://reindervosdewael.github.io/rv-docx-rs/api/python/)
+- [Getting started](https://reindervosdewael.github.io/rocx/getting-started/)
+- [Feature guides](https://reindervosdewael.github.io/rocx/)
+- [Rust API reference](https://reindervosdewael.github.io/rocx/api/rust/rocx/)
+- [Python API reference](https://reindervosdewael.github.io/rocx/api/python/)
 - [Compatibility and limitations](COMPATIBILITY.md)
 
 ## Example
@@ -52,7 +52,7 @@ differences and the limits of each feature.
 
 - [Migration guide](docs/MIGRATION.md)
 - [Changelog](CHANGELOG.md)
-- [Visual catalog](https://reindervosdewael.github.io/rv-docx-rs/catalog/)
+- [Visual catalog](https://reindervosdewael.github.io/rocx/catalog/)
 - [License](LICENSE)
 
 ## Contributing

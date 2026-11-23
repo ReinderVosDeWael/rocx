@@ -6,7 +6,9 @@ rust-version = "1.88"
 description = "Declarative DOCX authoring with a pure document domain and native OOXML compilation"
 license = "LGPL-2.1-or-later"
 readme = "README.md"
-repository = "https://github.com/ReinderVosDeWael/rv-docx-rs"
+repository = "https://github.com/ReinderVosDeWael/rocx"
+homepage = "https://reindervosdewael.github.io/rocx/"
+documentation = "https://reindervosdewael.github.io/rocx/"
 
 [lib]
 crate-type = ["rlib", "cdylib"]

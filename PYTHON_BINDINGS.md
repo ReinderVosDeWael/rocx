@@ -12,8 +12,8 @@ and uses the native OOXML compiler.
 Python uses keyword arguments and familiar dictionaries, tuples and lists.
 Feature-specific contracts, paired examples and unsupported contexts are
 documented in the [formatting index](docs/FORMATTING.md), the
-[feature catalog](https://reindervosdewael.github.io/rv-docx-rs/catalog/), and the
-generated [Python API reference](https://reindervosdewael.github.io/rv-docx-rs/api/python/).
+[feature catalog](https://reindervosdewael.github.io/rocx/catalog/), and the
+generated [Python API reference](https://reindervosdewael.github.io/rocx/api/python/).
 
 ### Async ownership and deferred values
 

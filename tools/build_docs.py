@@ -17,7 +17,7 @@ import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SITE = ROOT / "target/docs-website"
-REPOSITORY = "https://github.com/ReinderVosDeWael/rv-docx-rs"
+REPOSITORY = "https://github.com/ReinderVosDeWael/rocx"
 CONTRACTS = (
     "ARCHITECTURE", "CONTENT_CONTROLS", "DEFERRED-FIELDS", "FIELDS", "FORMATTING",
     "MIGRATION", "MODULES", "NOTES", "NUMBERING", "OOXML", "RANGES", "RELEASING", "DOCUMENTATION",

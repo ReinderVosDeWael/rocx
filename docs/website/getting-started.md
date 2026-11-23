@@ -66,8 +66,8 @@ declaration unchanged and returns an immutable snapshot. See the
 Clone the repository and change into it:
 
 ```sh
-git clone https://github.com/ReinderVosDeWael/rv-docx-rs.git
-cd rv-docx-rs
+git clone https://github.com/ReinderVosDeWael/rocx.git
+cd rocx
 ```
 
 === "Rust"
