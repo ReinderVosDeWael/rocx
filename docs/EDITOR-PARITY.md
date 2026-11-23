@@ -1,6 +1,6 @@
 # Editor declarative parity inventory
 
-This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Effective default headers expose section references, inherited status, shared part names, and ordered direct paragraph inline projections; other direct children are opaque. Header paragraphs have no edit anchors, inline boundaries are flattened, and first/even headers and other stories are not inspected by this view. It supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
+This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Effective default headers expose section references, inherited status, shared part names, and ordered direct paragraphs; other direct children are opaque. Header paragraphs have no edit anchors, and first/even headers and other stories are not inspected by this view. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with the existing inline projection in Rust and
@@ -12,7 +12,7 @@ children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
 
-Direct body paragraphs retain run and hyperlink boundaries through
+Direct body and default-header paragraphs retain run and hyperlink boundaries through
 `inline_structure`. Hyperlinks expose their explicit owner-local relationship
 ID and bookmark reference, without resolving either. Runs expose ordered text,
 tabs, breaks and opaque run children, but not run or hyperlink formatting.
@@ -22,8 +22,18 @@ Runs (including empty ones) and hyperlinks have read-only `InlineAnchor`
 values; `ImportedDocument::inline_at` in Rust and
 `ImportedDocument.inline_at` in Python reject anchors from another open,
 even when both snapshots came from identical bytes. Individual run items and
-opaque nodes are not addressable. Table-cell and header paragraph views
-still only offer the flat projection. No inline edit operations are enabled.
+opaque nodes are not addressable. Table-cell paragraphs still only offer
+the flat projection. No inline edit operations are enabled.
+
+Rust keeps the flat `ImportedHeaderBlock::Paragraph` payload and adds
+`ImportedHeader::inline_structure(block_index)`, keyed by the original block
+order (including opaque blocks). Python adds `ImportedHeaderParagraph.inline_structure`
+alongside `inline_items`. A successful first header inspection caches each
+physical default-header part once for borrowed lookup; opening a snapshot or
+looking up body inlines does not require parsing its headers. Aliases of the same
+part produce equal inline anchors, but distinct parts do not, even when their
+contents and relationship IDs match. The header image edit still takes a
+separate, section-scoped `HeaderAnchor`.
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 

@@ -1,6 +1,7 @@
 //! Read and edit an existing Transitional DOCX without rebuilding it.
 //!
-//! Inspect direct body blocks, patch paragraph alignment, and insert declarative tables.
+//! Inspect direct body blocks and effective default headers, patch body paragraph
+//! alignment, insert declarative tables, and append an image to an existing header.
 //! The package, not the typed inspection view, is the source of output.
 
 use crate::ooxml::{WordParts, open_word_source};
@@ -8,7 +9,7 @@ use crate::opc::{Package, PackagePlan, ReadLimits};
 use crate::xml::{Content, Node};
 use crate::{Alignment, BreakType, Diagnostic, Error, ResolvedTable, Result, Rule, SectionType};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 mod header;
 mod insertion;
@@ -160,27 +161,36 @@ pub enum ImportedInline {
     Opaque(String),
 }
 
-/// Read-only address of a run or hyperlink in one direct body paragraph.
+/// Read-only address of a run or hyperlink in a direct body or default-header
+/// paragraph.
 ///
 /// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
-/// bytes creates a different snapshot.
+/// bytes creates a different snapshot. Within a snapshot, section aliases of
+/// one physical header part yield equal anchors for the same inline node.
 #[derive(Clone, Debug)]
 pub struct InlineAnchor {
-    paragraph: ParagraphAnchor,
+    snapshot: Arc<()>,
+    location: InlineLocation,
     path: Vec<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum InlineLocation {
+    Body(usize),
+    DefaultHeader { part: Arc<str>, block_index: usize },
 }
 
 impl PartialEq for InlineAnchor {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.paragraph.snapshot, &other.paragraph.snapshot)
-            && self.paragraph.body_index == other.paragraph.body_index
+        Arc::ptr_eq(&self.snapshot, &other.snapshot)
+            && self.location == other.location
             && self.path == other.path
     }
 }
 
 impl Eq for InlineAnchor {}
 
-/// One node in the direct body inline view.
+/// One node in a paragraph's structured inline view.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ImportedInlineNode {
@@ -202,7 +212,8 @@ pub struct ImportedRun {
 #[non_exhaustive]
 pub struct ImportedHyperlink {
     pub anchor: InlineAnchor,
-    /// Explicit `r:id`, local to the main document part; not a resolved URL.
+    /// Explicit `r:id`, local to the part containing the paragraph (main
+    /// document or header); not a resolved URL.
     pub relationship_id: Option<String>,
     /// Explicit `w:anchor`; the bookmark reference is not resolved.
     pub bookmark: Option<String>,
@@ -285,6 +296,7 @@ pub struct ImportedDocument {
     main: String,
     body: Vec<BodyBlock>,
     snapshot: Arc<()>,
+    default_header_inspection: OnceLock<header::DefaultHeaderInspection>,
 }
 
 impl ImportedDocument {
@@ -307,13 +319,8 @@ impl ImportedDocument {
                         snapshot: snapshot.clone(),
                         body_index,
                     };
-                    let mut inline_items = Vec::new();
-                    let inline_structure = read_inline_nodes(
-                        node.elements().filter(|child| child.name != "w:pPr"),
-                        &anchor,
-                        &mut Vec::new(),
-                        &mut inline_items,
-                    );
+                    let (inline_items, inline_structure) =
+                        read_paragraph_inlines(node, &snapshot, InlineLocation::Body(body_index));
                     let mut text = String::new();
                     let mut has_opaque_content = false;
                     for item in &inline_items {
@@ -349,6 +356,7 @@ impl ImportedDocument {
             main,
             body,
             snapshot,
+            default_header_inspection: OnceLock::new(),
         })
     }
 
@@ -356,17 +364,25 @@ impl ImportedDocument {
         &self.body
     }
 
-    /// Read a run or hyperlink from this snapshot. An address from another
-    /// snapshot is rejected, even if it points at the same position.
+    /// Read a body or default-header run or hyperlink from this snapshot.
+    /// An address from another snapshot is rejected, even at the same position.
     pub fn inline_at(&self, target: &InlineAnchor) -> Result<&ImportedInlineNode> {
-        self.validate_target(&target.paragraph)?;
+        self.validate_snapshot(&target.snapshot)?;
         let invalid = || unsupported("inline target not found");
-        let Some(BodyBlock::Paragraph(paragraph)) = self.body.get(target.paragraph.body_index)
-        else {
-            return Err(invalid());
+        let mut nodes = match &target.location {
+            InlineLocation::Body(index) => {
+                let Some(BodyBlock::Paragraph(paragraph)) = self.body.get(*index) else {
+                    return Err(invalid());
+                };
+                paragraph.inline_structure.as_slice()
+            }
+            InlineLocation::DefaultHeader { part, block_index } => self
+                .default_header_inspection
+                .get()
+                .and_then(|inspection| inspection.inline_structure(part, *block_index))
+                .ok_or_else(invalid)?,
         };
         let (last, parents) = target.path.split_last().ok_or_else(invalid)?;
-        let mut nodes = paragraph.inline_structure.as_slice();
         for &index in parents {
             let Some(ImportedInlineNode::Hyperlink(link)) = nodes.get(index) else {
                 return Err(invalid());
@@ -478,7 +494,11 @@ impl ImportedDocument {
     }
 
     fn validate_target(&self, target: &ParagraphAnchor) -> Result<()> {
-        if !Arc::ptr_eq(&self.snapshot, &target.snapshot) {
+        self.validate_snapshot(&target.snapshot)
+    }
+
+    fn validate_snapshot(&self, snapshot: &Arc<()>) -> Result<()> {
+        if !Arc::ptr_eq(&self.snapshot, snapshot) {
             return Err(unsupported(
                 "target belongs to a different document snapshot",
             ));
@@ -515,42 +535,56 @@ fn read_alignment(value: &str) -> Option<Alignment> {
     .find(|alignment| alignment.xml() == value)
 }
 
+fn read_paragraph_inlines(
+    node: &Node,
+    snapshot: &Arc<()>,
+    location: InlineLocation,
+) -> (Vec<ImportedInline>, Vec<ImportedInlineNode>) {
+    let mut flat = Vec::new();
+    let mut address = InlineAnchor {
+        snapshot: snapshot.clone(),
+        location,
+        path: Vec::new(),
+    };
+    let structure = read_inline_nodes(
+        node.elements().filter(|child| child.name != "w:pPr"),
+        &mut address,
+        &mut flat,
+    );
+    (flat, structure)
+}
+
 fn read_inline_nodes<'a>(
     nodes: impl Iterator<Item = &'a Node>,
-    paragraph: &ParagraphAnchor,
-    path: &mut Vec<usize>,
+    address: &mut InlineAnchor,
     flat: &mut Vec<ImportedInline>,
 ) -> Vec<ImportedInlineNode> {
     nodes
         .enumerate()
         .map(|(index, node)| {
-            path.push(index);
-            let anchor = || InlineAnchor {
-                paragraph: paragraph.clone(),
-                path: path.clone(),
-            };
+            address.path.push(index);
             let item = match node.name.as_str() {
                 "w:r" => {
                     let mut items = Vec::new();
                     read_run(node, &mut items);
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
-                        anchor: anchor(),
+                        anchor: address.clone(),
                         items,
                     })
                 }
                 "w:hyperlink" => ImportedInlineNode::Hyperlink(ImportedHyperlink {
-                    anchor: anchor(),
+                    anchor: address.clone(),
                     relationship_id: node.get("r:id").map(str::to_owned),
                     bookmark: node.get("w:anchor").map(str::to_owned),
-                    children: read_inline_nodes(node.elements(), paragraph, path, flat),
+                    children: read_inline_nodes(node.elements(), address, flat),
                 }),
                 name => {
                     flat.push(ImportedInline::Opaque(name.to_owned()));
                     ImportedInlineNode::Opaque(name.to_owned())
                 }
             };
-            path.pop();
+            address.path.pop();
             item
         })
         .collect()

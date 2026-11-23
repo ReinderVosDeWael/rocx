@@ -1,8 +1,8 @@
 //! Default-header inspection and explicitly scoped editing.
 
 use super::{
-    ALTERNATE, ImportedDocument, ImportedInline, ImportedSection, insertion, missing_body,
-    read_inline, unsupported,
+    ALTERNATE, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedSection,
+    InlineLocation, insertion, missing_body, read_paragraph_inlines, unsupported,
 };
 use crate::ooxml::{WordParts, encode_header_image};
 use crate::opc::{Package, PackagePlan};
@@ -26,21 +26,68 @@ pub struct HeaderAnchor {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedHeader {
+    /// Section-scoped target for the existing header image edit.
     pub anchor: HeaderAnchor,
     /// Zero-based index in the document's section order.
     pub section_index: usize,
+    /// Physical package part name. Section aliases of the same part share inline anchors.
     pub part_name: String,
     pub inherited: bool,
     /// Direct children in document order; paragraphs have no edit anchors.
     pub blocks: Vec<ImportedHeaderBlock>,
+    physical: Arc<DefaultHeaderPart>,
+}
+
+impl ImportedHeader {
+    /// Structured inlines for a paragraph at a zero-based index in the source
+    /// `blocks` order. An empty paragraph returns an empty slice; an opaque block
+    /// or out-of-range index returns `None`.
+    pub fn inline_structure(&self, block_index: usize) -> Option<&[ImportedInlineNode]> {
+        self.physical.inline_structure(block_index)
+    }
 }
 
 /// Read-only direct header content. Unsupported children remain in the package.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum ImportedHeaderBlock {
     Paragraph(Vec<ImportedInline>),
     Opaque(String),
+}
+
+#[derive(Debug)]
+struct DefaultHeaderPart {
+    blocks: Vec<ImportedHeaderBlock>,
+    structures: Vec<Option<Vec<ImportedInlineNode>>>,
+}
+
+impl DefaultHeaderPart {
+    fn inline_structure(&self, index: usize) -> Option<&[ImportedInlineNode]> {
+        self.structures.get(index)?.as_deref()
+    }
+}
+
+#[derive(Debug)]
+struct DefaultHeaderAlias {
+    section_index: usize,
+    part_name: Arc<str>,
+    inherited: bool,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct DefaultHeaderInspection {
+    aliases: Vec<DefaultHeaderAlias>,
+    parts: BTreeMap<Arc<str>, Arc<DefaultHeaderPart>>,
+}
+
+impl DefaultHeaderInspection {
+    pub(super) fn inline_structure(
+        &self,
+        part: &str,
+        block_index: usize,
+    ) -> Option<&[ImportedInlineNode]> {
+        self.parts.get(part)?.inline_structure(block_index)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,54 +172,88 @@ impl ImportedDocument {
 
     /// Inspect existing effective default headers. Sections without one are omitted.
     pub fn default_headers(&self) -> Result<Vec<ImportedHeader>> {
-        let root = self.package.word(&self.main)?;
-        let sections = header_sections(&self.package, &self.main, &root)?;
-        sections
+        if self.default_header_inspection.get().is_none() {
+            // Only cache a successful inspection; concurrent readers may compute
+            // equivalent views, but all anchors are issued from the stored view.
+            let _ = self
+                .default_header_inspection
+                .set(self.inspect_default_headers()?);
+        }
+        let inspection = self.default_header_inspection.get().unwrap();
+        Ok(inspection
+            .aliases
             .iter()
-            .enumerate()
-            .filter_map(|(section_index, section)| {
-                let header = section.effective[0].as_ref()?;
-                Some((section_index, section, header))
-            })
-            .map(|(section_index, section, header)| {
-                let root = self.package.word(&header.part)?;
-                if root.name != "w:hdr" {
-                    return Err(unsupported("invalid header root"));
-                }
-                let blocks = root
-                    .elements()
-                    .map(|node| {
-                        if node.name != "w:p" {
-                            return ImportedHeaderBlock::Opaque(node.name.to_string());
-                        }
-                        let mut items = Vec::new();
-                        for child in node.elements().filter(|child| child.name != "w:pPr") {
-                            read_inline(child, &mut items);
-                        }
-                        ImportedHeaderBlock::Paragraph(items)
-                    })
-                    .collect();
-                Ok(ImportedHeader {
+            .map(|alias| {
+                let physical = inspection.parts[&alias.part_name].clone();
+                ImportedHeader {
                     anchor: HeaderAnchor {
                         snapshot: self.snapshot.clone(),
-                        section_index,
+                        section_index: alias.section_index,
                     },
-                    section_index,
-                    part_name: header.part.clone(),
-                    inherited: !section.explicit_default,
-                    blocks,
-                })
+                    section_index: alias.section_index,
+                    part_name: alias.part_name.to_string(),
+                    inherited: alias.inherited,
+                    blocks: physical.blocks.clone(),
+                    physical,
+                }
             })
-            .collect()
+            .collect())
+    }
+
+    fn inspect_default_headers(&self) -> Result<DefaultHeaderInspection> {
+        let root = self.package.word(&self.main)?;
+        let sections = header_sections(&self.package, &self.main, &root)?;
+        let mut inspection = DefaultHeaderInspection::default();
+        for (section_index, section) in sections.iter().enumerate() {
+            let Some(header) = &section.effective[0] else {
+                continue;
+            };
+            let part_name =
+                if let Some((name, _)) = inspection.parts.get_key_value(header.part.as_str()) {
+                    name.clone()
+                } else {
+                    let part_name: Arc<str> = header.part.as_str().into();
+                    let root = self.package.word(&header.part)?;
+                    if root.name != "w:hdr" {
+                        return Err(unsupported("invalid header root"));
+                    }
+                    let mut blocks = Vec::new();
+                    let mut structures = Vec::new();
+                    for (block_index, node) in root.elements().enumerate() {
+                        if node.name == "w:p" {
+                            let (items, structure) = read_paragraph_inlines(
+                                node,
+                                &self.snapshot,
+                                InlineLocation::DefaultHeader {
+                                    part: part_name.clone(),
+                                    block_index,
+                                },
+                            );
+                            blocks.push(ImportedHeaderBlock::Paragraph(items));
+                            structures.push(Some(structure));
+                        } else {
+                            blocks.push(ImportedHeaderBlock::Opaque(node.name.to_string()));
+                            structures.push(None);
+                        }
+                    }
+                    inspection.parts.insert(
+                        part_name.clone(),
+                        Arc::new(DefaultHeaderPart { blocks, structures }),
+                    );
+                    part_name
+                };
+            inspection.aliases.push(DefaultHeaderAlias {
+                section_index,
+                part_name,
+                inherited: !section.explicit_default,
+            });
+        }
+        Ok(inspection)
     }
 
     /// Stage an image in one existing default header, with explicit sharing intent.
     pub fn preview_header_image(&self, edit: &HeaderImageEdit) -> Result<HeaderImagePreview> {
-        if !Arc::ptr_eq(&self.snapshot, &edit.target.snapshot) {
-            return Err(unsupported(
-                "target belongs to a different document snapshot",
-            ));
-        }
+        self.validate_snapshot(&edit.target.snapshot)?;
         let mut package = self.package.clone();
         let mut root = package.word(&self.main)?;
         let sections = header_sections(&package, &self.main, &root)?;

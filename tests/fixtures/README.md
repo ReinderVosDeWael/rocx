@@ -8,7 +8,7 @@ zero-valued PNG density metadata.
 `imported-editor.docx` is saved by python-docx, not by rocx or desktop Word.
 It contains a formatted body paragraph with an empty run, bookmark endpoints,
 and a two-run external link; a separate table insertion anchor; and two sections
-with an inherited default header containing a link.
+with an inherited default header containing a two-run external link.
 The saved package lets tests use the original input without regenerating it.
 
 To regenerate it from the repository root:

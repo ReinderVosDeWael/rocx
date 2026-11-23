@@ -815,9 +815,16 @@ fn shared_header_edit_reports_all_consumers_and_owns_image_relationship() {
 
 #[test]
 fn header_story_preserves_order_and_opaque_children() {
-    use rocx::editor::{ImportedHeaderBlock, ImportedInline};
+    use rocx::editor::{ImportedHeaderBlock, ImportedInline, ImportedInlineNode};
     let input = header_fixture(
-        "<w:p><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t></w:r></w:p><w:tbl/><w:p><w:r><w:drawing/></w:r></w:p>",
+        concat!(
+            "<w:p><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t></w:r></w:p><w:tbl/>",
+            r#"<w:p><w:hyperlink w:anchor="spot"><w:r><w:drawing/></w:r>"#,
+            r#"<w:bookmarkStart w:id="7" w:name="spot"/>"#,
+            r#"<w:ins w:id="9" w:author="Reviewer"><w:r><w:t>hidden</w:t></w:r></w:ins>"#,
+            r#"<w:r/><w:bookmarkEnd w:id="7"/>"#,
+            "</w:hyperlink></w:p><w:p/>"
+        ),
         false,
     );
     let doc = ImportedDocument::open(&input).unwrap();
@@ -826,9 +833,137 @@ fn header_story_preserves_order_and_opaque_children() {
         ImportedHeaderBlock::Paragraph(first),
         ImportedHeaderBlock::Opaque(table),
         ImportedHeaderBlock::Paragraph(last),
+        ImportedHeaderBlock::Paragraph(empty),
     ] if matches!(&first[..], [ImportedInline::Text(a), ImportedInline::Tab, ImportedInline::Text(b)] if a == "A" && b == "B")
         && table == "w:tbl"
-        && matches!(&last[..], [ImportedInline::Opaque(name)] if name == "w:drawing")));
+        && last == &["w:drawing", "w:bookmarkStart", "w:ins", "w:bookmarkEnd"].map(|name| ImportedInline::Opaque(name.into()))
+        && empty.is_empty()));
+    assert!(headers[0].inline_structure(1).is_none());
+    assert!(headers[0].inline_structure(3).unwrap().is_empty());
+    assert!(headers[0].inline_structure(4).is_none());
+    let [ImportedInlineNode::Hyperlink(link)] = headers[0].inline_structure(2).unwrap() else {
+        panic!("expected hyperlink")
+    };
+    assert_eq!(link.bookmark.as_deref(), Some("spot"));
+    assert!(link.relationship_id.is_none());
+    assert!(matches!(link.children.as_slice(), [
+        ImportedInlineNode::Run(drawing),
+        ImportedInlineNode::Opaque(start),
+        ImportedInlineNode::Opaque(revision),
+        ImportedInlineNode::Run(empty),
+        ImportedInlineNode::Opaque(end),
+    ] if drawing.items == [ImportedInline::Opaque("w:drawing".into())]
+        && start == "w:bookmarkStart" && revision == "w:ins"
+        && empty.items.is_empty() && end == "w:bookmarkEnd"
+        && matches!(doc.inline_at(&empty.anchor).unwrap(), ImportedInlineNode::Run(found)
+            if found.anchor == empty.anchor)));
+}
+
+#[test]
+fn independent_default_header_inline_anchors_identify_the_physical_part() {
+    use rocx::editor::{
+        HeaderEditMode, HeaderImageEdit,
+        ImportedInline::Text,
+        ImportedInlineNode::{Hyperlink, Run},
+    };
+    let source = include_bytes!("fixtures/imported-editor.docx");
+    let doc = ImportedDocument::open(source).unwrap();
+    let headers = doc.default_headers().unwrap();
+    let [first, second] = headers.as_slice() else {
+        panic!("expected two default header aliases")
+    };
+    assert_eq!(first.part_name, second.part_name);
+    assert!(!first.inherited && second.inherited);
+    let [Run(label), Hyperlink(link)] = first.inline_structure(0).unwrap() else {
+        panic!("expected direct run and hyperlink")
+    };
+    let [Run(alias), Hyperlink(alias_link)] = second.inline_structure(0).unwrap() else {
+        panic!("expected inherited inline nodes")
+    };
+    assert_eq!(label.items, [Text("Shared header ".into())]);
+    assert_eq!(label.anchor, alias.anchor);
+    assert_eq!(link.anchor, alias_link.anchor);
+    let [Run(li), Run(nk)] = link.children.as_slice() else {
+        panic!("expected two hyperlink runs")
+    };
+    let [Run(alias_li), Run(_)] = alias_link.children.as_slice() else {
+        panic!("expected inherited hyperlink runs")
+    };
+    assert_eq!(li.anchor, alias_li.anchor);
+    assert_ne!(li.anchor, nk.anchor);
+    assert_ne!(li.anchor, link.anchor);
+    assert!(
+        matches!(doc.inline_at(&li.anchor).unwrap(), Run(run) if run.items == [Text("li".into())])
+    );
+    assert!(
+        matches!(doc.inline_at(&link.anchor).unwrap(), Hyperlink(found)
+        if found.relationship_id == link.relationship_id)
+    );
+    let BodyBlock::Paragraph(body) = &doc.body()[0] else {
+        panic!("expected body paragraph")
+    };
+    let Run(body_label) = &body.inline_structure[0] else {
+        panic!("expected direct body run")
+    };
+    assert_ne!(label.anchor, body_label.anchor);
+    let reopened = ImportedDocument::open(source).unwrap();
+    assert!(
+        reopened
+            .inline_at(&li.anchor)
+            .unwrap_err()
+            .to_string()
+            .contains("different document snapshot")
+    );
+
+    // An empty batch after inspection does not alter any payload, including the
+    // header and its owner-local relationships.
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(source)
+    );
+    let output = doc
+        .preview_header_image(&HeaderImageEdit {
+            target: second.anchor.clone(),
+            mode: HeaderEditMode::SectionLocal,
+            image: header_image(),
+        })
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let local = ImportedDocument::open(&output).unwrap();
+    let headers = local.default_headers().unwrap();
+    let [_, Hyperlink(original)] = headers[0].inline_structure(0).unwrap() else {
+        panic!("expected original hyperlink")
+    };
+    let [_, Hyperlink(copy)] = headers[1].inline_structure(0).unwrap() else {
+        panic!("expected copied hyperlink")
+    };
+    assert_ne!(headers[0].part_name, headers[1].part_name);
+    assert_ne!(original.anchor, copy.anchor);
+    assert_eq!(original.relationship_id, copy.relationship_id);
+}
+
+#[test]
+fn invalid_default_header_does_not_block_body_inline_lookup() {
+    use rocx::editor::ImportedInlineNode::Run;
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    *entries.get_mut("word/header1.xml").unwrap() =
+        format!(r#"<w:ftr xmlns:w="{W}"><w:p/></w:ftr>"#).into_bytes();
+    let doc = ImportedDocument::open(&package_bytes(entries)).unwrap();
+    let BodyBlock::Paragraph(paragraph) = &doc.body()[0] else {
+        panic!("expected body paragraph")
+    };
+    let Run(run) = &paragraph.inline_structure[0] else {
+        panic!("expected body run")
+    };
+    assert!(matches!(doc.inline_at(&run.anchor).unwrap(), Run(_)));
+    assert!(
+        doc.default_headers()
+            .unwrap_err()
+            .to_string()
+            .contains("invalid header root")
+    );
+    assert!(matches!(doc.inline_at(&run.anchor).unwrap(), Run(_)));
 }
 
 #[test]

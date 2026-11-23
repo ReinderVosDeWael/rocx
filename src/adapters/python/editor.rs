@@ -48,10 +48,13 @@ struct PyImportedHeader {
     blocks: Vec<Py<PyAny>>,
 }
 
+/// A direct default-header paragraph with flat and structured inline views.
 #[pyclass(name = "ImportedHeaderParagraph", frozen, module = "rocx.editor")]
 struct PyImportedHeaderParagraph {
     #[pyo3(get)]
     inline_items: Vec<Py<PyImportedInline>>,
+    #[pyo3(get)]
+    inline_structure: Vec<Py<PyAny>>,
 }
 
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
@@ -548,22 +551,23 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         doc.default_headers()
             .map_err(rust_error)?
-            .into_iter()
+            .iter()
             .map(|header| {
                 Ok(PyImportedHeader {
                     anchor: Py::new(
                         py,
                         PyHeaderAnchor {
-                            inner: header.anchor,
+                            inner: header.anchor.clone(),
                         },
                     )?,
                     section_index: header.section_index,
-                    part_name: header.part_name,
+                    part_name: header.part_name.clone(),
                     inherited: header.inherited,
                     blocks: header
                         .blocks
                         .iter()
-                        .map(|block| match block {
+                        .enumerate()
+                        .map(|(index, block)| match block {
                             editor::ImportedHeaderBlock::Opaque(xml) => {
                                 Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
                             }
@@ -573,6 +577,12 @@ impl PyImportedDocument {
                                     inline_items: items
                                         .iter()
                                         .map(|item| Py::new(py, PyImportedInline::from(item)))
+                                        .collect::<PyResult<_>>()?,
+                                    inline_structure: header
+                                        .inline_structure(index)
+                                        .expect("header paragraph structure")
+                                        .iter()
+                                        .map(|node| inline_object(py, node))
                                         .collect::<PyResult<_>>()?,
                                 },
                             )?
@@ -649,7 +659,7 @@ impl PyImportedDocument {
             .collect()
     }
 
-    /// Resolve an inline address from this snapshot for read-only inspection.
+    /// Read a body or default-header run or hyperlink from this snapshot.
     fn inline_at(&self, py: Python<'_>, target: PyRef<'_, PyInlineAnchor>) -> PyResult<Py<PyAny>> {
         let doc = self
             .inner

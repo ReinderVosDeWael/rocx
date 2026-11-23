@@ -21,6 +21,8 @@ IMAGES = pathlib.Path(__file__).resolve().parents[1] / "tests/fixtures/images"
 EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the edited catalog."
 INLINE_LABEL = "Imported editor inline structure: "
 INLINE_LINK_RUNS = ("jump to ", "CatalogBookmark")
+HEADER_INLINE_LABEL = "Default-header inline structure: "
+HEADER_LINK_RUNS = ("shared ", "link")
 REGIONS = ["whole_table", "first_row", "last_row", "first_column", "last_column",
            "banding_1_row", "banding_2_row", "banding_1_column", "banding_2_column",
            "top_left_cell", "top_right_cell", "bottom_left_cell", "bottom_right_cell"]
@@ -485,22 +487,36 @@ async def generate(output: pathlib.Path) -> bytes:
     output.with_suffix(".edited.docx").write_bytes(edited)
 
     # Independent previews where both sections share one simple header.
+    header_paragraph = d.Paragraph(children=[
+        d.TextRun(HEADER_INLINE_LABEL),
+        d.Hyperlink("https://example.invalid/catalog-header",
+                    [d.TextRun(text) for text in HEADER_LINK_RUNS]),
+    ])
     source = d.Document([
         d.Section([p("Header image scope: first section.")],
-                  headers={"default": d.Header([p("Header image scope: shared source header.")])}),
+                  headers={"default": d.Header([header_paragraph])}),
         d.Section([p("Header image scope: second section shares the same header.")]),
     ], timestamp=STAMP)
     source_bytes = await (await source.resolve()).to_bytes()
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
-    target = next(header for header in header_doc.default_headers
-                  if header.section_index == 1)
-    assert any(
-        (item.kind, item.value) == ("text", "Header image scope: shared source header.")
-        for block in target.blocks if hasattr(block, "inline_items")
-        for item in block.inline_items
-    )
+    first, target = header_doc.default_headers
+    assert target.section_index == 1 and target.inherited and first.part_name == target.part_name
+    empty, paragraph = target.blocks
+    assert not empty.inline_structure
+    assert [(item.kind, item.value) for item in paragraph.inline_items] == [
+        ("text", text) for text in (HEADER_INLINE_LABEL, *HEADER_LINK_RUNS)
+    ]
+    label, header_link = paragraph.inline_structure
+    assert isinstance(label, ImportedRun) and isinstance(header_link, ImportedHyperlink)
+    assert header_link.relationship_id is not None
+    assert header_link.anchor == first.blocks[1].inline_structure[1].anchor
+    assert header_doc.inline_at(label.anchor).anchor == label.anchor
+    assert header_doc.inline_at(header_link.anchor).anchor == header_link.anchor
+    assert all(isinstance(run, ImportedRun) for run in header_link.children)
+    assert [[item.value for item in header_doc.inline_at(run.anchor).items]
+            for run in header_link.children] == [[text] for text in HEADER_LINK_RUNS]
     resolved_image = await image("png").resolve()
     for mode, suffix in [("shared", ".header-shared.docx"),
                          ("section_local", ".header-local.docx")]:

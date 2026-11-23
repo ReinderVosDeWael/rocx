@@ -2,6 +2,7 @@
 
 import io
 from pathlib import Path
+from xml.etree import ElementTree
 from zipfile import ZipFile
 
 import docx
@@ -45,7 +46,14 @@ def test_python_docx_header_story_with_opaque_table():
     header = source.sections[0].header
     paragraph = header.paragraphs[0]
     paragraph.add_run("A").add_tab()
+    start = docx.oxml.OxmlElement("w:bookmarkStart")
+    start.set(docx.oxml.ns.qn("w:id"), "7")
+    start.set(docx.oxml.ns.qn("w:name"), "HeaderMark")
+    paragraph._p.append(start)
     paragraph.add_run("B")
+    end = docx.oxml.OxmlElement("w:bookmarkEnd")
+    end.set(docx.oxml.ns.qn("w:id"), "7")
+    paragraph._p.append(end)
     header.add_table(rows=1, cols=1, width=docx.shared.Inches(1))
     source.add_section()
     stream = io.BytesIO()
@@ -53,15 +61,23 @@ def test_python_docx_header_story_with_opaque_table():
     data = stream.getvalue()
     independently_read = docx.Document(io.BytesIO(data))
     assert independently_read.sections[0].header.paragraphs[0].text == "A\tB"
-    first, second = ImportedDocument.open(data).default_headers
+    imported = ImportedDocument.open(data)
+    first, second = imported.default_headers
     assert first.part_name == second.part_name
     assert [first.inherited, second.inherited] == [False, True]
     assert [(item.kind, item.value) for item in first.blocks[0].inline_items] == [
-        ("text", "A"), ("tab", None), ("text", "B"),
+        ("text", "A"), ("tab", None), ("opaque", "w:bookmarkStart"),
+        ("text", "B"), ("opaque", "w:bookmarkEnd"),
     ]
+    run_a, start, run_b, end = first.blocks[0].inline_structure
+    assert isinstance(run_a, ImportedRun) and isinstance(run_b, ImportedRun)
+    assert isinstance(start, BodyOpaque) and start.xml == "w:bookmarkStart"
+    assert isinstance(end, BodyOpaque) and end.xml == "w:bookmarkEnd"
+    assert run_a.anchor == second.blocks[0].inline_structure[0].anchor
+    assert imported.inline_at(run_b.anchor).items[0].value == "B"
     assert isinstance(first.blocks[1], BodyOpaque)
     assert first.blocks[1].xml == "w:tbl"
-    assert _parts(data)[first.part_name.lstrip("/")].startswith(b"<?xml")
+    assert _parts(imported.preview([]).to_docx()) == _parts(data)
 
 
 async def test_python_docx_fixture_body_edits():
@@ -151,6 +167,33 @@ async def test_python_docx_fixture_header_edits(mode, affected, restored, drawin
     for header in (first, second):
         assert isinstance(header.blocks[0], ImportedHeaderParagraph)
         assert "".join(item.value for item in header.blocks[0].inline_items if item.kind == "text") == "Shared header link"
+    label, link = first.blocks[0].inline_structure
+    other_label, other_link = second.blocks[0].inline_structure
+    assert isinstance(label, ImportedRun) and isinstance(link, ImportedHyperlink)
+    assert label.anchor == other_label.anchor
+    assert link.anchor == other_link.anchor
+    li, nk = link.children
+    assert isinstance(li.anchor, InlineAnchor) and li.anchor != nk.anchor
+    assert li.anchor == other_link.children[0].anchor
+    assert imported.inline_at(li.anchor).items[0].value == "li"
+    assert imported.inline_at(link.anchor).anchor == link.anchor
+    with pytest.raises(ValueError, match="different document snapshot"):
+        ImportedDocument.open(source).inline_at(li.anchor)
+    with pytest.raises(TypeError):
+        ParagraphAlignmentEdit(li.anchor, "center")
+    before_link, = before.sections[0].header.paragraphs[0].hyperlinks
+    assert [run.text for run in before_link.runs] == ["li", "nk"]
+    assert link.relationship_id == before_link._element.get(docx.oxml.ns.qn("r:id"))
+
+    original_part = first.part_name.lstrip("/")
+    directory, filename = original_part.rsplit("/", 1)
+    relationships = f"{directory}/_rels/{filename}.rels"
+    originals = _parts(source)
+    rel, = [r for r in ElementTree.fromstring(originals[relationships])
+            if r.get("Id") == link.relationship_id]
+    assert rel.get("Type").endswith("/hyperlink")
+    assert rel.get("Target") == before_link.url == "https://example.invalid/header"
+    assert rel.get("TargetMode") == "External"
 
     image = await d.ImageRun(data=(FIXTURES / "images/sample.png").read_bytes()).resolve()
     preview = imported.preview_header_image(HeaderImageEdit(first.anchor, image, mode=mode))
@@ -163,13 +206,14 @@ async def test_python_docx_fixture_header_edits(mode, affected, restored, drawin
     for header in headers:
         assert header.paragraphs[0].text == "Shared header link"
         assert header.paragraphs[0].hyperlinks[0].url == "https://example.invalid/header"
+        assert [run.text for run in header.paragraphs[0].hyperlinks[0].runs] == ["li", "nk"]
     reopened = ImportedDocument.open(output).default_headers
     assert [h.part_name for h in reopened] == [preview.change.output_part, first.part_name]
+    first_link, second_link = [h.blocks[0].inline_structure[1] for h in reopened]
+    assert first_link.relationship_id == second_link.relationship_id
+    assert (first_link.anchor == second_link.anchor) == (mode == "shared")
     if mode == "section_local":
-        originals, edited = _parts(source), _parts(output)
-        original_part = first.part_name.lstrip("/")
-        directory, filename = original_part.rsplit("/", 1)
-        relationships = f"{directory}/_rels/{filename}.rels"
+        edited = _parts(output)
         assert edited[original_part] == originals[original_part]
         assert edited[relationships] == originals[relationships]
 

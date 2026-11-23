@@ -11,6 +11,8 @@ const EDIT_LABEL: &str =
     "Imported editor: this paragraph changes from left to center in the edited catalog.";
 const INLINE_LABEL: &str = "Imported editor inline structure: ";
 const INLINE_LINK_RUNS: [&str; 2] = ["jump to ", "CatalogBookmark"];
+const HEADER_INLINE_LABEL: &str = "Default-header inline structure: ";
+const HEADER_LINK_RUNS: [&str; 2] = ["shared ", "link"];
 pub fn p(text: impl Into<String>) -> Value<Block> {
     Paragraph::new(text.into()).into()
 }
@@ -635,7 +637,21 @@ pub async fn generate(output: &Path) -> Result<()> {
     let mut first = Section::new(vec![p("Header image scope: first section.")]);
     first.headers.insert(
         HeaderFooterType::Default,
-        Header::new(vec![p("Header image scope: shared source header.")]).into(),
+        Header::new(vec![
+            Paragraph::from_children(vec![
+                TextRun::new(HEADER_INLINE_LABEL).into(),
+                Hyperlink::new(
+                    HyperlinkTarget::external("https://example.invalid/catalog-header")?,
+                    HEADER_LINK_RUNS
+                        .into_iter()
+                        .map(|text| TextRun::new(text).into())
+                        .collect::<InlineChildren>(),
+                )
+                .into(),
+            ])
+            .into(),
+        ])
+        .into(),
     );
     let second = Section::new(vec![p(
         "Header image scope: second section shares the same header.",
@@ -655,9 +671,44 @@ pub async fn generate(output: &Path) -> Result<()> {
     );
     let headers = imported.default_headers()?;
     assert_eq!(headers[0].part_name, headers[1].part_name);
-    assert!(headers[1].blocks.iter().any(|block| matches!(block,
-        editor::ImportedHeaderBlock::Paragraph(items)
-        if items.iter().any(|item| matches!(item, editor::ImportedInline::Text(text) if text == "Header image scope: shared source header.")))));
+    // Fresh headers begin with the built-in Header style paragraph.
+    let [
+        editor::ImportedHeaderBlock::Paragraph(empty),
+        editor::ImportedHeaderBlock::Paragraph(items),
+    ] = headers[1].blocks.as_slice()
+    else {
+        panic!("expected default-header paragraph")
+    };
+    assert!(empty.is_empty());
+    assert_eq!(
+        items,
+        &[
+            HEADER_INLINE_LABEL,
+            HEADER_LINK_RUNS[0],
+            HEADER_LINK_RUNS[1]
+        ]
+        .map(|text| editor::ImportedInline::Text(text.into()))
+    );
+    let [Run(label), Link(link)] = headers[0].inline_structure(1).unwrap() else {
+        panic!("expected run and hyperlink")
+    };
+    let [_, Link(inherited)] = headers[1].inline_structure(1).unwrap() else {
+        panic!("expected inherited hyperlink")
+    };
+    assert!(headers[1].inherited && link.anchor == inherited.anchor);
+    assert!(link.relationship_id.is_some());
+    assert!(matches!(imported.inline_at(&label.anchor)?, Run(run) if run.anchor == label.anchor));
+    assert!(
+        matches!(imported.inline_at(&link.anchor)?, Link(found) if found.anchor == link.anchor)
+    );
+    for (child, text) in link.children.iter().zip(HEADER_LINK_RUNS) {
+        let Run(run) = child else {
+            panic!("expected hyperlink run")
+        };
+        assert!(matches!(imported.inline_at(&run.anchor)?, Run(found)
+            if found.items == [editor::ImportedInline::Text(text.into())]));
+    }
+    assert_eq!(link.children.len(), HEADER_LINK_RUNS.len());
     let target = &headers[1];
     let resolved = image("png", None).await?.expect("showcase image");
     for (mode, suffix) in [

@@ -42,7 +42,7 @@ def main() -> None:
 
     header = document.sections[0].header.paragraphs[0]
     header.text = "Shared header "
-    add_link(header, "https://example.invalid/header", "link")
+    add_link(header, "https://example.invalid/header", "li", "nk")
     second = document.add_section(WD_SECTION_START.NEW_PAGE)
     assert second.header.is_linked_to_previous
     document.add_paragraph("Second section")

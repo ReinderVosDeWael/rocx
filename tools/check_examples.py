@@ -34,6 +34,9 @@ EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the
 EDIT_TABLE_LABEL = "Imported editor table: bold label"
 INLINE_LABEL = "Imported editor inline structure: "
 INLINE_LINK_RUNS = ["jump to ", "CatalogBookmark"]
+HEADER_INLINE_LABEL = "Default-header inline structure: "
+HEADER_LINK_RUNS = ["shared ", "link"]
+HEADER_LINK_URL = "https://example.invalid/catalog-header"
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -145,8 +148,31 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             assert cells[1].xpath(".//w:t/text()", namespaces=NS) == ["Fixed-width second column"]
 
 
+def verify_header_inline_structure(root, rels) -> None:
+    """Check direct run and hyperlink boundaries and the owner-local relationship."""
+    paragraph, = root.xpath("/w:hdr/w:p[w:r/w:t=$label]", namespaces=NS, label=HEADER_INLINE_LABEL)
+    run, link = paragraph.xpath("*[not(self::w:pPr)]", namespaces=NS)
+    assert run.tag == f"{{{NS['w']}}}r"
+    assert run.xpath("w:t/text()", namespaces=NS) == [HEADER_INLINE_LABEL]
+    assert link.tag == f"{{{NS['w']}}}hyperlink"
+    assert not link.xpath("@w:anchor", namespaces=NS)
+    assert [child.tag for child in link] == [f"{{{NS['w']}}}r"] * len(HEADER_LINK_RUNS)
+    assert [child.xpath("w:t/text()", namespaces=NS) for child in link] == [
+        [text] for text in HEADER_LINK_RUNS
+    ]
+    link_id, = link.xpath("@odr:id", namespaces=NS)
+    relationship, = [r for r in rels if r.get("Id") == link_id]
+    assert relationship.get("Type") == f"{NS['odr']}/hyperlink"
+    assert relationship.get("Target") == HEADER_LINK_URL
+    assert relationship.get("TargetMode") == "External"
+
+
 def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
-    """Check effective header identity, image scope and untouched package payloads."""
+    """Check effective header identity, inline structure, image scope and untouched payloads."""
+    def relationships_name(part):
+        directory, filename = posixpath.split(part)
+        return posixpath.join(directory, "_rels", f"{filename}.rels")
+
     def headers(package):
         document = etree.fromstring(package.read("word/document.xml"))
         relationships = etree.fromstring(package.read("word/_rels/document.xml.rels"))
@@ -167,20 +193,17 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
 
     def drawing_count(package, part):
         root = etree.fromstring(package.read(part))
-        assert root.xpath("//w:t/text()", namespaces=NS) == [
-            "Header image scope: shared source header."
-        ]
+        rels = etree.fromstring(package.read(relationships_name(part)))
+        verify_header_inline_structure(root, rels)
         drawings = root.xpath("//w:drawing", namespaces=NS)
         if drawings:
             ids = root.xpath("//w:drawing//a:blip/@odr:embed", namespaces=NS)
             assert len(ids) == len(drawings) == 1
-            directory, filename = posixpath.split(part)
-            rels = etree.fromstring(package.read(f"{directory}/_rels/{filename}.rels"))
             relationship = [r for r in rels if r.get("Id") == ids[0]]
             assert len(relationship) == 1
             assert relationship[0].get("Type") == f"{NS['odr']}/image"
             target = relationship[0].get("Target")
-            image_part = posixpath.normpath(posixpath.join(directory, target)).lstrip("/")
+            image_part = posixpath.normpath(posixpath.join(posixpath.dirname(part), target)).lstrip("/")
             assert package.read(image_part) == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
         return len(drawings)
 
@@ -199,7 +222,8 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
         assert drawing_count(local_zip, local_headers[1]) == 1
 
         for result, mutable in [
-            (shared_zip, {original_headers[0], "[Content_Types].xml"}),
+            (shared_zip, {original_headers[0], relationships_name(original_headers[0]),
+                          "[Content_Types].xml"}),
             (local_zip, {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml"}),
         ]:
             source_names, result_names = set(source.namelist()), set(result.namelist())

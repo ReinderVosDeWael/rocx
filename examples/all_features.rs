@@ -9,7 +9,7 @@
 //! The catalog labels the mandatory namespace policy for edited template parts.
 //! A separate edited catalog demonstrates section and inline readback, a batched alignment patch and anchored table insertion.
 //! Labeled direct runs and a hyperlink are inspected through snapshot-scoped addresses.
-//! Separate labeled header artifacts compare shared and section-local image edits.
+//! Separate labeled header artifacts inspect shared inline anchors and compare image edit scopes.
 //! Document properties also include the company and manager.
 //! Includes chainable authoring builders and omitted/true/false formatting.
 //! Demonstrates two concrete lists sharing an authored abstract numbering ID and separate formatting, paragraph style links, and an inherited numbering style.

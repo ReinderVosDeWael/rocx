@@ -6,7 +6,10 @@ import zipfile
 
 from lxml import etree
 import pytest
-from rocx.editor import BodyParagraph, BodyTable, ImportedDocument, ImportedHyperlink, ImportedRun
+from rocx.editor import (
+    BodyParagraph, BodyTable, ImportedDocument, ImportedHeaderParagraph, ImportedHyperlink,
+    ImportedRun,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("check_examples", ROOT / "tools/check_examples.py")
@@ -59,8 +62,23 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     suffixes = [".header-source.docx", ".header-shared.docx", ".header-local.docx"]
     for suffix in suffixes:
         checks.exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
-        sections = ImportedDocument.open(rust.with_suffix(suffix).read_bytes()).sections
-        assert [(s.body_start, s.body_end) for s in sections] == [(0, 2), (2, 3)]
+        imported = ImportedDocument.open(rust.with_suffix(suffix).read_bytes())
+        assert [(s.body_start, s.body_end) for s in imported.sections] == [(0, 2), (2, 3)]
+        first, second = imported.default_headers
+        anchors = []
+        for header in (first, second):
+            paragraph = header.blocks[1]
+            assert isinstance(paragraph, ImportedHeaderParagraph)
+            label, link = paragraph.inline_structure
+            assert isinstance(label, ImportedRun) and isinstance(link, ImportedHyperlink)
+            assert label.items[0].value == checks.HEADER_INLINE_LABEL
+            assert imported.inline_at(link.anchor).relationship_id == link.relationship_id
+            assert [[item.value for item in imported.inline_at(run.anchor).items]
+                    for run in link.children] == [[text] for text in checks.HEADER_LINK_RUNS]
+            anchors.append((label.anchor, link.anchor, *(run.anchor for run in link.children)))
+        assert (first.part_name == second.part_name) == (suffix != ".header-local.docx")
+        assert all((a == b) == (first.part_name == second.part_name)
+                   for a, b in zip(*anchors, strict=True))
     checks.verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in suffixes))
 
 
@@ -73,6 +91,28 @@ def test_header_scope_coverage_rejects_wrong_preview(catalogs) -> None:
         checks.verify_header_scopes(source, local, shared)
     with pytest.raises(AssertionError):
         checks.verify_header_scopes(source, source, local)
+
+
+@pytest.mark.parametrize("change", ["merge_runs", "relationship_target"])
+def test_header_inline_coverage_rejects_changed_structure(catalogs, change) -> None:
+    rust, _ = catalogs
+    source = rust.with_suffix(".header-source.docx").read_bytes()
+    part = ImportedDocument.open(source).default_headers[0].part_name.lstrip("/")
+    directory, filename = part.rsplit("/", 1)
+    with zipfile.ZipFile(io.BytesIO(source)) as package:
+        root = etree.fromstring(package.read(part))
+        rels = etree.fromstring(package.read(f"{directory}/_rels/{filename}.rels"))
+    if change == "merge_runs":
+        link, = root.xpath("/w:hdr/w:p/w:hyperlink", namespaces=checks.NS)
+        text = link[0].find("w:t", checks.NS)
+        text.text += link[1].find("w:t", checks.NS).text
+        link.remove(link[1])
+        assert "".join(link.itertext()) == "".join(checks.HEADER_LINK_RUNS)
+    else:
+        rel, = rels
+        rel.set("Target", "https://example.invalid/other")
+    with pytest.raises(AssertionError):
+        checks.verify_header_inline_structure(root, rels)
 
 
 def test_edit_coverage_rejects_unchanged_catalog(catalogs) -> None:
