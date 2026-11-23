@@ -3,7 +3,9 @@ use super::{Compiler, PartContext, StoryContent, WordParts};
 use crate::document::story_inlines;
 use crate::opc::Package;
 use crate::xml::{Content, Node};
-use crate::{Diagnostic, NoteKind, ResolvedDocument, ResolvedInline, Result, Rule, StoryKind};
+use crate::{
+    Diagnostic, NoteKind, ResolvedDocument, ResolvedInline, ResolvedNote, Result, Rule, StoryKind,
+};
 use std::collections::BTreeMap;
 
 // P1 (2016) §§17.11.4, 17.11.12, 17.11.19–20 and Annex A.1.
@@ -221,12 +223,14 @@ impl NoteCatalog {
     }
 }
 impl Compiler<'_> {
-    pub(super) fn compile_notes(&mut self, width: i64) -> Result<()> {
-        let mut parts = std::mem::take(&mut self.notes.parts);
-        let document = self.document;
-        for (kind, part) in &mut parts {
-            let notes: Vec<_> = document
-                .notes()
+    pub(super) fn compile_notes(
+        &mut self,
+        mut catalog: NoteCatalog,
+        definitions: &[ResolvedNote],
+        width: i64,
+    ) -> Result<()> {
+        for (kind, part) in &mut catalog.parts {
+            let notes: Vec<_> = definitions
                 .iter()
                 .filter(|n| n.target().kind == *kind)
                 .collect();

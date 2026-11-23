@@ -29,9 +29,12 @@ pub(crate) struct Compiler<'a> {
     stories: StoryRegistry,
     header_stories: std::collections::BTreeMap<String, StoryId>,
     ranges: ranges::RangeCatalog,
-    notes: notes::NoteCatalog,
     styles: style_catalog::StyleCatalog,
-    document: &'a ResolvedDocument,
+    comment_defaults: Option<CommentDefaults<'a>>,
+}
+struct CommentDefaults<'a> {
+    author: Option<&'a str>,
+    timestamp: &'a str,
 }
 const DOCX_MAIN: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
@@ -170,9 +173,11 @@ pub(crate) fn compile(
         stories: Default::default(),
         header_stories: Default::default(),
         ranges,
-        notes,
         styles: style_catalog::StyleCatalog::new(&styles)?,
-        document: doc,
+        comment_defaults: Some(CommentDefaults {
+            author: doc.comment_author(),
+            timestamp: doc.timestamp(),
+        }),
         main: main.clone(),
         drawing: DrawingId::new(drawing),
         revisions: None,
@@ -258,7 +263,7 @@ pub(crate) fn compile(
     let note_width = usable_width(&props);
     body.push(props);
     renderer.package.put_word(&main, root)?;
-    renderer.compile_notes(note_width)?;
+    renderer.compile_notes(notes, doc.notes(), note_width)?;
     crate::opc::PackagePlan::new(renderer.package)
 }
 

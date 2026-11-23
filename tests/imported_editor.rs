@@ -448,10 +448,11 @@ fn resolve_insertion_table(table: rocx::Table) -> rocx::ResolvedTable {
 #[test]
 fn inserts_formatted_content_nested_table_and_fraction() {
     use rocx::editor::TableInsertion;
-    use rocx::{InlineFraction, RunFormat, Table, TableCell, TableRow, TextRun};
+    use rocx::{InlineFraction, RunFormat, Table, TableCell, TableProperties, TableRow, TextRun};
     let nested = Table::new(vec![
         TableRow::new(vec![
             TableCell::new(vec![Paragraph::new("nested").into()]).into(),
+            TableCell::new(vec![Paragraph::new("neighbor").into()]).into(),
         ])
         .into(),
     ]);
@@ -469,7 +470,8 @@ fn inserts_formatted_content_nested_table_and_fraction() {
             TableCell::new(vec![content.into(), nested.into()]).into(),
         ])
         .into(),
-    ]);
+    ])
+    .with_properties(TableProperties::default().with_column_widths(vec![1800]));
     let doc = ImportedDocument::open(&fixture()).unwrap();
     let preview = doc
         .preview_batch(
@@ -499,6 +501,12 @@ fn inserts_formatted_content_nested_table_and_fraction() {
             .count(),
         2
     );
+    let grid_widths: Vec<_> = table
+        .descendants()
+        .filter(|n| n.has_tag_name((W, "gridCol")))
+        .map(|n| n.attribute((W, "w")).unwrap())
+        .collect();
+    assert_eq!(grid_widths, ["1800", "900", "900"]);
     assert!(table.descendants().any(|n| n.has_tag_name((W, "b"))));
     assert!(table.descendants().any(|n| n.tag_name().namespace()
         == Some("http://schemas.openxmlformats.org/officeDocument/2006/math")

@@ -3,8 +3,8 @@
 
 use super::{Compiler, StoryContent, WordParts, style_catalog::StyleCatalog};
 use crate::{
-    Diagnostic, DrawingId, ResolvedBlock, ResolvedDocument, ResolvedImage, ResolvedInline,
-    ResolvedSection, ResolvedTable, Result, Rule, StoryKind,
+    DeclarationPath, Diagnostic, DrawingId, Error, ResolvedBlock, ResolvedImage, ResolvedInline,
+    ResolvedTable, Result, Rule, StoryKind,
     opc::{Package, PartName},
     xml::Node,
 };
@@ -15,13 +15,11 @@ pub(crate) fn encode_editor_tables(
     main: &str,
     tables: Vec<(ResolvedTable, i64)>,
 ) -> Result<(Package, Vec<Node>)> {
-    let (blocks, widths): (Vec<_>, Vec<_>) = tables
-        .into_iter()
-        .map(|(table, width)| (ResolvedBlock::Table(table), width))
-        .unzip();
-    let doc = fragment(blocks);
     let mut style_refs = BTreeSet::new();
-    check_payload(doc.sections()[0].blocks(), &mut style_refs)?;
+    let path = DeclarationPath::root("sections").index(0).field("children");
+    for (index, (table, _)) in tables.iter().enumerate() {
+        check_table(table, &path.index(index), &mut style_refs)?;
+    }
     let style_part = if style_refs.is_empty() {
         None
     } else {
@@ -38,17 +36,15 @@ pub(crate) fn encode_editor_tables(
     for (kind, name) in style_refs {
         styles.get_typed(&name, kind)?;
     }
-    doc.validate()?;
-
-    let mut renderer = fragment_compiler(package, main, styles, &doc);
+    let mut renderer = fragment_renderer(package, main, styles);
     let story =
         renderer
             .stories
             .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
-    let mut output = Vec::with_capacity(widths.len());
-    for (block, width) in doc.sections()[0].blocks().iter().zip(widths) {
+    let mut output = Vec::with_capacity(tables.len());
+    for (table, width) in tables {
         let context = renderer.context(story, width);
-        output.extend(renderer.blocks(std::slice::from_ref(block), &context)?);
+        output.push(renderer.table(&table, &context)?);
     }
     Ok((renderer.package, output))
 }
@@ -67,47 +63,18 @@ pub(crate) fn encode_header_image(
         .at("editor.header")
         .into());
     }
-    let doc = fragment(Vec::new());
+    let owner = PartName::new(header)?;
     let styles = StyleCatalog::new(&Node::new("w:styles"))?;
     let drawing = DrawingId::new(super::defaults::drawing_ceiling(&package));
     let media = super::resources::MediaRegistry::from_package(&package)?;
-    let mut renderer = fragment_compiler(package, main, styles, &doc);
+    let mut renderer = fragment_renderer(package, main, styles);
     renderer.drawing = drawing;
     renderer.media = media;
-    let story = renderer.stories.register(
-        StoryKind::Header,
-        PartName::new(header)?,
-        StoryContent::Blocks,
-    )?;
-    let context = renderer.context(story, 1); // Inline pictures use resolved dimensions.
-    let node = Node::new("w:p").with(renderer.image(image, &context)?);
+    let node = Node::new("w:p").with(renderer.image(image, &owner)?);
     Ok((renderer.package, node))
 }
 
-fn fragment(blocks: Vec<ResolvedBlock>) -> ResolvedDocument {
-    ResolvedDocument {
-        sections: vec![ResolvedSection {
-            blocks,
-            properties: None,
-            headers: Default::default(),
-            footers: Default::default(),
-        }],
-        metadata: Default::default(),
-        styles: Vec::new(),
-        numbering: Vec::new(),
-        notes: Vec::new(),
-        defaults: None,
-        comment_author: None,
-        timestamp: String::new(),
-    }
-}
-
-fn fragment_compiler<'a>(
-    package: Package,
-    main: &str,
-    styles: StyleCatalog,
-    document: &'a ResolvedDocument,
-) -> Compiler<'a> {
+fn fragment_renderer(package: Package, main: &str, styles: StyleCatalog) -> Compiler<'static> {
     Compiler {
         package,
         main: main.into(),
@@ -118,9 +85,8 @@ fn fragment_compiler<'a>(
         stories: Default::default(),
         header_stories: Default::default(),
         ranges: Default::default(),
-        notes: Default::default(),
         styles,
-        document,
+        comment_defaults: None,
     }
 }
 
@@ -130,7 +96,44 @@ fn unsupported(message: &str) -> Diagnostic {
 
 type StyleRefs = BTreeSet<(&'static str, String)>;
 
-fn check_payload(blocks: &[ResolvedBlock], styles: &mut StyleRefs) -> Result<()> {
+fn check_table(
+    table: &ResolvedTable,
+    path: &DeclarationPath,
+    styles: &mut StyleRefs,
+) -> Result<()> {
+    if let Some(style) = table.style() {
+        styles.insert(("table", style.into()));
+    }
+    for (row_index, row) in table.rows().iter().enumerate() {
+        let path = path.field("rows").index(row_index);
+        if row.properties().content_control.is_some() {
+            return Err(unsupported("row content controls are not yet supported").into());
+        }
+        row.properties()
+            .validate()
+            .map_err(|error| Error::from(error).at(path.field("properties").to_string()))?;
+        for (cell_index, cell) in row.cells().iter().enumerate() {
+            if cell.content_control().is_some() {
+                return Err(unsupported("cell content controls are not yet supported").into());
+            }
+            // ResolvedTable's checked constructor validates grid spans.
+            let path = path.field("children").index(cell_index);
+            if let Some(margins) = cell.margins() {
+                margins
+                    .validate()
+                    .map_err(|error| Error::from(error).at(path.field("margins").to_string()))?;
+            }
+            check_blocks(cell.blocks(), &path.field("children"), styles)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_blocks(
+    blocks: &[ResolvedBlock],
+    path: &DeclarationPath,
+    styles: &mut StyleRefs,
+) -> Result<()> {
     fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs) -> Result<()> {
         if let Some(style) = run.format().and_then(|format| format.style.as_ref()) {
             styles.insert(("character", style.clone()));
@@ -153,28 +156,10 @@ fn check_payload(blocks: &[ResolvedBlock], styles: &mut StyleRefs) -> Result<()>
             _ => Err(unsupported("unsupported inline content in an inserted table").into()),
         }
     }
-    for block in blocks {
+    for (index, block) in blocks.iter().enumerate() {
+        let path = path.index(index);
         match block {
-            ResolvedBlock::Table(table) => {
-                if let Some(style) = table.style() {
-                    styles.insert(("table", style.into()));
-                }
-                for row in table.rows() {
-                    if row.properties().content_control.is_some() {
-                        return Err(
-                            unsupported("row content controls are not yet supported").into()
-                        );
-                    }
-                    for cell in row.cells() {
-                        if cell.content_control().is_some() {
-                            return Err(
-                                unsupported("cell content controls are not yet supported").into()
-                            );
-                        }
-                        check_payload(cell.blocks(), styles)?;
-                    }
-                }
-            }
+            ResolvedBlock::Table(table) => check_table(table, &path, styles)?,
             ResolvedBlock::Paragraph(paragraph) => {
                 if paragraph.numbering().is_some() || paragraph.comment().is_some() {
                     return Err(unsupported("numbering and comments are not yet supported").into());
@@ -188,6 +173,9 @@ fn check_payload(blocks: &[ResolvedBlock], styles: &mut StyleRefs) -> Result<()>
                 for run in paragraph.runs() {
                     check_inline(run, styles)?;
                 }
+                paragraph
+                    .validate()
+                    .map_err(|error| Error::from(error).at(path.to_string()))?;
             }
             ResolvedBlock::ContentControl(_) => {
                 return Err(unsupported("block content controls are not yet supported").into());

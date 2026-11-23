@@ -108,7 +108,7 @@ impl Compiler<'_> {
             ResolvedInline::Break { kind, .. } => {
                 Node::new("w:r").with(Node::new("w:br").attr("w:type", kind.xml()))
             }
-            ResolvedInline::Image { image, .. } => self.image(image, context)?,
+            ResolvedInline::Image { image, .. } => self.image(image, &context.source)?,
             ResolvedInline::Field(_)
             | ResolvedInline::Shape(_)
             | ResolvedInline::ColumnChart(_)

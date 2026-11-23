@@ -84,6 +84,13 @@ impl Compiler<'_> {
             .at(context.source.as_str())
             .into());
         }
+        let defaults = self.comment_defaults.as_ref().ok_or_else(|| {
+            Diagnostic::new(
+                Rule::UnsupportedEdit,
+                "fragment rendering cannot add comments",
+            )
+            .at(context.source.as_str())
+        })?;
         let comment_path = self
             .package
             .related(&self.main, "comments")?
@@ -112,14 +119,14 @@ impl Compiler<'_> {
             .author
             .as_deref()
             .filter(|s| !s.is_empty())
-            .or(self.document.comment_author.as_deref())
+            .or(defaults.author)
             .unwrap_or("");
         let mut node = Node::new("w:comment")
             .attr("w:id", id)
             .attr("w:author", author)
             .attr(
                 "w:date",
-                metadata.date.as_deref().unwrap_or(&self.document.timestamp),
+                metadata.date.as_deref().unwrap_or(defaults.timestamp),
             );
         if let Some(initials) = &metadata.initials {
             node.set("w:initials", initials);

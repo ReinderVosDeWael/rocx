@@ -7,12 +7,10 @@ impl Compiler<'_> {
     pub(crate) fn image(
         &mut self,
         image: &ResolvedImage,
-        context: &crate::ooxml::PartContext,
+        owner: &crate::opc::PartName,
     ) -> Result<Node> {
         let path = self.media.register(&mut self.package, image)?;
-        let id = self
-            .package
-            .link(context.source.zip_name(), "image", &path)?;
+        let id = self.package.link(owner.zip_name(), "image", &path)?;
         self.drawing = self.drawing.next()?;
         let drawing = self.drawing;
         let alt = image.alt_text.as_ref();
