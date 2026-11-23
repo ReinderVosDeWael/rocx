@@ -121,15 +121,16 @@ pub(crate) fn prepare(p: &mut Package, main: &str) -> Result<u32> {
 
 pub(super) fn drawing_ceiling(p: &Package) -> u32 {
     let mut drawing = 0;
-    for (name, data) in &p.parts {
-        if name
-            .rsplit_once('.')
-            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("xml"))
-            && (data.windows(5).any(|w| w == b"docPr" || w == b"cNvPr")
-                || data.starts_with(&[0xff, 0xfe])
-                || data.starts_with(&[0xfe, 0xff])
-                || data.starts_with(&[0x3c, 0])
-                || data.starts_with(&[0, 0x3c]))
+    // OPC part names need not end in .xml, even for Word story parts.
+    // Filter by content, skipping binary media before scanning for names.
+    for data in p.parts.values() {
+        let utf16 = data.starts_with(&[0xff, 0xfe])
+            || data.starts_with(&[0xfe, 0xff])
+            || data.starts_with(&[0x3c, 0])
+            || data.starts_with(&[0, 0x3c]);
+        let utf8 = data.strip_prefix(b"\xef\xbb\xbf").unwrap_or(data);
+        let looks_like_xml = utf8.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'<');
+        if (utf16 || (looks_like_xml && utf8.windows(5).any(|w| w == b"docPr" || w == b"cNvPr")))
             && let Ok(node) = Node::parse(data)
         {
             fn max_id(n: &Node) -> u32 {
@@ -147,4 +148,24 @@ pub(super) fn drawing_ceiling(p: &Package) -> u32 {
         }
     }
     drawing
+}
+
+#[cfg(test)]
+mod drawing_id_tests {
+    use super::*;
+
+    #[test]
+    fn reserves_drawing_ids_in_relocated_header_parts() {
+        let mut package = Package::load_with_limits(
+            include_bytes!("../../assets/default.docx"),
+            crate::opc::ReadLimits::default(),
+        )
+        .unwrap();
+        // Same drawing element emitted by python-docx, in a relocated header.
+        package.parts.insert(
+            "word/header1.part".into(),
+            br#"<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:p><w:r><w:drawing><wp:docPr id="42" name="Picture 1"/></w:drawing></w:r></w:p></w:hdr>"#.to_vec(),
+        );
+        assert_eq!(drawing_ceiling(&package), 42);
+    }
 }

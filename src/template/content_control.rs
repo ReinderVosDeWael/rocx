@@ -30,11 +30,12 @@ impl<'a> ContentControlEdits<'a> {
         })
     }
 
-    pub(crate) fn apply(&mut self, story: &mut Node) -> Result<()> {
+    pub(crate) fn apply(&mut self, story: &mut Node) -> Result<bool> {
+        let mut dirty = false;
         if !self.replacements.is_empty() {
-            self.visit(story, false, &mut 0)?;
+            self.visit(story, false, &mut 0, &mut dirty)?;
         }
-        Ok(())
+        Ok(dirty)
     }
 
     pub(crate) fn finish(self) -> Result<()> {
@@ -50,7 +51,13 @@ impl<'a> ContentControlEdits<'a> {
         Ok(())
     }
 
-    fn visit(&mut self, node: &mut Node, protected: bool, field_depth: &mut usize) -> Result<()> {
+    fn visit(
+        &mut self,
+        node: &mut Node,
+        protected: bool,
+        field_depth: &mut usize,
+        dirty: &mut bool,
+    ) -> Result<()> {
         if node.name.namespace() != Some(W) {
             return Ok(());
         }
@@ -88,6 +95,7 @@ impl<'a> ContentControlEdits<'a> {
             }
             replace_plain_text(node, replacement)
                 .map_err(|error| error.at(format!("content control tag {tag:?}")))?;
+            *dirty = true;
         }
         let protected = protected
             || matches!(
@@ -101,7 +109,7 @@ impl<'a> ContentControlEdits<'a> {
                     | "w:moveTo"
             );
         for child in node.elements_mut() {
-            self.visit(child, protected, field_depth)?;
+            self.visit(child, protected, field_depth, dirty)?;
         }
         Ok(())
     }

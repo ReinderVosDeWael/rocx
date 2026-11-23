@@ -31,6 +31,14 @@ are not release blockers.
 - Hosted release preflight has not run. No tag was created or pushed, and no
   deployment or publication was performed.
 
+The [engine audit](ENGINE-AUDIT.md) records four correctness and preservation
+defects (#10–#13). Each failed its regression before the fix and passed
+afterward in Rust and Python. The integrated Rust suite, three doctests, Clippy,
+767 schema-required Python tests, and exact Rust/Python DOCX byte parity passed.
+Close the issues when their fixes reach the default branch.
+Use the audit's format-preserving report edit as a migration acceptance case
+for tasks 4–6.
+
 ## Next feature after 0.3.0: agent editing with declarative parity
 
 An agent should be able to open an existing DOCX, inspect it as typed rocx

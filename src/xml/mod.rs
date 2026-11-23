@@ -40,7 +40,15 @@ pub(crate) struct Node {
     pub attrs: Vec<(Name, String)>,
     imported: bool,
     ordering: Option<OrderingPolicy>,
+    envelope: Option<Box<Envelope>>,
     pub children: Vec<Content>,
+}
+
+/// Comments and processing instructions outside an imported part's root.
+#[derive(Debug, Clone, Default)]
+struct Envelope {
+    before: String,
+    after: String,
 }
 #[derive(Debug, Clone)]
 pub(crate) enum Content {
@@ -55,6 +63,7 @@ impl Node {
             attrs: Vec::new(),
             imported: false,
             ordering: None,
+            envelope: None,
             children: Vec::new(),
         }
     }
@@ -244,7 +253,22 @@ impl Node {
             }
             node
         }
-        Ok(convert(doc.root_element(), text))
+        let element = doc.root_element();
+        let mut root = convert(element, text);
+        for sibling in doc
+            .root()
+            .children()
+            .filter(|n| n.is_comment() || n.is_pi())
+        {
+            let envelope = root.envelope.get_or_insert_with(Default::default);
+            let target = if sibling.range().start < element.range().start {
+                &mut envelope.before
+            } else {
+                &mut envelope.after
+            };
+            target.push_str(&text[sibling.range()]);
+        }
+        Ok(root)
     }
     pub fn configure_ordering(&mut self, policy: OrderingPolicy) {
         self.ordering = Some(policy);
@@ -275,7 +299,13 @@ impl Node {
     }
     pub fn xml(&self) -> String {
         let mut out = String::new();
+        if let Some(envelope) = &self.envelope {
+            out.push_str(&envelope.before);
+        }
         self.write(&mut out, &BTreeMap::new());
+        if let Some(envelope) = &self.envelope {
+            out.push_str(&envelope.after);
+        }
         out
     }
     pub fn bytes(&self) -> Vec<u8> {
@@ -382,6 +412,51 @@ pub(crate) fn is_ncname(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imported_document_envelope_survives_rewrite() {
+        let source = r#"<?xml version="1.0"?><!--before--><?before data?><root><child/></root><?after data?><!--after-->"#;
+        for bytes in [
+            source.as_bytes().to_vec(),
+            [
+                vec![0xff, 0xfe],
+                source.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+            ]
+            .concat(),
+            [
+                vec![0xfe, 0xff],
+                source.encode_utf16().flat_map(u16::to_be_bytes).collect(),
+            ]
+            .concat(),
+        ] {
+            let mut root = Node::parse_original(&bytes).unwrap();
+            root.set("edited", "yes");
+            let output = String::from_utf8(root.bytes()).unwrap();
+            let doc = roxmltree::Document::parse(&output).unwrap();
+            let nodes: Vec<_> = doc
+                .root()
+                .children()
+                .map(|n| {
+                    if n.is_element() {
+                        "root".to_string()
+                    } else {
+                        output[n.range()].to_string()
+                    }
+                })
+                .collect();
+            assert_eq!(
+                nodes,
+                [
+                    "<!--before-->",
+                    "<?before data?>",
+                    "root",
+                    "<?after data?>",
+                    "<!--after-->"
+                ]
+            );
+            assert_eq!(doc.root_element().attribute("edited"), Some("yes"));
+        }
+    }
 
     #[test]
     fn namespace_round_trip_matrix_preserves_expanded_names() {

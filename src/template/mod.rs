@@ -136,6 +136,7 @@ fn edit_paragraph(
     needle: &str,
     replacement: &str,
     position: &mut Position,
+    dirty: &mut bool,
 ) -> Result<()> {
     let mut tokens = Vec::new();
     collect(node, &mut Vec::new(), position, false, &mut tokens);
@@ -182,6 +183,7 @@ fn edit_paragraph(
         }
     }
     for token in tokens.into_iter().rev().filter(|t| t.before != t.after) {
+        *dirty = true;
         let (index, path) = token.path.split_last().unwrap();
         let parent = parent(node, path);
         let original = match &parent.children[*index] {
@@ -210,7 +212,13 @@ fn edit_paragraph(
     }
     Ok(())
 }
-fn visit(node: &mut Node, needle: &str, replacement: &str, position: &mut Position) -> Result<()> {
+fn visit(
+    node: &mut Node,
+    needle: &str,
+    replacement: &str,
+    position: &mut Position,
+    dirty: &mut bool,
+) -> Result<()> {
     if node.name.namespace() != Some(W) {
         return Ok(());
     }
@@ -223,14 +231,15 @@ fn visit(node: &mut Node, needle: &str, replacement: &str, position: &mut Positi
         position
     };
     if node.name == "w:p" {
-        edit_paragraph(node, needle, replacement, position)?;
+        edit_paragraph(node, needle, replacement, position, dirty)?;
     }
     for child in node.elements_mut() {
-        visit(child, needle, replacement, position)?;
+        visit(child, needle, replacement, position, dirty)?;
     }
     Ok(())
 }
-pub(crate) fn replacements(root: &mut Node, replacements: &[(String, String)]) -> Result<()> {
+pub(crate) fn replacements(root: &mut Node, replacements: &[(String, String)]) -> Result<bool> {
+    let mut dirty = false;
     for (needle, replacement) in replacements {
         if needle.is_empty() {
             return Err(Error::Validation(
@@ -239,7 +248,13 @@ pub(crate) fn replacements(root: &mut Node, replacements: &[(String, String)]) -
         }
         crate::xml::validate_text(needle)?;
         crate::xml::validate_text(replacement)?;
-        visit(root, needle, replacement, &mut Position::default())?;
+        visit(
+            root,
+            needle,
+            replacement,
+            &mut Position::default(),
+            &mut dirty,
+        )?;
     }
-    Ok(())
+    Ok(dirty)
 }

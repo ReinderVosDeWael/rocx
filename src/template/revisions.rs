@@ -4,13 +4,15 @@ use crate::xml::{Content, Node, W};
 use crate::{Diagnostic, Error, Result, Rule};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(crate) fn edit_text_revisions(root: &mut Node, action: TextRevisionAction) -> Result<()> {
+pub(crate) fn edit_text_revisions(root: &mut Node, action: TextRevisionAction) -> Result<bool> {
     let mut moves = Moves {
         body_story: root.name == "w:document",
         ..Default::default()
     };
-    visit(root, action, false, &mut 0, &mut moves)?;
-    moves.finish()
+    let mut dirty = false;
+    visit(root, action, false, &mut 0, &mut moves, &mut dirty)?;
+    moves.finish()?;
+    Ok(dirty)
 }
 
 fn visit(
@@ -19,6 +21,7 @@ fn visit(
     protected: bool,
     field_depth: &mut usize,
     moves: &mut Moves,
+    dirty: &mut bool,
 ) -> Result<()> {
     if node.name.namespace() != Some(W) {
         return Ok(());
@@ -55,6 +58,7 @@ fn visit(
                 ));
             }
             index = moves.edit_leg(node, index, source, action)?;
+            *dirty = true;
             continue;
         }
         if matches!(
@@ -76,11 +80,13 @@ fn visit(
                 Some(run) => node.children[index] = Content::Element(run),
                 None => {
                     node.children.remove(index);
+                    *dirty = true;
                     continue;
                 }
             }
+            *dirty = true;
         } else {
-            visit(child, action, protected, field_depth, moves)?;
+            visit(child, action, protected, field_depth, moves, dirty)?;
         }
         index += 1;
     }

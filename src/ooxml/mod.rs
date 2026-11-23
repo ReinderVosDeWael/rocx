@@ -122,13 +122,15 @@ pub(crate) fn compile(
             crate::template::ContentControlEdits::new(&t.content_control_replacements)?;
         for path in &stories {
             let mut root = package.word(path)?;
-            crate::template::replacements(&mut root, &t.replacements)?;
-            controls.apply(&mut root).map_err(|error| error.at(path))?;
+            let mut dirty = crate::template::replacements(&mut root, &t.replacements)?;
+            dirty |= controls.apply(&mut root).map_err(|error| error.at(path))?;
             if let Some(action) = t.text_revision_action {
-                crate::template::edit_text_revisions(&mut root, action)
+                dirty |= crate::template::edit_text_revisions(&mut root, action)
                     .map_err(|error| error.at(path))?;
             }
-            package.put_word(path, root)?;
+            if dirty {
+                package.put_word(path, root)?;
+            }
         }
         controls.finish()?;
     }
@@ -211,7 +213,7 @@ pub(crate) fn compile(
             }
         }
         let context = renderer.context(body_story, width);
-        for block in renderer.blocks(&section.blocks, &context)? {
+        let mut insert = |block: Node| {
             let insertion = paragraph_cursor
                 .and_then(|index| {
                     body.children
@@ -227,9 +229,12 @@ pub(crate) fn compile(
             if is_paragraph && let Some(cursor) = &mut paragraph_cursor {
                 *cursor += 1;
             }
+        };
+        for block in renderer.blocks(&section.blocks, &context)? {
+            insert(block);
         }
         if index + 1 < count {
-            body.push(Node::new("w:p").with(Node::new("w:pPr").with(props.clone())));
+            insert(Node::new("w:p").with(Node::new("w:pPr").with(props.clone())));
         }
     }
     let note_width = usable_width(&props);

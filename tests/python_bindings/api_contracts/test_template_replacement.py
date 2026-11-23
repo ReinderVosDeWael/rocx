@@ -419,6 +419,11 @@ async def test_declarative_template_paragraph_index_multiple_sections() -> None:
 
         assert result.paragraphs[0].text == "Template First"
         assert result.paragraphs[1].text == "Section1 A"
-        assert result.paragraphs[2].text == "Section2 A"
-        assert result.paragraphs[3].text == "Template Second"
-        assert result.paragraphs[4].text == "Template Third"
+        assert result.paragraphs[2].text == ""
+        assert result.paragraphs[3].text == "Section2 A"
+        assert result.paragraphs[4].text == "Template Second"
+        assert result.paragraphs[5].text == "Template Third"
+        assert [[p.text for p in section.iter_inner_content()] for section in result.sections] == [
+            ["Template First", "Section1 A", ""],
+            ["Section2 A", "Template Second", "Template Third"],
+        ]
