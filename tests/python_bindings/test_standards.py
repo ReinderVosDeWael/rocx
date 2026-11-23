@@ -268,6 +268,11 @@ def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fails(va
     data = catalog.read_bytes()
     checked = validator.validate(data)
     assert {"word/charts/chart1.xml", "docProps/custom.xml", "docProps/app.xml"} <= set(checked)
+    for suffix in [".header-shared.docx", ".header-local.docx"]:
+        mixed = validator.validate(catalog.with_suffix(suffix).read_bytes())
+        assert {"word/document.xml", "word/header1.xml"} <= set(mixed)
+        if suffix == ".header-local.docx":
+            assert "word/rocx-header1.xml" in mixed
     def duplicate_company(root):
         etree.SubElement(root, f"{{{validation.EXTENDED}}}Company").text = "Duplicate"
     with pytest.raises(validation.ValidationError, match="docProps/app.xml"):

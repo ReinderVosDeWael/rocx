@@ -63,7 +63,8 @@ def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catal
     for suffix in suffixes:
         checks.exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
         imported = ImportedDocument.open(rust.with_suffix(suffix).read_bytes())
-        assert [(s.body_start, s.body_end) for s in imported.sections] == [(0, 2), (2, 3)]
+        expected = [(0, 2), (2, 3)] if suffix == ".header-source.docx" else [(0, 3), (3, 4)]
+        assert [(s.body_start, s.body_end) for s in imported.sections] == expected
         first, second = imported.default_headers
         anchors = []
         for header in (first, second):
@@ -91,6 +92,15 @@ def test_header_scope_coverage_rejects_wrong_preview(catalogs) -> None:
         checks.verify_header_scopes(source, local, shared)
     with pytest.raises(AssertionError):
         checks.verify_header_scopes(source, source, local)
+    # Keep the modified shared header but strip only the body edits.
+    header_only = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(source)) as before, \
+            zipfile.ZipFile(io.BytesIO(shared)) as after, \
+            zipfile.ZipFile(header_only, "w") as broken:
+        for name in after.namelist():
+            broken.writestr(name, (before if name == "word/document.xml" else after).read(name))
+    with pytest.raises(AssertionError):
+        checks.verify_header_scopes(source, header_only.getvalue(), local)
 
 
 @pytest.mark.parametrize("change", ["merge_runs", "relationship_target"])

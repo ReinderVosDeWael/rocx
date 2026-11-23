@@ -35,6 +35,7 @@ EDIT_TABLE_LABEL = "Imported editor table: bold label"
 INLINE_LABEL = "Imported editor inline structure: "
 INLINE_LINK_RUNS = ["jump to ", "CatalogBookmark"]
 HEADER_INLINE_LABEL = "Default-header inline structure: "
+HEADER_BATCH_LABEL = "Combined editor batch: this paragraph is centered and followed by a table in both image previews."
 HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
@@ -168,7 +169,7 @@ def verify_header_inline_structure(root, rels) -> None:
 
 
 def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
-    """Check effective header identity, inline structure, image scope and untouched payloads."""
+    """Check combined body/header edits, image scope and untouched payloads."""
     def relationships_name(part):
         directory, filename = posixpath.split(part)
         return posixpath.join(directory, "_rels", f"{filename}.rels")
@@ -207,6 +208,21 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
             assert package.read(image_part) == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
         return len(drawings)
 
+    for data, edited in [(original, False), (shared, True), (local, True)]:
+        document = docx.Document(io.BytesIO(data))
+        target = document.paragraphs[0]
+        assert target.text == HEADER_BATCH_LABEL
+        assert target.alignment == (docx.enum.text.WD_ALIGN_PARAGRAPH.CENTER if edited else None)
+        if edited:
+            table = list(document.iter_inner_content())[1]
+            assert len(document.tables) == 1 and isinstance(table, docx.table.Table)
+            assert [cell.text for cell in table.rows[0].cells] == [
+                EDIT_TABLE_LABEL, "Fixed-width second column",
+            ]
+            assert table.cell(0, 0).paragraphs[0].runs[0].bold
+        else:
+            assert not document.tables
+
     with zipfile.ZipFile(io.BytesIO(original)) as source, \
             zipfile.ZipFile(io.BytesIO(shared)) as shared_zip, \
             zipfile.ZipFile(io.BytesIO(local)) as local_zip:
@@ -222,7 +238,7 @@ def verify_header_scopes(original: bytes, shared: bytes, local: bytes) -> None:
         assert drawing_count(local_zip, local_headers[1]) == 1
 
         for result, mutable in [
-            (shared_zip, {original_headers[0], relationships_name(original_headers[0]),
+            (shared_zip, {"word/document.xml", original_headers[0], relationships_name(original_headers[0]),
                           "[Content_Types].xml"}),
             (local_zip, {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml"}),
         ]:
@@ -728,7 +744,9 @@ def main() -> None:
     verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
     verify_edited(rust.read_bytes(), edited)
     for suffix in [".header-source.docx", ".header-shared.docx", ".header-local.docx"]:
-        exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
+        data = rust.with_suffix(suffix).read_bytes()
+        header_digest = exact_bytes(data, python.with_suffix(suffix).read_bytes())
+        print(f"Byte-identical {suffix[1:]}: {len(data)} bytes; SHA-256 {header_digest}")
     verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in [
         ".header-source.docx", ".header-shared.docx", ".header-local.docx"
     ]))

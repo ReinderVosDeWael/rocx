@@ -13,6 +13,7 @@ const INLINE_LABEL: &str = "Imported editor inline structure: ";
 const INLINE_LINK_RUNS: [&str; 2] = ["jump to ", "CatalogBookmark"];
 const HEADER_INLINE_LABEL: &str = "Default-header inline structure: ";
 const HEADER_LINK_RUNS: [&str; 2] = ["shared ", "link"];
+const HEADER_BATCH_LABEL: &str = "Combined editor batch: this paragraph is centered and followed by a table in both image previews.";
 pub fn p(text: impl Into<String>) -> Value<Block> {
     Paragraph::new(text.into()).into()
 }
@@ -593,7 +594,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         ..Default::default()
     }
     .into();
-    let table = table.await?.expect("nonempty showcase table");
+    let resolved_table = table.await?.expect("nonempty showcase table");
     let preview = imported.preview_batch(
         &[editor::ParagraphAlignmentEdit {
             target: targets[0].anchor.clone(),
@@ -601,7 +602,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         }],
         &[editor::TableInsertion {
             target: targets[0].anchor.clone(),
-            table,
+            table: resolved_table.clone(),
         }],
     )?;
     let edited = preview.to_docx()?;
@@ -634,7 +635,7 @@ pub async fn generate(output: &Path) -> Result<()> {
     std::fs::write(output.with_extension("edited.docx"), edited)?;
 
     // Both previews start from the same snapshot: two sections share one header part.
-    let mut first = Section::new(vec![p("Header image scope: first section.")]);
+    let mut first = Section::new(vec![p(HEADER_BATCH_LABEL)]);
     first.headers.insert(
         HeaderFooterType::Default,
         Header::new(vec![
@@ -709,17 +710,36 @@ pub async fn generate(output: &Path) -> Result<()> {
             if found.items == [editor::ImportedInline::Text(text.into())]));
     }
     assert_eq!(link.children.len(), HEADER_LINK_RUNS.len());
+    let editor::BodyBlock::Paragraph(body_target) = &imported.body()[0] else {
+        panic!("expected labeled body paragraph")
+    };
+    assert_eq!(body_target.text, HEADER_BATCH_LABEL);
     let target = &headers[1];
     let resolved = image("png", None).await?.expect("showcase image");
     for (mode, suffix) in [
         (editor::HeaderEditMode::Shared, "header-shared.docx"),
         (editor::HeaderEditMode::SectionLocal, "header-local.docx"),
     ] {
-        let preview = imported.preview_header_image(&editor::HeaderImageEdit {
-            target: target.anchor.clone(),
-            mode,
-            image: resolved.image().expect("resolved image").clone(),
-        })?;
+        let preview = imported.preview_transaction(
+            &[editor::ParagraphAlignmentEdit {
+                target: body_target.anchor.clone(),
+                alignment: Alignment::Center,
+            }],
+            &[editor::TableInsertion {
+                target: body_target.anchor.clone(),
+                table: resolved_table.clone(),
+            }],
+            &[editor::HeaderImageEdit {
+                target: target.anchor.clone(),
+                mode,
+                image: resolved.image().expect("resolved image").clone(),
+            }],
+        )?;
+        let affected: &[_] = match mode {
+            editor::HeaderEditMode::Shared => &[0, 1],
+            editor::HeaderEditMode::SectionLocal => &[1],
+        };
+        assert_eq!(preview.header_changes()[0].affected_sections, affected);
         std::fs::write(output.with_extension(suffix), preview.to_docx()?)?;
     }
     Ok(())

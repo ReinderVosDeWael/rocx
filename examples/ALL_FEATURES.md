@@ -16,7 +16,7 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync pyth
 
 This builds/runs both examples, compares complete DOCX ZIP bytes for the final,
 template and batch-edited catalogs and the three header-scope artifacts, verifies
-content and prints SHA-256 hashes for the main catalogs.
+content and prints SHA-256 hashes for the main catalogs and header-scope artifacts.
 Output:
 
 - `examples/all_features-rust.docx`
@@ -26,7 +26,8 @@ Output:
 - `examples/all_features-rust.edited.docx` and
   `examples/all_features-python.edited.docx` (separate imported edits).
 - Paired `.header-source.docx`, `.header-shared.docx`, and `.header-local.docx`
-  artifacts: a simple two-section source and two independent image previews.
+  artifacts: a simple two-section source and two independent transactions,
+  each combining an alignment patch, a table insertion, and a header image.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -64,7 +65,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | Defaults and Properties dialog | Run defaults (Calibri 11 pt), paragraph defaults (4 pt after, 1.1 lines); creator/title/subject/description/keywords/category/comments/version; fixed snapshot/render timestamps. Defaults remain separate from direct content properties. |
 | 01 Paragraphs/headings | Heading 0/no heading through 9; all nine alignments; multiplier/exact/minimum line heights and legacy line spacing; before/after spacing; left/right/first-line/hanging point indents; keep-lines/next, widow control, page-break-before and explicit false values. |
 | 01 Imported editor | Both APIs inspect the generated body, find the labeled left-aligned paragraph by its text, confirm its typed inline text, and preview an anchored center-alignment patch and a declarative two-column fixed-width table immediately after it in one batch. Both reopen the edited package and inspect the physical table row, cell, and inline text. The inserted table has a bold label and appears only in the separate edited catalog. Other package parts retain their exact payload bytes. |
-| Default-header inline structure and image editing scope | One default header is shared by two sections. Both APIs read back the flat projection, the labeled direct run, and two child runs in an external hyperlink, then resolve the snapshot-scoped read-only anchors with `inline_at`. Rust uses `header.inline_structure(block_index)` alongside `header.blocks`; Python exposes `paragraph.inline_structure` alongside `paragraph.inline_items`. Inherited aliases of the same physical part yield equal inline anchors; the header image edit target is still section-scoped. Both previews target the second section: shared changes the header used by both, while section-local copies it and changes only the second section. Exact byte parity and package checks cover all three artifacts, including the part-local hyperlink relationship, image counts, and untouched payloads. |
+| Combined body and default-header transaction | One default header is shared by two sections. Both APIs resolve the labeled header run and hyperlink's snapshot-scoped read-only anchors with `inline_at`. Inherited aliases of the same physical part yield equal inline anchors; the image edit target is still section-scoped. Both previews center the labeled body paragraph and insert a table immediately after it, in the same transaction as the header edit targeting the second section. Shared mode changes the header used by both; section-local copies it and changes only the second section. Exact byte parity and package checks cover all three artifacts, including body changes, part-local relationships, image counts, and untouched payloads. |
 | 01 Tabs | All eight alignments including start/end/bar/clear; all six leaders; signed positions and explicit clear at −12 pt. |
 | 02 Runs | Bold/italic/strike/caps/small-caps/super/subscript; false overrides; literal fonts and point sizes; RGB/automatic color; all 16 theme slots with tint/shade; all seven underline styles; Unicode, preserved spaces, empty runs, literal tabs/newlines. A labeled chainable-setter sample shows omitted, enabled and explicitly disabled bold (with italic enabled); builders alter Rust authoring syntax only, not OOXML features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters). |
 | 02 Script requests | Independent paragraph bidi, run RTL/complex-script flags, complex-script bold/italic/size, three language slots and literal East Asian/complex-script fonts; true/false cases. |
@@ -89,6 +90,15 @@ supported fields, not every Cartesian combination in every story/input form.
 | 09 Sections | All five break kinds; portrait/landscape; page dimensions/margins; two columns/spacing/separator; page-number start/format; all four vertical alignments; title-page true/false; section bidi/gutter-side true/false independent of text. Samples label all three line-number restart modes, preservation/removal of prior settings, paragraph suppression enabled/disabled, independent header/footer edge distances, mirrored margins, disabled top gutter, page-border edges/offset/display and all four grid modes with line/character pitch. Paragraph snapping is enabled, run snapping disabled; contextual spacing is on and mirrored paragraph indents are off. |
 | Header/footer stories | Default/first/even headers and footers, title-page selection, header image/link and PAGE/NUMPAGES footer caches, all visibly labeled. |
 | Generation/check scripts (nonvisual) | Explicit Transitional profile/read budgets; template loading; bytes/path save; fixed metadata; OPC relationships/validation; asset deduplication; untouched opaque theme-byte retention. Rust additionally demonstrates caller-owned-byte compilation and `PackagePlan.parts/part/validate/to_bytes`. Python's optional `to_docx` convenience uses the same bytes; verification independently opens them with python-docx without resaving. |
+
+Use `ImportedDocument::preview_transaction` in Rust or `ImportedDocument.preview`
+with `table_insertions=` and `header_images=` in Python. The preview reports body
+and header changes separately and produces one DOCX. Targets must come from the
+original snapshot. Duplicate operations of the same kind at a target and shared
+edits that collide on a physical source header are rejected. Distinct local edits
+may fork the same original header independently; an adjacent local edit takes
+precedence over restoring inheritance at its section. Failed batches return no
+preview and leave the source unchanged.
 
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle
 rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque

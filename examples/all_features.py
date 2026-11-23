@@ -22,6 +22,7 @@ EDIT_LABEL = "Imported editor: this paragraph changes from left to center in the
 INLINE_LABEL = "Imported editor inline structure: "
 INLINE_LINK_RUNS = ("jump to ", "CatalogBookmark")
 HEADER_INLINE_LABEL = "Default-header inline structure: "
+HEADER_BATCH_LABEL = "Combined editor batch: this paragraph is centered and followed by a table in both image previews."
 HEADER_LINK_RUNS = ("shared ", "link")
 REGIONS = ["whole_table", "first_row", "last_row", "first_column", "last_column",
            "banding_1_row", "banding_2_row", "banding_1_column", "banding_2_column",
@@ -473,7 +474,8 @@ async def generate(output: pathlib.Path) -> bytes:
         d.TableCell([run("Imported editor table: bold label", bold=True)]),
         cell("Fixed-width second column"),
     ])], column_widths=[2160, 2160], layout="fixed")
-    insertion = TableInsertion(targets[0].anchor, await table.resolve())
+    resolved_table = await table.resolve()
+    insertion = TableInsertion(targets[0].anchor, resolved_table)
     preview = imported.preview([ParagraphAlignmentEdit(targets[0].anchor, "center")],
                                table_insertions=[insertion])
     edited = preview.to_docx()
@@ -486,14 +488,14 @@ async def generate(output: pathlib.Path) -> bytes:
     ]
     output.with_suffix(".edited.docx").write_bytes(edited)
 
-    # Independent previews where both sections share one simple header.
+    # Mixed previews starting from one snapshot where both sections share a header.
     header_paragraph = d.Paragraph(children=[
         d.TextRun(HEADER_INLINE_LABEL),
         d.Hyperlink("https://example.invalid/catalog-header",
                     [d.TextRun(text) for text in HEADER_LINK_RUNS]),
     ])
     source = d.Document([
-        d.Section([p("Header image scope: first section.")],
+        d.Section([p(HEADER_BATCH_LABEL)],
                   headers={"default": d.Header([header_paragraph])}),
         d.Section([p("Header image scope: second section shares the same header.")]),
     ], timestamp=STAMP)
@@ -518,10 +520,18 @@ async def generate(output: pathlib.Path) -> bytes:
     assert [[item.value for item in header_doc.inline_at(run.anchor).items]
             for run in header_link.children] == [[text] for text in HEADER_LINK_RUNS]
     resolved_image = await image("png").resolve()
+    body_target = header_doc.body[0]
+    assert body_target.text == HEADER_BATCH_LABEL
     for mode, suffix in [("shared", ".header-shared.docx"),
                          ("section_local", ".header-local.docx")]:
         edit = HeaderImageEdit(target.anchor, resolved_image, mode=mode)
-        output.with_suffix(suffix).write_bytes(header_doc.preview_header_image(edit).to_docx())
+        preview = header_doc.preview(
+            [ParagraphAlignmentEdit(body_target.anchor, "center")],
+            table_insertions=[TableInsertion(body_target.anchor, resolved_table)],
+            header_images=[edit],
+        )
+        assert preview.header_changes[0].affected_sections == ([0, 1] if mode == "shared" else [1])
+        output.with_suffix(suffix).write_bytes(preview.to_docx())
     return data
 
 
