@@ -112,6 +112,11 @@ pure domain/codecs. Python `to_docx()` is an optional python-docx convenience.
 
 ## Evidence and limits
 
+For repeatable interactive reader checks, fixture provenance and the current
+observation gaps, see the [viewer compatibility checklist](docs/VIEWER-COMPATIBILITY-CHECKLIST.md).
+No desktop Word or LibreOffice layout compatibility is established by the
+automated checks below.
+
 Rust/Python expected-content readback checks are complemented by deliberate
 mutations, namespace/relocation fixtures, domain-boundary compilation, structured
 edit tests, and independent official Transitional XSD checks. The schema validator
