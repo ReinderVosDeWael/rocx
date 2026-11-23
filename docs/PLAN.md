@@ -217,6 +217,17 @@ documents; Word-specific interoperability is not a gate for this batch.
 
 ### Serial checkpoint: editor work
 
+The active developer assignments are table-cell structured inline readback
+and broader header/footer inspection under #3. Integrate the inspection slices
+before starting dependent editor mutations.
+
+The independent #21 authoring slice landed in `a58282c`: JavaScript supports
+paragraph alignment, tabs, breaks, external links, image dimensions, and
+rich table cells (including nested tables). Packed Node 22/24 and Chromium
+checks passed, with five byte-identical reports and schema/OPC validation.
+The full Rust/Python catalog also passed exact byte parity. Broader JavaScript
+authoring parity remains open.
+
 Work through these tasks in order and checkpoint after task 10. Tasks 1–3
 passed on the python-docx fixture. Task 4 is in progress: direct body
 and default-header paragraphs have flat and structured inline readback,
