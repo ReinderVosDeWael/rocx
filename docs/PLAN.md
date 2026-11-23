@@ -1,8 +1,8 @@
 # Active plan — editing existing DOCX files
 
-Editing existing DOCX files is the active priority. The 0.3.0 release remains
-paused; local work on the open GitHub issues can proceed in parallel with the
-editor. The unrelated backlog remains deferred.
+Release the current editor checkpoint as 0.3.0 once the dependency refresh,
+registry setup, and release preflight are verified. The unrelated backlog
+remains deferred.
 
 The [engine audit](ENGINE-AUDIT.md) records four correctness and preservation
 defects (#10–#13). Each failed its regression before the fix and passed
@@ -14,7 +14,11 @@ for tasks 4–6.
 
 The separate Verification formatting fix and opt-in prek hook reached `main`
 in PR #14. GitHub Actions checks formatting independently of local hook setup.
-The release pause is unchanged.
+
+The Rust, Python, Wasm probe, and GitHub Actions dependencies were refreshed.
+The Rust 1.88 check, Rust suite, three doctests, Clippy, Wasm target check,
+767 schema-required Python tests, strict docs build, and exact DOCX byte parity
+passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status.
 
 ## Parallel GitHub issue work
 
@@ -37,8 +41,8 @@ addresses for supported inline targets. Keep the Wasm prototype out of the
 release path; viewer results and hosted release preflight remain separate.
 Repository commits, pushes, and release tags are authorized by `AGENTS.md`.
 The current checkpoint and issue work are split into separate commits.
-Normal pushes can deploy the documentation site; do not tag or publish 0.3.0
-while its release is paused.
+Normal pushes can deploy the documentation site. Do not push a publishing tag
+until the hosted preflight succeeds and registry setup is confirmed.
 
 ## Editor goal: declarative parity
 
@@ -152,22 +156,26 @@ not started.
 10. Run the acceptance suite: typed all-features readback, both examples and
     coverage checks, preservation, and exact Rust/Python DOCX byte parity.
 
-## Paused: 0.3.0 release
+## Active: 0.3.0 release
 
-### Checklist for when release work resumes
+### Release checklist
 
 1. [Documentation audit](DOCUMENTATION-AUDIT.md) applied and verified locally.
 2. Review the release candidate for packaging completeness, including license
-   notices, release notes, and whether internal planning documents should ship.
-   Keep unrelated working-tree changes intact.
+   notices and release notes. Keep internal planning documents and the
+   unsupported Wasm probe out of distribution archives.
 3. Follow the [release runbook](RELEASING.md) for `0.3.0`. Confirm the hosted
    build matrix and publication destinations before tagging.
-4. Once the release resumes and the runbook checks pass, a release tag can be
-   created and pushed under `AGENTS.md`. Only GitHub Actions publishes packages,
+4. Once the runbook checks pass, a release tag can be created and pushed under
+   `AGENTS.md`. Only GitHub Actions publishes packages,
    on a pushed `v*` tag after validation and artifact builds. Manual dispatch is
    preflight only, even on tagged refs.
 
-### Status at the pause
+The maintainer confirmed the pending PyPI publisher. The `pypi` and `crates-io`
+GitHub environments exist, and the repository has the crates.io bootstrap
+secret. Confirm the hosted non-publishing preflight before pushing `v0.3.0`.
+
+### Baseline before the dependency refresh
 
 - The Rust and Python manifests, lockfiles, and Python runtime report `0.3.0`.
 - The recorded local baseline passed 269 Rust tests, three doctests, 741

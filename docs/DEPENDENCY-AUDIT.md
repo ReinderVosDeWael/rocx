@@ -1,9 +1,22 @@
 # Dependency alert triage
 
-Inspected 2026-11-17 using GitHub's repository Dependabot alerts API and each
-linked global advisory. All five alerts remain open upstream/in GitHub; this
-document does not dismiss alerts or claim the dependency versions are fixed.
-The checked-in lockfile selects `zip 2.6.1` and optional `pyo3 0.27.2`.
+## Dependency refresh (2026-11-23)
+
+The refreshed lockfiles select ZIP 9.7.3 and PyO3 0.30.1, above the patched
+versions below. ZIP 9.7.3 is the newest version compatible with Rust 1.88 and
+uses only Flate2 deflate support; AES and archive extraction are not used.
+
+The three documentation alerts open at the start of the refresh concerned
+[MkDocs Material](https://github.com/advisories/GHSA-xvg9-69gf-fjrf) and
+[PyMdown Extensions](https://github.com/advisories/GHSA-gm37-52c6-37mw)
+([second advisory](https://github.com/advisories/GHSA-9xwg-3r6f-jcx2)).
+The refreshed lockfile uses 9.8.2 and 13.1.2 respectively, above the reported
+fixed versions. GitHub tracks alert closure after scanning the default branch.
+
+## Historical triage (2026-11-17)
+
+The following dispositions applied to ZIP 2.6.1 and PyO3 0.27.2. They record
+source and feature inspection from before the dependency upgrades.
 
 ## Dispositions
 

@@ -11,12 +11,23 @@
   Template updates preserve unrelated properties and reject attempts to change
   the type of an existing custom property.
 
+### Existing documents
+
+- Open Transitional DOCX files from Rust or Python. Inspect body paragraphs,
+  sections, direct tables, and default headers; preview supported paragraph
+  alignment patches, table insertions, and header image edits. Inline
+  inspection does not yet expose editable run or hyperlink boundaries.
+- Add a runnable branded-report example in Rust and Python, with a downloadable
+  template and output.
+
 ### Template safety
 
 - Reject templates declaring an OPC digital-signature origin. The writer does
   not verify, remove, or recreate signatures.
 - Reject unsupported mandatory namespaces during supported WordprocessingML
   edits. `AlternateContent` is preserved without choosing a branch.
+- Update ZIP and PyO3 to versions that address the advisories listed in the
+  [dependency audit](docs/DEPENDENCY-AUDIT.md). Rust 1.88 remains supported.
 
 ### Compatibility
 
