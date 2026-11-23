@@ -104,17 +104,12 @@ Evidence / reproduction:
 
 | Application / platform | Open / readability | Key features | Limitations | Targeted findings |
 | --- | --- | --- | --- | --- |
-| LibreOffice 25.8.7.3 580(Build:3), Ubuntu 25.10 x86_64, kernel 6.17.0-41-generic | GUI not tested | GUI not tested | No interactive display available in this session | Headless PDF conversion and limited extracted-content checks below |
+| LibreOffice 25.8.7.3 580(Build:3), Ubuntu 25.10 x86_64, kernel 6.17.0-41-generic | Three fixtures displayed in GUI under Xvfb | Quickstart, compact fixture, edited catalog pages 1–2 | Only captured pages and features inspected; no physical desktop | GUI and separate headless observations below |
 | Desktop Word, platform/version not observed | Not tested | Not tested | No desktop Word observation available | None |
 
-- On Ubuntu 25.10 x86_64, `libreoffice --version` reported
-  `LibreOffice 25.8.7.3 580(Build:3)`; `uname -a` reported kernel
-  `6.17.0-41-generic`. Both `DISPLAY` and `WAYLAND_DISPLAY` were empty.
-  No interactive open, readability or layout was observed. The installed
-  executable and its version alone are not a viewer-compatibility result.
 - No desktop Word observation or redistributable Word-authored fixture has been
-  established for this checklist. Those remain explicit gaps, as does interactive
-  LibreOffice inspection.
+  established for this checklist. Those remain explicit gaps. The later Xvfb
+  inspection below covers only specific LibreOffice pages and features.
 - Independent python-docx 1.2.0 readback opened the repository editor fixture
   (4 top-level paragraphs, 0 tables) and pre-existing Rust and Python catalog
   artifacts (279 top-level paragraphs, 29 tables each). The two pre-existing
@@ -124,9 +119,59 @@ Evidence / reproduction:
   `919563e963cfc6f131007ce10359b4309379880c37162fe168fcba22e0cf0f2a`.
   These are readback observations of those exact files, not GUI observations
   or proof of the current source's generated output.
-- The quickstart and compact fixture commands above ran locally. Independent
-  readback checked the quickstart text and the compact table, bullet paragraphs
-  and inline image; ZIP integrity checks passed. Neither was opened in a GUI.
+- Independent readback checked the generated quickstart text and the compact
+  table, bullet paragraphs and inline image; ZIP integrity checks passed.
+
+## LibreOffice GUI probe under Xvfb, 2026-11-23
+
+LibreOffice Writer `25.8.7.3 580(Build:3)` ran on Ubuntu 25.10 x86_64,
+kernel `6.17.0-41-generic`, with the generic X11 VCL backend and a fresh user
+profile. Xvfb used a 1440 × 1000, 24-bit screen and `-nolisten tcp`; there was
+no physical desktop or window manager. `fc-match Calibri` returned Carlito and
+`fc-match Cambria` returned Caladea; these fontconfig matches do not prove the
+font used for every run. No manual field update, save, or export was made.
+Inputs were opened directly; their SHA-256 hashes, listed in the headless table
+below, were unchanged afterward.
+
+Screenshots were inspected, not inferred from PDF text. Each showed a Writer
+document with no repair dialog visible at capture; snapshots do not establish
+that every possible prompt was absent throughout startup.
+
+| Fixture | Observed GUI content | Scope and limitations |
+| --- | --- | --- |
+| rocx quickstart | Page 1 of 1: both paragraphs legible, including `café` and a globe emoji. | Captured at 154% zoom. No other content tested. |
+| python-docx compact synthetic fixture | Page 1 of 1: blue heading, `café` and globe, bordered 2 × 2 table with four labels, two bulleted items, and a red rectangle below its label. | Captured at 100%. This is not a Word-authored fixture. |
+| rocx edited catalog | Page 1: first-header label, underlined link, small red image, and readable opening text. Page 2: even-header label, centered imported-editor paragraph, two-cell inserted table with bold first-cell label, and blue heading samples. Page 1 footer shows `PAGE 1 / NUMPAGES 25`; Writer status shows 25 pages. | Captured at 95%; only portions of pages 1–2 inspected. No claim about remaining styles, objects, pagination, or other pages. Field values were displayed but no explicit field update was performed. The template was rocx-generated, not Word-authored. |
+
+An earlier simultaneous launch using a different LibreOffice profile produced
+a **Document in Use** dialog for `quickstart.docx`, stating that it was locked
+for editing by the same user on a different system. This was a competing local
+instance, not a repair dialog; that instance was terminated. The screenshots
+above were taken from the generic-backend instance. After capture, the Xvfb
+process reached its 120-second execution timeout; Writer then reported an X
+I/O error and fatal signal. This shutdown is not a document compatibility
+result. No desktop Word behavior or Word-authored source was tested.
+
+To repeat with Xvfb, use a fresh LibreOffice profile and open copies of the
+inputs from the headless probe below, one at a time. For example, with
+`xvfb-run`, `xwininfo` and `ffmpeg` installed, launch an authenticated X11
+session and print its environment:
+
+```sh
+gui=$(mktemp -d /tmp/opencode/rocx-viewer-gui-XXXXXX)
+cp /path/to/quickstart.docx "$gui/"
+xvfb-run -a -s '-screen 0 1440x1000x24 -nolisten tcp' sh -c '
+    printf "DISPLAY=%s XAUTHORITY=%s\n" "$DISPLAY" "$XAUTHORITY"
+    exec env SAL_USE_VCLPLUGIN=gen libreoffice "-env:UserInstallation=file://$1/profile" \
+        --norestore --nologo "$1/quickstart.docx"
+' sh "$gui"
+```
+
+In a second terminal, export the printed `DISPLAY` and `XAUTHORITY`. Run
+`xwininfo -root -tree` to identify Writer's windows and capture the rendered
+screen with `ffmpeg -f x11grab -video_size 1440x1000 -i "$DISPLAY" -frames:v 1 capture.png`.
+Inspect the screenshot and any prompts. Page 2 of the edited catalog was
+reached with Page Down.
 
 ## Headless LibreOffice conversion probe, 2026-11-23
 
