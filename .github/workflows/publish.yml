@@ -39,6 +39,10 @@ jobs:
       - run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Verify the crate package
         run: cargo publish --dry-run --locked
+      - name: Smoke-test packaged crate quickstart
+        run: |
+          cargo package --locked
+          python tools/smoke_release_artifacts.py --crate "target/package/rocx-$(python -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['package']['version'])").crate"
       - uses: actions/cache@v4
         id: schemas
         with:
@@ -87,15 +91,9 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           args: ${{ matrix.args }}
       - uses: astral-sh/setup-uv@v6
-        if: runner.os != 'Windows'
       - name: Smoke-test the wheel
-        if: runner.os != 'Windows'
-        run: |
-          uv venv --python 3.12 "$RUNNER_TEMP/wheel-test"
-          uv pip install --python "$RUNNER_TEMP/wheel-test/bin/python" --no-deps dist/*.whl
-          cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/wheel-test/bin/python" -c \
-            'import rocx, rocx._native; assert rocx._native.BACKEND == "rust"'
+        shell: bash
+        run: python tools/smoke_release_artifacts.py --wheel dist/*.whl
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.label }}
