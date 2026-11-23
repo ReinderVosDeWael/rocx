@@ -220,8 +220,11 @@ documents; Word-specific interoperability is not a gate for this batch.
 Table-cell structured inline readback landed in `1c17f03` under #3. The
 feature branch passed 808 schema-required Python tests and schema/OPC checks
 on all 12 catalog artifacts. Exact Rust/Python catalog byte parity also passed
-after integration with the JavaScript changes. Broader header/footer inspection
-is the remaining active assignment.
+after integration with the JavaScript changes. Header/footer inspection landed
+in `5f103c5`: default, first-page, and even-page stories expose paragraphs,
+inline structure, inherited references, and shared part identities. Its
+feature branch passed 808 schema-required Python tests. The integrated build
+passed 30 Rust and 19 Python editor tests and exact Rust/Python catalog parity.
 
 The independent #21 authoring slice landed in `a58282c`: JavaScript supports
 paragraph alignment, tabs, breaks, external links, image dimensions, and
@@ -235,8 +238,9 @@ passed on the python-docx fixture. Task 4 is in progress: direct body
 and default-header paragraphs have flat and structured inline readback,
 including read-only run/hyperlink anchors; direct sections and body tables
 are inspectable. Paragraphs in direct body table cells now also expose runs,
-hyperlinks, and snapshot-scoped inline anchors. Other stories are outside
-the implemented slice. Tasks 5–10 have not started.
+hyperlinks, and snapshot-scoped inline anchors. The story view covers all
+six header/footer variants. Note and comment stories are outside the
+implemented slice. Tasks 5–10 have not started.
 
 1. Generate the [python-docx editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
    with formatted body text, an insertion anchor, and two sections sharing a
