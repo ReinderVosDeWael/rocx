@@ -268,7 +268,7 @@ async def test_header_image_preview(mode, selected, affected):
     document = ImportedDocument.open(original)
     headers = document.default_headers
     assert all(isinstance(header, ImportedHeader) for header in headers)
-    assert [(h.section_index, h.inherited) for h in headers] == [(0, False), (1, False)]
+    assert [(h.section_index, h.inherited) for h in headers] == [(0, False), (1, True)]
     assert headers[0].part_name == headers[1].part_name
     image = await d.ImageRun(
         data=(Path(__file__).parents[1] / "fixtures/images/sample.png").read_bytes()

@@ -81,10 +81,17 @@ pub(crate) fn open_word_source(
     Ok((package, main, main_root))
 }
 
+pub(crate) enum CompileSource<'a> {
+    Fresh,
+    Template {
+        bytes: &'a [u8],
+        edits: Option<&'a crate::template::TemplateEdits>,
+    },
+}
+
 pub(crate) fn compile(
     doc: &ResolvedDocument,
-    bytes: &[u8],
-    template: Option<&crate::template::TemplateEdits>,
+    source: CompileSource<'_>,
     options: &crate::application::RenderOptions,
 ) -> Result<crate::opc::PackagePlan> {
     doc.validate()?;
@@ -96,6 +103,11 @@ pub(crate) fn compile(
         .at("options.profile")
         .into());
     }
+    let fresh = matches!(source, CompileSource::Fresh);
+    let (bytes, template) = match source {
+        CompileSource::Fresh => (include_bytes!("../../assets/default.docx").as_slice(), None),
+        CompileSource::Template { bytes, edits } => (bytes, edits),
+    };
     let (mut package, main, _) = open_word_source(bytes, options.read_limits, true)?;
     package.content_type(&main, DOCX_MAIN)?;
     let drawing = crate::ooxml::defaults::prepare(&mut package, &main)?;
@@ -235,6 +247,12 @@ pub(crate) fn compile(
         }
         if index + 1 < count {
             insert(Node::new("w:p").with(Node::new("w:pPr").with(props.clone())));
+            if fresh {
+                // Unlike page layout, these references are local to the section.
+                // Missing references inherit in Word; declared stories get new parts.
+                props.remove("w:headerReference");
+                props.remove("w:footerReference");
+            }
         }
     }
     let note_width = usable_width(&props);

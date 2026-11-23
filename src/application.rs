@@ -1,4 +1,5 @@
 //! Application orchestration and explicit rendering options.
+use crate::ooxml::{CompileSource, compile as compile_ooxml};
 use crate::opc::{PackagePlan, ReadLimits};
 use crate::{OutputProfile, ResolvedDocument, Result};
 #[derive(Clone, Debug, Default)]
@@ -13,7 +14,14 @@ pub fn compile(
     template: &[u8],
     options: &RenderOptions,
 ) -> Result<PackagePlan> {
-    crate::ooxml::compile(document, template, None, options)
+    compile_ooxml(
+        document,
+        CompileSource::Template {
+            bytes: template,
+            edits: None,
+        },
+        options,
+    )
 }
 pub(crate) fn render(document: &ResolvedDocument) -> Result<Vec<u8>> {
     render_with_template(document, None)
@@ -29,11 +37,14 @@ pub(crate) fn render_with_options(
     template: Option<&DocumentTemplate>,
     options: &RenderOptions,
 ) -> Result<Vec<u8>> {
-    let bytes = match template {
-        Some(t) => crate::adapters::io::read(&t.path)?,
-        None => include_bytes!("../assets/default.docx").to_vec(),
+    let plan = match template {
+        Some(t) => {
+            let bytes = crate::adapters::io::read(&t.path)?;
+            compile_with_edits(document, &bytes, &t.edits, options)?
+        }
+        None => compile_ooxml(document, CompileSource::Fresh, options)?,
     };
-    crate::ooxml::compile(document, &bytes, template.map(|t| &t.edits), options)?.to_bytes()
+    plan.to_bytes()
 }
 
 use std::path::Path;
@@ -109,5 +120,12 @@ pub fn compile_with_edits(
     edits: &crate::template::TemplateEdits,
     options: &RenderOptions,
 ) -> Result<PackagePlan> {
-    crate::ooxml::compile(document, template, Some(edits), options)
+    compile_ooxml(
+        document,
+        CompileSource::Template {
+            bytes: template,
+            edits: Some(edits),
+        },
+        options,
+    )
 }
