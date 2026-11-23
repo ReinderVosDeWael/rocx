@@ -7,7 +7,7 @@ use super::{
 use crate::ooxml::{WordParts, encode_header_image};
 use crate::opc::Package;
 use crate::xml::{Content, Node, W};
-use crate::{DrawingId, ResolvedImage, Result, SectionType};
+use crate::{ResolvedImage, Result, SectionType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -316,25 +316,33 @@ impl HeaderBatch<'_> {
         body: &mut Node,
     ) -> Result<(Package, Vec<HeaderImageChange>)> {
         let mut changes = Vec::with_capacity(self.targets.len());
-        let mut last_drawing = None;
+        let mut resources = None;
         for (&index, edit) in &self.targets {
-            let (staged, change) =
-                self.stage_image(package, main, body, index, edit, &mut last_drawing)?;
+            let (mut header, change) =
+                self.prepare_image(&mut package, main, body, index, edit.mode)?;
+            let (staged, paragraph) = encode_header_image(
+                package,
+                main,
+                &change.output_part,
+                &edit.image,
+                &mut resources,
+            )?;
             package = staged;
+            header.push(paragraph);
+            package.put_word(&change.output_part, header)?;
             changes.push(change);
         }
         Ok((package, changes))
     }
 
-    fn stage_image(
+    fn prepare_image(
         &self,
-        mut package: Package,
+        package: &mut Package,
         main: &str,
         body: &mut Node,
         index: usize,
-        edit: &HeaderImageEdit,
-        last_drawing: &mut Option<DrawingId>,
-    ) -> Result<(Package, HeaderImageChange)> {
+        mode: HeaderEditMode,
+    ) -> Result<(Node, HeaderImageChange)> {
         let sections = &self.sections;
         let source = default_source(sections, index)?;
         let mut header = package.word(&source.part)?;
@@ -342,7 +350,7 @@ impl HeaderBatch<'_> {
             return Err(unsupported("header cannot be safely extended"));
         }
         let mut restored_section = None;
-        let (output_part, affected_sections) = match edit.mode {
+        let (output_part, affected_sections) = match mode {
             HeaderEditMode::Shared => {
                 let affected = sections
                     .iter()
@@ -381,49 +389,17 @@ impl HeaderBatch<'_> {
                 (output, vec![index])
             }
         };
-        let (mut package, mut paragraph) =
-            encode_header_image(package, main, &output_part, &edit.image)?;
-        reserve_staged_drawing(&mut paragraph, last_drawing)?;
-        header.push(paragraph);
-        package.put_word(&output_part, header)?;
         Ok((
-            package,
+            header,
             HeaderImageChange {
                 source_part: source.part.clone(),
                 output_part,
                 affected_sections,
                 restored_section,
-                mode: edit.mode,
+                mode,
             },
         ))
     }
-}
-
-fn reserve_staged_drawing(paragraph: &mut Node, last: &mut Option<DrawingId>) -> Result<()> {
-    // The encoder scans materialized source parts. Remember allocations from
-    // earlier edits, whose header XML is still staged in the package cache.
-    let doc_pr = paragraph
-        .child_mut("w:r")
-        .and_then(|run| run.child_mut("w:drawing"))
-        .and_then(|drawing| drawing.child_mut("wp:inline"))
-        .and_then(|inline| inline.child_mut("wp:docPr"))
-        .ok_or_else(|| unsupported("encoded header image has no drawing properties"))?;
-    let id = doc_pr
-        .get("id")
-        .and_then(|id| id.parse().ok())
-        .map(DrawingId::new)
-        .ok_or_else(|| unsupported("encoded header image has an invalid drawing ID"))?;
-    let id = if let Some(previous) = *last
-        && previous >= id
-    {
-        let next = previous.next()?;
-        doc_pr.set("id", next);
-        next
-    } else {
-        id
-    };
-    *last = Some(id);
-    Ok(())
 }
 
 #[derive(Clone, Copy)]

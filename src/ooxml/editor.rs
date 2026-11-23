@@ -1,7 +1,9 @@
 //! Render declaration payloads into an existing package without running the
 //! whole-document compiler or changing document defaults.
 
-use super::{Compiler, StoryContent, WordParts, style_catalog::StyleCatalog};
+use super::{
+    Compiler, StoryContent, WordParts, resources::MediaRegistry, style_catalog::StyleCatalog,
+};
 use crate::{
     DeclarationPath, Diagnostic, DrawingId, Error, ResolvedBlock, ResolvedImage, ResolvedInline,
     ResolvedTable, Result, Rule, StoryKind,
@@ -49,11 +51,18 @@ pub(crate) fn encode_editor_tables(
     Ok((renderer.package, output))
 }
 
+/// Drawing and media allocations shared by the header images in one edit batch.
+pub(crate) struct HeaderImageResources {
+    drawing: DrawingId,
+    media: MediaRegistry,
+}
+
 pub(crate) fn encode_header_image(
     package: Package,
     main: &str,
     header: &str,
     image: &ResolvedImage,
+    resources: &mut Option<HeaderImageResources>,
 ) -> Result<(Package, Node)> {
     if image.anchor.is_some() {
         return Err(Diagnostic::new(
@@ -65,12 +74,19 @@ pub(crate) fn encode_header_image(
     }
     let owner = PartName::new(header)?;
     let styles = StyleCatalog::new(&Node::new("w:styles"))?;
-    let drawing = DrawingId::new(super::defaults::drawing_ceiling(&package));
-    let media = super::resources::MediaRegistry::from_package(&package)?;
+    let resources = match resources {
+        Some(resources) => resources,
+        None => resources.insert(HeaderImageResources {
+            drawing: DrawingId::new(super::defaults::drawing_ceiling(&package)),
+            media: MediaRegistry::from_package(&package)?,
+        }),
+    };
     let mut renderer = fragment_renderer(package, main, styles);
-    renderer.drawing = drawing;
-    renderer.media = media;
+    renderer.drawing = resources.drawing;
+    renderer.media = std::mem::take(&mut resources.media);
     let node = Node::new("w:p").with(renderer.image(image, &owner)?);
+    resources.drawing = renderer.drawing;
+    resources.media = renderer.media;
     Ok((renderer.package, node))
 }
 
