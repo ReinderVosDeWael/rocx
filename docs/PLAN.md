@@ -23,13 +23,21 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ### JavaScript parity review follow-up
 
-Fix the three reproduced adapter defects: retry after Wasm initialization
-failure (#24), reject malformed UTF-16 rather than replacing it (#20), and
-accept valid `Uint8Array` views from other JavaScript realms (#23). Add
-path-aware diagnostics as a separate adapter improvement (#22). Track broader
-authoring parity in #21; keep editor parity separate. Run packed consumer
-verification, including exact byte parity, before treating the fixes as
-complete. The Rust/Python release gates below still apply.
+The adapter now retries after Wasm initialization failure (#24), rejects
+malformed UTF-16 rather than replacing it (#20), and accepts valid
+`Uint8Array` views from other JavaScript realms (#23). The adapter reports
+JavaScript declaration paths; core failures expose stable rule codes when
+available (#22). Regressions failed against the previous adapter and passed
+with the fixes. Packed consumer verification passed locally on Node 22/24,
+including both Chromium modes, exact Rust/Python/JavaScript DOCX byte parity,
+and schema/OPC validation. The Rust all-targets suite, doctests, Wasm Clippy,
+791 schema-required Python tests, exact catalog byte parity, and strict
+523-page docs build also passed.
+Track broader authoring parity in #21; keep editor parity separate.
+
+The Rust/Python release gates below still apply.
+GitHub has both release environments and a crates.io bootstrap secret; this
+does not verify the registry-side trusted-publisher binding tracked in #4.
 
 ### Earlier issue sweep
 

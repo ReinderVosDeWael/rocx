@@ -21,8 +21,11 @@ generateDocx(
 
 The result is a complete DOCX file in memory. Write the bytes to disk in Node
 or download them as a Blob in a browser. Invalid declarations or rendering
-errors reject the Promise. The function does not fetch source images or
-upload documents. It does not expose templates or the editor.
+errors reject the Promise. When available, `error.path` locates the problem
+in the declaration, and `error.rule` gives a stable rocx diagnostic code.
+These optional properties are described by the TypeScript `GenerateDocxError`
+interface. The function does not fetch source images or upload documents.
+It does not expose templates or the editor.
 
 ## Shared report declaration
 

@@ -1,4 +1,4 @@
-import { generateDocx, type DocumentDeclaration } from "rocx-docx";
+import { generateDocx, type DocumentDeclaration, type GenerateDocxError } from "rocx-docx";
 
 const declaration = {
   blocks: [
@@ -12,6 +12,11 @@ const declaration = {
 const result: Promise<Uint8Array> = generateDocx(declaration);
 void result;
 new Blob([await generateDocx(declaration)]);
+
+function errorContext(error: GenerateDocxError): [string | undefined, string | undefined] {
+  return [error.path, error.rule];
+}
+void errorContext;
 
 // @ts-expect-error Images take bytes, not a filename.
 void generateDocx({ blocks: [{ kind: "paragraph", runs: [{ kind: "image", bytes: "test.png" }] }] });

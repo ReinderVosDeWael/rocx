@@ -15,7 +15,8 @@ dependencies.
 ## TypeScript declarations
 
 The package ships [`index.d.ts`](index.d.ts), including `DocumentDeclaration`,
-its block and run types, and `GenerateOptions`.
+its block and run types, `GenerateOptions`, and `GenerateDocxError` for the
+optional declaration path and engine diagnostic code on errors.
 
 ## Build and install the tarball
 
@@ -88,11 +89,13 @@ npm install /tmp/rocx-docx-0.1.0.tgz
   decoded pixels. PNG is exercised in the cross-runtime check; image format
   detection uses the same PNG, JPEG, GIF, BMP, and TIFF reader as native rocx.
   Images use their intrinsic dimensions. The optional `altText` becomes the
-  picture description.
+  picture description. Views, including views created in another JavaScript
+  realm, use only their selected bytes.
 - `generateDocx` rejects with an `Error` for invalid declarations or a rocx
-  rendering error. Await file reads/fetches before calling it; declarations
-  do not accept callbacks or promises. Do not mutate them until the call
-  settles.
+  rendering error. Text, table cells, and image descriptions must contain
+  well-formed Unicode (no unpaired UTF-16 surrogates). Await file reads/fetches
+  before calling it; declarations do not accept callbacks or promises. Do not
+  mutate them until the call settles.
 - The optional `timestamp` is a UTC ISO string with second precision or three
   fractional digits (for example `2026-11-21T00:00:00Z`). It defaults to the
   host clock. Specify it for repeatable output.
@@ -107,7 +110,8 @@ document metadata beyond the timestamp, deferred producers, templates, and
 editing existing DOCX files. The quickstart is not a promise of further parity.
 
 The Promise supports loading Wasm, but does not move rendering off the calling
-thread. Images and the finished document cross the JS/Wasm boundary as
+thread. If Wasm fails to load, a later call can retry initialization. Images
+and the finished document cross the JS/Wasm boundary as
 in-memory copies; large-document throughput and memory use are not qualified.
 
 ## Verification

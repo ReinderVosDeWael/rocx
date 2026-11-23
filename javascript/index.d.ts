@@ -36,6 +36,14 @@ export interface GenerateOptions {
   readonly timestamp?: string;
 }
 
+/** An adapter or rendering error, with context when available. */
+export interface GenerateDocxError extends Error {
+  /** Location in the JavaScript declaration, when known. */
+  readonly path?: string;
+  /** Stable diagnostic code from the rocx engine, when available. */
+  readonly rule?: string;
+}
+
 /** Generate a complete DOCX package. Rejects with an Error on failure. */
 export function generateDocx(
   declaration: DocumentDeclaration,

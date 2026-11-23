@@ -10,7 +10,8 @@ examples="$root/examples/javascript"
 npm pack "$root/javascript" --silent --pack-destination "$output" > "$output/package-name"
 artifact="$output/$(cat "$output/package-name")"
 mkdir "$output/node" "$output/web"
-cp "$examples"/{author.mjs,node.mjs} "$root/javascript/tests/node-errors.mjs" "$output/node/"
+cp "$examples"/{author.mjs,node.mjs} \
+    "$root/javascript/tests"/{node-errors,init-retry,unicode,cross-realm,diagnostics}.mjs "$output/node/"
 cp "$examples"/{author.mjs,browser.mjs,index.html,vite.config.mjs} "$output/web/"
 cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,browser-test.mjs} "$output/web/"
 
@@ -23,6 +24,10 @@ cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,browser-te
     grep -Fx src/lib.rs source-files.txt
     grep -Fx javascript/src/lib.rs source-files.txt
     node node-errors.mjs
+    node init-retry.mjs
+    node unicode.mjs "$image"
+    node cross-realm.mjs "$image"
+    node diagnostics.mjs
     node node.mjs "$image" "$output/node.docx"
 )
 (
