@@ -7,6 +7,10 @@ workflow dispatches are preflight only, even when run on a tag: they build
 artifacts without uploading them to the registries. Do not publish packages
 with local upload commands.
 
+The JavaScript tarball is built and tested separately by the
+[packed consumer workflow](../.github/workflows/javascript.yml). Neither
+workflow publishes to npm.
+
 ## One-time registry setup
 
 Configure a GitHub environment named `pypi` and a pending PyPI trusted publisher
@@ -56,7 +60,10 @@ first to exercise the hosted build matrix without publishing.
 
 1. Update the package version in `Cargo.toml` and `pyproject.toml`, and the
    Python runtime version (`rocx.__version__`). Keep all three identical.
-2. Refresh both lock files with `cargo check` and `uv lock`.
+2. Refresh the root lock files with `cargo check` and `uv lock`. Refresh the
+   JavaScript adapter's lock file too: its path dependency records the root
+   crate version. With the `wasm32-unknown-unknown` target installed, run
+   `cargo check --manifest-path javascript/Cargo.toml --target wasm32-unknown-unknown`.
 3. Verify the tag matches every recorded version:
 
    ```sh

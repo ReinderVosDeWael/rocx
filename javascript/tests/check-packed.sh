@@ -28,7 +28,9 @@ cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,browser-te
 (
     cd "$output/web"
     npm ci --no-audit --no-fund
-    npm install --ignore-scripts --offline --no-audit --no-fund --no-save --package-lock=false "$artifact"
+    # npm may look up registry metadata for the Vite toolchain during reification.
+    # The tarball itself still has no dependencies and installs offline above.
+    npm install --ignore-scripts --prefer-offline --no-audit --no-fund --no-save "$artifact"
     if [[ "${ROCX_INSTALL_BROWSER:-0}" == 1 ]]; then
         ./node_modules/.bin/playwright install --with-deps chromium
     fi
