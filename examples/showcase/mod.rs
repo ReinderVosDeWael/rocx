@@ -525,20 +525,24 @@ pub async fn generate(output: &Path) -> Result<()> {
         .body()
         .iter()
         .filter_map(|block| match block {
-            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == EDIT_LABEL => Some(paragraph),
+            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == EDIT_LABEL => {
+                Some(paragraph)
+            }
             _ => None,
         })
         .collect();
     assert_eq!(targets.len(), 1);
-    let mut table = Table::new(vec![TableRow::new(vec![
-        TableCell::new(vec![run(
-            "Imported editor table: bold label",
-            RunFormat::default().with_bold(true),
-        )])
+    let mut table = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![run(
+                "Imported editor table: bold label",
+                RunFormat::default().with_bold(true),
+            )])
+            .into(),
+            cell("Fixed-width second column"),
+        ])
         .into(),
-        cell("Fixed-width second column"),
-    ])
-    .into()]);
+    ]);
     table.properties = TableProperties {
         column_widths: Some(vec![2160, 2160]),
         layout: Some(TableLayout::Fixed),
@@ -564,7 +568,9 @@ pub async fn generate(output: &Path) -> Result<()> {
         HeaderFooterType::Default,
         Header::new(vec![p("Header image scope: shared source header.")]).into(),
     );
-    let second = Section::new(vec![p("Header image scope: second section shares the same header.")]);
+    let second = Section::new(vec![p(
+        "Header image scope: second section shares the same header.",
+    )]);
     let mut source = Document::new(vec![first.into(), second.into()]);
     source.timestamp = Some(STAMP.into()).into();
     let source = source.resolve().await?.to_docx()?;

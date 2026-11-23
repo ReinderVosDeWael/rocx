@@ -57,7 +57,11 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
     );
     std::fs::remove_file(path.with_extension("template.docx")).unwrap();
     std::fs::remove_file(path.with_extension("edited.docx")).unwrap();
-    for suffix in ["header-source.docx", "header-shared.docx", "header-local.docx"] {
+    for suffix in [
+        "header-source.docx",
+        "header-shared.docx",
+        "header-local.docx",
+    ] {
         let bytes = std::fs::read(path.with_extension(suffix)).unwrap();
         rocx::editor::ImportedDocument::open(&bytes).unwrap();
         std::fs::remove_file(path.with_extension(suffix)).unwrap();
