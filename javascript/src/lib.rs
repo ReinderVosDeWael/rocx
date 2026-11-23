@@ -1,11 +1,25 @@
 //! JavaScript authoring adapter. Resolution and DOCX generation stay in rocx.
-use js_sys::{Error, Object, Reflect, Uint8Array};
+use js_sys::{Error, JsString, Object, Reflect, Uint8Array};
 use rocx::{
     AltText, Block, Document, ImageRun, Inline, Paragraph, RunFormat, Section, Table, TableCell,
     TableRow, TextRun, Value,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, de::Error as _};
 use wasm_bindgen::{JsCast, prelude::*};
+
+struct CallerText(String);
+
+impl<'de> Deserialize<'de> for CallerText {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Keep the original JS string until validation; converting it to Rust
+        // first would silently replace unpaired surrogates with U+FFFD.
+        let text: JsString = serde_wasm_bindgen::preserve::deserialize(deserializer)?;
+        if !text.is_well_formed() {
+            return Err(D::Error::custom("malformed UTF-16: unpaired surrogate"));
+        }
+        Ok(Self(String::from(text)))
+    }
+}
 
 #[derive(Deserialize)]
 struct Declaration {
@@ -38,7 +52,7 @@ struct ParagraphInput {
 struct TableInput {
     #[serde(rename = "kind")]
     _kind: BlockKind,
-    rows: Vec<Vec<String>>,
+    rows: Vec<Vec<CallerText>>,
 }
 
 // Extract the nested JS object before deserializing its variant so serde does
@@ -62,7 +76,7 @@ struct RunTag {
 struct TextInput {
     #[serde(rename = "kind")]
     _kind: RunKind,
-    text: String,
+    text: CallerText,
     bold: Option<bool>,
     italic: Option<bool>,
 }
@@ -74,7 +88,7 @@ struct ImageInput {
     _kind: RunKind,
     #[serde(with = "serde_wasm_bindgen::preserve")]
     bytes: JsValue,
-    alt_text: Option<String>,
+    alt_text: Option<CallerText>,
 }
 
 fn error(message: impl std::fmt::Display) -> Error {
@@ -134,7 +148,10 @@ impl RunInput {
         match decode::<RunTag>(self.0.clone())?.kind {
             RunKind::Text => {
                 let TextInput {
-                    text, bold, italic, ..
+                    text: CallerText(text),
+                    bold,
+                    italic,
+                    ..
                 } = decode_fields(self.0, &["kind", "text", "bold", "italic"])?;
                 Ok(TextRun::new(text)
                     .with_format(RunFormat {
@@ -149,7 +166,7 @@ impl RunInput {
                     bytes, alt_text, ..
                 } = decode_fields(self.0, &["kind", "bytes", "altText"])?;
                 Ok(ImageRun::new(image_bytes(&bytes)?)
-                    .with_alt_text(alt_text.map(|description| AltText {
+                    .with_alt_text(alt_text.map(|CallerText(description)| AltText {
                         description: Some(description),
                         ..Default::default()
                     }))
@@ -223,7 +240,7 @@ impl BlockInput {
                         .map(|row| {
                             TableRow::new(
                                 row.into_iter()
-                                    .map(|text| {
+                                    .map(|CallerText(text)| {
                                         TableCell::new(vec![Paragraph::new(text).into()]).into()
                                     })
                                     .collect(),
