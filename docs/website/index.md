@@ -1,14 +1,15 @@
 # rocx
 
 Create Word `.docx` files with **Rust** or **Python**. Describe the content in
-code and let `rocx` build the document. The two APIs have different syntax and
-async behavior.
+code and let `rocx` build the document. A smaller [JavaScript/Wasm API](javascript.md)
+can generate documents in Node.js and locally in Chromium.
 
 - [Start with a runnable example](getting-started.md).
 - [Build a branded report from data and an editable template](branded-report.md).
 - Browse the feature guides for supported properties and limitations.
 - [Download the paired visual catalogs](catalog.md) to inspect actual output.
-- Read the [Rust API](api/rust/rocx/index.html) or [Python API](api/python.md).
+- Read the [Rust API](api/rust/rocx/index.html), [Python API](api/python.md),
+  or [JavaScript API](api/javascript.md).
 
 `rocx` does not lay out or paginate pages. A compatible viewer may update fields
 such as page numbers. Documents may look different in Word and

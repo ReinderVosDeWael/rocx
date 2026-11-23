@@ -1,5 +1,8 @@
 # Getting started
 
+For Node.js or a browser, see the [JavaScript installation and examples](javascript.md).
+The package is an npm-installable tarball, not an npm registry download.
+
 ## Install and write a document
 
 Use these install commands once rocx is available on your registry. Otherwise,

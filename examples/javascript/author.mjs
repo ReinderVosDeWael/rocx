@@ -1,3 +1,4 @@
+// docs:start declaration
 import { generateDocx } from "rocx-docx";
 
 // The same byte-only declaration runs in Node and browsers.
@@ -15,3 +16,4 @@ export function makeReport(imageBytes) {
     ],
   }, { timestamp: "2026-11-21T00:00:00Z" });
 }
+// docs:end declaration

@@ -23,6 +23,18 @@ CONTRACTS = (
     "MIGRATION", "MODULES", "NOTES", "NUMBERING", "OOXML", "RANGES", "RELEASING", "DOCUMENTATION",
     "REVISIONS", "STYLES", "TABLES",
 )
+PUBLIC_PAGES = {
+    "COMPATIBILITY.md": "compatibility.md",
+    "docs/VIEWER-COMPATIBILITY-CHECKLIST.md": "viewer-compatibility.md",
+    "examples/ALL_FEATURES.md": "catalog-guide.md",
+    "javascript/README.md": "javascript.md",
+}
+
+
+def published_pages() -> dict[pathlib.Path, pathlib.Path]:
+    pages = {f"docs/{name}.md": f"contracts/{name}.md" for name in CONTRACTS}
+    pages.update(PUBLIC_PAGES)
+    return {(ROOT / source).resolve(): pathlib.Path(destination) for source, destination in pages.items()}
 
 
 def snippet(path: pathlib.Path, label: str) -> str:
@@ -156,9 +168,7 @@ def main() -> None:
         staging = pathlib.Path(temporary)
         source = staging / "source"
         shutil.copytree(ROOT / "docs/website", source)
-        mapping = {(ROOT / f"docs/{name}.md").resolve(): pathlib.Path(f"contracts/{name}.md") for name in CONTRACTS}
-        mapping.update({(ROOT / "COMPATIBILITY.md").resolve(): pathlib.Path("compatibility.md"),
-                        (ROOT / "examples/ALL_FEATURES.md").resolve(): pathlib.Path("catalog-guide.md")})
+        mapping = published_pages()
         for path in source.rglob("*.md"):
             path.write_text(expand_snippets(path.read_text()), encoding="utf-8")
         for path, relative in mapping.items():

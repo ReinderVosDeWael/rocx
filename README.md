@@ -10,7 +10,7 @@ Start here:
 - [Feature guides](https://reindervosdewael.github.io/rocx/)
 - [Rust API reference](https://reindervosdewael.github.io/rocx/api/rust/rocx/)
 - [Python API reference](https://reindervosdewael.github.io/rocx/api/python/)
-- [JavaScript authoring for Node and browsers](https://github.com/ReinderVosDeWael/rocx/tree/main/javascript) (Wasm tarball; not on the npm registry)
+- [JavaScript authoring for Node and browsers](https://reindervosdewael.github.io/rocx/javascript/) (Wasm tarball; not on the npm registry)
 - [Compatibility and limitations](COMPATIBILITY.md)
 
 ## Example

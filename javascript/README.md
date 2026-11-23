@@ -12,6 +12,11 @@ The package is not on the npm registry. Install the packed `.tgz`; installation
 does not require Rust, a network connection, postinstall scripts, or runtime
 dependencies.
 
+## TypeScript declarations
+
+The package ships [`index.d.ts`](index.d.ts), including `DocumentDeclaration`,
+its block and run types, and `GenerateOptions`.
+
 ## Build and install the tarball
 
 Download and unpack a `rocx-docx-node-*` artifact from a successful

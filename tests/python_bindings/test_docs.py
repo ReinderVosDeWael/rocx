@@ -41,10 +41,31 @@ def test_paired_contract_examples_form_tabs_without_swallowing_intervening_guida
 
 
 def test_published_docs_are_an_allowlist_without_internal_handoffs() -> None:
-    assert {"PLAN", "DEPENDENCY-AUDIT", "REORGANIZATION"}.isdisjoint(docs.CONTRACTS)
-    assert "FORMATTING" in docs.CONTRACTS
-    for name in docs.CONTRACTS:
-        assert (ROOT / f"docs/{name}.md").is_file()
+    pages = docs.published_pages()
+    assert all((ROOT / f"docs/{name}.md") not in pages
+               for name in ("PLAN", "DEPENDENCY-AUDIT", "REORGANIZATION"))
+    assert pages[ROOT / "docs/FORMATTING.md"] == pathlib.Path("contracts/FORMATTING.md")
+    assert all(path.is_file() for path in pages)
+
+
+def test_javascript_and_viewer_guides_are_local_published_pages() -> None:
+    pages = docs.published_pages()
+    source = ROOT / "COMPATIBILITY.md"
+    compatibility = docs.rewrite_links(source.read_text(), source, pages[source], pages)
+    assert "](javascript.md)" in compatibility
+    assert "](viewer-compatibility.md)" in compatibility
+
+    source = ROOT / "javascript/README.md"
+    javascript = docs.rewrite_links(source.read_text(), source, pages[source], pages)
+    assert f"]({docs.REPOSITORY}/blob/main/javascript/index.d.ts)" in javascript
+
+
+def test_javascript_api_inlines_the_executable_report_declaration() -> None:
+    api = (ROOT / "docs/website/api/javascript.md").read_text()
+    expanded = docs.expand_snippets(api)
+    assert 'import { generateDocx } from "rocx-docx";' in expanded
+    assert 'kind: "table"' in expanded and 'kind: "image"' in expanded
+    assert "{{snippet:" not in expanded
 
 
 def test_source_links_are_rewritten_without_copying_private_documents() -> None:
