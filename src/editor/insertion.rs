@@ -39,11 +39,11 @@ pub(super) fn table_sites(
             if table.columns() == 0 {
                 return Err(unsupported("an inserted table needs at least one column"));
             }
-            let width = if table.column_widths().is_some()
+            let width = if let Some(widths) = table.column_widths()
                 && table.layout() != Some(TableLayout::Autofit)
             {
-                // Explicit widths provide the layout context for all cells.
-                1
+                // Explicit grids do not depend on the section's geometry.
+                widths.iter().copied().map(i64::from).sum()
             } else {
                 width_for(next_section.map_err(unsupported)?)?
             };

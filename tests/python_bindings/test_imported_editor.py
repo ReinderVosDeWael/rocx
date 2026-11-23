@@ -152,6 +152,34 @@ async def test_python_docx_fixture_body_edits():
     }
 
 
+async def test_python_docx_reads_nested_auto_table_in_inserted_spanning_cell():
+    source = (FIXTURES / "imported-editor.docx").read_bytes()
+    imported = ImportedDocument.open(source)
+    nested = d.Table([d.TableRow([
+        d.TableCell([d.Paragraph(text="nested A")]),
+        d.TableCell([d.Paragraph(text="nested B")]),
+    ])])
+    table = await d.Table([d.TableRow([
+        d.TableCell([d.Paragraph(text="neighbor")]),
+        d.TableCell([nested], grid_span=2),
+    ])], column_widths=[400, 700, 1100]).resolve()
+    output = imported.preview(
+        [], table_insertions=[TableInsertion(imported.body[1].anchor, table)],
+    ).to_docx()
+
+    outer, = docx.Document(io.BytesIO(output)).tables
+    cell = outer.cell(0, 1)
+    assert cell.width.twips == 1800
+    nested_read, = cell.tables
+    assert [column.width.twips for column in nested_read.columns] == [900, 900]
+    assert [cell.text for cell in nested_read.rows[0].cells] == ["nested A", "nested B"]
+    originals, edited = _parts(source), _parts(output)
+    assert originals.keys() == edited.keys()
+    assert {name for name in originals if originals[name] != edited[name]} == {
+        "word/document.xml"
+    }
+
+
 @pytest.mark.parametrize("mode,affected,restored,drawings", [
     ("shared", [0, 1], None, [1, 1]),
     ("section_local", [0], 1, [1, 0]),
@@ -329,6 +357,18 @@ async def test_table_insertion_rejects_invalid_inputs_and_foreign_anchor():
         second.preview([], table_insertions=[TableInsertion(anchor, table)])
     with pytest.raises(TypeError):
         first.preview([], [TableInsertion(anchor, table)])
+
+
+async def test_invalid_nested_row_height_rejects_fragment_before_editing():
+    source = (FIXTURES / "imported-editor.docx").read_bytes()
+    imported = ImportedDocument.open(source)
+    nested = d.Table([d.TableRow([d.TableCell([])], height=d.RowHeight.exact(-1))])
+    table = await d.Table([d.TableRow([d.TableCell([nested])])]).resolve()
+    insertion = TableInsertion(imported.body[1].anchor, table)
+
+    with pytest.raises(ValueError, match=r"children\[0\]\.rows\[0\]\.properties\.height"):
+        imported.preview([], table_insertions=[insertion])
+    assert _parts(imported.preview([]).to_docx()) == _parts(source)
 
 
 @pytest.mark.parametrize("mode,selected,affected", [

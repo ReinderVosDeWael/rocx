@@ -192,11 +192,7 @@ impl Compiler<'_> {
                     kind: context.kind,
                     source: context.source.clone(),
                     content: context.content,
-                    width: Twips::new(if t.columns == 0 {
-                        cw
-                    } else {
-                        (width as f64 / t.columns as f64).round_ties_even() as i64
-                    }),
+                    width: Twips::new(cw),
                 };
                 let blocks = self.blocks(&cell.blocks, &cell_context)?;
                 if blocks.first().is_none_or(|n| n.name != "w:p") {

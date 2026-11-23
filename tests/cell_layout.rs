@@ -64,3 +64,57 @@ fn invalid_cell_margins_fail_in_the_pure_domain() {
         assert_eq!(error.location.as_deref(), Some("margins.start"));
     }
 }
+
+#[test]
+fn nested_auto_tables_use_the_grid_width_of_their_authored_cell() {
+    for (column_widths, layout, expected) in [
+        (vec![300, 900, 1500], TableLayout::Fixed, "1200"),
+        (vec![300, 900, 1500], TableLayout::Autofit, "2880"),
+    ] {
+        let nested = Table::new(vec![
+            TableRow::new(vec![
+                TableCell::new(vec![Paragraph::new("nested A").into()]).into(),
+                TableCell::new(vec![Paragraph::new("nested B").into()]).into(),
+            ])
+            .into(),
+        ]);
+        let outer = Table::new(vec![
+            TableRow::new(vec![
+                TableCell::new(vec![Paragraph::new("first column").into()]).into(),
+                TableCell::new(vec![nested.into()])
+                    .with_properties(TableCellProperties::default().with_grid_span(2))
+                    .into(),
+            ])
+            .into(),
+        ])
+        .with_properties(
+            TableProperties::default()
+                .with_column_widths(column_widths)
+                .with_layout(layout),
+        );
+        let bytes =
+            block_on(Document::new(vec![Section::new(vec![outer.into()]).into()]).resolve())
+                .unwrap()
+                .to_docx()
+                .unwrap();
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut xml = String::new();
+        zip.by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut xml)
+            .unwrap();
+        let tree = roxmltree::Document::parse(&xml).unwrap();
+        let w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let nested_table = tree
+            .descendants()
+            .filter(|n| n.has_tag_name((w, "tbl")))
+            .nth(1)
+            .unwrap();
+        let widths: Vec<_> = nested_table
+            .descendants()
+            .filter(|n| n.has_tag_name((w, "gridCol")))
+            .map(|n| n.attribute((w, "w")).unwrap())
+            .collect();
+        assert_eq!(widths, [expected, expected], "{layout:?}");
+    }
+}
