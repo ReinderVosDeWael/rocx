@@ -1,48 +1,46 @@
-# Active plan — 0.3.0 release preparation
+# Active plan — editing existing DOCX files
 
-rocx is feature-complete for its current support profile, not for all OOXML.
-Keep the feature freeze in place. The editor plan and deferred backlog below
-are not release blockers.
-
-## Release checklist
-
-1. [Documentation audit](DOCUMENTATION-AUDIT.md) applied and verified locally.
-2. Review the release candidate for packaging completeness, including license
-   notices, release notes, and whether internal planning documents should ship.
-   Keep unrelated working-tree changes intact.
-3. Follow the [release runbook](RELEASING.md) for `0.3.0`. Confirm the hosted
-   build matrix and publication destinations before tagging.
-4. Commit, push, deploy, or publish only with authorization for that action.
-   Only GitHub Actions publishes packages, on a pushed `v*` tag after validation
-   and artifact builds. Manual dispatch is preflight only, even on tagged refs.
-
-## Release candidate status
-
-- Verification's Rust formatting failure is addressed with a formatting-only
-  fix and an opt-in prek hook that checks Rust formatting. The hosted
-  formatting check remains required independently of local hook setup.
-- The Rust and Python manifests, lockfiles, and Python runtime report `0.3.0`.
-- The recorded local baseline passed 269 Rust tests, three doctests, 741
-  schema-required Python tests, and Clippy. Both final catalogs validated 20
-  covered parts plus OPC relationships; final and template byte parity passed.
-- After the audit edits, the strict site build checked 477 HTML pages and
-  verified exact catalog parity. All 11 documentation tests passed, and the
-  standalone Rust and Python quickstart and template snippets ran locally.
-- The earlier version gate, offline lock check, Cargo packaging and isolated
-  CPython 3.12 wheel probe also passed. Cargo packaging used `--allow-dirty`
-  for local preflight.
-- Hosted release preflight has not run. No tag was created or pushed, and no
-  deployment or publication was performed.
+Editing existing DOCX files is the active priority. The 0.3.0 release remains
+paused; local work on the open GitHub issues can proceed in parallel with the
+editor. The unrelated backlog remains deferred.
 
 The [engine audit](ENGINE-AUDIT.md) records four correctness and preservation
 defects (#10–#13). Each failed its regression before the fix and passed
 afterward in Rust and Python. The integrated Rust suite, three doctests, Clippy,
 767 schema-required Python tests, and exact Rust/Python DOCX byte parity passed.
-Close the issues when their fixes reach the default branch.
+The fixes are on the default branch and the four issues are closed.
 Use the audit's format-preserving report edit as a migration acceptance case
 for tasks 4–6.
 
-## Next feature after 0.3.0: agent editing with declarative parity
+The separate Verification formatting fix and opt-in prek hook reached `main`
+in PR #14. GitHub Actions checks formatting independently of local hook setup.
+The release pause is unchanged.
+
+## Parallel GitHub issue work
+
+| Issue | First slice |
+| --- | --- |
+| [#2](https://github.com/ReinderVosDeWael/rocx/issues/2) | Existing `RunFormat` builders cover the request; three focused tests and three doctests passed without code changes. |
+| [#3](https://github.com/ReinderVosDeWael/rocx/issues/3) | Direct-body tables and default-header stories are inspectable in Rust and Python; focused tests and exact catalog parity passed. Continue checkpoint task 4 with richer inline targets. |
+| [#4](https://github.com/ReinderVosDeWael/rocx/issues/4) | Canonical links and package metadata updated. `/rocx/` returns HTTP 200; the legacy path returns 404. Docs tests and strict build passed; private publisher verification remains. |
+| [#5](https://github.com/ReinderVosDeWael/rocx/issues/5) | Preflight extracts the published quickstarts and tests the built wheels and packaged crate. Four smoke-tool tests passed, and the freshly built crate and wheel passed on Linux x86_64. Hosted matrix and exact registry-version runs remain. |
+| [#6](https://github.com/ReinderVosDeWael/rocx/issues/6) | [Branded report](website/branded-report.md) linked from README and the site. Exact Rust/Python output, unchanged template and header parts, and strict docs build verified. |
+| [#7](https://github.com/ReinderVosDeWael/rocx/issues/7) | Added a [viewer checklist](VIEWER-COMPATIBILITY-CHECKLIST.md); verified app results are still needed. |
+| [#8](https://github.com/ReinderVosDeWael/rocx/issues/8) | [Evaluation complete](PYTHON-SYNC-EVALUATION.md): keep the async API. The local probe passed script execution, active-loop rejection, async producer, exact DOCX byte comparison, and independent readback. |
+| [#9](https://github.com/ReinderVosDeWael/rocx/issues/9) | The [unsupported WebAssembly probe](../tools/js-wasm-probe/README.md) cross-built and returned DOCX bytes in Node with a fixed timestamp. Independent paragraph readback passed; browser execution and four-way byte parity remain. |
+
+After integrating the checkpoint with `main`, all six paired catalog artifacts
+matched byte for byte, and 21 Rust editor tests and 29 focused Python tests passed.
+Finish editor checkpoint task 4 before moving on to task 5. Next, preserve
+direct body paragraph run boundaries and introduce snapshot-scoped, read-only
+addresses for supported inline targets. Keep the Wasm prototype out of the
+release path; viewer results and hosted release preflight remain separate.
+Repository commits, pushes, and release tags are authorized by `AGENTS.md`.
+The current checkpoint and issue work are split into separate commits.
+Normal pushes can deploy the documentation site; do not tag or publish 0.3.0
+while its release is paused.
+
+## Editor goal: declarative parity
 
 An agent should be able to open an existing DOCX, inspect it as typed rocx
 content, and apply anything rocx can author declaratively at a valid target.
@@ -79,10 +77,10 @@ existing declarative and template APIs intact.
 1. Use the [declarative parity inventory](EDITOR-PARITY.md) to track inspection,
    addition, patching, replacement, and removal, including styles, numbering,
    defaults, and metadata. Appending content alone does not count as parity.
-2. Prove the architecture on Word-authored fixtures: insert a declarative
-   table at a body anchor, patch a paragraph property without losing unrelated
-   markup, and add an image to a header shared by two sections, testing both
-   a shared edit and a section-local copy.
+2. Prove the architecture on fixtures generated independently with python-docx:
+   insert a declarative table at a body anchor, patch a paragraph property
+   without losing unrelated markup, and add an image to a header shared by
+   two sections, testing both a shared edit and a section-local copy.
 3. Close the feature inventory. Read the all-features DOCX back into typed
    values and check them against expected content. Test preservation of
    opaque markup, unchanged part payloads, and rejection of unsafe batches.
@@ -92,14 +90,19 @@ existing declarative and template APIs intact.
 
 The editor opens a Transitional DOCX in Rust and Python, exposes direct body
 paragraphs and placeholders for other blocks, and previews alignment patches
-and declarative table insertions in one batch. Tables can contain formatted
-paragraphs, nested tables, fractions, and external links. The editor sizes
+and declarative table insertions in one batch. Direct paragraphs expose
+ordered text, tab, break, and opaque inline items for inspection; this view
+flattens run and hyperlink boundaries and does not yet expose inline edit
+anchors. The section view reports body ranges and explicit section types,
+without inferring defaults. Tables can contain formatted paragraphs, nested
+tables, fractions, and external links. The editor sizes
 automatic tables only in simple single-column sections and rejects insertion
 inside active or ambiguous supported ranges. Other inline objects, numbering,
 comments, revisions, and content controls in inserted tables remain open.
 
-The editor also inspects existing default-header references and appends an
-inline image through a separate preview. Shared mode lists all sections that
+The editor inspects existing default headers with inherited section references,
+ordered paragraph projections, and opaque unsupported direct children. It
+also appends an inline image through a separate preview. Shared mode lists all sections that
 reference or inherit that part, including first/even aliases. Section-local
 mode forks a supported text-and-link header, keeps the original part and its
 relationships, and reports any following section explicitly redirected back
@@ -112,8 +115,72 @@ Rust/Python DOCX byte parity passed, and both edited artifacts validated 20
 schema-covered parts plus OPC relationships. The separate header source and
 both header edit modes passed exact Rust/Python byte parity and schema
 validation (10 covered parts for the source and shared output, 11 for local).
-Preservation, section-boundary, and inheritance tests use synthetic or
-rocx-authored sources; the Word-authored fixture milestone is still open.
+Use python-docx for independent fixtures and for reading basic features of
+source and edited DOCX files. These fixtures are not desktop Word-authored
+documents; Word-specific interoperability is not a gate for this batch.
+
+### Serial checkpoint: editor work
+
+Work through these tasks in order and checkpoint after task 10. Tasks 1–3
+passed on the python-docx fixture. Task 4 is in progress: basic paragraph
+inline readback, direct section readback, typed direct-body tables, and typed
+default-header stories are available in Rust and Python. The paired catalogs
+passed exact byte parity. Resume with richer inline structure and snapshot-scoped
+anchors; other stories are still outside the implemented slice. Tasks 5–10 have
+not started.
+
+1. Generate the [python-docx editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
+   with formatted body text, an insertion anchor, and two sections sharing a
+   default header.
+2. Verify anchored table insertion and paragraph alignment in one batch on
+   the fixture, checking unrelated markup and exact untouched part payloads.
+3. Verify shared and section-local header image edits on the fixture, checking
+   effective headers after reopening and preservation of the original header
+   and its relationships for the section-local edit.
+4. Expand typed inspection of sections, stories, tables, and inline content,
+   retaining snapshot anchors and opaque nodes.
+5. Add anchored paragraph and inline insert, replace, and remove operations,
+   and extend property patches to preserve unrelated formatting.
+6. Complete table editing, including row and cell operations, grid and merge
+   validation, and support for remaining declared cell content.
+7. Add typed inspection and reference-safe editing of styles, numbering,
+   defaults, and metadata.
+8. Close outstanding story and inline content gaps using the parity inventory,
+   including references and their owning relationships.
+9. Expose inspect, batch preview, and save-copy through the thin JSON CLI.
+   Verify atomic rejection of stale, conflicting, and unsafe edits.
+10. Run the acceptance suite: typed all-features readback, both examples and
+    coverage checks, preservation, and exact Rust/Python DOCX byte parity.
+
+## Paused: 0.3.0 release
+
+### Checklist for when release work resumes
+
+1. [Documentation audit](DOCUMENTATION-AUDIT.md) applied and verified locally.
+2. Review the release candidate for packaging completeness, including license
+   notices, release notes, and whether internal planning documents should ship.
+   Keep unrelated working-tree changes intact.
+3. Follow the [release runbook](RELEASING.md) for `0.3.0`. Confirm the hosted
+   build matrix and publication destinations before tagging.
+4. Once the release resumes and the runbook checks pass, a release tag can be
+   created and pushed under `AGENTS.md`. Only GitHub Actions publishes packages,
+   on a pushed `v*` tag after validation and artifact builds. Manual dispatch is
+   preflight only, even on tagged refs.
+
+### Status at the pause
+
+- The Rust and Python manifests, lockfiles, and Python runtime report `0.3.0`.
+- The recorded local baseline passed 269 Rust tests, three doctests, 741
+  schema-required Python tests, and Clippy. Both final catalogs validated 20
+  covered parts plus OPC relationships; final and template byte parity passed.
+- After the audit edits, the strict site build checked 477 HTML pages and
+  verified exact catalog parity. All 11 documentation tests passed, and the
+  standalone Rust and Python quickstart and template snippets ran locally.
+- The earlier version gate, offline lock check, Cargo packaging and isolated
+  CPython 3.12 wheel probe also passed. Cargo packaging used `--allow-dirty`
+  for local preflight.
+- Hosted release preflight has not run. No tag was created or pushed, and no
+  deployment or publication was performed.
 
 ## Deferred backlog
 
