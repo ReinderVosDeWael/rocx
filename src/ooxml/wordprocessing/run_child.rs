@@ -8,6 +8,7 @@ pub(crate) enum RunChild {
     Text(String),
     Tab,
     Break(BreakType),
+    CommentReference,
     Opaque,
 }
 
@@ -32,6 +33,7 @@ impl RunChild {
                 Some("column") => Self::Break(BreakType::Column),
                 Some(_) => Self::Opaque,
             },
+            "w:commentReference" => Self::CommentReference,
             _ => Self::Opaque,
         }
     }

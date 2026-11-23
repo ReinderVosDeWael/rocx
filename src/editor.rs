@@ -642,7 +642,9 @@ fn read_run(node: &Node, items: &mut Vec<ImportedInline>) {
             }
             RunChild::Tab => items.push(ImportedInline::Tab),
             RunChild::Break(kind) => items.push(ImportedInline::Break(kind)),
-            RunChild::Opaque => items.push(ImportedInline::Opaque(item.name.as_str().to_owned())),
+            RunChild::CommentReference | RunChild::Opaque => {
+                items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
+            }
         }
     }
 }

@@ -79,7 +79,8 @@ fn collect(
     }
     if in_run {
         let value = match RunChild::classify(node) {
-            RunChild::Properties => return,
+            // Comment references mark an anchor without contributing text.
+            RunChild::Properties | RunChild::CommentReference => return,
             RunChild::Text(text) => text,
             RunChild::Tab => "\t".into(),
             RunChild::Break(BreakType::Line | BreakType::TextWrapping) => "\n".into(),
