@@ -58,6 +58,10 @@ Opaque caches, cross-paragraph complex fields, non-body endpoints and combining
 standalone field/range edits in a mixed preview remain outside this slice.
 See [fields](FIELDS.md#editing-an-imported-field-or-link) and
 [ranges](RANGES.md#imported-body-ranges).
+Next controls increment: retain rich sibling runs and block/table payloads
+when wrapping or unwrapping, compose disjoint wrapper operations with ordinary
+edits on original anchors, and inspect relationship-selected stories by
+physical owner. Bound controls stay opaque.
 
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains

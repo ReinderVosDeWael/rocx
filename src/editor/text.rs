@@ -107,9 +107,11 @@ pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
 pub(super) fn prepare(
     package: crate::opc::Package,
-    main: &str,
+    doc: &super::ImportedDocument,
     edits: &[InlineEdit],
+    images: &mut Option<crate::ooxml::HeaderImageResources>,
 ) -> Result<(crate::opc::Package, Targets)> {
+    let main = doc.main.as_str();
     let mut ordered = BTreeMap::new();
     let mut charts = BTreeMap::new();
     for edit in edits {
@@ -131,7 +133,15 @@ pub(super) fn prepare(
             charts.insert((*body, *inline), (doc.chart_id(&edit.target)?, chart));
         }
     }
-    render_actions(package, main, main, crate::StoryKind::Body, ordered)
+    render_actions(
+        package,
+        main,
+        main,
+        crate::StoryKind::Body,
+        ordered,
+        charts.into_values().collect(),
+        Some(images),
+    )
 }
 
 fn render_actions<K: Ord>(
@@ -141,6 +151,7 @@ fn render_actions<K: Ord>(
     kind: crate::StoryKind,
     ordered: BTreeMap<K, Vec<&InlineAction>>,
     charts: Vec<(&str, &crate::ColumnChartProperties)>,
+    resources: Option<&mut Option<crate::ooxml::HeaderImageResources>>,
 ) -> Result<(crate::opc::Package, BTreeMap<K, Action>)> {
     let payloads: Vec<_> = ordered
         .values()
@@ -150,10 +161,10 @@ fn render_actions<K: Ord>(
             _ => None,
         })
         .collect();
-    let (package, nodes) = if payloads.is_empty() {
+    let (mut package, nodes) = if payloads.is_empty() {
         (package, vec![])
     } else {
-        crate::ooxml::encode_editor_inlines(package, main, owner, kind, &payloads)?
+        crate::ooxml::encode_owner_inlines(package, main, owner, kind, &payloads, resources)?
     };
     let mut nodes = nodes.into_iter();
     let images: Vec<_> = ordered
@@ -818,6 +829,7 @@ impl super::ImportedDocument {
             kind,
             ordered,
             vec![],
+            None,
         )?;
         let mut groups = BTreeMap::<usize, Targets>::new();
         for ((entry, block, inline), action) in actions {

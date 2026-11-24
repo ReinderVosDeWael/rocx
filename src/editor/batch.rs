@@ -20,6 +20,7 @@ pub struct EditBatch<'a> {
     pub styles: &'a [StyleEdit],
     pub resources: &'a [ResourceEdit],
     pub controls: &'a [ControlEdit],
+    pub wrappers: &'a [WrapperEdit],
 }
 
 // Compatibility entry points all take the original seven mixed-batch slices

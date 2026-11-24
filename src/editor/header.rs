@@ -462,9 +462,9 @@ impl HeaderBatch<'_> {
         mut package: Package,
         main: &str,
         body: &mut Node,
+        mut resources: Option<crate::ooxml::HeaderImageResources>,
     ) -> Result<(Package, Vec<HeaderImageChange>)> {
         let mut changes = Vec::with_capacity(self.targets.len());
-        let mut resources = None;
         let floor = if self.targets.is_empty() {
             0
         } else {

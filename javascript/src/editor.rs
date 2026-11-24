@@ -965,6 +965,73 @@ fn control_choice(input: &Wire) -> Result<JsValue> {
     )?)
 }
 
+fn wrapper_edit(input: &Wire, path: &str) -> Result<rocx::editor::WrapperEdit> {
+    use rocx::editor::{ControlAnchor, ControlSite, WrapperEdit as E};
+    let kind = b::string(
+        &b::member(&input.js(), "kind", path)?,
+        &b::child_path(path, "kind"),
+    )?;
+    let fields: &[&str] = match kind.as_str() {
+        "wrap" => &["kind", "target", "last", "tag"],
+        "unwrap" => &["kind", "target"],
+        "define" => &["kind", "target", "properties"],
+        "choice" => &["kind", "target", "selected", "choices"],
+        "replaceInlines" => &["kind", "target", "inlines"],
+        "replaceBlocks" => &["kind", "target", "blocks"],
+        _ => return Err(Failure::invalid(path, "unknown wrapper edit")),
+    };
+    let r = Record::new(input, path, fields)?;
+    let anchor = || borrow_target::<ControlAnchor>(&r, &r.path("target")).map(|a| (*a).clone());
+    Ok(match kind.as_str() {
+        "wrap" => E::Wrap {
+            first: (*borrow_target::<ControlSite>(&r, &r.path("target"))?).clone(),
+            last: if r.get("last")?.js().is_undefined() {
+                None
+            } else {
+                Some((*b::borrow::<ControlSite>(&r.get("last")?, &r.path("last"))?).clone())
+            },
+            tag: b::string(&r.get("tag")?, &r.path("tag"))?,
+        },
+        "unwrap" => E::Unwrap(anchor()?),
+        "define" => E::Define(
+            anchor()?,
+            crate::structured::content_control_properties(
+                &r.get("properties")?,
+                &b::Operation::new().pass(),
+                &r.path("properties"),
+            )?,
+        ),
+        "choice" => E::Choice {
+            target: anchor()?,
+            selected: b::string(&r.get("selected")?, &r.path("selected"))?,
+            items: if r.get("choices")?.js().is_undefined() {
+                None
+            } else {
+                Some(edits(&r, "choices", |v, p| {
+                    let item = Record::new(v, p, &["displayText", "value"])?;
+                    Ok(rocx::ContentControlListItem {
+                        display_text: b::string(
+                            &item.get("displayText")?,
+                            &item.path("displayText"),
+                        )?,
+                        value: b::string(&item.get("value")?, &item.path("value"))?,
+                    })
+                })?)
+            },
+        },
+        "replaceInlines" => E::ReplaceInlines(
+            anchor()?,
+            edits(&r, "inlines", |v, p| {
+                Ok((*b::borrow::<rocx::ResolvedInline>(v, p)?).clone())
+            })?,
+        ),
+        _ => E::ReplaceBlocks(
+            anchor()?,
+            edits(&r, "blocks", crate::structured::block_value)?,
+        ),
+    })
+}
+
 fn preview(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -987,6 +1054,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "styleEdits",
             "resources",
             "controls",
+            "wrappers",
         ],
     )?;
     let preview = source.document().preview_edits(rocx::editor::EditBatch {
@@ -1005,6 +1073,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         styles: &edits(&batch, "styleEdits", style_edit)?,
         resources: &edits(&batch, "resources", resource_edit)?,
         controls: &edits(&batch, "controls", control_edit)?,
+        wrappers: &edits(&batch, "wrappers", wrapper_edit)?,
     })?;
     preview_handle(preview)
 }

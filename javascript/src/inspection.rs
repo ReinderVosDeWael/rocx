@@ -22,6 +22,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
             (body_range_markers, Paths::Package),
         ),
         ("importedControls", (controls, Paths::Package)),
+        ("importedStoryControls", (story_controls, Paths::Package)),
         ("importedControlSites", (control_sites, Paths::Package)),
         ("importedSections", (sections, Paths::Package)),
         ("importedInlineAt", (inline_at, Paths::Package)),
@@ -52,6 +53,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("body", "importedBody"),
     ("bodyRangeMarkers", "importedBodyRangeMarkers"),
     ("controls", "importedControls"),
+    ("storyControls", "importedStoryControls"),
     ("controlSites", "importedControlSites"),
     ("previewWrapControl", "importedPreviewWrapControl"),
     ("previewReplaceControl", "importedPreviewReplaceControl"),
@@ -96,6 +98,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
 struct Anchors {
     styles: RefCell<HashMap<String, JsValue>>,
     controls: RefCell<HashMap<usize, JsValue>>,
+    story_controls: RefCell<HashMap<usize, JsValue>>,
     control_sites: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
@@ -161,41 +164,57 @@ fn control_sites(input: &Wire) -> Result<JsValue> {
 
 fn controls(input: &Wire) -> Result<JsValue> {
     let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
-    Ok(view::array(
-        source.document.controls().iter().enumerate().map(|(i, c)| {
-            let value = b::record(&[
-                (
-                    "anchor",
-                    view::cached(&source.anchors.controls, i, "controlAnchor", &c.anchor),
-                ),
-                ("context", c.context.as_str().into()),
-                ("bound", c.bound.into()),
-                ("kind", c.kind.into()),
-                (
-                    "choices",
-                    view::array(c.choices.iter().map(|i| {
-                        b::record(&[
-                            ("displayText", i.display_text.as_str().into()),
-                            ("value", i.value.as_str().into()),
-                        ])
-                    })),
-                ),
-            ]);
-            for (key, v) in [
-                ("id", &c.id),
-                ("selected", &c.selected),
-                ("multiLine", &c.multi_line),
-                ("tag", &c.tag),
-                ("alias", &c.alias),
-                ("lock", &c.lock),
-            ] {
-                if let Some(v) = v {
-                    b::set(&value, key, &v.as_str().into());
-                }
-            }
-            value
-        }),
+    Ok(control_views(
+        source.document.controls(),
+        &source.anchors.controls,
     ))
+}
+fn story_controls(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(control_views(
+        &source.document.story_controls()?,
+        &source.anchors.story_controls,
+    ))
+}
+fn control_views(
+    controls: &[rocx::editor::ImportedControl],
+    cache: &RefCell<HashMap<usize, JsValue>>,
+) -> JsValue {
+    view::array(controls.iter().enumerate().map(|(i, c)| {
+        let value = b::record(&[
+            ("anchor", view::cached(cache, i, "controlAnchor", &c.anchor)),
+            ("context", c.context.as_str().into()),
+            ("bound", c.bound.into()),
+            ("kind", c.kind.into()),
+            (
+                "choices",
+                view::array(c.choices.iter().map(|i| {
+                    b::record(&[
+                        ("displayText", i.display_text.as_str().into()),
+                        ("value", i.value.as_str().into()),
+                    ])
+                })),
+            ),
+        ]);
+        for (key, v) in [
+            ("ownerPart", &c.owner_part),
+            ("entryId", &c.entry_id),
+            ("id", &c.id),
+            ("selected", &c.selected),
+            ("multiLine", &c.multi_line),
+            ("tag", &c.tag),
+            ("alias", &c.alias),
+            ("lock", &c.lock),
+        ] {
+            if let Some(v) = v {
+                b::set(&value, key, &v.as_str().into());
+            }
+        }
+        if let Some(i) = c.entry_index {
+            b::set(&value, "entryIndex", &(i as f64).into());
+        }
+        value
+    }))
 }
 
 fn styles(input: &Wire) -> Result<JsValue> {

@@ -403,6 +403,92 @@ fn main() {
         }
         write("native-controlUnwrapped.docx", data);
     }
+    {
+        use rocx::editor::{EditBatch, ParagraphInsertion, WrapperEdit as W};
+        let source =
+            ImportedDocument::open(&fs::read(directory.join("rich-control-source.docx")).unwrap())
+                .unwrap();
+        let stories = source.story_controls().unwrap();
+        assert_eq!(stories.len(), 5);
+        assert_eq!(stories.iter().filter(|c| c.entry_id.is_some()).count(), 3);
+        assert!(source.preview_unwrap_control(&stories[0].anchor).is_err());
+        let site = |ctx, label| {
+            source
+                .control_sites()
+                .iter()
+                .find(|s| s.context.as_str() == ctx && s.text == label)
+                .unwrap()
+                .clone()
+        };
+        let wrap = |ctx, first, last, tag: &str| W::Wrap {
+            first: site(ctx, first),
+            last: Some(site(ctx, last)),
+            tag: tag.into(),
+        };
+        let c = source.controls();
+        let p = |s: &str| {
+            immediate(Component::resolve(Paragraph::new(s)))
+                .unwrap()
+                .unwrap()
+        };
+        let wrappers = [
+            wrap("block", "range start", "range end", "group"),
+            wrap("inline", "one", "two", "runs"),
+            W::ReplaceBlocks(
+                c[0].anchor.clone(),
+                vec![
+                    rocx::ResolvedBlock::Paragraph(p("A")),
+                    rocx::ResolvedBlock::Paragraph(p("B")),
+                ],
+            ),
+            W::ReplaceInlines(
+                c[1].anchor.clone(),
+                vec![
+                    p("picture:").runs()[0].clone(),
+                    rocx::ResolvedInline::Image {
+                        image: image.clone(),
+                        format: Default::default(),
+                        comment: None,
+                    },
+                ],
+            ),
+        ];
+        let headers = source.default_headers().unwrap();
+        let h = HeaderImageEdit {
+            target: headers[0].anchor.clone(),
+            mode: HeaderEditMode::Shared,
+            image: image.clone(),
+        };
+        let batch = EditBatch {
+            wrappers: &wrappers,
+            header_images: &[h],
+            paragraphs: &[ParagraphInsertion {
+                target: anchor(&source, 0),
+                paragraph: p("adjacent"),
+            }],
+            ..Default::default()
+        };
+        let data = source.preview_edits(batch).unwrap().to_docx().unwrap();
+        let reopened = ImportedDocument::open(&data).unwrap();
+        write("native-richControls.docx", data);
+        let unwrap: Vec<_> = reopened
+            .controls()
+            .iter()
+            .filter(|c| matches!(c.tag.as_deref(), Some("group" | "runs")))
+            .map(|c| W::Unwrap(c.anchor.clone()))
+            .collect();
+        write(
+            "native-richUnwrapped.docx",
+            reopened
+                .preview_edits(EditBatch {
+                    wrappers: &unwrap,
+                    ..Default::default()
+                })
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
     let ranged =
         ImportedDocument::open(&fs::read(directory.join("range-source.docx")).unwrap()).unwrap();
     {

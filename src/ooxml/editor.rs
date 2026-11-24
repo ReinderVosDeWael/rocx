@@ -33,11 +33,25 @@ pub(crate) fn encode_editor_blocks(
     cell_width: Option<i64>,
     scope: &'static str,
 ) -> Result<(Package, Vec<Node>)> {
+    encode_blocks(package, main, blocks, cell_width, scope, None)
+}
+
+pub(crate) fn encode_blocks(
+    package: Package,
+    main: &str,
+    blocks: &[ResolvedBlock],
+    cell_width: Option<i64>,
+    scope: &'static str,
+    mut images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Node>)> {
     let mut style_refs = BTreeSet::new();
     let path = DeclarationPath::root("sections").index(0).field("children");
     check_blocks(blocks, &path, &mut style_refs, scope)?;
     let styles = editor_styles(&package, main, style_refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
+    if let Some(images) = images.as_deref_mut() {
+        load_images(&mut renderer, images, 0)?;
+    }
     let story =
         renderer
             .stories
@@ -64,6 +78,9 @@ pub(crate) fn encode_editor_blocks(
             ResolvedBlock::ContentControl(_) => unreachable!("validated above"),
         };
         output.push(node);
+    }
+    if let Some(images) = images {
+        store_images(&mut renderer, images);
     }
     Ok((renderer.package, output))
 }
@@ -95,16 +112,59 @@ pub(crate) fn encode_editor_inlines(
     kind: StoryKind,
     inlines: &[&ResolvedInline],
 ) -> Result<(Package, Vec<Vec<Node>>)> {
-    let mut refs = StyleRefs::new();
-    let mut bookmarks = BTreeSet::new();
+    encode_owner_inlines(package, main, owner, kind, inlines, None)
+}
+
+pub(crate) fn encode_inlines(
+    package: Package,
+    main: &str,
+    inlines: &[&ResolvedInline],
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Vec<Node>>)> {
+    encode_inline_groups(
+        package,
+        main,
+        main,
+        StoryKind::Body,
+        inlines,
+        "editor.control",
+        images,
+    )
+}
+
+pub(crate) fn encode_owner_inlines(
+    package: Package,
+    main: &str,
+    owner: &str,
+    kind: StoryKind,
+    inlines: &[&ResolvedInline],
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Vec<Node>>)> {
     let scope = if kind == StoryKind::Body {
         "editor.inline"
     } else {
         "editor.entryInline"
     };
+    encode_inline_groups(package, main, owner, kind, inlines, scope, images)
+}
+
+fn encode_inline_groups(
+    package: Package,
+    main: &str,
+    owner: &str,
+    kind: StoryKind,
+    inlines: &[&ResolvedInline],
+    scope: &'static str,
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Vec<Node>>)> {
+    let mut refs = StyleRefs::new();
+    let mut bookmarks = BTreeSet::new();
     for inline in inlines {
+        if kind != StoryKind::Body && matches!(inline, ResolvedInline::Fraction { .. }) {
+            return Err(unsupported("fraction payloads require a body paragraph").into());
+        }
         check_inline(inline, &mut refs, scope)?;
-        if kind == StoryKind::Body {
+        if scope == "editor.inline" {
             collect_bookmark_targets(inline, &mut bookmarks);
         }
         inline.validate()?;
@@ -114,6 +174,8 @@ pub(crate) fn encode_editor_inlines(
     }
     let styles = editor_styles(&package, main, refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
+    let mut fallback = None;
+    let mut images = images;
     if inlines.iter().any(|i| {
         matches!(
             i,
@@ -122,8 +184,11 @@ pub(crate) fn encode_editor_inlines(
                 | ResolvedInline::Image { .. }
         )
     }) {
-        renderer.drawing = DrawingId::new(super::defaults::drawing_ceiling(&renderer.package));
-        renderer.media = MediaRegistry::from_package(&renderer.package)?;
+        let active = images.take().unwrap_or(&mut fallback);
+        load_images(&mut renderer, active, 0)?;
+        images = Some(active);
+    } else {
+        images = None;
     }
     let story = renderer
         .stories
@@ -133,6 +198,9 @@ pub(crate) fn encode_editor_inlines(
         .iter()
         .map(|inline| renderer.inline(inline, &context))
         .collect::<Result<_>>()?;
+    if let Some(images) = images {
+        store_images(&mut renderer, images);
+    }
     Ok((renderer.package, output))
 }
 
@@ -260,6 +328,28 @@ pub(crate) struct HeaderImageResources {
     media: MediaRegistry,
 }
 
+fn load_images(
+    renderer: &mut Compiler<'_>,
+    images: &mut Option<HeaderImageResources>,
+    floor: u32,
+) -> Result<()> {
+    let resources = match images {
+        Some(r) => r,
+        None => images.insert(HeaderImageResources {
+            drawing: DrawingId::new(super::defaults::drawing_ceiling(&renderer.package)),
+            media: MediaRegistry::from_package(&renderer.package)?,
+        }),
+    };
+    renderer.drawing = resources.drawing.max(DrawingId::new(floor));
+    renderer.media = std::mem::take(&mut resources.media);
+    Ok(())
+}
+fn store_images(renderer: &mut Compiler<'_>, images: &mut Option<HeaderImageResources>) {
+    let r = images.as_mut().unwrap();
+    r.drawing = renderer.drawing;
+    r.media = std::mem::take(&mut renderer.media);
+}
+
 pub(crate) fn encode_header_image(
     package: Package,
     main: &str,
@@ -278,19 +368,10 @@ pub(crate) fn encode_header_image(
     }
     let owner = PartName::new(header)?;
     let styles = StyleCatalog::new(&Node::new("w:styles"))?;
-    let resources = match resources {
-        Some(resources) => resources,
-        None => resources.insert(HeaderImageResources {
-            drawing: DrawingId::new(floor.max(super::defaults::drawing_ceiling(&package))),
-            media: MediaRegistry::from_package(&package)?,
-        }),
-    };
     let mut renderer = fragment_renderer(package, main, styles);
-    renderer.drawing = resources.drawing;
-    renderer.media = std::mem::take(&mut resources.media);
+    load_images(&mut renderer, resources, floor)?;
     let node = Node::new("w:p").with(renderer.image(image, &owner)?);
-    resources.drawing = renderer.drawing;
-    resources.media = renderer.media;
+    store_images(&mut renderer, resources);
     Ok((renderer.package, node))
 }
 
@@ -374,6 +455,11 @@ fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static st
         styles.insert(("character", style.clone()));
     }
     match run {
+        ResolvedInline::Image { comment: None, .. }
+            if matches!(scope, "editor.control" | "editor.entryInline") =>
+        {
+            Ok(())
+        }
         ResolvedInline::Text {
             comment: None,
             revision: None,

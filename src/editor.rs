@@ -39,7 +39,9 @@ pub use revisions::{TrackedParagraph, TrackedText};
 mod style_edits;
 mod tables;
 mod text;
-pub use controls::{ControlAnchor, ControlContext, ControlEdit, ControlSite, ImportedControl};
+pub use controls::{
+    ControlAnchor, ControlContext, ControlEdit, ControlSite, ImportedControl, WrapperEdit,
+};
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
@@ -826,6 +828,7 @@ impl ImportedDocument {
             styles,
             resources,
             controls,
+            wrappers,
         } = batch;
         for snapshot in edits
             .iter()
@@ -894,6 +897,7 @@ impl ImportedDocument {
         let mut removed_runs = Vec::new();
         let mut cell_alignment_changes = Vec::new();
         let mut block_changes = Vec::new();
+        let mut wrapper_ids = BTreeSet::new();
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
@@ -906,11 +910,12 @@ impl ImportedDocument {
             || !cells.is_empty()
             || !blocks.is_empty()
             || !controls.is_empty()
+            || !wrappers.is_empty()
             || !structural.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
-            let occupied = by_index
+            let mut occupied = by_index
                 .keys()
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
@@ -965,10 +970,15 @@ impl ImportedDocument {
             // Control paths include raw XML child slots: resolve them before
             // any property insertion or run, row, cell or block splice.
             let controls_changed = self.apply_controls(body, controls)?;
+            let (staged, mut wrapper_plan) =
+                self.stage_wrappers(package, body, wrappers, controls, &mut occupied, blocks)?;
+            package = staged;
+            wrapper_ids = wrapper_plan.ids;
             let mut block_plan =
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            let (staged, actions) = text::prepare(package, self, inline_edits)?;
+            let (staged, actions) =
+                text::prepare(package, self, inline_edits, &mut wrapper_plan.images)?;
             package = tables::structure(body, staged, &self.main, structural, cells)?;
             (run_text_changes, removed_runs) =
                 text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
@@ -996,7 +1006,8 @@ impl ImportedDocument {
                 return Err(unsupported("target paragraph not found"));
             }
             // Header reference edits use original body slots, before splicing tables.
-            let (staged, staged_headers) = headers.stage(package, &self.main, body)?;
+            let (staged, staged_headers) =
+                headers.stage(package, &self.main, body, wrapper_plan.images)?;
             package = staged;
             header_changes = staged_headers;
             let mut pending = Vec::new();
@@ -1031,9 +1042,10 @@ impl ImportedDocument {
                 package = staged;
                 pending.extend(slots.into_iter().zip(nodes));
             }
-            package = block_plan.stage(package, &self.main, body, pending)?;
+            package = block_plan.stage(package, &self.main, body, pending, wrapper_plan.splices)?;
             block_changes = block_plan.changes;
             if controls_changed
+                || wrapper_plan.changed
                 || !changes.is_empty()
                 || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
@@ -1058,6 +1070,27 @@ impl ImportedDocument {
         }
         // A defaults patch shares the styles part. Read the staged version.
         resource_fields::apply(&mut package, &self.main, resources)?;
+        if !wrapper_ids.is_empty() {
+            let mut counts = BTreeMap::new();
+            package.visit_source_xml(|n| {
+                if n.name == "w:sdtPr" {
+                    for id in n
+                        .elements()
+                        .filter(|c| c.name == "w:id")
+                        .filter_map(|c| c.get("w:val")?.trim().parse::<u32>().ok())
+                    {
+                        if wrapper_ids.contains(&id) {
+                            *counts.entry(id).or_insert(0usize) += 1;
+                        }
+                    }
+                }
+            })?;
+            if wrapper_ids.iter().any(|id| counts.get(id) != Some(&1)) {
+                return Err(unsupported(
+                    "duplicate content control ID in staged package",
+                ));
+            }
+        }
         Ok(EditPreview {
             block_changes,
             run_text_changes,
