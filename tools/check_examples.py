@@ -40,7 +40,8 @@ HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
                     ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
-                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx", ".controls.docx")
+                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx",
+                    ".objects.docx", ".controls.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -895,6 +896,7 @@ def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> No
 def verify_catalog_readback(files: dict[str, bytes]) -> None:
     """Inspect source/result payloads within a single binding's catalog."""
     final, source = files[".docx"], files[".header-source.docx"]
+    verify_objects(final, files[".objects.docx"])
     verify_entry_text(final, files[".entry-text.docx"])
     control_doc = docx.Document(io.BytesIO(files[".controls.docx"]))
     assert control_doc.element.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='review-status']/w:sdtContent/w:r/w:t/text()") == ["Pending"]
@@ -905,6 +907,29 @@ def verify_catalog_readback(files: dict[str, bytes]) -> None:
     verify_edited(final, files[".edited.docx"])
     verify_header_scopes(source, files[".header-shared.docx"], files[".header-local.docx"])
     verify_first_header_scopes(source, files[".header-first-shared.docx"], files[".header-first-local.docx"])
+
+
+def verify_objects(original: bytes, output: bytes) -> None:
+    document = docx.Document(io.BytesIO(output))
+    assert any("Inline equation:" in p.text for p in document.paragraphs)
+    with zipfile.ZipFile(io.BytesIO(original)) as src, zipfile.ZipFile(io.BytesIO(output)) as dst:
+        additions = set(dst.namelist()) - set(src.namelist())
+        assert len(additions) == 2
+        new_chart, = [part for part in additions if "rocx-chart" in part]
+        chart = etree.fromstring(dst.read(new_chart))
+        assert chart.xpath("//c:ser/c:cat/c:strLit/c:pt/c:v/text()", namespaces=NS) == ["Final"]
+        assert chart.xpath("//c:ser/c:val/c:numLit/c:pt/c:v/text()", namespaces=NS) == ["12"]
+        for name in src.namelist():
+            if name not in {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml"}:
+                assert src.read(name) == dst.read(name), name
+        root = etree.fromstring(dst.read("word/document.xml"))
+        assert root.xpath("//wp:docPr[@descr='Edited picture']", namespaces=NS)
+        assert root.xpath("//a:t[text()='Edited shape']", namespaces=NS)
+        assert root.xpath("//m:f[m:num/m:r/m:t='3' and m:den/m:r/m:t='7']", namespaces=NS)
+        ids = root.xpath("//wp:docPr/@id", namespaces=NS)
+        assert len(ids) == len(set(ids))
+        rid, = root.xpath("//c:chart/@odr:id", namespaces=NS)
+        assert document.part.related_parts[rid].blob == dst.read(new_chart)
 
 
 def main() -> None:

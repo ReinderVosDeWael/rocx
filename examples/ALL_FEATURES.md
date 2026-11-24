@@ -87,6 +87,10 @@ Output:
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared
   abstract numbering level (100, 0) start 7.
+- `.objects.docx` edits a picture description, redirects another picture's
+  asset, resizes a text box, removes an ellipse, replaces a shape/chart and
+  fraction, inserts a column chart, then forks its literal series. See the
+  [Rust, Python and JavaScript operation spellings](../docs/EDITOR-PARITY.md#drawing-and-fraction-occurrences).
 - `.controls.docx` demonstrates selection, wrapper insertion and complete
   replacement with a plain-text definition.
 
@@ -113,8 +117,9 @@ The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
 `all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
 `all_features-javascript.header-first-local.docx`, `all_features-javascript.run-text.docx`,
-`all_features-javascript.footer-even.docx`, `all_features-javascript.controls.docx`, and `all_features-javascript.entry-text.docx`. Repeat `--javascript-dir` to check
-multiple runtime outputs. The checker requires all twelve exact byte matches and
+`all_features-javascript.footer-even.docx`, `all_features-javascript.entry-text.docx`
+`all_features-javascript.controls.docx` and `all_features-javascript.objects.docx`. Repeat `--javascript-dir` to check
+multiple runtime outputs. The checker requires all thirteen exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
 In Chromium, import `generateCatalog` from `catalog.mjs` with the installed

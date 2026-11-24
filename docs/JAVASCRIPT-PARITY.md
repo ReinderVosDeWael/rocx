@@ -415,7 +415,7 @@ E04's report arrays; `before` is absent for a previously unset alignment.
    aligned inputs/assets/timestamps. Compare complete ZIP bytes for final,
    `.template.docx`, `.edited.docx`, `.run-text.docx`, `.header-source.docx`,
    `.header-shared.docx`, `.header-local.docx`, `.header-first-shared.docx`
-   plus `.header-first-local.docx`, `.footer-even.docx`, `.controls.docx` and `.entry-text.docx` on each runtime; no XML
+   plus `.header-first-local.docx`, `.footer-even.docx`, `.controls.docx`, `.entry-text.docx` and `.objects.docx` on each runtime; no XML
    normalization. Keep Rust/Python catalog/schema/OPC checks. Use ZIP part
    diffs only to diagnose byte mismatches.
 5. **Independent assertions:** besides bytes, check typed resolved/imported

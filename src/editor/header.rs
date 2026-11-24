@@ -465,6 +465,11 @@ impl HeaderBatch<'_> {
     ) -> Result<(Package, Vec<HeaderImageChange>)> {
         let mut changes = Vec::with_capacity(self.targets.len());
         let mut resources = None;
+        let floor = if self.targets.is_empty() {
+            0
+        } else {
+            crate::ooxml::defaults::drawing_node_ceiling(body)
+        };
         for (&(index, kind, variant), edit) in &self.targets {
             let (mut header, change) =
                 self.prepare_image(&mut package, main, body, (index, kind, variant), edit.mode)?;
@@ -473,6 +478,7 @@ impl HeaderBatch<'_> {
                 main,
                 &change.output_part,
                 &edit.image,
+                floor,
                 &mut resources,
             )?;
             package = staged;

@@ -783,6 +783,134 @@ pub async fn generate(output: &Path) -> Result<()> {
         })
         .collect();
     assert_eq!(targets.len(), 1);
+    {
+        use editor::{ImportedInlineNode as N, InlineAction as A, InlineEdit};
+        let nodes: Vec<_> = imported
+            .body()
+            .iter()
+            .filter_map(|b| match b {
+                editor::BodyBlock::Paragraph(p) => Some(&p.inline_structure),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let drawings = |kind| {
+            nodes.iter().filter_map(move |n| match n {
+                N::Run(r) if r.drawing.as_ref().is_some_and(|d| d.kind == kind) => {
+                    Some(r.anchor.clone())
+                }
+                _ => None,
+            })
+        };
+        let fraction = nodes
+            .iter()
+            .find_map(|n| match n {
+                N::Fraction {
+                    anchor,
+                    numerator,
+                    denominator,
+                } if numerator == "1" && denominator == "2" => Some(anchor.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let ResolvedInline::Image { image: asset, .. } = image("gif", None).await?.unwrap() else {
+            unreachable!()
+        };
+        let edits = [
+            (
+                drawings("shape").nth(2).unwrap(),
+                A::PatchDrawing(
+                    editor::DrawingProperty::Size,
+                    ShapeRun::new(ShapeProperties::default().with_width(75.).with_height(25.))
+                        .await?
+                        .unwrap(),
+                ),
+            ),
+            (drawings("image").nth(1).unwrap(), A::SetImageAsset(asset)),
+            (
+                drawings("image").next().unwrap(),
+                A::SetDrawingDescription(Some("Edited picture".into())),
+            ),
+            (
+                drawings("shape").next().unwrap(),
+                A::Replace(image("png", None).await?.unwrap()),
+            ),
+            (drawings("shape").nth(1).unwrap(), A::RemoveObject),
+            (
+                drawings("chart").next().unwrap(),
+                A::Replace(
+                    ShapeRun::new(
+                        ShapeProperties::default()
+                            .with_width(40.)
+                            .with_height(20.)
+                            .with_text("Edited shape"),
+                    )
+                    .await?
+                    .unwrap(),
+                ),
+            ),
+            (
+                label.anchor.clone(),
+                A::InsertAfter(
+                    ColumnChartRun::new(ColumnChartProperties {
+                        width: 120.,
+                        height: 80.,
+                        categories: vec!["Edited".into()],
+                        values: vec![9.],
+                    })
+                    .await?
+                    .unwrap(),
+                ),
+            ),
+            (
+                fraction,
+                A::Replace(InlineFraction::new("3", "7").await?.unwrap()),
+            ),
+        ]
+        .map(|(target, action)| InlineEdit { target, action });
+        let edited = imported.preview_edits(editor::EditBatch {
+            inline_edits: &edits,
+            ..Default::default()
+        })?;
+        assert_eq!(edited.inline_changes().len(), 8);
+        let next = editor::ImportedDocument::open(&edited.to_docx()?)?;
+        let anchor = next
+            .body()
+            .iter()
+            .find_map(|b| {
+                let editor::BodyBlock::Paragraph(p) = b else {
+                    return None;
+                };
+                p.inline_structure.iter().find_map(|n| match n {
+                    N::Run(r) if r.drawing.as_ref().is_some_and(|d| d.kind == "chart") => {
+                        Some(r.anchor.clone())
+                    }
+                    _ => None,
+                })
+            })
+            .unwrap();
+        assert_eq!(
+            next.chart_series(&anchor)?,
+            (vec!["Edited".into()], vec![9.])
+        );
+        let final_chart = ColumnChartRun::new(ColumnChartProperties {
+            width: 120.,
+            height: 80.,
+            categories: vec!["Final".into()],
+            values: vec![12.],
+        })
+        .await?
+        .unwrap();
+        let edit = [InlineEdit {
+            target: anchor,
+            action: A::PatchDrawing(editor::DrawingProperty::ChartSeries, final_chart),
+        }];
+        let fork = next.preview_edits(editor::EditBatch {
+            inline_edits: &edit,
+            ..Default::default()
+        })?;
+        std::fs::write(output.with_extension("objects.docx"), fork.to_docx()?)?;
+    }
     assert_eq!(
         targets[0].inline_items,
         [editor::ImportedInline::Text(EDIT_LABEL.into())]

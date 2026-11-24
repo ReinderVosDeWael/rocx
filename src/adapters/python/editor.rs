@@ -397,6 +397,8 @@ struct PyInlineAnchor {
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
 struct PyImportedRun {
     #[pyo3(get)]
+    drawing: Option<Py<PyDrawingOccurrence>>,
+    #[pyo3(get)]
     has_opaque_formatting: bool,
     #[pyo3(get)]
     bold: Option<bool>,
@@ -452,6 +454,31 @@ fn review_action(action: &str) -> PyResult<crate::TextRevisionAction> {
     }
 }
 
+#[pyclass(name = "DrawingOccurrence", frozen, get_all, module = "rocx.editor")]
+struct PyDrawingOccurrence {
+    title: Option<String>,
+    name: Option<String>,
+    geometry: Option<String>,
+    shape_text: Option<String>,
+    crop: Option<[i32; 4]>,
+    rotation: Option<i32>,
+    flip_horizontal: Option<bool>,
+    flip_vertical: Option<bool>,
+    kind: &'static str,
+    placement: &'static str,
+    relationship_id: Option<String>,
+    description: Option<String>,
+    width_emu: Option<i64>,
+    height_emu: Option<i64>,
+}
+
+#[pyclass(name = "ImportedFraction", frozen, get_all, module = "rocx.editor")]
+struct PyImportedFraction {
+    anchor: Py<PyInlineAnchor>,
+    numerator: String,
+    denominator: String,
+}
+
 #[pyclass(name = "ImportedHyperlink", frozen, module = "rocx.editor")]
 struct PyImportedHyperlink {
     #[pyo3(get)]
@@ -498,6 +525,31 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
         ImportedInlineNode::Run(run) => Py::new(
             py,
             PyImportedRun {
+                drawing: run
+                    .drawing
+                    .as_ref()
+                    .map(|d| {
+                        Py::new(
+                            py,
+                            PyDrawingOccurrence {
+                                title: d.title.clone(),
+                                name: d.name.clone(),
+                                geometry: d.geometry.clone(),
+                                shape_text: d.shape_text.clone(),
+                                crop: d.crop,
+                                rotation: d.rotation,
+                                flip_horizontal: d.flip_horizontal,
+                                flip_vertical: d.flip_vertical,
+                                kind: d.kind,
+                                placement: d.placement,
+                                relationship_id: d.relationship_id.clone(),
+                                description: d.description.clone(),
+                                width_emu: d.width_emu,
+                                height_emu: d.height_emu,
+                            },
+                        )
+                    })
+                    .transpose()?,
                 has_opaque_formatting: run.has_opaque_formatting,
                 bold: run.bold,
                 italic: run.italic,
@@ -542,6 +594,19 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                     .iter()
                     .map(|child| inline_object(py, child))
                     .collect::<PyResult<_>>()?,
+            },
+        )?
+        .into_any(),
+        ImportedInlineNode::Fraction {
+            anchor: target,
+            numerator,
+            denominator,
+        } => Py::new(
+            py,
+            PyImportedFraction {
+                anchor: anchor(target)?,
+                numerator: numerator.clone(),
+                denominator: denominator.clone(),
             },
         )?
         .into_any(),
@@ -952,6 +1017,46 @@ impl PyInlineEdit {
         }
     }
     #[staticmethod]
+    fn patch_drawing(
+        target: PyRef<'_, PyInlineAnchor>,
+        property: &str,
+        inline: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let property = editor::DrawingProperty::parse(property)
+            .ok_or_else(|| PyValueError::new_err("unknown drawing property"))?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::PatchDrawing(property, inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn set_image_asset(
+        target: PyRef<'_, PyInlineAnchor>,
+        image: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let crate::ResolvedInline::Image { image, .. } = inline_payload(image)? else {
+            return Err(PyTypeError::new_err("expected a resolved ImageRun"));
+        };
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetImageAsset(image),
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature = (target, value))]
+    fn set_drawing_description(target: PyRef<'_, PyInlineAnchor>, value: Option<String>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetDrawingDescription(value),
+            },
+        }
+    }
+    #[staticmethod]
     fn hyperlink_tooltip(target: PyRef<'_, PyInlineAnchor>, value: Option<String>) -> Self {
         Self {
             inner: editor::InlineEdit {
@@ -966,6 +1071,15 @@ impl PyInlineEdit {
             inner: editor::InlineEdit {
                 target: target.inner.clone(),
                 action: editor::InlineAction::HyperlinkHistory(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_object(target: PyRef<'_, PyInlineAnchor>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::RemoveObject,
             },
         }
     }
@@ -1998,7 +2112,16 @@ impl PyImportedDocument {
             .collect()
     }
 
-    /// Read a body or default-header run or hyperlink from this snapshot.
+    /// Read explicit labels and values from a direct body column chart.
+    fn chart_series(&self, target: PyRef<'_, PyInlineAnchor>) -> PyResult<(Vec<String>, Vec<f64>)> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .chart_series(&target.inner)
+            .map_err(rust_error)
+    }
+
+    /// Read the structured inline node identified by this snapshot's anchor.
     fn inline_at(&self, py: Python<'_>, target: PyRef<'_, PyInlineAnchor>) -> PyResult<Py<PyAny>> {
         let doc = self
             .inner
@@ -2261,6 +2384,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyInlineAnchor>()?;
     module.add_class::<PyImportedRun>()?;
     module.add_class::<PyImportedPropertyRevision>()?;
+    module.add_class::<PyImportedFraction>()?;
+    module.add_class::<PyDrawingOccurrence>()?;
     module.add_class::<PyImportedHyperlink>()?;
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;

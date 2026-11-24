@@ -21,7 +21,7 @@ mod ranges;
 pub(crate) mod revisions;
 pub(crate) use editor::{
     encode_editor_blocks, encode_editor_inlines, encode_editor_paragraphs, encode_editor_tables,
-    encode_header_image,
+    encode_header_image, image_asset_links,
 };
 pub(crate) struct Compiler<'a> {
     package: Package,

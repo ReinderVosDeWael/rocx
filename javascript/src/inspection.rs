@@ -25,6 +25,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedControlSites", (control_sites, Paths::Package)),
         ("importedSections", (sections, Paths::Package)),
         ("importedInlineAt", (inline_at, Paths::Package)),
+        ("importedChartSeries", (chart_series, Paths::Package)),
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
         ("importedStories", (stories, Paths::Package)),
         ("importedEntryStories", (entry_stories, Paths::Package)),
@@ -58,6 +59,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("previewControlChoice", "importedPreviewControlChoice"),
     ("sections", "importedSections"),
     ("inlineAt", "importedInlineAt"),
+    ("chartSeries", "importedChartSeries"),
     ("defaultHeaders", "importedDefaultHeaders"),
     ("stories", "importedStories"),
     ("entryStories", "importedEntryStories"),
@@ -428,6 +430,20 @@ fn inline_at(input: &Wire) -> Result<JsValue> {
     let target = b::borrow::<InlineSource>(&argument(&call, "anchor")?, "anchor")?;
     let node = source.document().inline_at(&target.anchor)?;
     view::inline_node(node, &source.anchors, target.story.as_ref())
+}
+
+fn chart_series(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let target = b::borrow::<InlineSource>(&argument(&call, "anchor")?, "anchor")?;
+    let (labels, values) = doc.document().chart_series(&target.anchor)?;
+    Ok(b::record(&[
+        (
+            "categories",
+            view::array(labels.into_iter().map(JsValue::from)),
+        ),
+        ("values", view::array(values.into_iter().map(JsValue::from))),
+    ]))
 }
 
 fn default_headers(input: &Wire) -> Result<JsValue> {

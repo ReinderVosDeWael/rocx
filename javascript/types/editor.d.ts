@@ -51,6 +51,10 @@ export interface HeaderImageEdit {
 }
 
 export type InlineEdit = { readonly target: InlineAnchor } & (
+  | { readonly kind: "removeObject" }
+  | { readonly kind: "patchDrawing"; readonly property: "size" | "placement" | "crop" | "transform" | "accessibility" | "shapeFill" | "shapeOutline" | "shapeText" | "chartSeries"; readonly inline: ResolvedInline }
+  | { readonly kind: "setImageAsset"; readonly image: ResolvedImage }
+  | { readonly kind: "setDrawingDescription"; readonly value: string | null }
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
   | { readonly kind: "setBold"; readonly bold: boolean }
   | { readonly kind: "setToggle"; readonly property: "bold" | "italic" | "strike" | "hidden"; readonly value: boolean | null }

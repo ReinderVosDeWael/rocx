@@ -114,6 +114,17 @@ pub(crate) fn encode_editor_inlines(
     }
     let styles = editor_styles(&package, main, refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
+    if inlines.iter().any(|i| {
+        matches!(
+            i,
+            ResolvedInline::Shape(_)
+                | ResolvedInline::ColumnChart(_)
+                | ResolvedInline::Image { .. }
+        )
+    }) {
+        renderer.drawing = DrawingId::new(super::defaults::drawing_ceiling(&renderer.package));
+        renderer.media = MediaRegistry::from_package(&renderer.package)?;
+    }
     let story = renderer
         .stories
         .register(kind, PartName::new(owner)?, StoryContent::Blocks)?;
@@ -199,6 +210,26 @@ fn collect_bookmark_targets<'a>(inline: &'a ResolvedInline, names: &mut BTreeSet
     }
 }
 
+/// Allocate relationships for occurrence-local asset changes; other users of
+/// both the old relationship and the old asset keep their original targets.
+pub(crate) fn image_asset_links(
+    package: &mut Package,
+    main: &str,
+    images: &[&ResolvedImage],
+) -> Result<Vec<String>> {
+    if images.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut media = MediaRegistry::from_package(package)?;
+    images
+        .iter()
+        .map(|image| {
+            let part = media.register(package, image)?;
+            package.link(main, "image", &part)
+        })
+        .collect()
+}
+
 pub(crate) fn encode_editor_tables(
     package: Package,
     main: &str,
@@ -234,6 +265,7 @@ pub(crate) fn encode_header_image(
     main: &str,
     header: &str,
     image: &ResolvedImage,
+    floor: u32,
     resources: &mut Option<HeaderImageResources>,
 ) -> Result<(Package, Node)> {
     if image.anchor.is_some() {
@@ -249,7 +281,7 @@ pub(crate) fn encode_header_image(
     let resources = match resources {
         Some(resources) => resources,
         None => resources.insert(HeaderImageResources {
-            drawing: DrawingId::new(super::defaults::drawing_ceiling(&package)),
+            drawing: DrawingId::new(floor.max(super::defaults::drawing_ceiling(&package))),
             media: MediaRegistry::from_package(&package)?,
         }),
     };
@@ -322,6 +354,21 @@ fn check_table(
     Ok(())
 }
 
+fn check_non_drawing_child(run: &ResolvedInline, scope: &'static str) -> Result<()> {
+    if matches!(
+        run,
+        ResolvedInline::Shape(_) | ResolvedInline::ColumnChart(_) | ResolvedInline::Image { .. }
+    ) {
+        return Err(Diagnostic::new(
+            Rule::UnsupportedEdit,
+            "drawing payload must be a direct inline",
+        )
+        .at(scope)
+        .into());
+    }
+    Ok(())
+}
+
 fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static str) -> Result<()> {
     if let Some(style) = run.format().and_then(|format| format.style.as_ref()) {
         styles.insert(("character", style.clone()));
@@ -337,14 +384,23 @@ fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static st
         | ResolvedInline::Fraction { .. } => Ok(()),
         ResolvedInline::Field(field) if scope == "editor.inline" => {
             for child in field.children() {
+                check_non_drawing_child(child, scope)?;
                 check_inline(child, styles, scope)?;
             }
+            Ok(())
+        }
+        ResolvedInline::Shape(_)
+        | ResolvedInline::ColumnChart(_)
+        | ResolvedInline::Image { comment: None, .. }
+            if scope == "editor.inline" =>
+        {
             Ok(())
         }
         ResolvedInline::Hyperlink(link)
             if scope == "editor.inline" || link.target().bookmark_name().is_none() =>
         {
             for child in link.children() {
+                check_non_drawing_child(child, scope)?;
                 check_inline(child, styles, scope)?;
             }
             Ok(())

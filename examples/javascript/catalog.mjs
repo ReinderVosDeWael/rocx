@@ -1,4 +1,4 @@
-import { openDocx, resolveComponent } from "rocx-docx";
+import { declarative as d, openDocx, resolveComponent } from "rocx-docx";
 import {
   HEADER_BATCH_LABEL, HEADER_INLINE_LABEL, HEADER_LINK_RUNS, STORY_VARIANTS,
   assert, assertBytes, authorCatalog, storyLabel,
@@ -8,6 +8,7 @@ import { hyperlink } from "./catalog/stories.mjs";
 
 export const catalogNames = Object.freeze({
   final: "all_features-javascript.docx",
+  objects: "all_features-javascript.objects.docx",
   template: "all_features-javascript.template.docx",
   edited: "all_features-javascript.edited.docx",
   headerSource: "all_features-javascript.header-source.docx",
@@ -179,6 +180,28 @@ export async function generateCatalog(fixtures, options) {
     controls[0].lock === "sdtLocked", "incorrect block control metadata");
   const inline = body.find((node) => node.kind === "paragraph" && node.text === INLINE_LABEL + INLINE_LINK_RUNS.join(""));
   assert(inline, "expected labeled body inline structure");
+  const nodes = body.flatMap(b => b.inlineStructure ?? []);
+  const drawings = kind => nodes.filter(n => n.drawing?.kind === kind).map(n => n.anchor);
+  const fraction = nodes.find(n => n.kind === "fraction" && n.numerator === "1" && n.denominator === "2");
+  const objectEdits = [
+    {kind: "setDrawingDescription", target: drawings("image")[0], value: "Edited picture"},
+    {kind: "setImageAsset", target: drawings("image")[1], image: (await resolveComponent(image("gif"))).view.image},
+    {kind: "patchDrawing", target: drawings("shape")[2], property: "size", inline: await resolveComponent(d.ShapeRun({width: 75, height: 25}))},
+    {kind: "replace", target: drawings("shape")[0], inline: await resolveComponent(image("png"))},
+    {kind: "removeObject", target: drawings("shape")[1]},
+    {kind: "replace", target: drawings("chart")[0], inline: await resolveComponent(d.ShapeRun({width: 40, height: 20, text: "Edited shape"}))},
+    {kind: "insertAfter", target: inline.inlineStructure[0].anchor, inline: await resolveComponent(d.ColumnChartRun({width: 120, height: 80, categories: ["Edited"], values: [9]}))},
+    {kind: "replace", target: fraction.anchor, inline: await resolveComponent(d.InlineFraction("3", "7"))},
+  ];
+  const openedObjects = await openDocx(imported.preview({inlineEdits: objectEdits}).toDocx());
+  const chart = openedObjects.body().flatMap(b => b.inlineStructure ?? []).find(n => n.drawing?.kind === "chart");
+  const series = openedObjects.chartSeries(chart.anchor);
+  assert(series.categories[0] === "Edited" && series.values[0] === 9, "incorrect literal chart readback");
+  const objects = openedObjects.preview({inlineEdits: [{kind: "patchDrawing", target: chart.anchor, property: "chartSeries",
+    inline: await resolveComponent(d.ColumnChartRun({width: 120, height: 80, categories: ["Final"], values: [12]}))}]}).toDocx();
+  assertThrows(() => openedObjects.preview({inlineEdits: objectEdits}), "accepted a foreign object anchor");
+  assertThrows(() => imported.preview({inlineEdits: [objectEdits[0], objectEdits[0]]}), "accepted duplicate drawing edits");
+  assert(imported.inlineAt(fraction.anchor).numerator === "1", "failed object edit changed the source");
   const entries = imported.entryStories();
   for (const kind of ["footnote", "endnote"]) {
     assert(entries.some((entry) => entry.kind === kind && entry.id === "0"), `missing ${kind}`);
@@ -395,5 +418,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, controls:controlSample };
+  return { final, template, edited, objects, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, controls:controlSample };
 }

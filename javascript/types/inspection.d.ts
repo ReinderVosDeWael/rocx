@@ -55,6 +55,7 @@ export type ImportedInline =
   | ImportedOpaque;
 
 export interface ImportedRun {
+  readonly drawing?: DrawingOccurrence;
   /** Direct toggle properties; absent when unset or ambiguous. */
   readonly bold?: boolean;
   readonly italic?: boolean;
@@ -88,7 +89,30 @@ export interface ImportedRevision {
   readonly children: readonly ImportedInlineNode[];
 }
 
-export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque;
+export interface DrawingOccurrence {
+  readonly title?: string;
+  readonly name?: string;
+  readonly geometry?: string;
+  readonly shapeText?: string;
+  /** DrawingML units: crop in thousandths of a percent, rotation in 1/60000 degrees. */
+  readonly crop?: readonly [number, number, number, number];
+  readonly rotation?: number;
+  readonly flipHorizontal?: boolean;
+  readonly flipVertical?: boolean;
+  readonly kind: "image" | "shape" | "chart";
+  readonly placement: "inline" | "floating";
+  readonly relationshipId?: string;
+  readonly description?: string;
+  readonly widthEmu?: number;
+  readonly heightEmu?: number;
+}
+export interface ImportedFraction {
+  readonly kind: "fraction";
+  readonly anchor: InlineAnchor;
+  readonly numerator: string;
+  readonly denominator: string;
+}
+export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque | ImportedFraction;
 
 export interface ImportedFlatParagraph {
   readonly kind: "paragraph";
@@ -228,13 +252,14 @@ export interface ImportedStyles {
   readonly styles: readonly ImportedStyle[];
 }
 export interface ImportedDocument {
+  chartSeries(anchor: InlineAnchor): { readonly categories: readonly string[]; readonly values: readonly number[] };
   controls(): readonly ImportedControl[];
   controlSites(): readonly ControlSite[];
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
   sections(): readonly ImportedSection[];
   /** Rejects anchors issued by any other snapshot, including reopening identical bytes. */
-  inlineAt(anchor: InlineAnchor): ImportedRun | ImportedHyperlink;
+  inlineAt(anchor: InlineAnchor): ImportedRun | ImportedHyperlink | ImportedRevision | ImportedFraction;
   /** Lazily inspect effective default headers; sections without one are omitted. */
   defaultHeaders(): readonly ImportedHeader[];
   /**

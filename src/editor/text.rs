@@ -46,6 +46,10 @@ pub enum InlineAction {
     HyperlinkTooltip(Option<String>),
     /// Set or clear the hyperlink's history flag.
     HyperlinkHistory(Option<bool>),
+    SetDrawingDescription(Option<String>),
+    SetImageAsset(crate::ResolvedImage),
+    PatchDrawing(super::DrawingProperty, crate::ResolvedInline),
+    RemoveObject,
     /// Set (true/false) or clear (None) a direct property, without resolving styles.
     SetToggle(RunToggle, Option<bool>),
 }
@@ -84,6 +88,11 @@ pub(super) enum Action {
     Remove,
     After(Vec<Node>),
     Replace(Vec<Node>),
+    Description(Option<String>),
+    Asset(String),
+    Drawing(super::DrawingProperty, Node),
+    Chart(String),
+    RemoveObject,
     Toggle(RunToggle, Option<bool>),
     RemoveHyperlink,
     LinkProperty(&'static str, Option<String>),
@@ -92,10 +101,12 @@ pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
 pub(super) fn prepare(
     package: crate::opc::Package,
-    main: &str,
+    doc: &super::ImportedDocument,
     edits: &[InlineEdit],
 ) -> Result<(crate::opc::Package, Targets)> {
+    let main = doc.main.as_str();
     let mut ordered = BTreeMap::new();
+    let mut charts = BTreeMap::new();
     for edit in edits {
         let (InlineLocation::Body(body), [inline]) =
             (&edit.target.location, edit.target.path.as_slice())
@@ -107,8 +118,21 @@ pub(super) fn prepare(
         if ordered.insert((*body, *inline), &edit.action).is_some() {
             return Err(unsupported("duplicate inline target"));
         }
+        if let InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, i) = &edit.action {
+            let crate::ResolvedInline::ColumnChart(chart) = i else {
+                return Err(unsupported("expected a resolved column chart"));
+            };
+            charts.insert((*body, *inline), (doc.chart_id(&edit.target)?, chart));
+        }
     }
-    render_actions(package, main, main, crate::StoryKind::Body, ordered)
+    render_actions(
+        package,
+        main,
+        main,
+        crate::StoryKind::Body,
+        ordered,
+        charts.into_values().collect(),
+    )
 }
 
 fn render_actions<K: Ord>(
@@ -117,6 +141,7 @@ fn render_actions<K: Ord>(
     owner: &str,
     kind: crate::StoryKind,
     ordered: BTreeMap<K, &InlineAction>,
+    charts: Vec<(&str, &crate::ColumnChartProperties)>,
 ) -> Result<(crate::opc::Package, BTreeMap<K, Action>)> {
     let payloads: Vec<_> = ordered
         .values()
@@ -125,12 +150,51 @@ fn render_actions<K: Ord>(
             _ => None,
         })
         .collect();
-    let (package, nodes) = if payloads.is_empty() {
+    let (mut package, nodes) = if payloads.is_empty() {
         (package, vec![])
     } else {
         crate::ooxml::encode_editor_inlines(package, main, owner, kind, &payloads)?
     };
     let mut nodes = nodes.into_iter();
+    let images: Vec<_> = ordered
+        .values()
+        .filter_map(|a| match a {
+            InlineAction::SetImageAsset(i) => Some(i),
+            _ => None,
+        })
+        .collect();
+    let mut links = crate::ooxml::image_asset_links(&mut package, owner, &images)?.into_iter();
+    let mut chart_links = charts
+        .into_iter()
+        .map(|(id, c)| super::objects::chart::fork(&mut package, owner, id, c))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter();
+    let patches: Vec<_> = ordered
+        .values()
+        .filter_map(|a| match a {
+            InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _) => None,
+            InlineAction::PatchDrawing(_, i) => Some(i),
+            _ => None,
+        })
+        .collect();
+    let mut rendered = Vec::new();
+    if !patches.is_empty() {
+        if patches.iter().any(|i| {
+            !matches!(
+                i,
+                crate::ResolvedInline::Shape(_)
+                    | crate::ResolvedInline::ColumnChart(_)
+                    | crate::ResolvedInline::Image { comment: None, .. }
+            )
+        }) {
+            return Err(unsupported("expected a resolved drawing"));
+        }
+        // The declaration supplies property XML only. Its media, drawing IDs
+        // and chart parts must not leak into the output package.
+        rendered =
+            crate::ooxml::encode_editor_inlines(package.clone(), main, owner, kind, &patches)?.1;
+    }
+    let mut rendered = rendered.into_iter();
     Ok((
         package,
         ordered
@@ -141,6 +205,15 @@ fn render_actions<K: Ord>(
                     match action {
                         InlineAction::InsertAfter(_) => Action::After(nodes.next().unwrap()),
                         InlineAction::Replace(_) => Action::Replace(nodes.next().unwrap()),
+                        InlineAction::SetDrawingDescription(s) => Action::Description(s.clone()),
+                        InlineAction::SetImageAsset(_) => Action::Asset(links.next().unwrap()),
+                        InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _) => {
+                            Action::Chart(chart_links.next().unwrap())
+                        }
+                        InlineAction::PatchDrawing(property, _) => {
+                            Action::Drawing(*property, rendered.next().unwrap().pop().unwrap())
+                        }
+                        InlineAction::RemoveObject => Action::RemoveObject,
                         InlineAction::SetBold(b) => Action::Toggle(RunToggle::Bold, Some(*b)),
                         InlineAction::SetToggle(prop, value) => Action::Toggle(*prop, *value),
                         InlineAction::RemoveHyperlink => Action::RemoveHyperlink,
@@ -390,6 +463,25 @@ pub(super) fn disposable_run(run: &Node, tag: &str, text: &str) -> bool {
 }
 
 pub(super) fn check_whole(node: &Node, discard: bool) -> Result<()> {
+    if super::objects::fraction(node).is_some() {
+        return Ok(());
+    }
+    if super::objects::drawing(node).is_some() {
+        if opaque_content(node)
+            || node.elements().filter(|n| n.name == "w:rPr").count() > 1
+            || node.child("w:rPr").is_some_and(|p| {
+                p.child("w:rPrChange").is_some()
+                    || p.child(super::ALTERNATE).is_some()
+                    || discard && !disposable_properties(p)
+            })
+            || discard
+                && (has_other_attrs(node, &[])
+                    || !super::objects::disposable(node.child("w:drawing").unwrap()))
+        {
+            return Err(unsupported("drawing has opaque content"));
+        }
+        return Ok(());
+    }
     if node.name != "w:hyperlink" {
         return check_run(node, discard);
     }
@@ -503,6 +595,34 @@ fn apply_targets(
                         splices.push((slot..slot + 1, Vec::new()));
                         inline_changes.push((body_index, inline_index));
                     }
+                    Action::Chart(id) => {
+                        check_whole(child, false)?;
+                        if super::objects::chart_link(child, &id)? {
+                            inline_changes.push((body_index, inline_index));
+                        }
+                    }
+                    Action::Drawing(property, src) => {
+                        check_whole(child, false)?;
+                        if super::objects::patch(child, &src, property)? {
+                            inline_changes.push((body_index, inline_index));
+                        }
+                    }
+                    Action::Asset(id) => {
+                        check_whole(child, false)?;
+                        if super::objects::image_asset(child, &id)? {
+                            inline_changes.push((body_index, inline_index));
+                        }
+                    }
+                    Action::RemoveObject => {
+                        if super::objects::drawing(child).is_none()
+                            && super::objects::fraction(child).is_none()
+                        {
+                            return Err(unsupported("expected a supported object occurrence"));
+                        }
+                        check_whole(child, true)?;
+                        splices.push((slot..slot + 1, Vec::new()));
+                        inline_changes.push((body_index, inline_index));
+                    }
                     Action::LinkProperty(key, value) => {
                         if child.name != "w:hyperlink" {
                             return Err(unsupported("expected a hyperlink"));
@@ -518,6 +638,12 @@ fn apply_targets(
                             if let Some(v) = value {
                                 child.set(key, v);
                             }
+                            inline_changes.push((body_index, inline_index));
+                        }
+                    }
+                    Action::Description(value) => {
+                        check_whole(child, false)?;
+                        if super::objects::description(child, value.as_deref())? {
                             inline_changes.push((body_index, inline_index));
                         }
                     }
@@ -619,6 +745,29 @@ impl super::ImportedDocument {
                 return Err(unsupported("expected a direct entry inline"));
             };
             let e = self.editable_entry(owner_part, *index, &mut counts)?;
+            if matches!(
+                edit.action,
+                InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _)
+            ) {
+                return Err(unsupported(
+                    "chart series patches require a direct body occurrence",
+                ));
+            }
+            if matches!(
+                self.inline_at(&edit.target)?,
+                super::ImportedInlineNode::Fraction { .. }
+                    | super::ImportedInlineNode::Run(super::ImportedRun {
+                        drawing: Some(super::DrawingOccurrence {
+                            kind: "chart" | "shape",
+                            ..
+                        }),
+                        ..
+                    })
+            ) {
+                return Err(unsupported(
+                    "only picture occurrences are editable in entry stories",
+                ));
+            }
             kind = Some(match e.kind {
                 super::EntryKind::Comment => crate::StoryKind::Comment,
                 super::EntryKind::Footnote => crate::StoryKind::Footnote,
@@ -632,8 +781,14 @@ impl super::ImportedDocument {
             }
         }
         let kind = kind.ok_or_else(|| unsupported("expected an entry inline edit"))?;
-        let (mut package, actions) =
-            render_actions(self.package.clone(), &self.main, owner_part, kind, ordered)?;
+        let (mut package, actions) = render_actions(
+            self.package.clone(),
+            &self.main,
+            owner_part,
+            kind,
+            ordered,
+            vec![],
+        )?;
         let mut groups = BTreeMap::<usize, Targets>::new();
         for ((entry, block, inline), action) in actions {
             groups

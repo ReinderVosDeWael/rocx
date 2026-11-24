@@ -23,10 +23,12 @@ mod controls;
 mod entries;
 mod header;
 mod insertion;
+mod objects;
 pub(crate) use insertion::BoundaryState;
 mod fields;
 pub use fields::{FieldPatch, ImportedField};
 mod paired;
+pub use objects::{DrawingOccurrence, DrawingProperty};
 pub use paired::BodyRangeMarker;
 mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
@@ -327,6 +329,11 @@ impl Eq for InlineAnchor {}
 #[non_exhaustive]
 pub enum ImportedInlineNode {
     Run(ImportedRun),
+    Fraction {
+        anchor: InlineAnchor,
+        numerator: String,
+        denominator: String,
+    },
     Hyperlink(ImportedHyperlink),
     Revision(ImportedRevision),
     /// Unsupported element, retained in place without inspecting its contents.
@@ -350,6 +357,7 @@ pub struct ImportedRevision {
 #[non_exhaustive]
 pub struct ImportedRun {
     pub anchor: InlineAnchor,
+    pub drawing: Option<DrawingOccurrence>,
     /// Direct toggles only. Absent or ambiguous properties are None.
     pub bold: Option<bool>,
     pub italic: Option<bool>,
@@ -960,7 +968,7 @@ impl ImportedDocument {
             let mut block_plan =
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            let (staged, actions) = text::prepare(package, &self.main, inline_edits)?;
+            let (staged, actions) = text::prepare(package, self, inline_edits)?;
             package = tables::structure(body, staged, &self.main, structural, cells)?;
             (run_text_changes, removed_runs) =
                 text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
@@ -1143,6 +1151,7 @@ fn read_inline_nodes<'a>(
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
+                        drawing: objects::drawing(node),
                         bold: text::direct_toggle(node, RunToggle::Bold).ok().flatten(),
                         italic: text::direct_toggle(node, RunToggle::Italic).ok().flatten(),
                         strike: text::direct_toggle(node, RunToggle::Strike).ok().flatten(),
@@ -1191,7 +1200,15 @@ fn read_inline_nodes<'a>(
                 }
                 name => {
                     flat.push(ImportedInline::Opaque(name.to_owned()));
-                    ImportedInlineNode::Opaque(name.to_owned())
+                    if let Some((numerator, denominator)) = objects::fraction(node) {
+                        ImportedInlineNode::Fraction {
+                            anchor: address.clone(),
+                            numerator,
+                            denominator,
+                        }
+                    } else {
+                        ImportedInlineNode::Opaque(name.to_owned())
+                    }
                 }
             };
             address.path.pop();
