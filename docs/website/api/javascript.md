@@ -259,6 +259,9 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   locate direct physical paragraphs for `storyParagraphNumbering(anchor)` and
   the corresponding edit. Clear an override or direct reference with `value: null`.
   Live references and opaque content can block removal.
+  `numberingCatalog()` reads modeled abstract and concrete levels, their
+  label and paragraph formats, and exact stored style links. It does not
+  synthesize missing properties or flatten inherited levels.
 
 ```javascript
 import { openDocx } from "rocx-docx";

@@ -635,3 +635,83 @@ def test_style_retarget_transport(cli, tmp_path):
     assert readback.paragraphs[0].style.name == "Migration Destination Test"
     assert readback.sections[0].header.paragraphs[0].style.name == "Migration Destination Test"
     assert "Migration Source Test" not in readback.styles
+
+
+def test_full_numbering_catalog_and_reciprocal_link_guards(cli, tmp_path):
+    from runpy import run_path
+    from rocx.editor import ResourceEdit as R
+
+    fixture = run_path(str(FIXTURES / "generate_numbering_catalog.py"))
+    source, output = tmp_path / "linked.docx", tmp_path / "edited.docx"
+    source.write_bytes(fixture["source"]())
+    doc = ImportedDocument.open(source.read_bytes())
+    seen = call(cli, "inspect", source)
+    catalog = doc.numbering_catalog
+    assert seen["numbering_catalog"] == catalog
+    owner = next(a for a in catalog["abstracts"] if a["abstract_id"] == 710)
+    alias = next(a for a in catalog["abstracts"] if a["abstract_id"] == 711)
+    concrete = next(i for i in catalog["instances"] if i["num_id"] == 712)
+    assert alias == dict(abstract_id=711, num_style_link="FixtureList", levels=[])
+    assert owner["style_link"] == concrete["style_ids"][0] == "FixtureList"
+    level, = owner["levels"]
+    assert not level["has_opaque_content"]
+    assert concrete["level_overrides"] == [level]
+    assert concrete["start_overrides"] == [dict(level=0, start=6)]
+    assert {k: level[k] for k in ("level", "start", "format", "text", "restart", "is_legal",
+                                  "suffix", "alignment", "paragraph_style")} == dict(
+        level=0, start=1, format="lowerRoman", text="(%1)", restart=0, is_legal=False,
+        suffix="nothing", alignment="end", paragraph_style="Heading1")
+    assert level["label_format"] == dict(font="Aptos", font_east_asia="Mincho", font_complex_script="Arial",
+        bold=False, italic=True, bold_complex_script=False, size=12.5, size_complex_script=13,
+        underline="double", subscript=True, color=dict(theme="accent2", tint=16),
+        language=dict(latin="en-US", east_asia="ja-JP", bidi="ar"))
+    assert level["paragraph_format"] == dict(keep_with_next=False, alignment="center",
+        left_indent=24, right_indent=2, first_line_indent=-12, spacing_before=1, spacing_after=2,
+        line_height=dict(kind="exact", value=10),
+        tab_stops=[dict(position=12, alignment="right", leader="dot")])
+    edits = [
+        dict(kind="replace-abstract", abstract_id=710, levels=[fixture["LEVEL"]]),
+        dict(kind="paragraph-numbering", target=0, value=dict(id=713, level=0)),
+        dict(kind="document-default", field="trackRevisions", value=False),
+        dict(kind="metadata", field="comments", value="Numbering fixture review"),
+    ]
+    result = checked_copy(cli, source, output, edits)
+    assert output.read_bytes() == doc.preview([], resources=fixture["edits"](doc)).to_docx()
+    original, changed = parts(source), parts(output)
+    assert {p for p in original if original[p] != changed[p]} == {
+        "word/numbering.xml", "word/document.xml", "word/settings.xml", "docProps/core.xml"}
+    assert next(i for i in result["numbering_catalog"]["instances"] if i["num_id"] == 712) == concrete
+    assert next(a for a in result["numbering_catalog"]["abstracts"] if a["abstract_id"] == 711) == alias
+    typed = next(a for a in result["numbering_catalog"]["abstracts"] if a["abstract_id"] == 710)
+    assert typed["style_link"] == "FixtureList" and typed["levels"][0]["paragraph_style"] == "Heading2"
+    assert docx.Document(output).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["713"]
+    assert call(cli, "inspect", output, metadata_fields=["comments", "description"])["metadata"] == {
+        "comments": "Numbering fixture review", "description": "Numbering fixture review"}
+    noop = call(cli, "preview", output, snapshot=result["snapshot"], edits=[])
+    assert call(cli, "preview", output, snapshot=result["snapshot"], edits=edits) == noop
+
+    rejected = tmp_path / "rejected.docx"
+    for bad in [
+        dict(kind="relink-instance", num_id=712, abstract_id=0),
+        dict(kind="abstract-level", abstract_id=710, level=0, value=None),
+        dict(kind="abstract-level", abstract_id=711, level=0, value=fixture["LEVEL"]),
+        dict(kind="remove-instance", num_id=712),
+        dict(kind="abstract-level", abstract_id=710, level=0, value=fixture["LEVEL"] | {"paragraph_style": "Unknown"}),
+    ]:
+        call(cli, "save-copy", output, success=False, snapshot=result["snapshot"],
+             edits=[bad], output=str(rejected))
+        assert not rejected.exists()
+    call(cli, "preview", source, success=False, snapshot=seen["snapshot"],
+         edits=[edits[3], dict(kind="metadata", field="description", value=None)])
+    for fault, error in [("opaque", "unmodeled"), ("dangling", "nonreciprocal"), ("nonreciprocal", "nonreciprocal")]:
+        path = tmp_path / f"{fault}.docx"
+        path.write_bytes(fixture["source"](fault))
+        bad = ImportedDocument.open(path.read_bytes())
+        if fault == "opaque":
+            assert next(a for a in bad.numbering_catalog["abstracts"] if a["abstract_id"] == 710)["levels"][0]["has_opaque_content"]
+        seen = call(cli, "inspect", path)
+        assert error in call(cli, "save-copy", path, success=False, snapshot=seen["snapshot"],
+                             edits=[edits[0]], output=str(rejected))
+        assert not rejected.exists()
+        with pytest.raises(ValueError, match=error):
+            bad.preview([], resources=fixture["edits"](bad))

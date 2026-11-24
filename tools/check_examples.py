@@ -895,10 +895,14 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
         numbers = etree.fromstring(changed.read("word/numbering.xml"))
         comments = etree.fromstring(changed.read("word/comments.xml"))
         assert comments.xpath("w:comment[@w:author='Structured reviewer']/w:p/w:pPr/w:numPr/w:numId/@w:val", namespaces=NS) == ["9049"]
-        assert numbers.xpath("w:num[@w:numId='8']/w:abstractNumId/@w:val", namespaces=NS) == ["0"]
-        assert numbers.xpath("w:num[@w:numId='9']/w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val", namespaces=NS) == ["12"]
-        for aid, fmt in [("0", "upperLetter"), ("1", "upperRoman")]:
+        assert numbers.xpath("w:num[@w:numId='64']/w:abstractNumId/@w:val", namespaces=NS) == ["100"]
+        assert numbers.xpath("w:num[@w:numId='65']/w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val", namespaces=NS) == ["12"]
+        for aid, fmt in [("102", "upperLetter"), ("103", "upperRoman")]:
             assert numbers.xpath("w:abstractNum[@w:abstractNumId=$aid]/w:lvl/w:numFmt/@w:val", namespaces=NS, aid=aid) == [fmt]
+        assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:styleLink/@w:val", namespaces=NS) == ["CatalogBullets"]
+        assert numbers.xpath("w:abstractNum[@w:abstractNumId='101']/w:numStyleLink/@w:val", namespaces=NS) == ["CatalogBullets"]
+        assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='1']/w:pStyle/@w:val", namespaces=NS) == ["Heading2"]
+        assert edited_doc.core_properties.comments == "Reviewed numbering"
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["7"]
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='9048']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["2"]
         instance, = numbers.xpath("w:num[@w:numId='9049']", namespaces=NS)

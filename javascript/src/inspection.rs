@@ -39,6 +39,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ),
         ("importedAbstractStarts", (abstract_starts, Paths::Package)),
         (
+            "importedNumberingCatalog",
+            (numbering_catalog, Paths::Package),
+        ),
+        (
             "importedCellParagraphAnchor",
             (cell_paragraph_anchor, Paths::Package),
         ),
@@ -84,6 +88,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("defaultAlignment", "importedDefaultAlignment"),
     ("abstractStarts", "importedAbstractStarts"),
     ("numberingInstances", "importedNumberingInstances"),
+    ("numberingCatalog", "importedNumberingCatalog"),
     ("paragraphNumbering", "importedParagraphNumbering"),
     ("cellParagraphAnchor", "importedCellParagraphAnchor"),
     ("storyParagraphAnchor", "importedStoryParagraphAnchor"),
@@ -331,6 +336,47 @@ fn numbering_instances(input: &Wire) -> Result<JsValue> {
             ])
         }),
     ))
+}
+
+fn numbering_catalog(input: &Wire) -> Result<JsValue> {
+    use crate::styles::{imported_numbering_level as level, start_override_view};
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    let catalog = doc.document().numbering_catalog()?;
+    let abstracts = view::array(catalog.abstracts.iter().map(|a| {
+        let record = b::record(&[
+            ("abstractId", a.abstract_id.into()),
+            ("levels", view::array(a.levels.iter().map(level))),
+        ]);
+        if let Some(value) = &a.style_link {
+            b::set(&record, "styleLink", &value.as_str().into());
+        }
+        if let Some(value) = &a.num_style_link {
+            b::set(&record, "numStyleLink", &value.as_str().into());
+        }
+        record
+    }));
+    let instances = view::array(catalog.instances.iter().map(|n| {
+        b::record(&[
+            ("numId", n.num_id.into()),
+            ("abstractId", n.abstract_id.into()),
+            (
+                "styleIds",
+                view::array(n.style_ids.iter().map(|s| s.as_str().into())),
+            ),
+            (
+                "startOverrides",
+                view::array(n.start_overrides.iter().map(start_override_view)),
+            ),
+            (
+                "levelOverrides",
+                view::array(n.level_overrides.iter().map(level)),
+            ),
+        ])
+    }));
+    Ok(b::record(&[
+        ("abstracts", abstracts),
+        ("instances", instances),
+    ]))
 }
 
 fn paragraph_numbering(input: &Wire) -> Result<JsValue> {

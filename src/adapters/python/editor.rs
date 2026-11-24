@@ -1895,6 +1895,19 @@ impl PyImportedDocument {
             })
             .collect())
     }
+    /// Direct numbering levels, overrides and stored style links.
+    #[getter]
+    fn numbering_catalog<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let catalog = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .numbering_catalog()
+            .map_err(rust_error)?;
+        let json =
+            serde_json::to_string(&catalog).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        py.import("json")?.getattr("loads")?.call1((json,))
+    }
     fn paragraph_numbering(
         &self,
         target: PyRef<'_, PyParagraphAnchor>,

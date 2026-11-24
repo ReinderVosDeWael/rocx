@@ -147,7 +147,15 @@ exclusive `body_end`, direct `flags`, and `section_type_xml`.
 `kind`, `name`, optional `base_style` and, except for tables, optional boolean
 `bold` and `italic`. A `numbering` definition takes `name` and `numbering_id`.
 A numbering level takes `level`, `start`, `format`, `text`, and optionally
-`is_legal` and `restart`. A `style-region` format object accepts `bold`, `italic`,
+`is_legal`, `restart`, `alignment`, `suffix`, `paragraph_style`, `label_format`
+and `paragraph_format`. The two format records use snake-case modeled
+properties and point units. For example, `label_format` can be
+`{"bold":false,"size":12.5,"color":{"theme":"accent2","tint":16}}`, and
+`paragraph_format` can be
+`{"line_height":{"kind":"exact","value":11},"first_line_indent":-9}`.
+Line-height kinds are `exact`, `at-least`, and `multiple`. `inspect` returns
+`numbering_catalog` with complete modeled levels and stored style links.
+`has_opaque_content` is read-only. A `style-region` format object accepts `bold`, `italic`,
 `underline`, `font`, `font_size`, `color`, `background`, `alignment`,
 `spacing_before`, `spacing_after`, and `bidi`. Colors are arrays of three RGB
 bytes. These are declaration shorthands; the editor validates the resolved

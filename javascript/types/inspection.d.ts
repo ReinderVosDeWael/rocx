@@ -1,8 +1,9 @@
 import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 import type { TableLayout } from "./tables.js";
+import type { ResolvedParagraphFormat, ResolvedRunFormat } from "./text-layout.js";
 
 declare const anchor: unique symbol;
-export type MetadataField = "title" | "subject" | "creator" | "description" | "category" | "keywords" | "version"
+export type MetadataField = "title" | "subject" | "creator" | "description" | "comments" | "category" | "keywords" | "version"
   | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
   | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
@@ -267,6 +268,7 @@ export interface ImportedDocument {
   documentDefaults(): Partial<DefaultValues>;
   abstractStarts(): readonly AbstractStart[];
   numberingInstances(): readonly ImportedNumberingInstance[];
+  numberingCatalog(): ImportedNumberingCatalog;
   storyParagraphAnchor(site: { readonly ownerPart: string; readonly blockIndex: number; readonly entryId?: string }): StoryParagraphAnchor;
   cellParagraphAnchor(site: { readonly target: TableAnchor; readonly rowIndex: number; readonly cellIndex: number; readonly blockIndex: number }): StoryParagraphAnchor;
   storyParagraphNumbering(target: StoryParagraphAnchor): { readonly id: number; readonly level: number } | undefined;
@@ -284,6 +286,37 @@ export interface ImportedNumberingInstance {
   readonly numId: number;
   readonly abstractId: number;
   readonly startOverrides: readonly { readonly level: number; readonly start: number }[];
+}
+
+export interface ImportedNumberingLevel {
+  readonly level: number;
+  readonly start?: number;
+  readonly format?: string;
+  readonly text?: string;
+  readonly isLegal?: boolean;
+  readonly restart?: number;
+  readonly suffix?: "tab" | "space" | "nothing";
+  readonly alignment?: "left" | "center" | "right" | "start" | "end";
+  readonly paragraphStyle?: string;
+  readonly labelFormat?: ResolvedRunFormat;
+  readonly paragraphFormat?: ResolvedParagraphFormat;
+  readonly hasOpaqueContent: boolean;
+}
+
+export interface ImportedNumberingCatalog {
+  readonly abstracts: readonly {
+    readonly abstractId: number;
+    readonly styleLink?: string;
+    readonly numStyleLink?: string;
+    readonly levels: readonly ImportedNumberingLevel[];
+  }[];
+  readonly instances: readonly {
+    readonly numId: number;
+    readonly abstractId: number;
+    readonly styleIds: readonly string[];
+    readonly startOverrides: ImportedNumberingInstance["startOverrides"];
+    readonly levelOverrides: readonly ImportedNumberingLevel[];
+  }[];
 }
 
 export interface OpenDocxOptions {

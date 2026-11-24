@@ -242,15 +242,17 @@ export async function generateCatalog(fixtures, options) {
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
       {kind: "coreSubject", value: "Imported resource edits"},
+      {kind: "metadata", field: "comments", value: "Reviewed numbering"},
       {kind:"documentDefault", field:"bold", value:false}, {kind:"documentDefault", field:"footnoteStart", value:5},
       {kind:"documentDefault", field:"afterTwips", value:null},
       {kind: "metadata", field: "creator", value: "Review team"},
       {kind: "metadata", field: "manager", value: "Review lead"},
       {kind: "customProperty", name: "Reviewed", value: false},
-      {kind: "replaceAbstract", abstractId: 0, levels: [{level: 0, start: 3, format: "upperLetter", text: "%1)"}]},
-      {kind: "abstractLevel", abstractId: 1, level: 0, value: {level: 0, start: 4, format: "upperRoman", text: "%1."}},
-      {kind: "relinkInstance", numId: 8, abstractId: 0},
-      {kind: "replaceInstance", definition: {id: 9, abstractId: 1, startOverrides: [{level: 0, start: 12}]}},
+      {kind: "replaceAbstract", abstractId: 102, levels: [{level: 0, start: 3, format: "upperLetter", text: "%1)"}]},
+      {kind: "abstractLevel", abstractId: 103, level: 0, value: {level: 0, start: 4, format: "upperRoman", text: "%1."}},
+      {kind: "relinkInstance", numId: 64, abstractId: 100},
+      {kind: "replaceInstance", definition: {id: 65, abstractId: 103, startOverrides: [{level: 0, start: 12}]}},
+      {kind: "abstractLevel", abstractId: 100, level: 1, value: {level: 1, start: 1, format: "decimal", text: "%2.", paragraphStyle: "Heading 2"}},
       {kind: "storyParagraphNumbering", target: reviewParagraph, value: {id: 9049, level: 0}},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7},
       {kind: "addAbstract", abstractId: 9048, levels: [{level: 0, start: 2, format: "decimal", text: "%1."}]},
@@ -279,6 +281,11 @@ export async function generateCatalog(fixtures, options) {
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
   const editedResources = await openDocx(runText);
+  const numberedCatalog = editedResources.numberingCatalog();
+  assert(numberedCatalog.abstracts.some(a => a.abstractId === 100 && a.styleLink === "CatalogBullets" &&
+    a.levels.some(l => l.level === 1 && l.paragraphStyle === "Heading2")), "missing owned abstract level");
+  assert(numberedCatalog.abstracts.some(a => a.abstractId === 101 && a.numStyleLink === "CatalogBullets" && !a.levels.length) &&
+    numberedCatalog.instances.some(i => i.numId === 61 && i.styleIds.includes("CatalogBullets")), "missing reciprocal style links");
   const defaults = editedResources.documentDefaults();
   assert(defaults.bold === false && defaults.footnoteStart === 5 && defaults.afterTwips === undefined, "incorrect direct defaults");
   assert(editedResources.metadataField("manager") === "Review lead" &&

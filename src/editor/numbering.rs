@@ -12,6 +12,14 @@ use crate::{
     xml::{Content, Node},
 };
 use std::collections::{BTreeMap, BTreeSet};
+mod links;
+mod view;
+mod wire;
+pub(super) use links::validate_start_links;
+pub use view::{
+    ImportedConcreteNumbering, ImportedNumberingAbstract, ImportedNumberingCatalog,
+    ImportedNumberingLevel,
+};
 
 #[derive(Clone, Debug)]
 pub enum NumberingEdit {
@@ -82,29 +90,37 @@ fn leaf(name: &str, val: impl ToString) -> Node {
     Node::new(name).attr("w:val", val)
 }
 
-fn encode_level(level: &crate::NumberingLevel) -> Result<Node> {
-    if level.paragraph_style.is_some()
-        || !matches!(
-            level.format.as_str(),
-            "decimal"
-                | "upperRoman"
-                | "lowerRoman"
-                | "upperLetter"
-                | "lowerLetter"
-                | "decimalZero"
-                | "bullet"
-                | "none"
-        )
-    {
-        return Err(unsupported(
-            "unsupported numbering format or linked paragraph style",
-        ));
+fn encode_level(level: &crate::NumberingLevel, styles: Option<&Node>) -> Result<Node> {
+    if !super::resource_fields::is_numbering_format(&level.format) {
+        return Err(unsupported("unsupported numbering format"));
     }
+    crate::xml::validate_text(&level.text)?;
     if level.level > 8 {
         return Err(unsupported("numbering level must be in 0..=8"));
     }
     level.validate_formats()?;
-    crate::ooxml::wordprocessing::styles::numbering_level(level, None)
+    if let Some(name) = &level.paragraph_style {
+        let styles = styles.ok_or_else(|| unsupported("missing paragraph style catalog"))?;
+        let matches: Vec<_> = styles
+            .elements()
+            .filter(|n| {
+                n.name == "w:style"
+                    && (n.get("w:styleId") == Some(name)
+                        || n.child("w:name")
+                            .and_then(|n| n.get("w:val"))
+                            .is_some_and(|s| s.eq_ignore_ascii_case(name)))
+            })
+            .collect();
+        if matches.len() != 1
+            || matches[0].get("w:type") != Some("paragraph")
+            || matches[0].get("w:styleId").is_none_or(str::is_empty)
+        {
+            return Err(unsupported(
+                "missing, ambiguous or non-paragraph numbering level style",
+            ));
+        }
+    }
+    crate::ooxml::wordprocessing::styles::numbering_level(level, styles)
 }
 
 fn instances(root: &Node) -> Result<Vec<ImportedNumberingInstance>> {
@@ -544,6 +560,7 @@ fn discardable(n: &Node) -> bool {
                 "w:numFmt",
                 "w:lvlText",
                 "w:lvlRestart",
+                "w:pStyle",
                 "w:isLgl",
                 "w:suff",
                 "w:lvlJc",
@@ -627,7 +644,7 @@ fn discardable(n: &Node) -> bool {
         | "w:u"
         | "w:vertAlign" => (&["w:val"], &[]),
         "w:abstractNumId" | "w:multiLevelType" | "w:start" | "w:numFmt" | "w:lvlText"
-        | "w:startOverride" | "w:lvlRestart" | "w:isLgl" | "w:suff" | "w:lvlJc" => {
+        | "w:pStyle" | "w:startOverride" | "w:lvlRestart" | "w:isLgl" | "w:suff" | "w:lvlJc" => {
             (&["w:val"], &[])
         }
         _ => return false,
@@ -676,7 +693,24 @@ fn remove(root: &mut Node, tag: &str, attr: &str, key: u32) -> Result<()> {
             |c| matches!(c,Content::Element(n) if n.name == tag && id(n,attr).ok() == Some(key)),
         )
         .ok_or_else(|| unsupported("unknown numbering identity"))?;
-    if !matches!(&root.children[i], Content::Element(n) if discardable(n)) {
+    fn modeled(n: &Node) -> Result<bool> {
+        if !discardable(n) {
+            return Ok(false);
+        }
+        if n.name == "w:lvl" {
+            return Ok(!view::read_level(n)?.has_opaque_content);
+        }
+        for child in n.elements() {
+            if !modeled(child)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+    let Content::Element(node) = &root.children[i] else {
+        unreachable!()
+    };
+    if !modeled(node)? {
         return Err(unsupported("cannot discard rich numbering definition"));
     }
     root.children.remove(i);
@@ -726,8 +760,10 @@ fn editable_abstract<'a>(
         return Err(unsupported("unknown or conflicting abstract identity"));
     }
     let n = named(root, "w:abstractNum", "w:abstractNumId", aid).unwrap();
-    if n.child("w:numStyleLink").is_some() || n.child("w:styleLink").is_some() {
-        return Err(unsupported("style-linked abstract level edit"));
+    if n.child("w:numStyleLink").is_some() {
+        return Err(unsupported(
+            "inherited abstract has no direct editable level",
+        ));
     }
     Ok(n)
 }
@@ -745,6 +781,8 @@ fn edit_identities(
     source_nums: &BTreeMap<u32, u32>,
     removed_defs: &BTreeSet<u32>,
     removed_nums: &BTreeSet<u32>,
+    style_nodes: Option<&Node>,
+    links: &links::StyleLinks,
 ) -> Result<bool> {
     use NumberingEdit::*;
     let mut whole = BTreeSet::new();
@@ -766,16 +804,20 @@ fn edit_identities(
                 {
                     return Err(unsupported("empty or conflicting abstract replacement"));
                 }
+                links.provider(root, source_nums, *a)?;
                 let def = editable_abstract(root, *a, source_defs, removed_defs)?;
                 let mut new = BTreeMap::new();
                 for l in levels {
-                    if new.insert(u32::from(l.level), encode_level(l)?).is_some() {
+                    if new
+                        .insert(u32::from(l.level), encode_level(l, style_nodes)?)
+                        .is_some()
+                    {
                         return Err(unsupported("duplicate abstract replacement level"));
                     }
                 }
                 defs.insert(*a, new.keys().copied().collect());
                 for l in def.elements().filter(|n| n.name == "w:lvl") {
-                    if !discardable(l) {
+                    if view::read_level(l)?.has_opaque_content {
                         return Err(unsupported(
                             "cannot discard unmodeled abstract level markup",
                         ));
@@ -812,10 +854,13 @@ fn edit_identities(
                 value,
             } => {
                 if *level>8 || whole.contains(a)||!touched.insert((*a,*level))||resources.iter().any(|r|matches!(r,ResourceEdit::AbstractStart(s) if (s.abstract_id,s.level)==(*a,*level))){return Err(unsupported("invalid or conflicting abstract level edit"))}
+                links.provider(root, source_nums, *a)?;
                 let def = editable_abstract(root, *a, source_defs, removed_defs)?;
                 let indices = defs.get_mut(a).unwrap();
                 let old = named(def, "w:lvl", "w:ilvl", (*level).into());
-                if old.as_deref().is_some_and(|l| !discardable(l)) {
+                if let Some(old) = old.as_deref()
+                    && view::read_level(old)?.has_opaque_content
+                {
                     return Err(unsupported(
                         "cannot discard unmodeled abstract level markup",
                     ));
@@ -824,7 +869,7 @@ fn edit_identities(
                     if l.level != *level {
                         return Err(unsupported("mismatched abstract level"));
                     }
-                    let new = encode_level(l)?;
+                    let new = encode_level(l, style_nodes)?;
                     if let Some(old) = old {
                         if !same_level(old, &new) {
                             *old = new;
@@ -853,7 +898,13 @@ fn edit_identities(
                 {
                     return Err(unsupported("missing or conflicting instance relink"));
                 }
-                if nums.insert(*i, *a) != Some(*a) {
+                if nums[i] != *a {
+                    if links.owns(*i) {
+                        return Err(unsupported(
+                            "cannot move a numbering style's owning instance",
+                        ));
+                    }
+                    nums.insert(*i, *a);
                     named(root, "w:num", "w:numId", *i)
                         .unwrap()
                         .child_mut("w:abstractNumId")
@@ -871,22 +922,16 @@ fn edit_identities(
         }
         let new_a = nums[&num];
         if old_a != new_a || whole.contains(&new_a) || touched.iter().any(|(id, _)| *id == new_a) {
+            let old_provider = links.provider(root, source_nums, old_a)?;
+            let new_provider = links.provider(root, nums, new_a)?;
             let old = source_defs
-                .get(&old_a)
+                .get(&old_provider)
                 .ok_or_else(|| unsupported("unresolved source abstract"))?;
-            let new = &defs[&new_a];
+            let new = &defs[&new_provider];
             if old.is_empty() || !old.is_subset(new) {
                 return Err(unsupported(
                     "would lose numbering levels of a surviving instance",
                 ));
-            }
-            let src = named(root, "w:abstractNum", "w:abstractNumId", old_a).unwrap();
-            if src.child("w:numStyleLink").is_some() || src.child("w:styleLink").is_some() {
-                return Err(unsupported("cannot relink a style-linked abstract"));
-            }
-            let dest = named(root, "w:abstractNum", "w:abstractNumId", new_a).unwrap();
-            if dest.child("w:numStyleLink").is_some() || dest.child("w:styleLink").is_some() {
-                return Err(unsupported("cannot relink to a style-linked abstract"));
             }
             if named(root, "w:num", "w:numId", num)
                 .unwrap()
@@ -998,6 +1043,8 @@ pub(super) fn stage(
         Vec::new()
     };
     edits.extend(expanded.iter());
+    let style_nodes = super::resources::style_part(pkg, main)?.map(|(_, root)| root);
+    let links = links::StyleLinks::from_styles(style_nodes.as_ref())?;
     let mut defs = BTreeMap::<u32, BTreeSet<u32>>::new();
     for n in root.elements().filter(|n| n.name == "w:abstractNum") {
         let aid = id(n, "w:abstractNumId")?;
@@ -1042,7 +1089,7 @@ pub(super) fn stage(
                 }
                 let mut def = Node::new("w:abstractNum").attr("w:abstractNumId", abstract_id);
                 for l in levels {
-                    def.push(encode_level(l)?);
+                    def.push(encode_level(l, style_nodes.as_ref())?);
                 }
                 root.push(def);
                 changed = true;
@@ -1082,12 +1129,33 @@ pub(super) fn stage(
         &source_nums,
         &removed_defs,
         &removed_nums,
+        style_nodes.as_ref(),
+        &links,
     )?;
+    let providers = edits
+        .iter()
+        .filter_map(|e| match e {
+            Paragraph { value: Some(r), .. } | StoryParagraph { value: Some(r), .. } => Some(r.id),
+            InstanceStart { num_id, .. }
+            | InstanceLevel { num_id, .. }
+            | AddInstance { num_id, .. } => Some(*num_id),
+            _ => None,
+        })
+        .filter_map(|n| nums.get(&n).copied())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|aid| Ok((aid, links.provider(&root, &nums, aid)?)))
+        .collect::<Result<BTreeMap<_, _>>>()?;
     let valid_level = |num_id: u32, level: u8| {
         if !removed_nums.contains(&num_id)
             && nums.get(&num_id).is_some_and(|a| {
-                !removed_defs.contains(a)
-                    && defs.get(a).is_some_and(|s| s.contains(&u32::from(level)))
+                providers.get(a).is_some_and(|provider| {
+                    !removed_defs.contains(a)
+                        && !removed_defs.contains(provider)
+                        && defs
+                            .get(provider)
+                            .is_some_and(|s| s.contains(&u32::from(level)))
+                })
             })
         {
             Ok(())
@@ -1159,10 +1227,15 @@ pub(super) fn stage(
                     return Err(unsupported("duplicate or mismatched replacement level"));
                 }
                 let num = named(&mut root, "w:num", "w:numId", num_id).unwrap();
-                let new = value.as_deref().map(encode_level).transpose()?;
+                let new = value
+                    .as_deref()
+                    .map(|v| encode_level(v, style_nodes.as_ref()))
+                    .transpose()?;
                 if let Some(o) = named(num, "w:lvlOverride", "w:ilvl", level.into()) {
                     if let Some(existing) = unique(o, "w:lvl")? {
-                        if id(existing, "w:ilvl")? != u32::from(level) || !discardable(existing) {
+                        if id(existing, "w:ilvl")? != u32::from(level)
+                            || view::read_level(existing)?.has_opaque_content
+                        {
                             return Err(unsupported(
                                 "cannot discard rich or mismatched replacement level",
                             ));

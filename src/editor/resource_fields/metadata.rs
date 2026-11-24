@@ -20,13 +20,22 @@ macro_rules! fields {
         impl std::str::FromStr for MetadataField {
             type Err = Error;
             fn from_str(s: &str) -> Result<Self> {
-                match s { $($key => Ok(Self::$variant),)+ _ => Err(unsupported("unknown metadata field")) }
+                match s {
+                    "comments" => Ok(Self::Description),
+                    $($key => Ok(Self::$variant),)+
+                    _ => Err(unsupported("unknown metadata field")),
+                }
             }
         }
         impl MetadataField {
             fn xml(self) -> &'static str { match self { $(Self::$variant => $xml),+ } }
         }
     };
+}
+impl MetadataField {
+    /// Word's Comments field is stored as the core description.
+    #[allow(non_upper_case_globals)]
+    pub const Comments: Self = Self::Description;
 }
 fields! {
     Title => ("title", "dc:title"), Subject => ("subject", "dc:subject"),

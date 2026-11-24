@@ -6,6 +6,7 @@ use crate::xml::{Content, Node};
 use crate::{Alignment, Result};
 use std::collections::{BTreeMap, BTreeSet};
 mod defaults;
+pub(super) use defaults::is_numbering_format;
 pub use defaults::{DefaultField, DefaultTab, DefaultValue};
 mod metadata;
 pub use metadata::{CustomValue, MetadataField};
@@ -323,6 +324,7 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
         let (path, mut root) = Part::Numbers
             .load(pkg, main)?
             .ok_or_else(|| unsupported("missing numbering part"))?;
+        super::numbering::validate_start_links(pkg, main, &root, starts.keys().map(|(id, _)| *id))?;
         let mut changed = false;
         visit_levels(&mut root, |a, l, n| {
             if let Some(start) = starts.remove(&(a, l)) {

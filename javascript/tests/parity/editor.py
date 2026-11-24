@@ -144,7 +144,16 @@ def verify_controls(directory):
     assert readback.element.xpath("//w:t[.=' block ']/@xml:space") == ["preserve"]
 
 
+def numbering_fixture():
+    from runpy import run_path
+    return run_path(str(Path(__file__).resolve().parents[3] / "tests/fixtures/generate_numbering_catalog.py"))
+
+
 def generate(directory):
+    fixture = numbering_fixture()
+    for name, fault in [("numbering-linked", None), ("numbering-dangling", "dangling"),
+                        ("numbering-opaque", "opaque")]:
+        (directory / f"{name}.docx").write_bytes(fixture["source"](fault))
     merged = Document()
     merged.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     table = merged.add_table(rows=2, cols=3)
@@ -391,6 +400,15 @@ def verify(directory):
     verify_ordinary(directory)
     from rocx import declarative as d
     from rocx.editor import ImportedDocument, ResourceEdit, StyleEdit
+    linked_source = directory / "numbering-linked.docx"
+    linked_output = directory / "linkedNumbering.docx"
+    linked = ImportedDocument.open(linked_source.read_bytes())
+    assert linked.preview([], resources=numbering_fixture()["edits"](linked)).to_docx() == linked_output.read_bytes()
+    untouched(parts(linked_source), parts(linked_output), (MAIN, "word/numbering.xml", "word/settings.xml", "docProps/core.xml"))
+    word = Document(linked_output)
+    assert word.core_properties.comments == "Numbering fixture review"
+    assert word.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["713"]
+    assert word.styles["Fixture List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["712"]
     source_path = directory / "styles-source.docx"
     style_path = directory / "styleEdits.docx"
     styles_source = ImportedDocument.open(source_path.read_bytes())

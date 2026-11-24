@@ -1,6 +1,8 @@
 //! Strict JSON payloads for direct defaults, concrete lists and table regions.
 use super::*;
 use serde::Serialize;
+mod level_format;
+use level_format::{LabelFormat, NumberingAlignment, NumberingSuffix, ParagraphFormat};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +66,11 @@ pub(crate) struct Level {
     text: String,
     is_legal: Option<bool>,
     restart: Option<u32>,
+    suffix: Option<NumberingSuffix>,
+    alignment: Option<NumberingAlignment>,
+    paragraph_style: Option<String>,
+    label_format: Option<LabelFormat>,
+    paragraph_format: Option<ParagraphFormat>,
 }
 impl From<Level> for rocx::NumberingLevel {
     fn from(l: Level) -> Self {
@@ -74,7 +81,11 @@ impl From<Level> for rocx::NumberingLevel {
             text: l.text,
             is_legal: l.is_legal,
             restart: l.restart,
-            ..Default::default()
+            suffix: l.suffix.map(Into::into),
+            alignment: l.alignment.map(Into::into),
+            paragraph_style: l.paragraph_style,
+            label_format: l.label_format.map(Into::into),
+            paragraph_format: l.paragraph_format.map(Into::into),
         }
     }
 }

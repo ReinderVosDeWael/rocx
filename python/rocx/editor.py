@@ -34,6 +34,12 @@ sets one field, or clears it when ``value`` is ``None``. For example, ``False``
 on ``"bold"`` is distinct from clearing it. Tab stops are triples of signed
 twip position, alignment, and optional leader.
 
+``ImportedDocument.numbering_catalog`` returns direct abstract/concrete entries
+with complete modeled levels, nested label/paragraph formats, and stored style
+IDs. The dictionary uses the same snake-case keys as CLI inspection. Missing
+properties are omitted, opaque level content is flagged, and inherited levels
+are not expanded.
+
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Every effective slot
 exposes an image-edit anchor; ``ImportedDocument.default_headers``

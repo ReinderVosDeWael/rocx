@@ -9,6 +9,7 @@ import {
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
   "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout",
+  "numbering-linked", "numbering-dangling", "numbering-opaque",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -427,7 +428,51 @@ async function editControls(fixtures: Fixtures) {
   return controlled.preview({ controls: edits }).toDocx();
 }
 
+async function editLinkedNumbering(fixtures: Fixtures) {
+  const source = await openDocx(fixtures["numbering-linked"]);
+  const catalog = source.numberingCatalog();
+  const owner = catalog.abstracts.find(a => a.abstractId === 710)!;
+  const alias = catalog.abstracts.find(a => a.abstractId === 711)!;
+  const concrete = catalog.instances.find(n => n.numId === 712)!;
+  same(alias, {abstractId:711, numStyleLink:"FixtureList", levels:[]}, "physical inherited abstract");
+  same(concrete.styleIds, ["FixtureList"], "direct instance ownership");
+  const level = owner.levels[0];
+  same(level, concrete.levelOverrides[0], "direct abstract and concrete level fields");
+  check(!level.hasOpaqueContent && level.start === 1 && level.restart === 0 && level.suffix === "nothing" &&
+    level.isLegal === false && level.paragraphStyle === "Heading1" && level.labelFormat?.size === 12.5,
+  "typed original numbering level");
+  same(level.paragraphFormat?.lineHeight, {kind:"exact",value:10}, "typed original line height");
+  const replace = {kind:"replaceAbstract", abstractId:710, levels:[{
+    level:0, start:5, format:"ordinal", text:"%1)", restart:0, isLegal:false,
+    suffix:"space", alignment:"start", paragraphStyle:"Heading 2",
+    labelFormat:{bold:false, size:12.5, underline:"double", color:{theme:"accent2", tint:16}},
+    paragraphFormat:{alignment:"center", firstLineIndent:-9, lineHeight:{kind:"exact",value:11},
+      tabStops:[{position:12,alignment:"right",leader:"dot"}]},
+  }]} as const;
+  const resources = (doc: ImportedDocument): NonNullable<EditBatch["resources"]> => [
+    replace, {kind:"paragraphNumbering", target:paragraph(doc,0).anchor, value:{id:713,level:0}},
+    {kind:"documentDefault", field:"trackRevisions",value:false},
+    {kind:"metadata", field:"comments", value:"Numbering fixture review"},
+  ];
+  const output = source.preview({resources:resources(source)}).toDocx();
+  const result = await openDocx(output);
+  same(result.numberingCatalog().instances.find(i => i.numId === 712), concrete, "ownership and overrides preserved");
+  same(result.numberingCatalog().abstracts.find(a => a.abstractId === 711), alias, "alias preserved");
+  bytesEqual(result.preview({resources:resources(result)}).toDocx(),result.preview({}).toDocx(),"repeat edit");
+  rejects(() => result.preview({resources:resources(source)}), /snapshot/);
+  rejects(() => result.preview({resources:[{kind:"relinkInstance",numId:712,abstractId:0}]}), /owning instance/);
+  rejects(() => result.preview({resources:[{kind:"removeInstance",numId:712}]}), /references/);
+  rejects(() => result.preview({resources:[replace,replace]}), /conflicting/);
+  const dangling = await openDocx(fixtures["numbering-dangling"]);
+  rejects(() => dangling.preview({resources:[replace]}), /nonreciprocal/);
+  const opaque = await openDocx(fixtures["numbering-opaque"]);
+  check(opaque.numberingCatalog().abstracts.find(a => a.abstractId === 710)?.levels[0].hasOpaqueContent, "opaque label");
+  rejects(() => opaque.preview({resources:[replace]}), /unmodeled/);
+  return output;
+}
+
 export async function run(fixtures: Fixtures) {
+  const linkedNumbering = await editLinkedNumbering(fixtures);
   const merged = await openDocx(fixtures["table-layout"]);
   const physical = merged.body()[0];
   check(physical.kind === "table" && physical.layout === "fixed", "merged table layout");
@@ -620,7 +665,7 @@ export async function run(fixtures: Fixtures) {
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, styleCreate, styleRetarget,
-    runFormatting, numberingEdits, styleOwnedList, inline: inline.toDocx(),
+    runFormatting, numberingEdits, styleOwnedList, linkedNumbering, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

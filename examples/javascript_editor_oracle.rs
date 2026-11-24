@@ -112,6 +112,116 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    {
+        use rocx::{
+            Color, LineHeight, NumberingAlignment, NumberingLevel, NumberingReference,
+            NumberingSuffix, ParagraphFormat, TabAlignment, TabLeader, TabStop, ThemeColor,
+            Underline,
+            editor::{
+                DefaultField, DefaultValue, EditBatch, MetadataField, NumberingEdit as N,
+                ResourceEdit as R,
+            },
+        };
+        let open = |name| ImportedDocument::open(&fs::read(directory.join(name)).unwrap()).unwrap();
+        let doc = open("numbering-linked.docx");
+        let catalog = doc.numbering_catalog().unwrap();
+        let owner = catalog
+            .abstracts
+            .iter()
+            .find(|a| a.abstract_id == 710)
+            .unwrap();
+        assert_eq!(owner.style_link.as_deref(), Some("FixtureList"));
+        let override_level = &catalog
+            .instances
+            .iter()
+            .find(|i| i.num_id == 712)
+            .unwrap()
+            .level_overrides[0];
+        assert_eq!(&owner.levels[0], override_level);
+        assert_eq!(
+            override_level.label_format.as_ref().unwrap().size,
+            Some(12.5)
+        );
+        assert_eq!(
+            override_level
+                .paragraph_format
+                .as_ref()
+                .unwrap()
+                .line_height,
+            Some(LineHeight::Exact(10.))
+        );
+        let level = NumberingLevel::default()
+            .with_start(5)
+            .with_format("ordinal")
+            .with_text("%1)")
+            .with_restart(0)
+            .with_is_legal(false)
+            .with_suffix(NumberingSuffix::Space)
+            .with_alignment(NumberingAlignment::Start)
+            .with_paragraph_style("Heading 2")
+            .with_label_format(
+                RunFormat::default()
+                    .with_bold(false)
+                    .with_size(12.5)
+                    .with_underline(Underline::Double)
+                    .with_color(Color::Theme {
+                        name: ThemeColor::Accent2,
+                        tint: Some(16),
+                        shade: None,
+                    }),
+            )
+            .with_paragraph_format(
+                ParagraphFormat::default()
+                    .with_alignment(Alignment::Center)
+                    .with_first_line_indent(-9.)
+                    .with_line_height(LineHeight::Exact(11.))
+                    .with_tab_stops(vec![
+                        TabStop::default()
+                            .with_position(12.)
+                            .with_alignment(TabAlignment::Right)
+                            .with_leader(TabLeader::Dot),
+                    ]),
+            );
+        let replace = R::Numbering(N::ReplaceAbstract {
+            abstract_id: 710,
+            levels: vec![level],
+        });
+        for name in ["numbering-dangling.docx", "numbering-opaque.docx"] {
+            assert!(
+                open(name)
+                    .preview_edits(EditBatch {
+                        resources: std::slice::from_ref(&replace),
+                        ..Default::default()
+                    })
+                    .is_err()
+            );
+        }
+        let resources = [
+            replace,
+            R::Numbering(N::Paragraph {
+                target: anchor(&doc, 0),
+                value: Some(NumberingReference { id: 713, level: 0 }),
+            }),
+            R::Default(
+                DefaultField::TrackRevisions,
+                Some(DefaultValue::Bool(false)),
+            ),
+            R::Metadata(
+                MetadataField::Comments,
+                Some("Numbering fixture review".into()),
+            ),
+        ];
+        write(
+            "native-linkedNumbering.docx",
+            doc.preview_edits(EditBatch {
+                resources: &resources,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
+    }
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {
             styles: &[rocx::editor::StyleEdit::Add(

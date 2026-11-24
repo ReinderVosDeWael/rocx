@@ -32,7 +32,10 @@ mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
 mod numbering;
 mod resource_fields;
-pub use numbering::{ImportedNumberingInstance, NumberingEdit, StoryParagraphAnchor};
+pub use numbering::{
+    ImportedConcreteNumbering, ImportedNumberingAbstract, ImportedNumberingCatalog,
+    ImportedNumberingInstance, ImportedNumberingLevel, NumberingEdit, StoryParagraphAnchor,
+};
 mod resources;
 mod revisions;
 pub use revisions::TrackedText;

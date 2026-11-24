@@ -46,6 +46,9 @@ const FORMAT: Kind = Choice(
     "decimal upperRoman lowerRoman upperLetter lowerLetter ordinal cardinalText ordinalText hex chicago ideographDigital japaneseCounting aiueo iroha decimalFullWidth decimalHalfWidth japaneseLegal japaneseDigitalTenThousand decimalEnclosedCircle decimalFullWidth2 aiueoFullWidth irohaFullWidth decimalZero bullet ganada chosung decimalEnclosedFullstop decimalEnclosedParen decimalEnclosedCircleChinese ideographEnclosedCircle ideographTraditional ideographZodiac ideographZodiacTraditional taiwaneseCounting ideographLegalTraditional taiwaneseCountingThousand taiwaneseDigital chineseCounting chineseLegalSimplified chineseCountingThousand koreanDigital koreanCounting koreanLegal koreanDigital2 vietnameseCounting russianLower russianUpper none numberInDash hebrew1 hebrew2 arabicAlpha arabicAbjad hindiVowels hindiConsonants hindiNumbers hindiCounting thaiLetters thaiNumbers thaiCounting bahtText dollarText custom",
 );
 const RESTART: Kind = Choice("continuous eachSect eachPage");
+pub(in crate::editor) fn is_numbering_format(value: &str) -> bool {
+    matches!(FORMAT, Choice(choices) if choices.split_whitespace().any(|choice| choice == value))
+}
 const RUN: &[&str] = &["w:docDefaults", "w:rPrDefault", "w:rPr"];
 const PARA: &[&str] = &["w:docDefaults", "w:pPrDefault", "w:pPr"];
 const FOOT: &[&str] = &["w:footnotePr"];
