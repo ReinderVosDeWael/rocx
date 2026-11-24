@@ -39,6 +39,103 @@ fn pair(a: &str, b: &str) -> Table {
     ])
 }
 
+fn physical_resources(directory: &std::path::Path) -> Vec<u8> {
+    use rocx::editor::{
+        EditBatch, LayoutBorder, LayoutEdit, LayoutField, LayoutValue, NumberingEdit as N,
+        ResourceEdit::Numbering, StyleEdit, TableOperation, TableSite, TableStructureEdit,
+    };
+    let owner = "word/footer1.xml";
+    let source = fs::read(directory.join("physical-resources-source.docx")).unwrap();
+    let original = ImportedDocument::open(&source).unwrap();
+    let target = original.story_paragraph_anchor(owner, None, 0).unwrap();
+    let staged = original
+        .preview_edits(EditBatch {
+            styles: &[
+                StyleEdit::Add(
+                    rocx::TableStyleDefinition::default()
+                        .with_name("Owner Table Style")
+                        .into(),
+                ),
+                StyleEdit::Add(
+                    rocx::NumberingStyleDefinition {
+                        name: "Owner Numbering Style".into(),
+                        numbering_id: 773,
+                    }
+                    .into(),
+                ),
+            ],
+            resources: &[
+                Numbering(N::AddAbstract {
+                    abstract_id: 772,
+                    levels: vec![rocx::NumberingLevel {
+                        level: 0,
+                        start: 1,
+                        format: "decimal".into(),
+                        text: "%1.".into(),
+                        ..Default::default()
+                    }],
+                }),
+                Numbering(N::AddInstance {
+                    num_id: 773,
+                    abstract_id: 772,
+                }),
+                Numbering(N::StoryParagraph {
+                    target,
+                    value: Some(rocx::NumberingReference { id: 773, level: 0 }),
+                }),
+            ],
+            ..Default::default()
+        })
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let numbered = ImportedDocument::open(&staged).unwrap();
+    let donor = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![Paragraph::new("Donor text must not move").into()]).into(),
+        ])
+        .into(),
+    ])
+    .with_properties(TableProperties::default().with_style("Owner Table Style"));
+    let donor = immediate(donor.resolve()).unwrap().unwrap();
+    let table = &numbered.part_tables(Some(owner)).unwrap()[0];
+    let tables_edited = numbered
+        .edit_part_tables(
+            owner,
+            &[TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: TableOperation::Property {
+                    site: TableSite::Table,
+                    field: "style".into(),
+                    source: Some(Box::new(donor)),
+                },
+            }],
+        )
+        .unwrap();
+    let pre_layout = ImportedDocument::open(&tables_edited).unwrap();
+    let section = &pre_layout.sections().unwrap()[0].anchor;
+    pre_layout
+        .preview_layout(&[
+            LayoutEdit::Section(
+                section.clone(),
+                LayoutField::MarginLeft,
+                Some(LayoutValue::Integer(1440)),
+            ),
+            LayoutEdit::Section(
+                section.clone(),
+                LayoutField::BorderTop,
+                Some(LayoutValue::Border(LayoutBorder {
+                    size: Some(12),
+                    color: Some("123456".into()),
+                    space: None,
+                })),
+            ),
+        ])
+        .unwrap()
+        .to_docx()
+        .unwrap()
+}
+
 fn structural_resources(directory: &std::path::Path) -> Vec<u8> {
     use rocx::editor::{
         CustomValue, EditBatch, NumberingEdit as N,
@@ -237,6 +334,11 @@ fn main() {
     fs::write(
         directory.join("native-structuralResources.docx"),
         structural_resources(&directory),
+    )
+    .unwrap();
+    fs::write(
+        directory.join("native-physicalResources.docx"),
+        physical_resources(&directory),
     )
     .unwrap();
     let doc = ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();

@@ -28,7 +28,7 @@ EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "poin
                   "blocks", "inline", "runFormatting", "tableStructure", "tableNodes", "physicalTables",
                   "styleEdits", "styleCreate", "styleRetarget", "controlEdits", "tracked", "reviewed",
                   "moved", "moveAccepted", "combined", "numberingEdits", "styleOwnedList", "layout",
-                  "sectionSplit", "sectionMerge", "storyShared", "structuralResources")
+                  "sectionSplit", "sectionMerge", "storyShared", "structuralResources", "physicalResources")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:

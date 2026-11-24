@@ -9,6 +9,7 @@ import {
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source", "layout-source",
   "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "physical-table-source",
+  "physical-resources-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -427,7 +428,49 @@ async function editControls(fixtures: Fixtures) {
   return controlled.preview({ controls: edits }).toDocx();
 }
 
+async function editPhysicalResources(source: Uint8Array) {
+  const owner = "word/footer1.xml";
+  const original = await openDocx(source);
+  const site = {ownerPart: owner, blockIndex: 0};
+  const sourceNumber = original.storyParagraphAnchor(site);
+  const staged = original.preview({
+    styleEdits: [
+      {op:"add", definition:{kind:"table", name:"Owner Table Style"}},
+      {op:"add", definition:{kind:"numbering", name:"Owner Numbering Style", numberingId:773}},
+    ],
+    resources: [
+      {kind:"addAbstract", abstractId:772, levels:[{level:0, start:1, format:"decimal", text:"%1."}]},
+      {kind:"addInstance", numId:773, abstractId:772},
+      {kind:"storyParagraphNumbering", target:sourceNumber, value:{id:773, level:0}},
+    ],
+  }).toDocx();
+  const numbered = await openDocx(staged);
+  const table = numbered.partTables(owner)[0];
+  const donor = await resolveComponent({kind:"table", style:"Owner Table Style", rows:[
+    {kind:"tableRow", cells:[{kind:"tableCell", children:[{kind:"paragraph",text:"Donor text must not move"}]}]},
+  ]});
+  check(donor, "resolved physical style donor");
+  const properties = [{target:table.anchor, kind:"patchProperty", field:"style", source:donor}] as const;
+  rejects(() => numbered.editPartTables({ownerPart:"word/document.xml", tableStructure:properties}), /owner mismatch/);
+  rejects(() => numbered.storyParagraphNumbering(sourceNumber), /snapshot/);
+  const tablesEdited = numbered.editPartTables({ownerPart:owner, tableStructure:properties});
+  const preLayout = await openDocx(tablesEdited);
+  const section = preLayout.sections()[0].anchor;
+  rejects(() => preLayout.previewLayout([{target:section, field:"borderRight", value:null}]), /opaque/);
+  const result = preLayout.previewLayout([
+    {target:section, field:"marginLeft", value:1440},
+    {target:section, field:"borderTop", value:{size:12,color:"123456"}},
+  ]).toDocx();
+  const reopened = await openDocx(result);
+  same(reopened.storyParagraphNumbering(reopened.storyParagraphAnchor(site)), {id:773,level:0}, "numbering survives physical table and layout edits");
+  same(reopened.partTables(owner)[0].properties.style?.val, "OwnerTableStyle", "owned table style");
+  rejects(() => reopened.preview({resources:[{kind:"removeInstance",numId:773}]}), /references/);
+  rejects(() => reopened.preview({styleEdits:[{op:"remove",target:reopened.styleAnchor("OwnerTableStyle")}]}), /used|referenc/);
+  return result;
+}
+
 export async function run(fixtures: Fixtures) {
+  const physicalResources = await editPhysicalResources(fixtures["physical-resources-source"]);
   let physicalTables:Uint8Array=fixtures["physical-table-source"];
   for (const [owner,depth] of [[undefined,1],["word/footer1.xml",1],["word/comments.xml",0]] as const) {
     const source=await openDocx(physicalTables);
@@ -751,7 +794,7 @@ export async function run(fixtures: Fixtures) {
   return {
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, styleCreate, styleRetarget,
     runFormatting, numberingEdits, styleOwnedList, tableNodes, physicalTables, layout,
-    sectionSplit, sectionMerge, storyShared, structuralResources, inline: inline.toDocx(),
+    sectionSplit, sectionMerge, storyShared, structuralResources, physicalResources, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

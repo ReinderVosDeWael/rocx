@@ -144,7 +144,29 @@ def verify_controls(directory):
     assert readback.element.xpath("//w:t[.=' block ']/@xml:space") == ["preserve"]
 
 
+def generate_physical_resources(path):
+    word = Document()
+    word.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    word.add_paragraph("Body remains unchanged")
+    footer = word.sections[0].footer
+    footer.paragraphs[0].text = "Shared numbered footer"
+    footer.add_table(1, 1, Twips(2400)).cell(0, 0).text = "Styled footer cell"
+    word.add_section()
+    section = word.sections[0]._sectPr
+    section.find(qn("w:pgMar")).set(qn("w14:probe"), "margin extension")
+    borders = etree.Element(qn("w:pgBorders"))
+    borders.set(qn("w14:probe"), "border group extension")
+    right = etree.SubElement(borders, qn("w:right"))
+    right.set(qn("w:val"), "single")
+    right.set(qn("w:sz"), "8")
+    right.set(qn("w:color"), "667788")
+    right.set(qn("w14:probe"), "opaque right edge")
+    section.insert_element_before(borders, "w:cols", "w:docGrid")
+    word.save(path)
+
+
 def generate(directory):
+    generate_physical_resources(directory / "physical-resources-source.docx")
     shared = Document()
     shared.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     comment = shared.add_comment(shared.add_paragraph("reference").runs[0], text="annotation", author="Verifier")
@@ -411,6 +433,78 @@ def verify_ordinary(directory):
         assert tree(old) == tree(new)
 
 
+async def physical_resources(path):
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, LayoutEdit as L, ResourceEdit as R, StyleEdit as S, TableStructureEdit as E
+
+    owner = "word/footer1.xml"
+    original = ImportedDocument.open(path.read_bytes())
+    staged = original.preview([], style_edits=[
+        S.add(d.TableStyleDefinition("Owner Table Style")),
+        S.add(d.NumberingStyleDefinition("Owner Numbering Style", 773)),
+    ], resources=[
+        R.add_abstract(772, [d.NumberingLevel(level=0, start=1, format="decimal", text="%1.")]),
+        R.add_instance(773, 772),
+        R.story_paragraph_numbering(original.story_paragraph_anchor(owner, 0), (773, 0)),
+    ]).to_docx()
+    numbered = ImportedDocument.open(staged)
+    donor = await d.Table([d.TableRow([d.TableCell([d.Paragraph("Donor text must not move")])])],
+                          style="Owner Table Style").resolve()
+    table, = numbered.part_tables(owner)
+    tables_edited = numbered.edit_part_tables(owner, [E.patch_property(table.anchor, "style", donor)])
+    pre_layout = ImportedDocument.open(tables_edited)
+    section = pre_layout.sections[0].anchor
+    result = pre_layout.preview_layout([
+        L.section(section, "margin_left", 1440),
+        L.section(section, "border_top", {"size": 12, "color": "123456"}),
+    ]).to_docx()
+    return staged, tables_edited, result
+
+
+def verify_physical_resources(directory):
+    import asyncio
+    import pytest
+    from rocx.editor import ImportedDocument, LayoutEdit as L, ResourceEdit as R, StyleEdit as S
+
+    source = directory / "physical-resources-source.docx"
+    output = directory / "physicalResources.docx"
+    staged, tables_edited, result = asyncio.run(physical_resources(source))
+    assert result == output.read_bytes()
+    owner = "word/footer1.xml"
+    def changed(old, new):
+        a, b = parts(old), parts(new)
+        assert a.keys() == b.keys()
+        return {name for name in a if a[name] != b[name]}
+    assert changed(source, io.BytesIO(staged)) == {owner, "word/styles.xml", "word/numbering.xml"}
+    assert changed(io.BytesIO(staged), io.BytesIO(tables_edited)) == {owner}
+    assert changed(io.BytesIO(tables_edited), output) == {MAIN}
+
+    doc = ImportedDocument.open(result)
+    assert doc.story_paragraph_numbering(doc.story_paragraph_anchor(owner, 0)) == (773, 0)
+    table, = doc.part_tables(owner)
+    assert table.properties["style"]["val"] == "OwnerTableStyle"
+    with pytest.raises(ValueError, match="references"):
+        doc.preview([], resources=[R.remove_instance(773)])
+    with pytest.raises(ValueError, match="used|referenc"):
+        doc.preview([], style_edits=[S.remove(doc.style_anchor("OwnerTableStyle"))])
+    with pytest.raises(ValueError, match="opaque"):
+        doc.preview_layout([L.section(doc.sections[0].anchor, "border_right", None)])
+    word = Document(output)
+    for section in word.sections:
+        assert section.footer.tables[0].style.style_id == "OwnerTableStyle"
+        assert section.footer.tables[0].cell(0, 0).text == "Styled footer cell"
+    source_sect = Document(source).sections[0]._sectPr
+    target_sect = word.sections[0]._sectPr
+    assert target_sect.find(qn("w:pgMar")).get(qn("w14:probe")) == "margin extension"
+    assert word.sections[0].left_margin.twips == 1440
+    borders = target_sect.find(qn("w:pgBorders"))
+    assert borders.get(qn("w14:probe")) == "border group extension"
+    assert list(borders)[0].tag == qn("w:top")
+    assert tree(borders.find(qn("w:right"))) == tree(source_sect.find(qn("w:pgBorders")).find(qn("w:right")))
+    numbers = etree.fromstring(parts(output)["word/numbering.xml"])
+    assert xp(numbers, "w:abstractNum[@w:abstractNumId='772']/w:styleLink/@w:val") == ["OwnerNumberingStyle"]
+
+
 async def structural_resources(path):
     from rocx import declarative as d
     from rocx.editor import ImportedDocument, ResourceEdit as R, StyleEdit, TableStructureEdit as T
@@ -446,6 +540,7 @@ async def structural_resources(path):
 
 
 def verify(directory):
+    verify_physical_resources(directory)
     from rocx.editor import LayoutEdit as L, ImportedDocument
     path = directory / "layout-source.docx"
     doc = ImportedDocument.open(path.read_bytes())
