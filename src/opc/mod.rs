@@ -299,7 +299,8 @@ impl Package {
             i += 1;
         }
     }
-    /// Keep relationship IDs and targets when copying a part within its own directory.
+    /// Fork a simple story in its own directory. Only hyperlink relationships
+    /// can be duplicated; unknown implicit dependencies may be owner-specific.
     pub(crate) fn copy_sibling_relationships(&mut self, from: &str, to: &str) -> Result<()> {
         let from = PartName::new(from)?;
         let to = PartName::new(to)?;
@@ -322,6 +323,19 @@ impl Package {
             .find(|(path, _)| path.eq_ignore_ascii_case(&source))
         {
             let bytes = bytes.clone();
+            let hyperlink = relationship_type("hyperlink");
+            if self
+                .xml(&source)?
+                .elements()
+                .any(|r| r.get("Type") != Some(&hyperlink))
+            {
+                return Err(crate::Diagnostic::new(
+                    crate::Rule::UnsupportedEdit,
+                    "story relationships cannot be safely copied",
+                )
+                .at(&source)
+                .into());
+            }
             if self.content_type_for(&destination)?.is_none() {
                 self.content_type(&destination, RELATIONSHIPS_MIME)?;
             }

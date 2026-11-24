@@ -274,6 +274,10 @@ def test_entry_stories_distinguish_identical_comment_runs_and_preserve_source():
         ("comment", "0", "Ada", "A"), ("comment", "1", "Sam", "S")]
     runs = [e.blocks[0].inline_structure[-1] for e in entries]
     assert runs[0].anchor != runs[1].anchor
+    owner = entries[0].part_name
+    changed = imported.edit_story_text(owner, [RunTextEdit(runs[1].anchor, "Revised")])
+    assert [c.text for c in docx.Document(io.BytesIO(changed)).comments] == ["Review", "Revised"]
+    assert [k for k, v in _parts(data).items() if _parts(changed)[k] != v] == [owner]
     for run in runs:
         assert imported.inline_at(run.anchor).items[0].value == "Review"
     with pytest.raises(ValueError):
@@ -956,25 +960,33 @@ async def test_header_image_preview(mode, selected, affected):
 
 
 @pytest.mark.parametrize("mode", ["shared", "section_local"])
-async def test_first_page_header_image_edit(mode):
+@pytest.mark.parametrize(("kind", "variant", "attr"), [
+    ("header", "first", "first_page_header"), ("header", "even", "even_page_header"),
+    ("footer", "default", "footer"), ("footer", "first", "first_page_footer"),
+    ("footer", "even", "even_page_footer"),
+])
+async def test_story_image_edit(mode, kind, variant, attr):
     source = docx.Document()
-    source.sections[0].first_page_header.paragraphs[0].text = "First"
+    getattr(source.sections[0], attr).paragraphs[0].text = "Story"
     source.add_section()
     source.add_section()
     buf = io.BytesIO()
     source.save(buf)
     original = buf.getvalue()
     imported = ImportedDocument.open(original)
-    first = next(s for s in imported.stories if (s.section_index, s.kind, s.variant) == (1, "header", "first"))
+    first = next(s for s in imported.stories if (s.section_index, s.kind, s.variant) == (1, kind, variant))
     assert first.inherited and first.anchor is not None
     image = await d.ImageRun(data=(FIXTURES / "images/sample.png").read_bytes()).resolve()
     preview = imported.preview_header_image(HeaderImageEdit(first.anchor, image, mode=mode))
     assert preview.change.affected_sections == ([0, 1, 2] if mode == "shared" else [1])
     output = preview.to_docx()
     reopened = docx.Document(io.BytesIO(output))
-    assert [len(s.first_page_header._element.xpath(".//w:drawing")) for s in reopened.sections] == (
+    assert [len(getattr(s, attr)._element.xpath(".//w:drawing")) for s in reopened.sections] == (
         [1, 1, 1] if mode == "shared" else [0, 1, 0]
     )
+    target = getattr(reopened.sections[1], attr)
+    rid, = target._element.xpath(".//a:blip/@r:embed")
+    assert target.part.related_parts[rid].blob == (FIXTURES / "images/sample.png").read_bytes()
     if mode == "section_local":
         assert preview.change.restored_section == 2
         assert _parts(original)[first.part_name] == _parts(output)[first.part_name]

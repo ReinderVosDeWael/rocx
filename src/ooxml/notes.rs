@@ -58,18 +58,23 @@ fn invalid(message: impl Into<String>, path: &str) -> crate::Error {
 fn id(node: &Node, path: &str) -> Result<String> {
     let raw = node
         .get("w:id")
-        .ok_or_else(|| invalid("note ID is missing", path))?
-        .trim();
+        .ok_or_else(|| invalid("note ID is missing", path))?;
+    decimal_id(raw).ok_or_else(|| invalid("invalid decimal note ID", path))
+}
+
+/// Value-space identity for arbitrary-precision OOXML decimal IDs.
+pub(crate) fn decimal_id(raw: &str) -> Option<String> {
+    let raw = raw.trim();
     let (negative, digits) = if let Some(digits) = raw.strip_prefix('-') {
         (true, digits)
     } else {
         (false, raw.strip_prefix('+').unwrap_or(raw))
     };
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(invalid("invalid decimal note ID", path));
+        return None;
     }
     let digits = digits.trim_start_matches('0');
-    Ok(if digits.is_empty() {
+    Some(if digits.is_empty() {
         "0".into()
     } else if negative {
         format!("-{digits}")

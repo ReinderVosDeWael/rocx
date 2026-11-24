@@ -10,8 +10,8 @@ anchors. They are not persistent IDs and must not be serialized for later use.
 
 Inline anchors distinguish runs and hyperlinks by physical location, not text,
 relationship ID, or entry ID. Aliased section stories for the same physical part
-share inline identities; different physical parts do not. Header image
-targets instead select a section and variant, even when slots share a header. Duplicate
+share inline identities; different physical parts do not. Header/footer image
+targets select a section, kind and variant, even when slots share a part. Duplicate
 edits to one target and conflicting shared-header edits are rejected atomically.
 This is not a general contract for resolving duplicate source IDs.
 Rust and Python compare inline anchors by identity; JavaScript reuses the same
@@ -57,8 +57,8 @@ or a whole-run edit/removal on a touched run reject the entire batch.
 The editor exposes direct body inspection with section ranges, explicit section
 types and ordered paragraph content. Default, first and even headers and footers
 expose section references, inherited status, physical part names and ordered
-direct paragraphs; other direct children are opaque. Only default and first-page
-header slots supply image-edit anchors. The [operation contract](#operation-contract)
+direct paragraphs; other direct children are opaque. All six kinds of section slots supply
+image-edit anchors when an effective reference exists. The [operation contract](#operation-contract)
 below describes the broader goal, not the currently supported surface.
 
 Direct body controls expose source tag, alias and lock: Rust
@@ -217,9 +217,17 @@ Aliases of the same part produce equal inline anchors even across the two views,
 but distinct parts do not, even when their contents and relationship IDs match.
 `default_headers` retains its existing inspection scope and section-scoped
 `HeaderAnchor` for image edits; unrelated footer failures don't affect it.
-The broader story view also supplies an image-edit anchor for default and
-first-page headers. Other story slots have no such anchor. Local edits restore
-inheritance only for the selected variant; shared edits include all aliases.
+Every effective header/footer slot supplies an image-edit anchor. Local edits fork
+only the selected kind and variant and restore downstream inheritance. Shared
+edits include all aliases of the physical part.
+
+For text edits use `edit_story_text(owner_part, edits)` in Rust and Python, or
+`editStoryText({ownerPart, runText})` in JavaScript. Pass the exact `part_name` /
+`partName` from inspection and snapshot `RunTextEdit` targets. The result is DOCX
+bytes. This separate atomic batch updates direct, single-text paragraph runs in
+one physical header, footer, or note/comment part. Inherited slots see the same
+text. References, range markers, note IDs and comment metadata stay intact.
+Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 
 To combine these seven edit kinds in one call, Rust uses
 `preview_mixed(alignments, tables, header_images, run_text, paragraphs, cells, run_removals)`.
@@ -228,7 +236,7 @@ paragraph_insertions=..., cell_alignments=..., run_removals=...)`; JavaScript us
 `preview({alignments, tableInsertions, headerImages, runText, paragraphInsertions,
 cellAlignments, runRemovals})`. Every target comes from the original snapshot.
 A shared edit conflicts with any other image edit on that
-physical header. Distinct sections may each fork the same original header
+physical part. Distinct sections may each fork the same original story
 with section-local edits. A rejected operation produces no partial preview.
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.

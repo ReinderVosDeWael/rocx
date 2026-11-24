@@ -352,7 +352,8 @@ E04's report arrays; `before` is absent for a previously unset alignment.
 - Rust itself does not expose general imported OOXML editing. Direct body
   table-cell paragraphs expose both inline projections, but nested tables and
   row/cell wrappers may remain opaque. All six header/footer variants can be
-  inspected; only default and first-page headers accept the image edit.
+  inspected and accept shared or section-local inline images. `editStoryText`
+  edits supported direct runs in a named physical header/footer or entry part.
   Direct body paragraph alignment and physical cell vertical alignment are
   separate patches. Body controls, inline insertions/deletions and styles
   expose limited metadata but cannot be edited. See
@@ -402,7 +403,7 @@ E04's report arrays; `before` is absent for a previously unset alignment.
    aligned inputs/assets/timestamps. Compare complete ZIP bytes for final,
    `.template.docx`, `.edited.docx`, `.run-text.docx`, `.header-source.docx`,
    `.header-shared.docx`, `.header-local.docx`, `.header-first-shared.docx`
-   and `.header-first-local.docx` on each runtime; no XML
+   plus `.header-first-local.docx`, `.footer-even.docx` and `.entry-text.docx` on each runtime; no XML
    normalization. Keep Rust/Python catalog/schema/OPC checks. Use ZIP part
    diffs only to diagnose byte mismatches.
 5. **Independent assertions:** besides bytes, check typed resolved/imported

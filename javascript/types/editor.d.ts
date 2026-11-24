@@ -128,9 +128,11 @@ export interface HeaderImagePreview {
 
 declare module "./inspection.js" {
   interface ImportedDocument {
+    /** Change single-text runs in the named physical story part, including all aliases. */
+    editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
-    /** Append an inline image to the shared header or a section-local fork. */
+    /** Append an inline image to a shared header/footer or a section-local fork. */
     previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview;
   }
 }

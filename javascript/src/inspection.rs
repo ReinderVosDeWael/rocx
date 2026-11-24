@@ -40,6 +40,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("entryStories", "importedEntryStories"),
     ("styles", "importedStyles"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
+    ("editStoryText", "importedEditStoryText"),
     ("preview", "importedPreview"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
 ];
@@ -48,7 +49,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
 struct Anchors {
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
-    headers: RefCell<HashMap<(usize, usize), JsValue>>,
+    headers: RefCell<HashMap<(usize, rocx::editor::SectionStoryKind, usize), JsValue>>,
     inlines: RefCell<HashMap<InlineKey, JsValue>>,
 }
 

@@ -19,6 +19,7 @@ use wasm_bindgen::JsValue;
 
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
+        ("importedEditStoryText", (story_text, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
         (
             "importedPreviewHeaderImage",
@@ -300,6 +301,32 @@ fn header_edit(input: &Wire, path: &str) -> Result<HeaderImageEdit> {
     })
 }
 
+fn run_text_edit(input: &Wire, path: &str) -> Result<rocx::editor::RunTextEdit> {
+    let edit = Record::new(input, path, &["target", "text"])?;
+    Ok(rocx::editor::RunTextEdit {
+        target: crate::inspection::inline_anchor(&edit.get("target")?, &edit.path("target"))?,
+        text: b::string(&edit.get("text")?, &edit.path("text"))?,
+    })
+}
+
+fn story_text(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["ownerPart", "runText"],
+    )?;
+    let owner = b::string(&batch.get("ownerPart")?, "batch.ownerPart")?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_story_text(&owner, &edits(&batch, "runText", run_text_edit)?)?
+            .as_slice(),
+    )
+    .into())
+}
+
 fn preview(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -322,16 +349,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
-        &edits(&batch, "runText", |input, path| {
-            let edit = Record::new(input, path, &["target", "text"])?;
-            Ok(rocx::editor::RunTextEdit {
-                target: crate::inspection::inline_anchor(
-                    &edit.get("target")?,
-                    &edit.path("target"),
-                )?,
-                text: b::string(&edit.get("text")?, &edit.path("text"))?,
-            })
-        })?,
+        &edits(&batch, "runText", run_text_edit)?,
         &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
         &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,

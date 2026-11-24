@@ -313,7 +313,11 @@ pub(super) fn header(header: &ImportedHeader, anchors: &Anchors) -> Result<JsVal
             "anchor",
             cached(
                 &anchors.headers,
-                (header.section_index, 0),
+                (
+                    header.section_index,
+                    rocx::editor::SectionStoryKind::Header,
+                    0,
+                ),
                 "headerAnchor",
                 &header.anchor,
             ),
@@ -348,7 +352,7 @@ pub(super) fn story(story: &ImportedStory, anchors: &Anchors) -> Result<JsValue>
             "anchor",
             &cached(
                 &anchors.headers,
-                (story.section_index, story.variant as usize),
+                (story.section_index, story.kind, story.variant as usize),
                 "headerAnchor",
                 anchor,
             ),

@@ -8,7 +8,7 @@ export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
 export interface TableAnchor { readonly [anchor]: "table" }
 /** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement or removal. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
-/** Section-scoped target for a default or first-page header image edit. */
+/** Section-scoped target for a header/footer image edit. */
 export interface HeaderAnchor { readonly [anchor]: "header" }
 
 export type ImportedAlignment =
@@ -140,8 +140,8 @@ export type ImportedStoryBlock = ImportedHeaderBlock;
 
 /** A section's effective reference to a physical header or footer part. */
 export interface ImportedStoryView {
-  /** Image-edit target for default and first-page headers; absent for other stories. */
-  readonly anchor?: HeaderAnchor;
+  /** Image-edit target for this section, story kind and variant. */
+  readonly anchor: HeaderAnchor;
   readonly sectionIndex: number;
   readonly kind: SectionStoryKind;
   /** The section reference slot, not a pagination result. */

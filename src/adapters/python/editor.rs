@@ -1223,6 +1223,24 @@ impl PyImportedDocument {
             .collect()
     }
 
+    fn edit_story_text<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyRunTextEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_text(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
     fn preview_header_image(
         &self,
         edit: PyRef<'_, PyHeaderImageEdit>,
