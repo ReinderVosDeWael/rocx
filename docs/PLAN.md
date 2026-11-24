@@ -4,9 +4,23 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
-#3 boundary lifecycle slice: split a snapshot-anchored section at an original
-body gap or merge it into its successor. Preserve effective story slots and
-package resources; qualify empty, table and protected boundaries across bindings.
+**#3 section, story, and table recovery on `a30c516`:** split a snapshot-anchored
+section at an original body gap or merge it into its successor. Keep effective
+story slots and unrelated package payloads, including on table-first and empty
+final sections. The recovered Rust, Python and JavaScript APIs also patch
+direct paragraph/section layout, create/link/remove explicit story references,
+splice header/footer blocks, and edit modeled table/row/cell properties and
+whole nodes. These additions are not yet exposed in the JSON CLI; general
+nested-table editing and mixing the separate layout/story APIs with an
+ordinary edit batch remain open.
+
+Recovery qualification: Rust all-features/all-targets and doctests, native and
+Wasm Clippy, Rust 1.88, and 924 schema-required tests against the installed
+Python 3.12 wheel passed. All 13 catalogs matched Rust, Python, packed Node
+22/24 and Chromium (development and production). All 30 editor outputs matched
+the Rust oracle in the packed consumers. Installed Python independently matched
+layout, split/merge, shared story and table output bytes, with separate
+anchor, error, schema/OPC and untouched-payload checks.
 
 #48 metadata worktree: core scalars and timestamps, company/manager, and named
 string/boolean custom-property edits passed standalone qualification: 55 Rust
@@ -30,7 +44,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs and replace supported section contents. Split or merge anchored direct sections. Inspect and patch direct paragraph styles/headings, alignment, tabs, indents, spacing/line height and flags; section geometry, margins, equal columns, grid, page/line numbering, single borders, alignment, flags and break type. | Story/nested paragraph layout; layout in mixed ordinary batches; richer imported spacing/indents, unequal columns, art/theme borders and unmodeled numbering formats. Paragraph numbering references are a separate slice. |
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
-| #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
+| #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content or guarded table/row/cell nodes; remove eligible direct tables; inspect and patch modeled direct properties. | Splitting protected merges, unsafe destructive changes, tables in other stories and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images and guarded block splices in all six header/footer slots; create/link/remove explicit story references; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Deleting OPC story parts, custom note marks, shared or nested note reference edits, destructive rich block edits, modern comment metadata and reserved entries. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
 | #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
