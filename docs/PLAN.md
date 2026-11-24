@@ -6,9 +6,30 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 Primary integration ([#65](https://github.com/ReinderVosDeWael/rocx/pull/65)):
 the point, section, formatting, story and lifecycle work from `a30c516` is
-combined with `ea1c023` and the preservation guards from `ee4f8f5`. Qualify the
-union of catalog/editor artifacts and the resource/style CLI transport with the
-native, installed Python and packed JavaScript gates.
+combined with `ea1c023` and the preservation guards from `ee4f8f5`. The merge
+keeps both sets of catalog and editor outputs, and extends the JSON CLI to
+defaults, numbering and direct style fields and regions. The resource/style
+CLI batch matches the installed Python API byte for byte and rejects stale or
+invalid edits without creating a destination. Concrete numbering and
+numbering-style edits share the abstract numbering guard for XML integers and
+case-insensitive resource media types.
+
+**Integrated local qualification:** 303 default-feature Rust tests, 340
+all-features/all-targets tests and three doctests passed, with formatting,
+native/Wasm Clippy, Rust 1.88 and warning-free Rustdoc. The installed Python
+3.12 wheel passed all 959 tests with schemas required, including the CLI and
+preservation cases. The isolated wheel probe and the 628-page strict docs
+build passed. All 12 catalog DOCX files
+matched exactly in Rust, installed Python 3.12, packed Node 22/24/26 and
+Chromium 159 development/production. All 26 editor outputs matched Rust in
+those JavaScript consumers; the mixed resource oracle and three other editor
+outputs also matched installed Python. Schema/OPC validation, independent
+readback and untouched-payload checks passed, as did strict installed
+TypeScript and offline Wasm/glue replay from the packed source archive.
+The stale table inspection expectation on the hosted PR head is corrected
+and passes locally on Node 22 and 24 with Chromium. Hosted checks must rerun
+on the updated PR head. Keep #3 open for the remaining editor and transport
+inventory.
 
 **#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
 `ProcessContent` wrappers before treating a property as absent or a bookmark
@@ -69,7 +90,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
-| #51 JSON CLI / #3 follow-up | Digest-bound transport for every `b0a28b0` ordinary batch family, all story image slots, physical story text, tracked text/moves and revision review. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; additions to the core after `b0a28b0` require corresponding transport. See [CLI contract](CLI.md). |
+| #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, all story image slots, physical story text, tracked text/moves and revision review. New transport covers point insertions, block flags and section type, table layout, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; newer rich run formatting and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 
 **#3 table follow-up:** direct-body table layout can be inspected, set or
