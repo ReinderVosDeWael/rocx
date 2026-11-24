@@ -1,6 +1,7 @@
 //! Scalar style fields. Region names and reference values use physical OOXML IDs.
 use super::{Node, Result, unique_child, unsupported};
 use crate::editor::ALTERNATE;
+mod attributes;
 
 fn region_name(s: &str) -> bool {
     matches!(
@@ -119,7 +120,9 @@ pub(super) fn patch(
     {
         return Err(unsupported("invalid or ambiguous style region"));
     }
+    let composite = attributes::select(field, kind, value)?;
     let (group, tag, valid) = match field {
+        _ if composite.is_some() => (None, String::new(), true),
         "basedOn" | "next" | "link"
             if region.is_none() && matches!(kind, Some("paragraph" | "character" | "table")) =>
         {
@@ -145,8 +148,15 @@ pub(super) fn patch(
                 value.is_none_or(|s| matches!(s, "0" | "1" | "true" | "false" | "on" | "off")),
             )
         }
-        "keepNext" | "keepLines" | "pageBreakBefore" | "widowControl" | "bidi"
-        | "contextualSpacing" | "mirrorIndents" | "snapToGrid"
+        "keepNext"
+        | "keepLines"
+        | "pageBreakBefore"
+        | "widowControl"
+        | "bidi"
+        | "contextualSpacing"
+        | "mirrorIndents"
+        | "snapToGrid"
+        | "suppressLineNumbers"
             if matches!(kind, Some("paragraph" | "table")) =>
         {
             (
@@ -188,6 +198,9 @@ pub(super) fn patch(
     };
     if container.child(ALTERNATE).is_some() {
         return Err(unsupported("ambiguous conditional style properties"));
+    }
+    if let Some(spec) = composite {
+        return spec.apply(container, value);
     }
     let parent = if let Some(group) = group {
         if unique_child(container, group)?.is_none() && value.is_none() {

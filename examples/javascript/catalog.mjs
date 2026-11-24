@@ -166,6 +166,7 @@ export async function generateCatalog(fixtures, options) {
     { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
     { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
     { op: "field", target: imported.styleAnchor("Regionfirst_row"), region: "firstRow", field: "b", value: null },
+    { op: "field", target: imported.styleAnchor("Regionfirst_row"), region: "firstRow", field: "lang.eastAsia", value: "ko-KR" },
     { op: "region", target: imported.styleAnchor("Regionlast_row"), region: "lastRow", format: { italic: true } },
     { op: "add", definition: { kind: "numbering", name: "Catalog Imported List", numberingId: 60 } },
   ] });
@@ -283,17 +284,26 @@ export async function generateCatalog(fixtures, options) {
     "unexpected direct catalog defaults");
   assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
     "missing shared abstract numbering level");
+  const storySite = {ownerPart: review.partName, entryId: review.id, blockIndex: 0};
+  const reviewParagraph = imported.storyParagraphAnchor(storySite);
   const textPreview = imported.preview({
     styleEdits: [{op:"add", definition:{kind:"numbering", name:"Reviewed List", numberingId:9049}}],
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
       {kind: "coreSubject", value: "Imported resource edits"},
+      {kind: "metadata", field: "comments", value: "Reviewed numbering"},
       {kind:"documentDefault", field:"bold", value:false}, {kind:"documentDefault", field:"footnoteStart", value:5},
       {kind:"documentDefault", field:"afterTwips", value:null},
       {kind: "metadata", field: "creator", value: "Review team"},
       {kind: "metadata", field: "manager", value: "Review lead"},
       {kind: "customProperty", name: "Reviewed", value: false},
+      {kind: "replaceAbstract", abstractId: 102, levels: [{level: 0, start: 3, format: "upperLetter", text: "%1)"}]},
+      {kind: "abstractLevel", abstractId: 103, level: 0, value: {level: 0, start: 4, format: "upperRoman", text: "%1."}},
+      {kind: "relinkInstance", numId: 64, abstractId: 100},
+      {kind: "replaceInstance", definition: {id: 65, abstractId: 103, startOverrides: [{level: 0, start: 12}]}},
+      {kind: "abstractLevel", abstractId: 100, level: 1, value: {level: 1, start: 1, format: "decimal", text: "%2.", paragraphStyle: "Heading 2"}},
+      {kind: "storyParagraphNumbering", target: reviewParagraph, value: {id: 9049, level: 0}},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7},
       {kind: "addAbstract", abstractId: 9048, levels: [{level: 0, start: 2, format: "decimal", text: "%1."}]},
       {kind: "instanceLevel", numId: 9049, level: 0, value: {level: 0, start: 1, format: "lowerRoman", text: "(%1)"}},
@@ -335,6 +345,11 @@ export async function generateCatalog(fixtures, options) {
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
   const editedResources = await openDocx(runText);
+  const numberedCatalog = editedResources.numberingCatalog();
+  assert(numberedCatalog.abstracts.some(a => a.abstractId === 100 && a.styleLink === "CatalogBullets" &&
+    a.levels.some(l => l.level === 1 && l.paragraphStyle === "Heading2")), "missing owned abstract level");
+  assert(numberedCatalog.abstracts.some(a => a.abstractId === 101 && a.numStyleLink === "CatalogBullets" && !a.levels.length) &&
+    numberedCatalog.instances.some(i => i.numId === 61 && i.styleIds.includes("CatalogBullets")), "missing reciprocal style links");
   const defaults = editedResources.documentDefaults();
   assert(defaults.bold === false && defaults.footnoteStart === 5 && defaults.afterTwips === undefined, "incorrect direct defaults");
   assert(editedResources.metadataField("manager") === "Review lead" &&
@@ -343,6 +358,9 @@ export async function generateCatalog(fixtures, options) {
     "accepted missing custom value");
   assertThrows(() => imported.preview({resources: [{kind: "metadata", field: "created", value: "yesterday"}]}),
     "accepted invalid core date");
+  assert(editedResources.storyParagraphNumbering(editedResources.storyParagraphAnchor(storySite))?.id === 9049,
+    "missing physical comment numbering reference");
+  assertThrows(() => editedResources.storyParagraphNumbering(reviewParagraph), "accepted stale story target");
   assert(editedResources.numberingInstances().some(n => n.numId === 9049 && n.abstractId === 9048 &&
     n.replacementLevels.includes(0) && n.startOverrides.some(o => o.level === 0 && o.start === 6)), "missing instance override");
   const listTarget = editedResources.body().find(p => p.kind === "paragraph" && p.text.startsWith("Ranged 📝"));

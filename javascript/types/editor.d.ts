@@ -1,6 +1,6 @@
 import type { ResolvedImage } from "./drawings.js";
-import type { StyleDefinition, NumberingStyleDefinition, NumberingLevel, TableSectionFormat } from "./styles.js";
-import type { ControlAnchor, DefaultValues, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor, ParagraphFlag, SectionFlag, ImportedSectionType } from "./inspection.js";
+import type { StyleDefinition, NumberingStyleDefinition, NumberingLevel, NumberingDefinition, TableSectionFormat } from "./styles.js";
+import type { ControlAnchor, DefaultValues, HeaderAnchor, InlineAnchor, ParagraphAnchor, StoryParagraphAnchor, TableAnchor, ParagraphFlag, SectionFlag, ImportedSectionType } from "./inspection.js";
 import type { ResolvedTable, TableLayout } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph, RunFormat } from "./text-layout.js";
 import type { SectionAnchor, DirectParagraphLayout, DirectSectionLayout } from "./inspection.js";
@@ -137,6 +137,7 @@ declare const styleAnchor: unique symbol;
 export interface StyleAnchor { readonly [styleAnchor]: true }
 type EditableDefinition = Exclude<StyleDefinition, NumberingStyleDefinition>;
 export type StyleEdit =
+  | { readonly op: "retarget"; readonly target: StyleAnchor; readonly replacement: StyleAnchor }
   | { readonly op: "field"; readonly target: StyleAnchor; readonly region?: StyleRegion; readonly field: StyleField; readonly value: string | null }
   | { readonly op: "region"; readonly target: StyleAnchor; readonly region: StyleRegion; readonly format: TableSectionFormat | null }
   | { readonly op: "add"; readonly definition: StyleDefinition }
@@ -145,12 +146,24 @@ export type StyleEdit =
   | { readonly op: "remove"; readonly target: StyleAnchor };
 
 type StyleRegion = "wholeTable" | "firstRow" | "lastRow" | "firstCol" | "lastCol" | "band1Horz" | "band2Horz" | "band1Vert" | "band2Vert" | "nwCell" | "neCell" | "swCell" | "seCell";
-type StyleField = "basedOn" | "next" | "link" | "b" | "i" | "bCs" | "iCs" | "rtl" | "cs" | "strike" | "caps" | "smallCaps" | "vanish" | "keepNext" | "keepLines" | "pageBreakBefore" | "widowControl" | "bidi" | "contextualSpacing" | "mirrorIndents" | "snapToGrid" | "jc";
+type StyleField = "basedOn" | "next" | "link" | "b" | "i" | "bCs" | "iCs" | "rtl" | "cs" | "strike" | "caps" | "smallCaps" | "vanish" | "keepNext" | "keepLines" | "pageBreakBefore" | "widowControl" | "bidi" | "contextualSpacing" | "mirrorIndents" | "snapToGrid" | "jc" | "suppressLineNumbers"
+  | `rFonts.${"ascii" | "hAnsi" | "eastAsia" | "cs" | "asciiTheme" | "hAnsiTheme" | "eastAsiaTheme" | "cstheme"}`
+  | `lang.${"val" | "eastAsia" | "bidi"}` | `${"sz" | "szCs" | "vertAlign" | "runSnapToGrid"}.val`
+  | `${"color" | "u" | "shd"}.${"val" | "themeColor" | "themeTint" | "themeShade"}`
+  | "u.color" | `shd.${"fill" | "color" | "themeFill" | "themeFillTint" | "themeFillShade"}`
+  | `spacing.${"line" | "lineRule" | "before" | "after" | "beforeLines" | "afterLines" | "beforeAutospacing" | "afterAutospacing"}`
+  | `ind.${"left" | "right" | "start" | "end" | "leftChars" | "rightChars" | "startChars" | "endChars" | "firstLine" | "hanging" | "firstLineChars" | "hangingChars"}`
+  | `tab.${number}.${"val" | "leader"}`;
 
 export type ResourceEdit =
   | { [K in keyof DefaultValues]: {readonly kind: "documentDefault"; readonly field: K; readonly value: DefaultValues[K] | null} }[keyof DefaultValues]
   | { readonly kind: "metadata"; readonly field: import("./inspection.js").MetadataField; readonly value: string | null }
   | { readonly kind: "customProperty"; readonly name: string; readonly value: string | boolean | null }
+  | { readonly kind: "replaceInstance"; readonly definition: Omit<NumberingDefinition, "abstractId" | "inheritStyle" | "levels"> & {readonly abstractId: number} }
+  | { readonly kind: "replaceAbstract"; readonly abstractId: number; readonly levels: readonly NumberingLevel[] }
+  | { readonly kind: "abstractLevel"; readonly abstractId: number; readonly level: number; readonly value: NumberingLevel | null }
+  | { readonly kind: "relinkInstance"; readonly numId: number; readonly abstractId: number }
+  | { readonly kind: "storyParagraphNumbering"; readonly target: StoryParagraphAnchor; readonly value: { readonly id: number; readonly level: number } | null }
   | { readonly kind: "addAbstract"; readonly abstractId: number; readonly levels: readonly NumberingLevel[] }
   | { readonly kind: "instanceLevel"; readonly numId: number; readonly level: number; readonly value: NumberingLevel | null }
   | { readonly kind: "removeAbstract"; readonly abstractId: number }

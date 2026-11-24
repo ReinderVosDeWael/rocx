@@ -140,6 +140,11 @@ pub(super) fn extend(doc: &ImportedDocument, result: &mut Value) {
             )
         }),
     );
+    add(
+        result,
+        "numbering_catalog",
+        doc.numbering_catalog().map(|catalog| json!(catalog)),
+    );
     add(result,"numbering_instances",doc.numbering_instances().map(|v|v.into_iter().map(|i|json!({
         "num_id":i.num_id,"abstract_id":i.abstract_id,"replacement_levels":i.replacement_levels,
         "start_overrides":i.start_overrides.iter().map(|o|json!({"level":o.level,"start":o.start})).collect::<Vec<_>>()

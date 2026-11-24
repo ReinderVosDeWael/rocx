@@ -459,6 +459,75 @@ fn resource_numbering_starts_reject_duplicate_identities_and_preserve_lexical_no
 }
 
 #[test]
+fn numbering_replacement_preserves_equivalent_levels_and_rejects_opaque_or_conflicting_edits() {
+    use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit as R};
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let number = "word/numbering.xml";
+    let level = rocx::NumberingLevel {
+        level: 0,
+        start: 1,
+        format: "decimal".into(),
+        text: "%1.".into(),
+        ..Default::default()
+    };
+    for opaque in [false, true] {
+        let comment = if opaque { "<!-- do not drop -->" } else { "" };
+        entries.insert(number.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="701"><w:lvl w:ilvl="0">{comment}<w:start w:val="+01"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="702"><w:abstractNumId w:val="701"/></w:num></w:numbering>"#).into_bytes());
+        let source = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+        let apply = |resources: &[R]| {
+            source.preview_edits(EditBatch {
+                resources,
+                ..Default::default()
+            })
+        };
+        let replace = R::Numbering(N::ReplaceAbstract {
+            abstract_id: 701,
+            levels: vec![level.clone()],
+        });
+        if opaque {
+            assert!(apply(&[replace]).is_err());
+        } else {
+            assert_eq!(
+                parts(
+                    &apply(std::slice::from_ref(&replace))
+                        .unwrap()
+                        .to_docx()
+                        .unwrap()
+                ),
+                entries
+            );
+            assert!(
+                apply(&[
+                    replace,
+                    R::Numbering(N::AbstractLevel {
+                        abstract_id: 701,
+                        level: 0,
+                        value: None,
+                    })
+                ])
+                .is_err()
+            );
+            let numbered = apply(&[R::Numbering(N::Paragraph {
+                target: paragraph(&source, 0).anchor.clone(),
+                value: Some(rocx::NumberingReference { id: 702, level: 0 }),
+            })])
+            .unwrap()
+            .to_docx()
+            .unwrap();
+            let numbered = ImportedDocument::open(&numbered).unwrap();
+            assert!(
+                numbered
+                    .preview_edits(EditBatch {
+                        resources: &[R::Numbering(N::RemoveInstance { num_id: 702 })],
+                        ..Default::default()
+                    })
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
 fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
     use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit};
     let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
@@ -484,17 +553,17 @@ fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
         .is_err()
     );
     let insert = || N::AddInstance {
-        num_id: 2,
+        num_id: 902,
         abstract_id: 7,
     };
     let patch = || N::Paragraph {
         target: anchor.clone(),
-        value: Some(rocx::NumberingReference { id: 2, level: 0 }),
+        value: Some(rocx::NumberingReference { id: 902, level: 0 }),
     };
     let data = render(vec![patch(), insert()]).unwrap().to_docx().unwrap();
     let result = parts(&data);
     let xml = std::str::from_utf8(&result[name]).unwrap();
-    assert!(xml.find("w:numId=\"2\"").unwrap() < xml.find("<w:numIdMacAtCleanup").unwrap());
+    assert!(xml.find("w:numId=\"902\"").unwrap() < xml.find("<w:numIdMacAtCleanup").unwrap());
     let edited = ImportedDocument::open(&data).unwrap();
     assert!(edited.paragraph_numbering(&anchor).is_err());
     assert_eq!(
@@ -503,7 +572,7 @@ fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
             .unwrap()
             .unwrap()
             .id,
-        2
+        902
     );
     assert_eq!(edited.numbering_instances().unwrap()[0].abstract_id, 7);
     assert_eq!(

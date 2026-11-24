@@ -41,7 +41,10 @@ mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
 mod numbering;
 mod resource_fields;
-pub use numbering::{ImportedNumberingInstance, NumberingEdit};
+pub use numbering::{
+    ImportedConcreteNumbering, ImportedNumberingAbstract, ImportedNumberingCatalog,
+    ImportedNumberingInstance, ImportedNumberingLevel, NumberingEdit, StoryParagraphAnchor,
+};
 mod resources;
 mod revisions;
 pub use revisions::{TrackedParagraph, TrackedText};
@@ -924,6 +927,7 @@ impl ImportedDocument {
             ));
         }
         let number_refs = numbering::paragraph_targets(self, resources)?;
+        let cell_numbers = numbering::cell_targets(self, resources, structural)?;
         for edit in edits {
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
@@ -950,6 +954,7 @@ impl ImportedDocument {
         // Check unused definitions against the original snapshot, and make
         // newly added definitions available to every payload codec.
         self.stage_styles(&mut package, styles)?;
+        self.bind_numbering_styles(&mut package, styles)?;
         let destructive_styles = styles
             .iter()
             .any(|s| matches!(s, StyleEdit::Replace { .. } | StyleEdit::Remove(_)));
@@ -979,6 +984,7 @@ impl ImportedDocument {
         let mut wrapper_ids = BTreeSet::new();
         if !by_index.is_empty()
             || !number_refs.is_empty()
+            || !cell_numbers.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
@@ -1036,6 +1042,7 @@ impl ImportedDocument {
             let mut occupied: BTreeSet<usize> = by_index
                 .keys()
                 .chain(number_refs.keys())
+                .chain(cell_numbers.keys().map(|site| &site.0))
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
                 .copied()
@@ -1119,6 +1126,7 @@ impl ImportedDocument {
                 self.stage_wrappers(package, body, wrappers, controls, &mut occupied, blocks)?;
             package = staged;
             wrapper_ids = wrapper_plan.ids;
+            let cell_numbers_changed = numbering::patch_cells(body, &cell_numbers)?;
             let mut block_plan =
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
@@ -1207,6 +1215,7 @@ impl ImportedDocument {
             block_changes = block_plan.changes;
             if controls_changed
                 || wrapper_plan.changed
+                || cell_numbers_changed
                 || numbering_changed
                 || !changes.is_empty()
                 || !block_changes.is_empty()
@@ -1224,6 +1233,7 @@ impl ImportedDocument {
                 package.put_word(&self.main, root)?;
             }
         }
+        self.stage_story_numbering(&mut package, resources)?;
         // A defaults patch shares the styles part. Read the staged version.
         resource_fields::apply(&mut package, &self.main, resources)?;
         if !wrapper_ids.is_empty() {
@@ -1248,6 +1258,16 @@ impl ImportedDocument {
             }
         }
         paired::recheck_removals(&package, &self.main, paired_ranges)?;
+        // Retarget against the final body, stories and resource parts.
+        if let [
+            StyleEdit::Retarget {
+                target,
+                replacement,
+            },
+        ] = styles
+        {
+            self.retarget_style(&mut package, target, replacement)?;
+        }
         if destructive_styles {
             self.check_final_style_uses(&package, styles)?;
         }

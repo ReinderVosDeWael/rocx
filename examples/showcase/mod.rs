@@ -563,6 +563,12 @@ pub async fn generate(output: &Path) -> Result<()> {
                     ..Default::default()
                 })),
             },
+            editor::StyleEdit::Field {
+                target: imported.style_anchor("Regionfirst_row")?,
+                region: Some("firstRow".into()),
+                field: "lang.eastAsia".into(),
+                value: Some("ko-KR".into()),
+            },
             editor::StyleEdit::Add(
                 NumberingStyleDefinition {
                     name: "Catalog Imported List".into(),
@@ -1168,6 +1174,58 @@ pub async fn generate(output: &Path) -> Result<()> {
             text: " + point".into(),
         }],
         resources: &[
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::ReplaceAbstract {
+                abstract_id: 102,
+                levels: vec![rocx::NumberingLevel {
+                    level: 0,
+                    start: 3,
+                    format: "upperLetter".into(),
+                    text: "%1)".into(),
+                    ..Default::default()
+                }],
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AbstractLevel {
+                abstract_id: 103,
+                level: 0,
+                value: Some(Box::new(rocx::NumberingLevel {
+                    level: 0,
+                    start: 4,
+                    format: "upperRoman".into(),
+                    text: "%1.".into(),
+                    ..Default::default()
+                })),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::RelinkInstance {
+                num_id: 64,
+                abstract_id: 100,
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::ReplaceInstance(Box::new(
+                rocx::NumberingDefinition {
+                    id: 65,
+                    abstract_id: Some(103),
+                    start_overrides: vec![rocx::NumberingStartOverride {
+                        level: 0,
+                        start: 12,
+                    }],
+                    ..Default::default()
+                },
+            ))),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::StoryParagraph {
+                target: imported.story_paragraph_anchor(&review.part_name, 0, Some(&review.id))?,
+                value: Some(rocx::NumberingReference { id: 9049, level: 0 }),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AbstractLevel {
+                abstract_id: 100,
+                level: 1,
+                value: Some(Box::new(
+                    rocx::NumberingLevel::default()
+                        .with_level(1)
+                        .with_start(1)
+                        .with_format("decimal")
+                        .with_text("%2.")
+                        .with_paragraph_style("Heading 2"),
+                )),
+            }),
             editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
                 abstract_id: 9048,
                 levels: vec![rocx::NumberingLevel {
@@ -1205,6 +1263,10 @@ pub async fn generate(output: &Path) -> Result<()> {
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
             editor::ResourceEdit::CoreSubject(Some("Imported resource edits".into())),
             editor::ResourceEdit::Metadata(
+                editor::MetadataField::Comments,
+                Some("Reviewed numbering".into()),
+            ),
+            editor::ResourceEdit::Metadata(
                 editor::MetadataField::Creator,
                 Some("Review team".into()),
             ),
@@ -1240,6 +1302,26 @@ pub async fn generate(output: &Path) -> Result<()> {
         }],
         ..Default::default()
     })?;
+    let numbered = editor::ImportedDocument::open(&preview.to_docx()?)?.numbering_catalog()?;
+    let owner = numbered
+        .abstracts
+        .iter()
+        .find(|a| a.abstract_id == 100)
+        .unwrap();
+    assert_eq!(owner.style_link.as_deref(), Some("CatalogBullets"));
+    assert_eq!(owner.levels[1].paragraph_style.as_deref(), Some("Heading2"));
+    assert!(numbered.abstracts.iter().any(|a| a.abstract_id == 101
+        && a.num_style_link.as_deref() == Some("CatalogBullets")
+        && a.levels.is_empty()));
+    assert_eq!(
+        numbered
+            .instances
+            .iter()
+            .find(|i| i.num_id == 61)
+            .unwrap()
+            .style_ids,
+        ["CatalogBullets"]
+    );
     assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);
     assert!(
         preview

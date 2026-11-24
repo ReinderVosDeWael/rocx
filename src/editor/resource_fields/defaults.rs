@@ -46,6 +46,9 @@ const FORMAT: Kind = Choice(
     "decimal upperRoman lowerRoman upperLetter lowerLetter ordinal cardinalText ordinalText hex chicago ideographDigital japaneseCounting aiueo iroha decimalFullWidth decimalHalfWidth japaneseLegal japaneseDigitalTenThousand decimalEnclosedCircle decimalFullWidth2 aiueoFullWidth irohaFullWidth decimalZero bullet ganada chosung decimalEnclosedFullstop decimalEnclosedParen decimalEnclosedCircleChinese ideographEnclosedCircle ideographTraditional ideographZodiac ideographZodiacTraditional taiwaneseCounting ideographLegalTraditional taiwaneseCountingThousand taiwaneseDigital chineseCounting chineseLegalSimplified chineseCountingThousand koreanDigital koreanCounting koreanLegal koreanDigital2 vietnameseCounting russianLower russianUpper none numberInDash hebrew1 hebrew2 arabicAlpha arabicAbjad hindiVowels hindiConsonants hindiNumbers hindiCounting thaiLetters thaiNumbers thaiCounting bahtText dollarText custom",
 );
 const RESTART: Kind = Choice("continuous eachSect eachPage");
+pub(in crate::editor) fn is_numbering_format(value: &str) -> bool {
+    matches!(FORMAT, Choice(choices) if choices.split_whitespace().any(|choice| choice == value))
+}
 const RUN: &[&str] = &["w:docDefaults", "w:rPrDefault", "w:rPr"];
 const PARA: &[&str] = &["w:docDefaults", "w:pPrDefault", "w:pPr"];
 const FOOT: &[&str] = &["w:footnotePr"];
@@ -142,6 +145,9 @@ fields! {
 fn bad() -> crate::Error {
     unsupported("invalid or unsupported document default")
 }
+fn xml_integer(text: &str) -> &str {
+    text.trim_matches([' ', '\t', '\r', '\n'])
+}
 fn parse(kind: Kind, text: &str) -> Result<DefaultValue> {
     Ok(match kind {
         Toggle => DefaultValue::Bool(match text {
@@ -150,7 +156,8 @@ fn parse(kind: Kind, text: &str) -> Result<DefaultValue> {
             _ => return Err(bad()),
         }),
         Integer(lo, hi) => DefaultValue::Integer(
-            text.parse()
+            xml_integer(text)
+                .parse()
                 .ok()
                 .filter(|n| (lo..=hi).contains(n))
                 .ok_or_else(bad)?,
@@ -215,7 +222,7 @@ fn read(root: &Node, f: DefaultField) -> Result<Option<DefaultValue>> {
             tabs.push(DefaultTab {
                 position_twips: n
                     .get("w:pos")
-                    .and_then(|s| s.parse().ok())
+                    .and_then(|s| xml_integer(s).parse().ok())
                     .ok_or_else(bad)?,
                 alignment: n.get("w:val").ok_or_else(bad)?.into(),
                 leader: n.get("w:leader").map(str::to_owned),

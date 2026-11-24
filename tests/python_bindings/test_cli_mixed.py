@@ -764,6 +764,264 @@ def test_resource_and_style_transport(cli, tmp_path):
     assert source.read_bytes() == original and output.read_bytes() == output_bytes
 
 
+def test_recovered_numbering_round_trips_and_rejects_opaque_edits(cli, tmp_path):
+    from lxml import etree
+    from rocx.editor import ResourceEdit as R
+    from test_resource_fields import pack
+
+    source, added, edited = [tmp_path / f"{stem}.docx" for stem in ("source", "added", "edited")]
+    word = independent_document()
+    word.add_paragraph("Body")
+    word.add_table(rows=1, cols=1).cell(0, 0).text = "Cell"
+    word.sections[0].footer.paragraphs[0].text = "Footer"
+    word.save(source)
+    level = dict(level=0, start=1, format="decimal", text="%1.")
+    custom = level | dict(start=4, format="upperRoman")
+    seen = checked_copy(cli, source, added, [
+        dict(kind="add-abstract", abstract_id=701, levels=[level]),
+        dict(kind="add-abstract", abstract_id=702, levels=[level]),
+        dict(kind="add-instance", num_id=703, abstract_id=701),
+    ])
+    footer, = [s for s in seen["stories"] if s["target"]["kind"] == "footer"]
+    story = dict(kind="story", part=footer["part"], block_index=0)
+    cell = dict(kind="cell", target=1, row_index=0, cell_index=0, block_index=0)
+    numbering = dict(id=703, level=0)
+    edits = [
+        dict(kind="replace-abstract", abstract_id=701, levels=[custom]),
+        dict(kind="abstract-level", abstract_id=702, level=0, value=custom),
+        dict(kind="replace-instance", definition=dict(id=703, abstract_id=702)),
+        *[dict(kind="story-paragraph-numbering", target=site, value=numbering) for site in (story, cell)],
+        dict(kind="document-default", field="bold", value=False),
+        dict(kind="metadata", field="title", value="Recovery"),
+    ]
+    readback = checked_copy(cli, added, edited, edits)
+    result = call(cli, "inspect", edited, numbering_story_targets=[story, cell])
+    assert result["story_paragraph_numbering"] == [numbering, numbering]
+    assert readback["document_defaults"]["bold"] is False and readback["core_title"] == "Recovery"
+    imported = ImportedDocument.open(added.read_bytes())
+    anchor = imported.story_paragraph_anchor(story["part"], 0)
+    cell_anchor = imported.cell_paragraph_anchor(imported.body[1].anchor, 0, 0, 0)
+    assert edited.read_bytes() == imported.preview([], resources=[
+        R.replace_abstract(701, [d.NumberingLevel(**custom)]),
+        R.abstract_level(702, 0, d.NumberingLevel(**custom)),
+        R.replace_instance(d.NumberingDefinition(703, abstract_id=702)),
+        R.story_paragraph_numbering(anchor, (703, 0)),
+        R.story_paragraph_numbering(cell_anchor, (703, 0)),
+        R.document_default("bold", False), R.metadata("title", "Recovery"),
+    ]).to_docx()
+    untouched = call(cli, "preview", edited, snapshot=result["snapshot"], edits=[])
+    assert call(cli, "preview", edited, snapshot=result["snapshot"], edits=edits) == untouched
+    rejected = tmp_path / "rejected.docx"
+    for batch in ([dict(kind="remove-instance", num_id=703)], [edits[3], edits[3]],
+                  [edits[0], dict(kind="abstract-start", abstract_id=701, level=0, value=None)]):
+        call(cli, "save-copy", edited, success=False, snapshot=result["snapshot"],
+             output=str(rejected), edits=batch)
+        assert not rejected.exists()
+    state = parts(edited)
+    root = etree.fromstring(state["word/numbering.xml"])
+    root.find("{*}abstractNum[@{http://schemas.openxmlformats.org/wordprocessingml/2006/main}abstractNumId='701']/{*}lvl").append(
+        etree.Comment("keep opaque formatting"))
+    state["word/numbering.xml"] = etree.tostring(root)
+    opaque = tmp_path / "opaque.docx"
+    opaque.write_bytes(pack(state))
+    seen = call(cli, "inspect", opaque)
+    assert "unmodeled" in call(cli, "save-copy", opaque, success=False, snapshot=seen["snapshot"],
+                               output=str(rejected), edits=[edits[0]])
+    assert not rejected.exists()
+
+
+def test_style_retarget_transport(cli, tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+    from rocx.editor import StyleEdit
+
+    source, target = tmp_path / "styles.docx", tmp_path / "retargeted.docx"
+    word = independent_document()
+    word.styles.add_style("Migration Source Test", WD_STYLE_TYPE.PARAGRAPH)
+    word.styles.add_style("Migration Destination Test", WD_STYLE_TYPE.PARAGRAPH)
+    word.add_paragraph("Keep body", "Migration Source Test")
+    word.sections[0].header.paragraphs[0].style = "Migration Source Test"
+    word.save(source)
+    edit = dict(kind="style-retarget", id="MigrationSourceTest", replacement_id="MigrationDestinationTest")
+    snapshot = call(cli, "inspect", source)["snapshot"]
+    call(cli, "save-copy", source, success=False, snapshot=snapshot, output=str(target),
+         edits=[edit, dict(kind="style-field", id=edit["replacement_id"], field="b", value="1")])
+    assert not target.exists()
+    checked_copy(cli, source, target, [edit])
+    api = ImportedDocument.open(source.read_bytes())
+    assert api.preview([], style_edits=[
+        StyleEdit.retarget(api.style_anchor(edit["id"]), api.style_anchor(edit["replacement_id"])),
+    ]).to_docx() == target.read_bytes()
+    readback = docx.Document(target)
+    assert readback.paragraphs[0].style.name == "Migration Destination Test"
+    assert readback.sections[0].header.paragraphs[0].style.name == "Migration Destination Test"
+    assert "Migration Source Test" not in readback.styles
+
+
+def test_full_numbering_catalog_and_reciprocal_link_guards(cli, tmp_path):
+    from runpy import run_path
+    from rocx.editor import ResourceEdit as R
+
+    fixture = run_path(str(FIXTURES / "generate_numbering_catalog.py"))
+    source, output = tmp_path / "linked.docx", tmp_path / "edited.docx"
+    source.write_bytes(fixture["source"]())
+    doc = ImportedDocument.open(source.read_bytes())
+    seen = call(cli, "inspect", source)
+    catalog = doc.numbering_catalog
+    assert seen["numbering_catalog"] == catalog
+    owner = next(a for a in catalog["abstracts"] if a["abstract_id"] == 710)
+    alias = next(a for a in catalog["abstracts"] if a["abstract_id"] == 711)
+    concrete = next(i for i in catalog["instances"] if i["num_id"] == 712)
+    assert alias == dict(abstract_id=711, num_style_link="FixtureList", levels=[])
+    assert owner["style_link"] == concrete["style_ids"][0] == "FixtureList"
+    level, = owner["levels"]
+    assert not level["has_opaque_content"]
+    assert concrete["level_overrides"] == [level]
+    assert concrete["start_overrides"] == [dict(level=0, start=6)]
+    assert {k: level[k] for k in ("level", "start", "format", "text", "restart", "is_legal",
+                                  "suffix", "alignment", "paragraph_style")} == dict(
+        level=0, start=1, format="lowerRoman", text="(%1)", restart=0, is_legal=False,
+        suffix="nothing", alignment="end", paragraph_style="Heading1")
+    assert level["label_format"] == dict(font="Aptos", font_east_asia="Mincho", font_complex_script="Arial",
+        bold=False, italic=True, bold_complex_script=False, size=12.5, size_complex_script=13,
+        underline="double", subscript=True, color=dict(theme="accent2", tint=16),
+        language=dict(latin="en-US", east_asia="ja-JP", bidi="ar"))
+    assert level["paragraph_format"] == dict(keep_with_next=False, alignment="center",
+        left_indent=24, right_indent=2, first_line_indent=-12, spacing_before=1, spacing_after=2,
+        line_height=dict(kind="exact", value=10),
+        tab_stops=[dict(position=12, alignment="right", leader="dot")])
+    edits = [
+        dict(kind="replace-abstract", abstract_id=710, levels=[fixture["LEVEL"]]),
+        dict(kind="paragraph-numbering", target=0, value=dict(id=713, level=0)),
+        dict(kind="document-default", field="trackRevisions", value=False),
+        dict(kind="metadata", field="comments", value="Numbering fixture review"),
+    ]
+    result = checked_copy(cli, source, output, edits)
+    assert output.read_bytes() == doc.preview([], resources=fixture["edits"](doc)).to_docx()
+    original, changed = parts(source), parts(output)
+    assert {p for p in original if original[p] != changed[p]} == {
+        "word/numbering.xml", "word/document.xml", "word/settings.xml", "docProps/core.xml"}
+    assert next(i for i in result["numbering_catalog"]["instances"] if i["num_id"] == 712) == concrete
+    assert next(a for a in result["numbering_catalog"]["abstracts"] if a["abstract_id"] == 711) == alias
+    typed = next(a for a in result["numbering_catalog"]["abstracts"] if a["abstract_id"] == 710)
+    assert typed["style_link"] == "FixtureList" and typed["levels"][0]["paragraph_style"] == "Heading2"
+    assert docx.Document(output).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["713"]
+    assert call(cli, "inspect", output, metadata_fields=["comments", "description"])["metadata"] == {
+        "comments": "Numbering fixture review", "description": "Numbering fixture review"}
+    noop = call(cli, "preview", output, snapshot=result["snapshot"], edits=[])
+    assert call(cli, "preview", output, snapshot=result["snapshot"], edits=edits) == noop
+
+    rejected = tmp_path / "rejected.docx"
+    for bad in [
+        dict(kind="relink-instance", num_id=712, abstract_id=0),
+        dict(kind="abstract-level", abstract_id=710, level=0, value=None),
+        dict(kind="abstract-level", abstract_id=711, level=0, value=fixture["LEVEL"]),
+        dict(kind="remove-instance", num_id=712),
+        dict(kind="abstract-level", abstract_id=710, level=0, value=fixture["LEVEL"] | {"paragraph_style": "Unknown"}),
+    ]:
+        call(cli, "save-copy", output, success=False, snapshot=result["snapshot"],
+             edits=[bad], output=str(rejected))
+        assert not rejected.exists()
+    call(cli, "preview", source, success=False, snapshot=seen["snapshot"],
+         edits=[edits[3], dict(kind="metadata", field="description", value=None)])
+    for fault, error in [("opaque", "unmodeled"), ("dangling", "nonreciprocal"), ("nonreciprocal", "nonreciprocal")]:
+        path = tmp_path / f"{fault}.docx"
+        path.write_bytes(fixture["source"](fault))
+        bad = ImportedDocument.open(path.read_bytes())
+        if fault == "opaque":
+            assert next(a for a in bad.numbering_catalog["abstracts"] if a["abstract_id"] == 710)["levels"][0]["has_opaque_content"]
+        seen = call(cli, "inspect", path)
+        assert error in call(cli, "save-copy", path, success=False, snapshot=seen["snapshot"],
+                             edits=[edits[0]], output=str(rejected))
+        assert not rejected.exists()
+        with pytest.raises(ValueError, match=error):
+            bad.preview([], resources=fixture["edits"](bad))
+
+
+def test_linked_mixed_numbering_inline_and_structure(cli, tmp_path):
+    from runpy import run_path
+
+    fixture = run_path(str(FIXTURES / "generate_numbering_catalog.py"))
+    parity = run_path(str(ROOT / "javascript/tests/parity/editor.py"))
+    source, output, rejected = (tmp_path / name for name in ("source.docx", "linkedMixed.docx", "rejected.docx"))
+    original = fixture["source"](mixed=True)
+    source.write_bytes(original)
+    seen = call(cli, "inspect", source)
+    value = dict(id=713, level=0)
+    cell = dict(kind="cell", target=2, row_index=0, cell_index=0, block_index=0)
+    edits = [
+        dict(kind="replace-abstract", abstract_id=710, levels=[fixture["LEVEL"]]),
+        dict(kind="paragraph-numbering", target=0, value=value),
+        dict(kind="document-default", field="trackRevisions", value=False),
+        dict(kind="metadata", field="comments", value="Numbering fixture review"),
+        dict(kind="story-paragraph-numbering", target=cell, value=value),
+        dict(kind="inline-edit", target=0, inline_index=0, operation=dict(kind="format", set=dict(bold=True))),
+        dict(kind="table-structure", target=1, operation=dict(kind="remove-table")),
+    ]
+    for bad, reason in [
+        ([*edits[:-1], edits[-1] | {"target": 2}], "conflicting cell paragraph"),
+        ([*edits, dict(kind="remove-instance", num_id=712)], "references"),
+    ]:
+        error = call(cli, "save-copy", source, success=False, snapshot=seen["snapshot"],
+                     edits=bad, output=str(rejected))
+        assert reason in error and not rejected.exists()
+    checked_copy(cli, source, output, edits)
+    parity["verify_linked_mixed"](source, output)
+    final = call(cli, "inspect", output, numbering_story_targets=[cell | {"target": 1}])
+    assert final["story_paragraph_numbering"] == [value]
+    assert source.read_bytes() == original
+
+
+def test_physical_owner_numbering_style_and_section_layout_transport(cli, tmp_path):
+    import asyncio
+    from runpy import run_path
+
+    parity = run_path(str(ROOT / "javascript/tests/parity/editor.py"))
+    source = tmp_path / "physical-resources-source.docx"
+    stages = [tmp_path / name for name in ("staged.docx", "table.docx", "physicalResources.docx")]
+    parity["generate_physical_resources"](source)
+    before = source.read_bytes()
+    owner = "word/footer1.xml"
+    story = dict(kind="story", part=owner, block_index=0)
+    reference = dict(id=773, level=0)
+    checked_copy(cli, source, stages[0], [
+        dict(kind="style-add", definition=dict(kind="table", name="Owner Table Style")),
+        dict(kind="style-add", definition=dict(kind="numbering", name="Owner Numbering Style", numbering_id=773)),
+        dict(kind="add-abstract", abstract_id=772, levels=[
+            dict(level=0, start=1, format="decimal", text="%1.")]),
+        dict(kind="add-instance", num_id=773, abstract_id=772),
+        dict(kind="story-paragraph-numbering", target=story, value=reference),
+    ])
+    seen = call(cli, "inspect", stages[0], table_owner=owner, numbering_story_targets=[story])
+    assert seen["story_paragraph_numbering"] == [reference]
+    table, = seen["part_tables"]
+    physical = dict(kind="part-tables", owner_part=owner, operations=[
+        dict(path=table["path"], operation=dict(kind="patch-property", field="style", source=dict(
+            rows=[["Donor text must not move"]], style="Owner Table Style")))])
+    checked_copy(cli, stages[0], stages[1], [physical])
+    layouts = [
+        dict(kind="section-layout", target=0, field="margin_left", value=1440),
+        dict(kind="section-layout", target=0, field="border_top", value=dict(size=12, color="123456")),
+    ]
+    checked_copy(cli, stages[1], stages[2], layouts)
+    assert source.read_bytes() == before
+    # Independently replay the core API against the same source, and check the
+    # changed-part sets and opaque XML for each stage rather than bytes alone.
+    assert tuple(path.read_bytes() for path in stages) == asyncio.run(parity["physical_resources"](source))
+    parity["verify_physical_resources"](tmp_path)
+    done = call(cli, "inspect", stages[2], table_owner=owner, numbering_story_targets=[story])
+    assert done["story_paragraph_numbering"] == [reference]
+    assert done["part_tables"][0]["properties"]["style"] == {"val": "OwnerTableStyle"}
+    reject = tmp_path / "rejected.docx"
+    for edits, reason in [
+        ([dict(kind="remove-instance", num_id=773)], "references"),
+        ([dict(kind="section-layout", target=0, field="border_right", value=None)], "opaque"),
+        ([physical, *layouts], "cannot be mixed"),
+    ]:
+        error = call(cli, "save-copy", stages[2], success=False, snapshot=done["snapshot"],
+                     output=str(reject), edits=edits)
+        assert reason in error and not reject.exists()
+
+
 async def test_staged_table_and_numbering_share_one_cli_batch(cli, tmp_path):
     from rocx.editor import ResourceEdit as R, StyleEdit as S, TableStructureEdit as T
 

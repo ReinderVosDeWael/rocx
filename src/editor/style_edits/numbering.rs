@@ -3,10 +3,10 @@ use super::{ImportedDocument, Node, Package, Result, WordParts, unique_child, un
 use crate::editor::resource_fields::{Part, id as numeric};
 use crate::{NumberingStyleDefinition, editor::ALTERNATE, xml::val};
 
-pub(super) fn add(
+pub(super) fn bind(
     doc: &ImportedDocument,
     package: &mut Package,
-    root: &mut Node,
+    root: &Node,
     id: &str,
     s: &NumberingStyleDefinition,
 ) -> Result<()> {
@@ -55,10 +55,11 @@ pub(super) fn add(
         .ok_or_else(|| unsupported("missing abstract numbering definition"))?;
     // Do not claim an abstract that another numbering style already uses,
     // even through a different concrete instance or without a reverse link.
-    'styles: for style in root
-        .elements()
-        .filter(|n| n.name == "w:style" && n.get("w:type") == Some("numbering"))
-    {
+    'styles: for style in root.elements().filter(|n| {
+        n.name == "w:style"
+            && n.get("w:type") == Some("numbering")
+            && n.get("w:styleId") != Some(id)
+    }) {
         let mut leaf = style;
         for tag in ["w:pPr", "w:numPr", "w:numId"] {
             if leaf.child(ALTERNATE).is_some() {
@@ -88,7 +89,10 @@ pub(super) fn add(
         return Err(unsupported("abstract already owns a numbering style"));
     }
     node.push(val("styleLink", id));
-    package.put_word(&path, nums)?;
+    package.put_word(&path, nums)
+}
+
+pub(super) fn reserve(root: &mut Node, id: &str, s: &NumberingStyleDefinition) {
     root.push(
         Node::new("w:style")
             .attr("w:type", "numbering")
@@ -97,5 +101,4 @@ pub(super) fn add(
             .with(val("name", &s.name))
             .with(Node::new("w:pPr").with(Node::new("w:numPr").with(val("numId", s.numbering_id)))),
     );
-    Ok(())
 }

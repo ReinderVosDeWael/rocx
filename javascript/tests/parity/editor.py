@@ -329,7 +329,39 @@ def verify_controls(directory):
     untouched(parts(io.BytesIO(mixed)),parts(io.BytesIO(data)),(MAIN,))
 
 
+def numbering_fixture():
+    from runpy import run_path
+    return run_path(str(Path(__file__).resolve().parents[3] / "tests/fixtures/generate_numbering_catalog.py"))
+
+
+def generate_physical_resources(path):
+    word = Document()
+    word.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    word.add_paragraph("Body remains unchanged")
+    footer = word.sections[0].footer
+    footer.paragraphs[0].text = "Shared numbered footer"
+    footer.add_table(1, 1, Twips(2400)).cell(0, 0).text = "Styled footer cell"
+    word.add_section()
+    section = word.sections[0]._sectPr
+    section.find(qn("w:pgMar")).set(qn("w14:probe"), "margin extension")
+    borders = etree.Element(qn("w:pgBorders"))
+    borders.set(qn("w14:probe"), "border group extension")
+    right = etree.SubElement(borders, qn("w:right"))
+    right.set(qn("w:val"), "single")
+    right.set(qn("w:sz"), "8")
+    right.set(qn("w:color"), "667788")
+    right.set(qn("w14:probe"), "opaque right edge")
+    section.insert_element_before(borders, "w:cols", "w:docGrid")
+    word.save(path)
+
+
 def generate(directory):
+    fixture = numbering_fixture()
+    for name, fault in [("numbering-linked", None), ("numbering-dangling", "dangling"),
+                        ("numbering-opaque", "opaque")]:
+        (directory / f"{name}.docx").write_bytes(fixture["source"](fault))
+    (directory / "linked-mixed-source.docx").write_bytes(fixture["source"](mixed=True))
+    generate_physical_resources(directory / "physical-resources-source.docx")
     shared = Document()
     shared.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     comment = shared.add_comment(shared.add_paragraph("reference").runs[0], text="annotation", author="Verifier")
@@ -418,6 +450,8 @@ def generate(directory):
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
         catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
     catalog.sections[0].header.paragraphs[0].style = "Memo Active"
+    catalog.add_paragraph("Style migration", style="Memo Active")
+    catalog.styles.add_style("Memo Follower", WD_STYLE_TYPE.PARAGRAPH).base_style = catalog.styles["Memo Active"]
     catalog.save(directory / "styles-source.docx")
     doc = Document()
     # python-docx's bundled template omits this required Transitional attribute.
@@ -765,6 +799,120 @@ def verify_rich(directory):
         assert p.hyperlinks[0].runs[0].font.size.pt == 13.5
 
 
+def verify_linked_mixed(source, output):
+    from rocx.editor import ImportedDocument, InlineEdit, ResourceEdit as R, TableStructureEdit as T
+
+    doc = ImportedDocument.open(source.read_bytes())
+    p, removed, retained = doc.body
+    number = doc.cell_paragraph_anchor(retained.anchor, 0, 0, 0)
+    resources = [*numbering_fixture()["edits"](doc), R.story_paragraph_numbering(number, (713, 0))]
+    batch = dict(resources=resources, inline_edits=[InlineEdit.patch_format(p.inline_structure[0].anchor, bold=True)],
+                 table_structure=[T.remove_table(removed.anchor)])
+    data = output.read_bytes()
+    assert doc.preview([], **batch).to_docx() == data
+    assert doc.preview([], **(batch | {"resources": resources[::-1]})).to_docx() == data
+    result = ImportedDocument.open(data)
+    after_number = result.cell_paragraph_anchor(result.body[1].anchor, 0, 0, 0)
+    assert result.story_paragraph_numbering(after_number) == (713, 0)
+    for imported, kwargs, reason in [
+        (doc, batch | {"table_structure": [T.remove_table(retained.anchor)]}, "conflicting cell paragraph"),
+        (doc, batch | {"resources": [*resources, R.remove_instance(712)]}, "references"),
+        (result, batch, "snapshot"),
+    ]:
+        try:
+            imported.preview([], **kwargs)
+        except ValueError as exc:
+            assert reason in str(exc), exc
+        else:
+            raise AssertionError(reason)
+    assert doc.preview([], **batch).to_docx() == data
+    before, after = parts(source), parts(output)
+    allowed = (MAIN, "word/numbering.xml", "word/settings.xml", "docProps/core.xml")
+    untouched(before, after, allowed)
+    assert all(before[name] != after[name] for name in allowed)
+    word = Document(output)
+    assert len(word.tables) == 1 and word.tables[0].cell(0, 0).text == "Keep and number this cell"
+    assert word.paragraphs[0].runs[0].bold and word.paragraphs[0].text == "List through a numbering style"
+    assert word.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["713"]
+    assert word.sections[0].header.paragraphs[0].text == "Untouched header"
+    old, new = [etree.fromstring(z["word/numbering.xml"]) for z in (before, after)]
+    for path in ("w:abstractNum[@w:abstractNumId='711']", "w:num[@w:numId='712']", "w:num[@w:numId='713']"):
+        assert tree(xp(old, path)[0]) == tree(xp(new, path)[0])
+    assert xp(new, "w:abstractNum[@w:abstractNumId='710']/w:lvl/w:start/@w:val") == ["5"]
+
+
+async def physical_resources(path):
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, LayoutEdit as L, ResourceEdit as R, StyleEdit as S, TableStructureEdit as E
+
+    owner = "word/footer1.xml"
+    original = ImportedDocument.open(path.read_bytes())
+    staged = original.preview([], style_edits=[
+        S.add(d.TableStyleDefinition("Owner Table Style")),
+        S.add(d.NumberingStyleDefinition("Owner Numbering Style", 773)),
+    ], resources=[
+        R.add_abstract(772, [d.NumberingLevel(level=0, start=1, format="decimal", text="%1.")]),
+        R.add_instance(773, 772),
+        R.story_paragraph_numbering(original.story_paragraph_anchor(owner, 0), (773, 0)),
+    ]).to_docx()
+    numbered = ImportedDocument.open(staged)
+    donor = await d.Table([d.TableRow([d.TableCell([d.Paragraph("Donor text must not move")])])],
+                          style="Owner Table Style").resolve()
+    table, = numbered.part_tables(owner)
+    tables_edited = numbered.edit_part_tables(owner, [E.patch_property(table.anchor, "style", donor)])
+    pre_layout = ImportedDocument.open(tables_edited)
+    section = pre_layout.sections[0].anchor
+    result = pre_layout.preview_layout([
+        L.section(section, "margin_left", 1440),
+        L.section(section, "border_top", {"size": 12, "color": "123456"}),
+    ]).to_docx()
+    return staged, tables_edited, result
+
+
+def verify_physical_resources(directory):
+    import asyncio
+    import pytest
+    from rocx.editor import ImportedDocument, LayoutEdit as L, ResourceEdit as R, StyleEdit as S
+
+    source = directory / "physical-resources-source.docx"
+    output = directory / "physicalResources.docx"
+    staged, tables_edited, result = asyncio.run(physical_resources(source))
+    assert result == output.read_bytes()
+    owner = "word/footer1.xml"
+    def changed(old, new):
+        a, b = parts(old), parts(new)
+        assert a.keys() == b.keys()
+        return {name for name in a if a[name] != b[name]}
+    assert changed(source, io.BytesIO(staged)) == {owner, "word/styles.xml", "word/numbering.xml"}
+    assert changed(io.BytesIO(staged), io.BytesIO(tables_edited)) == {owner}
+    assert changed(io.BytesIO(tables_edited), output) == {MAIN}
+
+    doc = ImportedDocument.open(result)
+    assert doc.story_paragraph_numbering(doc.story_paragraph_anchor(owner, 0)) == (773, 0)
+    table, = doc.part_tables(owner)
+    assert table.properties["style"]["val"] == "OwnerTableStyle"
+    with pytest.raises(ValueError, match="references"):
+        doc.preview([], resources=[R.remove_instance(773)])
+    with pytest.raises(ValueError, match="used|referenc"):
+        doc.preview([], style_edits=[S.remove(doc.style_anchor("OwnerTableStyle"))])
+    with pytest.raises(ValueError, match="opaque"):
+        doc.preview_layout([L.section(doc.sections[0].anchor, "border_right", None)])
+    word = Document(output)
+    for section in word.sections:
+        assert section.footer.tables[0].style.style_id == "OwnerTableStyle"
+        assert section.footer.tables[0].cell(0, 0).text == "Styled footer cell"
+    source_sect = Document(source).sections[0]._sectPr
+    target_sect = word.sections[0]._sectPr
+    assert target_sect.find(qn("w:pgMar")).get(qn("w14:probe")) == "margin extension"
+    assert word.sections[0].left_margin.twips == 1440
+    borders = target_sect.find(qn("w:pgBorders"))
+    assert borders.get(qn("w14:probe")) == "border group extension"
+    assert list(borders)[0].tag == qn("w:top")
+    assert tree(borders.find(qn("w:right"))) == tree(source_sect.find(qn("w:pgBorders")).find(qn("w:right")))
+    numbers = etree.fromstring(parts(output)["word/numbering.xml"])
+    assert xp(numbers, "w:abstractNum[@w:abstractNumId='772']/w:styleLink/@w:val") == ["OwnerNumberingStyle"]
+
+
 async def structural_resources(path):
     from rocx import declarative as d
     from rocx.editor import ImportedDocument, ResourceEdit as R, StyleEdit, TableStructureEdit as T
@@ -800,6 +948,7 @@ async def structural_resources(path):
 
 
 def verify(directory):
+    verify_physical_resources(directory)
     from rocx.editor import LayoutEdit as L, ImportedDocument
     path = directory / "layout-source.docx"
     doc = ImportedDocument.open(path.read_bytes())
@@ -862,6 +1011,16 @@ def verify(directory):
     verify_ordinary(directory)
     from rocx import declarative as d
     from rocx.editor import ImportedDocument, ResourceEdit, StyleEdit
+    linked_source = directory / "numbering-linked.docx"
+    linked_output = directory / "linkedNumbering.docx"
+    linked = ImportedDocument.open(linked_source.read_bytes())
+    assert linked.preview([], resources=numbering_fixture()["edits"](linked)).to_docx() == linked_output.read_bytes()
+    untouched(parts(linked_source), parts(linked_output), (MAIN, "word/numbering.xml", "word/settings.xml", "docProps/core.xml"))
+    word = Document(linked_output)
+    assert word.core_properties.comments == "Numbering fixture review"
+    assert word.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["713"]
+    assert word.styles["Fixture List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["712"]
+    verify_linked_mixed(directory / "linked-mixed-source.docx", directory / "linkedMixed.docx")
     source_path = directory / "styles-source.docx"
     style_path = directory / "styleEdits.docx"
     styles_source = ImportedDocument.open(source_path.read_bytes())
@@ -872,6 +1031,24 @@ def verify(directory):
     ]).to_docx() == numbered.read_bytes()
     untouched(parts(source_path), parts(numbered), (MAIN, "word/numbering.xml"))
     assert Document(numbered).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
+    owned = styles_source.preview([],style_edits=[StyleEdit.add(d.NumberingStyleDefinition(name="Owned List",numbering_id=91))],
+                          resources=[ResourceEdit.add_instance(91,90),ResourceEdit.add_abstract(90,[d.NumberingLevel()]),
+                                     ResourceEdit.instance_start(91,0,6)]).to_docx()
+    assert owned == (directory/"styleOwnedList.docx").read_bytes()
+    untouched(parts(source_path),parts(io.BytesIO(owned)),("word/styles.xml","word/numbering.xml"))
+    word = Document(io.BytesIO(owned))
+    assert not word.paragraphs[0]._p.xpath("w:pPr/w:numPr")
+    assert word.styles["Owned List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
+    nums = word.part.numbering_part.element
+    assert nums.xpath("w:abstractNum[@w:abstractNumId='90']/w:styleLink/@w:val") == ["OwnedList"]
+    assert nums.xpath("w:num[@w:numId='91']/w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val") == ["6"]
+    reopened = ImportedDocument.open(owned)
+    try:
+        reopened.preview([],resources=[ResourceEdit.remove_instance(91)])
+    except ValueError as error:
+        assert "references" in str(error)
+    else:
+        raise AssertionError("removed style-owned concrete instance")
     edit = styles_source.preview([], style_edits=[
         StyleEdit.add(d.ParagraphStyleDefinition(name="Memo Added", base_style="Memo Active")),
         StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
@@ -879,10 +1056,25 @@ def verify(directory):
         StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
         StyleEdit.field(styles_source.style_anchor("Heading1"), "next", "MemoAdded"),
         StyleEdit.region(styles_source.style_anchor("TableGrid"), "nwCell", d.TableSectionFormat(bold=True, background=(10,20,30))),
+        StyleEdit.field(styles_source.style_anchor("LightShading"), "shd.fill", "BADACE", region="firstRow"),
+        StyleEdit.field(styles_source.style_anchor("LightShading"), "spacing.after", "180", region="firstRow"),
         StyleEdit.add(d.NumberingStyleDefinition(name="Memo List", numbering_id=1)),
         StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
     ])
     assert edit.to_docx() == style_path.read_bytes()
+    missing = ImportedDocument.open((directory/"styles-missing.docx").read_bytes())
+    created = missing.preview([], style_edits=[StyleEdit.add(d.ParagraphStyleDefinition(name="First Style"))]).to_docx()
+    assert created == (directory/"styleCreate.docx").read_bytes()
+    assert missing.styles is None and "First Style" in Document(io.BytesIO(created)).styles
+    untouched(parts(directory/"styles-missing.docx"), parts(io.BytesIO(created)), (MAIN_RELS,TYPES))
+    migrated = styles_source.preview([], style_edits=[StyleEdit.retarget(styles_source.style_anchor("MemoActive"),
+                                                                          styles_source.style_anchor("MemoReplace"))]).to_docx()
+    assert migrated == (directory/"styleRetarget.docx").read_bytes()
+    target = Document(io.BytesIO(migrated))
+    assert "Memo Active" not in target.styles and next(p for p in target.paragraphs if p.text=="Style migration").style.name == "Memo Replace"
+    assert target.sections[0].header.paragraphs[0].style.name == "Memo Replace"
+    assert target.styles["Memo Follower"].base_style.name == "Memo Replace"
+    untouched(parts(source_path), parts(io.BytesIO(migrated)), ("word/styles.xml",MAIN,HEADER))
     before, after = parts(source_path), parts(style_path)
     assert before.keys() == after.keys()
     untouched(before, after, ("word/styles.xml","word/numbering.xml"))

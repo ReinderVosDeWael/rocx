@@ -25,10 +25,14 @@ PORTABLE_ORACLES = (
 )
 EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
-                  "blocks", "inline", "runFormatting", "formatOwners", "tableStructure", "tableNodes", "physicalTables", "styleEdits", "controlEdits",
+                  "blocks", "inline", "runFormatting", "formatOwners", "tableStructure", "tableNodes", "physicalTables",
+                  "styleEdits", "styleCreate", "styleRetarget", "controlEdits",
                   "controlWrapped", "controlUnwrapped", "guardedWorkflow", "richControls", "richUnwrapped",
                   "tracked", "reviewed", "moved", "moveAccepted", "boldChange", "boldAccepted", "boldRejected",
-                  "paraInsert", "paraInsertAccepted", "paraInsertRejected", "paraDelete", "paraDeleteAccepted", "paraDeleteRejected", "combined", "numberingEdits", "fieldsRanges", "fieldBatch", "layout", "sectionSplit", "sectionMerge", "storyShared", "structuralResources")
+                  "paraInsert", "paraInsertAccepted", "paraInsertRejected", "paraDelete", "paraDeleteAccepted",
+                  "paraDeleteRejected", "combined", "numberingEdits", "styleOwnedList", "fieldsRanges", "fieldBatch", "layout",
+                  "sectionSplit", "sectionMerge", "storyShared", "structuralResources", "physicalResources",
+                  "linkedNumbering", "linkedMixed")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:
@@ -223,7 +227,9 @@ async def python_physical_tables(source: Path) -> bytes:
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
     for name in ("base", "relocated", "range-source", "styles-source", "control-source",
-                 "table-layout", "layout-source", "physical-table-source", "format-owners-source", "control-choice-source", "paired-source", "rich-control-source", "field-batch-source"):
+                 "table-layout", "layout-source", "physical-table-source", "format-owners-source",
+                 "control-choice-source", "paired-source", "rich-control-source", "field-batch-source",
+                 "numbering-linked", "linked-mixed-source"):
         path = reference / f"{name}.docx"
         print(f"editor/{path.name}: {len(validator.validate(path))} schema-covered parts and OPC relationships")
     assert {p.name for p in reference.glob("native-*.docx")} == {f"native-{n}.docx" for n in EDITOR_OUTPUTS}

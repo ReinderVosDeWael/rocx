@@ -18,9 +18,11 @@ enum Request {
         metadata_fields: Vec<String>,
         #[serde(default)]
         custom_properties: Vec<String>,
+        table_owner: Option<String>,
         #[serde(default)]
         numbering_targets: Vec<usize>,
-        table_owner: Option<String>,
+        #[serde(default)]
+        numbering_story_targets: Vec<rocx_protocol::NumberingSite>,
     },
     Preview {
         source: String,
@@ -48,8 +50,9 @@ fn execute(request: Request) -> Result<Value, String> {
         Request::Inspect {
             metadata_fields,
             custom_properties,
-            numbering_targets,
             table_owner,
+            numbering_targets,
+            numbering_story_targets,
             ..
         } => {
             return rocx_protocol::inspect(
@@ -57,8 +60,9 @@ fn execute(request: Request) -> Result<Value, String> {
                 snapshot,
                 metadata_fields,
                 custom_properties,
-                numbering_targets,
                 table_owner.as_deref(),
+                numbering_targets,
+                numbering_story_targets,
             );
         }
         Request::Preview {

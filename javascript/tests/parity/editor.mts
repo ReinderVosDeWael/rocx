@@ -10,6 +10,8 @@ export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source", "layout-source",
   "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "physical-table-source",
   "control-choice-source", "paired-source", "format-owners-source", "rich-control-source", "field-batch-source",
+  "physical-resources-source",
+  "numbering-linked", "numbering-dangling", "numbering-opaque", "linked-mixed-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -570,7 +572,116 @@ async function mixedFields(bytes: Uint8Array) {
   bytesEqual(d.preview({...batch, fields:[...fields].reverse(),pairedRanges:[...batch.pairedRanges!].reverse()}).toDocx(),out,"mixed batch order");
   return out;
 }
+
+async function editLinkedNumbering(fixtures: Fixtures) {
+  const source = await openDocx(fixtures["numbering-linked"]);
+  const catalog = source.numberingCatalog();
+  const owner = catalog.abstracts.find(a => a.abstractId === 710)!;
+  const alias = catalog.abstracts.find(a => a.abstractId === 711)!;
+  const concrete = catalog.instances.find(n => n.numId === 712)!;
+  same(alias, {abstractId:711, numStyleLink:"FixtureList", levels:[]}, "physical inherited abstract");
+  same(concrete.styleIds, ["FixtureList"], "direct instance ownership");
+  const level = owner.levels[0];
+  same(level, concrete.levelOverrides[0], "direct abstract and concrete level fields");
+  check(!level.hasOpaqueContent && level.start === 1 && level.restart === 0 && level.suffix === "nothing" &&
+    level.isLegal === false && level.paragraphStyle === "Heading1" && level.labelFormat?.size === 12.5,
+  "typed original numbering level");
+  same(level.paragraphFormat?.lineHeight, {kind:"exact",value:10}, "typed original line height");
+  const replace = {kind:"replaceAbstract", abstractId:710, levels:[{
+    level:0, start:5, format:"ordinal", text:"%1)", restart:0, isLegal:false,
+    suffix:"space", alignment:"start", paragraphStyle:"Heading 2",
+    labelFormat:{bold:false, size:12.5, underline:"double", color:{kind:"theme", name:"accent2", tint:16}},
+    paragraphFormat:{alignment:"center", firstLineIndent:-9, lineHeight:{kind:"exact",value:11},
+      tabStops:[{position:12,alignment:"right",leader:"dot"}]},
+  }]} as const;
+  const resources = (doc: ImportedDocument): NonNullable<EditBatch["resources"]> => [
+    replace, {kind:"paragraphNumbering", target:paragraph(doc,0).anchor, value:{id:713,level:0}},
+    {kind:"documentDefault", field:"trackRevisions",value:false},
+    {kind:"metadata", field:"comments", value:"Numbering fixture review"},
+  ];
+  const output = source.preview({resources:resources(source)}).toDocx();
+  const result = await openDocx(output);
+  same(result.numberingCatalog().instances.find(i => i.numId === 712), concrete, "ownership and overrides preserved");
+  same(result.numberingCatalog().abstracts.find(a => a.abstractId === 711), alias, "alias preserved");
+  bytesEqual(result.preview({resources:resources(result)}).toDocx(),result.preview({}).toDocx(),"repeat edit");
+  rejects(() => result.preview({resources:resources(source)}), /snapshot/);
+  rejects(() => result.preview({resources:[{kind:"relinkInstance",numId:712,abstractId:0}]}), /owning instance/);
+  rejects(() => result.preview({resources:[{kind:"removeInstance",numId:712}]}), /references/);
+  rejects(() => result.preview({resources:[replace,replace]}), /conflicting/);
+  const dangling = await openDocx(fixtures["numbering-dangling"]);
+  rejects(() => dangling.preview({resources:[replace]}), /nonreciprocal/);
+  const opaque = await openDocx(fixtures["numbering-opaque"]);
+  check(opaque.numberingCatalog().abstracts.find(a => a.abstractId === 710)?.levels[0].hasOpaqueContent, "opaque label");
+  rejects(() => opaque.preview({resources:[replace]}), /unmodeled/);
+  const mixed = await openDocx(fixtures["linked-mixed-source"]);
+  const [, removed, retained] = mixed.body();
+  check(removed.kind === "table" && retained.kind === "table", "linked mixed fixture tables");
+  const site = {target:retained.anchor, rowIndex:0, cellIndex:0, blockIndex:0};
+  const value = {id:713, level:0};
+  const mixedResources = [...resources(mixed),
+    {kind:"storyParagraphNumbering", target:mixed.cellParagraphAnchor(site), value} as const];
+  const target = paragraph(mixed,0).inlineStructure[0];
+  check(target.kind === "run", "linked mixed fixture run");
+  const batch: EditBatch = {
+    resources:mixedResources,
+    inlineEdits:[{kind:"patchFormat", target:target.anchor, format:{bold:true}}],
+    tableStructure:[{target:removed.anchor, kind:"removeTable"}],
+  };
+  rejects(() => mixed.preview({...batch, tableStructure:[{target:retained.anchor, kind:"removeTable"}]}), /conflicting cell paragraph/);
+  rejects(() => mixed.preview({...batch, resources:[...mixedResources,{kind:"removeInstance",numId:712}]}), /references/);
+  const linkedMixed = mixed.preview(batch).toDocx();
+  bytesEqual(mixed.preview({...batch,resources:[...mixedResources].reverse()}).toDocx(), linkedMixed, "mixed resources order");
+  const reopened = await openDocx(linkedMixed);
+  rejects(() => reopened.preview(batch), /snapshot/);
+  const table = reopened.body()[1];
+  check(table.kind === "table" && reopened.body().length === 2, "original table removed");
+  same(reopened.storyParagraphNumbering(reopened.cellParagraphAnchor({...site,target:table.anchor})), value, "retained cell numbering");
+  return {linkedNumbering: output, linkedMixed};
+}
+
+async function editPhysicalResources(source: Uint8Array) {
+  const owner = "word/footer1.xml";
+  const original = await openDocx(source);
+  const site = {ownerPart: owner, blockIndex: 0};
+  const sourceNumber = original.storyParagraphAnchor(site);
+  const staged = original.preview({
+    styleEdits: [
+      {op:"add", definition:{kind:"table", name:"Owner Table Style"}},
+      {op:"add", definition:{kind:"numbering", name:"Owner Numbering Style", numberingId:773}},
+    ],
+    resources: [
+      {kind:"addAbstract", abstractId:772, levels:[{level:0, start:1, format:"decimal", text:"%1."}]},
+      {kind:"addInstance", numId:773, abstractId:772},
+      {kind:"storyParagraphNumbering", target:sourceNumber, value:{id:773, level:0}},
+    ],
+  }).toDocx();
+  const numbered = await openDocx(staged);
+  const table = numbered.partTables(owner)[0];
+  const donor = await resolveComponent({kind:"table", properties:{style:"Owner Table Style"}, rows:[
+    {kind:"tableRow", children:[{kind:"tableCell", children:[{kind:"paragraph",text:"Donor text must not move"}]}]},
+  ]});
+  check(donor, "resolved physical style donor");
+  const properties = [{target:table.anchor, kind:"patchProperty", field:"style", source:donor}] as const;
+  rejects(() => numbered.editPartTables({ownerPart:"word/document.xml", tableStructure:properties}), /owner mismatch/);
+  rejects(() => numbered.storyParagraphNumbering(sourceNumber), /snapshot/);
+  const tablesEdited = numbered.editPartTables({ownerPart:owner, tableStructure:properties});
+  const preLayout = await openDocx(tablesEdited);
+  const section = preLayout.sections()[0].anchor;
+  rejects(() => preLayout.previewLayout([{target:section, field:"borderRight", value:null}]), /opaque/);
+  const result = preLayout.previewLayout([
+    {target:section, field:"marginLeft", value:1440},
+    {target:section, field:"borderTop", value:{size:12,color:"123456"}},
+  ]).toDocx();
+  const reopened = await openDocx(result);
+  same(reopened.storyParagraphNumbering(reopened.storyParagraphAnchor(site)), {id:773,level:0}, "numbering survives physical table and layout edits");
+  same(reopened.partTables(owner)[0].properties.style?.val, "OwnerTableStyle", "owned table style");
+  rejects(() => reopened.preview({resources:[{kind:"removeInstance",numId:773}]}), /references/);
+  rejects(() => reopened.preview({styleEdits:[{op:"remove",target:reopened.styleAnchor("OwnerTableStyle")}]}), /used|referenc/);
+  return result;
+}
+
 export async function run(fixtures: Fixtures) {
+  const physicalResources = await editPhysicalResources(fixtures["physical-resources-source"]);
   let physicalTables:Uint8Array=fixtures["physical-table-source"];
   for (const [owner,depth] of [[undefined,1],["word/footer1.xml",1],["word/comments.xml",0]] as const) {
     const source=await openDocx(physicalTables);
@@ -594,6 +705,7 @@ export async function run(fixtures: Fixtures) {
       physicalTables=doc.editPartTables({ownerPart:owner,tableStructure:[{target:table.anchor,kind:"replaceCell",row:0,cell:0,blocks:[linked]}]});
     }
   }
+  const linked = await editLinkedNumbering(fixtures);
   const merged = await openDocx(fixtures["table-layout"]);
   const physical = merged.body()[0];
   check(physical.kind === "table" && physical.layout === "fixed", "merged table layout");
@@ -682,9 +794,28 @@ export async function run(fixtures: Fixtures) {
   ]}).toDocx();
   const numbers = await openDocx(numberingEdits);
   const numbered = paragraph(numbers, 0).anchor;
+  const styleOwnedList = catalog.preview({styleEdits:[{op:"add",definition:{kind:"numbering",name:"Owned List",numberingId:91}}],
+    resources:[{kind:"addInstance",numId:91,abstractId:90}, {kind:"addAbstract",abstractId:90,levels:[{level:0,start:1,format:"decimal",text:"%1."}]},
+      {kind:"instanceStart",numId:91,level:0,value:6}]}).toDocx();
+  const owned = await openDocx(styleOwnedList);
+  check(!owned.paragraphNumbering(paragraph(owned,0).anchor) && owned.styles()?.styles.some(s=>s.id==="OwnedList"),"only style still owns list");
+  rejects(()=>owned.preview({resources:[{kind:"removeInstance",numId:91}]}), /references/);
   rejects(() => numbers.paragraphNumbering(listTarget), /snapshot/);
   rejects(() => numbers.preview({resources: [{kind: "removeInstance", numId: 91}]}), /references/);
   same(numbers.paragraphNumbering(numbered), {id: 91, level: 0}, "direct reference");
+  const decimal = {level: 0, start: 1, format: "decimal", text: "%1."};
+  bytesEqual(numbers.preview({resources: [
+    {kind:"replaceAbstract", abstractId:90, levels:[decimal]},
+    {kind:"replaceInstance", definition:{id:91, abstractId:90}},
+    {kind:"paragraphNumbering", target:numbered, value:{id:91,level:0}},
+  ]}).toDocx(), numbers.preview({}).toDocx(), "equivalent modeled numbering leaves all bytes alone");
+  rejects(() => numbers.preview({resources: [
+    {kind:"replaceAbstract", abstractId:90, levels:[decimal]},
+    {kind:"abstractLevel", abstractId:90, level:0, value:decimal},
+  ]}), /conflicting/);
+  rejects(() => numbers.preview({resources: [
+    {kind:"abstractLevel", abstractId:2, level:0, value:decimal},
+  ]}), /unmodeled|style-linked/);
   const removed = await openDocx(numbers.preview({resources: [
     {kind: "removeAbstract", abstractId: 90}, {kind: "removeInstance", numId: 91},
     {kind: "paragraphNumbering", target: numbered, value: null},
@@ -697,6 +828,8 @@ export async function run(fixtures: Fixtures) {
     { op: "remove", target: catalog.styleAnchor("MemoDrop") },
     { op: "field", target: catalog.styleAnchor("Heading1"), field: "next", value: "MemoAdded" },
     { op: "region", target: catalog.styleAnchor("TableGrid"), region: "nwCell", format: {bold: true, background: [10,20,30]} },
+    { op: "field", target: catalog.styleAnchor("LightShading"), region: "firstRow", field: "shd.fill", value: "BADACE" },
+    { op: "field", target: catalog.styleAnchor("LightShading"), region: "firstRow", field: "spacing.after", value: "180" },
     { op: "add", definition: {kind: "numbering", name: "Memo List", numberingId: 1} },
     { op: "patch", target: active, italic: true },
   ] };
@@ -704,6 +837,13 @@ export async function run(fixtures: Fixtures) {
   rejects(() => catalog.preview({styleEdits: [{op: "remove", target: active}]}), /references/);
   const styleEdits = catalog.preview(batch).toDocx();
   const reopened = await openDocx(styleEdits);
+  const missing = await openDocx(fixtures["styles-missing"]);
+  const styleCreate = missing.preview({styleEdits:[{op:"add",definition:{kind:"paragraph",name:"First Style"}}]}).toDocx();
+  check((await openDocx(styleCreate)).styles()?.styles[0].id === "FirstStyle" && !missing.styles(), "create new style catalog");
+  const replacement=catalog.styleAnchor("MemoReplace");
+  rejects(() => reopened.preview({styleEdits:[{op:"retarget", target:active, replacement}]}), /snapshot/);
+  const styleRetarget=catalog.preview({styleEdits:[{op:"retarget", target:active, replacement}]}).toDocx();
+  check(!(await openDocx(styleRetarget)).styles()?.styles.some(s=>s.id==="MemoActive"),"migrated style");
   check(reopened.styles()?.styles.find(s => s.id === "Heading1")?.nextStyle === "MemoAdded", "changed next reference");
   check(reopened.styles()?.styles.find(s => s.id === "TableGrid")?.propertyXml.some(x => x.includes("nwCell") && x.includes("0A141E")), "conditional format");
   rejects(() => catalog.preview({styleEdits: [{op:"field",target:active,field:"basedOn",value:"MemoActive"}]}), /cycle/);
@@ -913,9 +1053,9 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, numberingEdits,
-    tableNodes, physicalTables, layout,
-    sectionSplit, sectionMerge, storyShared, structuralResources, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, styleCreate, styleRetarget,
+    runFormatting, numberingEdits, styleOwnedList, ...linked, tableNodes, physicalTables, layout,
+    sectionSplit, sectionMerge, storyShared, structuralResources, physicalResources, inline: inline.toDocx(),
     boldChange, boldAccepted, boldRejected,
     ...blockRevisions,
     formatOwners,
