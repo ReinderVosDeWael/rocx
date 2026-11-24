@@ -93,6 +93,10 @@ function bodyBlock(node: BodyBlock, doc: ImportedDocument) {
   switch (node.kind) {
     case "paragraph": return paragraph(node, doc);
     case "table": return table(node, doc);
+    case "contentControl":
+      // @ts-expect-error Controls are inspection-only and have no edit anchor.
+      doc.inlineAt(node.anchor);
+      return [node.tag, node.alias, node.lock];
     case "opaque": return node.name;
     default: return node satisfies never;
   }

@@ -456,6 +456,9 @@ async def generate(output: pathlib.Path) -> bytes:
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)
     imported = ImportedDocument.open(data)
+    controls = [block for block in imported.body if getattr(block, "tag", None) == "review-block"]
+    assert len(controls) == 1
+    assert (controls[0].alias, controls[0].lock) == ("Review block", "sdtLocked")
     entries = imported.entry_stories
     assert {e.kind for e in entries if e.id == "0"} >= {"footnote", "endnote"}
     review, = (e for e in entries if e.author == "Structured reviewer")

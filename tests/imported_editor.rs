@@ -119,12 +119,70 @@ fn reads_direct_body_blocks_and_paragraph_properties() {
         items,
         &[rocx::editor::ImportedInline::Text("in table".into())]
     );
-    assert!(matches!(&doc.body()[2], BodyBlock::Opaque(_)));
+    let BodyBlock::ContentControl(control) = &doc.body()[2] else {
+        panic!("expected content control")
+    };
+    assert_eq!(
+        (&control.tag, &control.alias, &control.lock),
+        (&None, &None, &None)
+    );
     let second = paragraph(&doc, 3);
     assert_eq!(second.text, "Second");
     assert_eq!(second.alignment, None);
     assert_eq!(second.alignment_xml, None);
     assert!(!second.has_opaque_content);
+}
+
+#[test]
+fn direct_control_metadata_is_read_only_and_preserved() {
+    let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:sdt><w:sdtPr><w:tag w:val="customer &amp; id"/><w:alias w:val="Name"/><w:lock w:val="futureLock"/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>secret</w:t></w:r></w:p></w:sdtContent></w:sdt>
+<w:sdt><w:sdtPr><w:tag/><w:alias w:val=""/></w:sdtPr><w:sdtContent/></w:sdt>
+<w:p><w:r><w:t>outside</w:t></w:r></w:p><w:sectPr/></w:body></w:document>"#;
+    let input = fixture_with_body(xml);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let BodyBlock::ContentControl(first) = &doc.body()[0] else {
+        panic!("control")
+    };
+    assert_eq!(first.tag.as_deref(), Some("customer & id"));
+    assert_eq!(first.alias.as_deref(), Some("Name"));
+    assert_eq!(first.lock.as_deref(), Some("futureLock"));
+    let BodyBlock::ContentControl(second) = &doc.body()[1] else {
+        panic!("control")
+    };
+    assert_eq!(second.tag, None);
+    assert_eq!(second.alias.as_deref(), Some(""));
+    assert_eq!(second.lock, None);
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&input)
+    );
+    let output = doc
+        .preview(&[ParagraphAlignmentEdit {
+            target: paragraph(&doc, 2).anchor.clone(),
+            alignment: Alignment::Center,
+        }])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let before = parts(&input);
+    let after = parts(&output);
+    for (name, bytes) in &before {
+        if name != "word/document.xml" {
+            assert_eq!(&after[name], bytes);
+        }
+    }
+    let before_xml = std::str::from_utf8(&before["word/document.xml"]).unwrap();
+    let after_xml = std::str::from_utf8(&after["word/document.xml"]).unwrap();
+    let before_tree = roxmltree::Document::parse(before_xml).unwrap();
+    let after_tree = roxmltree::Document::parse(after_xml).unwrap();
+    let controls = |doc: &roxmltree::Document<'_>| {
+        doc.descendants()
+            .filter(|n| n.has_tag_name((W, "sdt")))
+            .map(|n| tree(n, false))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(controls(&before_tree), controls(&after_tree));
 }
 
 #[test]

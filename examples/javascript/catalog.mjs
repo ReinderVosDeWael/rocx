@@ -142,6 +142,9 @@ export async function generateCatalog(fixtures, options) {
 
   const imported = await openDocx(final);
   const body = imported.body();
+  const controls = body.filter((node) => node.kind === "contentControl" && node.tag === "review-block");
+  assert(controls.length === 1 && controls[0].alias === "Review block" &&
+    controls[0].lock === "sdtLocked", "incorrect block control metadata");
   const inline = body.find((node) => node.kind === "paragraph" && node.text === INLINE_LABEL + INLINE_LINK_RUNS.join(""));
   assert(inline, "expected labeled body inline structure");
   const entries = imported.entryStories();

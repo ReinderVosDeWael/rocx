@@ -95,6 +95,13 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
                 ),
             ],
         ),
+        BodyBlock::ContentControl(control) => {
+            let result = record("contentControl", &[]);
+            optional(&result, "tag", control.tag.as_deref());
+            optional(&result, "alias", control.alias.as_deref());
+            optional(&result, "lock", control.lock.as_deref());
+            result
+        }
         BodyBlock::Opaque(name) => opaque(name),
         _ => return Err(unmodeled("body block")),
     })

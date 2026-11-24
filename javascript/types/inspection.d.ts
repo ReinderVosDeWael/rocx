@@ -90,7 +90,16 @@ export interface ImportedTable {
   readonly children: readonly ImportedTableChild[];
 }
 
-export type BodyBlock = ImportedParagraph | ImportedTable | ImportedOpaque;
+/** Direct body control metadata; its content is opaque and has no edit anchor.
+ * Values are source XML strings, including unrecognized lock values. */
+export interface ImportedContentControl {
+  readonly kind: "contentControl";
+  readonly tag?: string;
+  readonly alias?: string;
+  readonly lock?: string;
+}
+
+export type BodyBlock = ImportedParagraph | ImportedTable | ImportedContentControl | ImportedOpaque;
 
 /** Half-open body range with explicit section type only. */
 export interface ImportedSection {

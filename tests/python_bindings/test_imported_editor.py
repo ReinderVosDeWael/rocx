@@ -13,6 +13,7 @@ from docx.shared import Pt
 from rocx import declarative as d
 from rocx.editor import (
     BodyOpaque,
+    BodyContentControl,
     BodyParagraph,
     BodyTable,
     HeaderImageChange,
@@ -93,6 +94,41 @@ def test_entry_stories_distinguish_identical_comment_runs_and_preserve_source():
 def _parts(data):
     with ZipFile(io.BytesIO(data)) as package:
         return {name: package.read(name) for name in package.namelist()}
+
+def test_direct_body_control_metadata_and_preservation():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    source = docx.Document()
+    source.add_paragraph("outside")
+    control = OxmlElement("w:sdt")
+    props = OxmlElement("w:sdtPr")
+    for name, value in (("tag", "customer & id"), ("alias", "Name"), ("lock", "futureLock")):
+        node = OxmlElement(f"w:{name}")
+        node.set(qn("w:val"), value)
+        props.append(node)
+    control.append(props)
+    content = OxmlElement("w:sdtContent")
+    content.append(source.add_paragraph("secret")._p)
+    control.append(content)
+    source.element.body.insert(0, control)
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    block = imported.body[0]
+    assert isinstance(block, BodyContentControl)
+    assert (block.tag, block.alias, block.lock) == ("customer & id", "Name", "futureLock")
+    assert not hasattr(block, "anchor")
+    assert _parts(imported.preview([]).to_docx()) == _parts(data)
+    output = imported.preview([ParagraphAlignmentEdit(imported.body[1].anchor, "center")]).to_docx()
+    before, after = _parts(data), _parts(output)
+    assert all(before[k] == after[k] for k in before if k != "word/document.xml")
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    def control_xml(parts):
+        return ElementTree.tostring(ElementTree.fromstring(parts["word/document.xml"]).find(".//w:sdt", ns))
+    assert control_xml(before) == control_xml(after)
+    assert docx.Document(io.BytesIO(output)).paragraphs[0].text == "outside"
 
 
 def test_python_docx_table_cell_inline_anchors():
