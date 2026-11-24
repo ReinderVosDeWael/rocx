@@ -1,15 +1,11 @@
 """Check packed consumer output: exact Rust ZIP bytes, readback, and OPC/schema."""
 
 import argparse
-import io
-import zipfile
+import asyncio
 from pathlib import Path
-
-import docx
 
 from check_examples import (
     CATALOG_SUFFIXES,
-    INLINE_LINK_RUNS,
     exact_bytes,
     verify_content,
     verify_edited,
@@ -17,6 +13,7 @@ from check_examples import (
     verify_header_scopes,
     verify_javascript_workflow,
     verify_plain_workflow,
+    verify_run_text,
 )
 from validate_ooxml import Validator, default_directory
 
@@ -26,7 +23,8 @@ PORTABLE_ORACLES = (
     "tables", "tables-auto", "tables-layout",
     "fresh", "override", "edited", "structured",
 )
-EDITOR_OUTPUTS = ("body", "noop", "shared", "local", "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared")
+EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "shared", "local",
+                  "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:
@@ -49,15 +47,16 @@ def verify_catalog(validator: Validator, parity: Path) -> None:
             verify_file(validator, references / f"all_features-{language}{suffix}", data, language=language)
 
     for runtime in RUNTIMES:
-        final, template, edited, source, shared, local, first_shared, first_local, _ = (
+        final, template, edited, source, shared, local, first_shared, first_local, run_text = (
             verify_file(validator, parity / runtime / f"catalog{suffix}", data, language=runtime)
             for suffix, data in zip(CATALOG_SUFFIXES, native, strict=True)
         )
         # Do not infer preservation or readback from container equality.
         verify_content(final, template)
+        verify_run_text(final, run_text)
         verify_edited(final, edited)
         verify_header_scopes(source, shared, local)
-        verify_first_header_scopes(first_shared, first_local)
+        verify_first_header_scopes(source, first_shared, first_local)
         print(f"{runtime}: catalog, independent python-docx and untouched-part checks passed")
 
 
@@ -94,6 +93,25 @@ def verify_plain(validator: Validator, parity: Path) -> None:
         verify_plain_workflow(data)
 
 
+async def python_mixed_body(source: Path, output: Path) -> None:
+    from rocx import declarative as d
+    from rocx.editor import CellAlignmentEdit, ImportedDocument, ParagraphInsertion
+
+    doc = ImportedDocument.open(source.read_bytes())
+    paragraph = await d.Paragraph(text="inserted paragraph").resolve()
+    preview = doc.preview(
+        [],
+        paragraph_insertions=[ParagraphInsertion(doc.body[0].anchor, paragraph)],
+        cell_alignments=[CellAlignmentEdit(doc.body[5].anchor, 0, 0, "center")],
+        run_removals=[doc.body[2].inline_structure[0].anchor],
+    )
+    assert preview.paragraph_insertions == [0]
+    assert [(c.body_index, c.row_index, c.cell_index) for c in preview.cell_alignment_changes] == [(5, 0, 0)]
+    assert [(r.body_index, r.inline_index, r.before) for r in preview.run_removals] == [(2, 0, "unset alignment")]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(preview.to_docx())
+
+
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
     for name in ("base", "relocated"):
@@ -103,6 +121,10 @@ def verify_editor(validator: Validator, parity: Path) -> None:
         path = reference / f"native-{name}.docx"
         data = path.read_bytes()
         verify_file(validator, path, data, language="Rust")
+        if name == "mixedBody":
+            python = parity / "python" / "editor" / "mixedBody.docx"
+            asyncio.run(python_mixed_body(reference / "native-body.docx", python))
+            verify_file(validator, python, data, language="Python")
         for runtime in RUNTIMES:
             verify_file(validator, parity / runtime / "editor" / f"{name}.docx", data, language=runtime)
 

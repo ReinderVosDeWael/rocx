@@ -46,7 +46,13 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 
 | Imported DOCX operation | Rust | Python | JavaScript |
 | --- | --- | --- | --- |
+| Combine all supported edit kinds atomically | `doc.preview_mixed(...)` | `doc.preview(alignments, ...)` | `doc.preview(batch)` |
 | Inspect footnotes, endnotes and comments | `doc.entry_stories()?` | `doc.entry_stories` | `doc.entryStories()` |
+| Inspect the styles part and direct style metadata | `doc.styles()?` | `doc.styles` | `doc.styles()` |
+| Inspect direct body control metadata | `BodyBlock::ContentControl` | `BodyContentControl` | `kind: "contentControl"` |
+| Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
+| Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
+| Set a direct body table cell's vertical alignment | `preview_with_cells` / `CellAlignmentEdit` | `preview([], cell_alignments=[edit])` | `preview({cellAlignments: [edit]})` |
 | Replace text in a direct body run | `doc.preview_with_text(&[], &[], &[], &[edit])?` | `doc.preview([], run_text=[edit])` | `doc.preview({runText: [edit]})` |
 | Remove a direct body run | `doc.preview_with_run_removals(&[], &[], &[], &[], &[anchor])?` | `doc.preview([], run_removals=[anchor])` | `doc.preview({runRemovals: [anchor]})` |
 | Inspect removed runs | `preview.run_removals()` | `preview.run_removals` | `preview.runRemovals()` |
@@ -67,7 +73,7 @@ complex properties, revisions, mixed content and protected ranges are rejected.
 Replacement and removal of the same anchor conflict.
 
 - Rust consumes declarations; Python leaves them unchanged. [Resolve once](docs/DEFERRED-FIELDS.md) to render repeatedly without rerunning producers or rereading images.
-- **Compose** with an unsigned Transitional DOCX or DOTX template; output is DOCX. **Inspect and preview edits** on an unsigned DOCX: align direct body paragraphs, insert supported tables or append an image to an existing default header. A shared edit affects every section using that header; a section-local edit forks a supported header. Use targets from the same snapshot.
+- **Compose** with an unsigned Transitional DOCX or DOTX template; output is DOCX. **Inspect and preview edits** on an unsigned DOCX: align direct body paragraphs, insert a supported paragraph or table, patch physical cell alignment, edit supported body runs, or append an inline image to an existing default or first-page header. A shared edit affects all aliases of that physical header; a section-local edit forks a supported header for the selected slot. Use targets from the same snapshot. See the [editor inventory](docs/EDITOR-PARITY.md) for target and preservation limits.
 - [Template replacement](https://reindervosdewael.github.io/rocx/recipes/#edit-an-existing-document) can span runs within a paragraph or hyperlink. It cannot cross structured boundaries or change fields, revisions or controls. Replacement text belongs to the first matched run; bookmark/comment markers and untouched break attributes stay in place.
 - Untouched **part payloads** retain their bytes. Edited XML and the ZIP container may be reserialized. Related parts are found by relationship, not filename; invalid internal relationships fail. Path output replaces the destination only after compilation, using a sibling temporary file.
 - Packages declaring a digital-signature origin are rejected, even without edits. Use an unsigned copy; rocx does not strip, verify or renew signatures.

@@ -8,8 +8,10 @@ working directory.
 
 1. Inspect: `{"command":"inspect","source":"input.docx"}` returns `snapshot`
    and direct body blocks in order. Paragraphs contain `target`, `text`,
-   `alignment_xml` and `has_opaque_content`; tables and opaque blocks are
-   identified but not expanded. Text is a projection, not rendered text.
+   `alignment_xml` and `has_opaque_content`. Direct block controls report
+   `type: "content-control"`, `index`, `tag`, `alias` and `lock`, without an
+   edit target or contents. Tables and opaque blocks are identified but not
+   expanded. Text is a projection, not rendered text.
 2. Preview: `{"command":"preview","source":"input.docx","snapshot":"DIGEST","edits":[{"target":0,"alignment":"center"}]}`.
    Use the returned snapshot and paragraph target, not a guessed index. The
    result lists actual changes, with previous XML alignment and the new Rust

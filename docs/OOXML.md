@@ -113,7 +113,8 @@ immutable projection; links derive theirs from children without another cache.
 Targets retain Unicode and original percent escapes/query/fragment syntax. The
 external relationship is registered against the actual owning part, with IDs and
 deduplication scoped to that owner. No target is resolved over the network.
-Direct body and default-header hyperlinks have a read-only [typed inspection view](EDITOR-PARITY.md)
+Hyperlinks in direct body paragraphs, inspected cell paragraphs and inspected story
+paragraphs have a read-only [typed inspection view](EDITOR-PARITY.md)
 with ordered children and explicit owner-local references, not resolved targets.
 Structural template edits can replace across display runs inside one link, but
 not across its boundary, and do not rewrite targets. Rust/Python tests, relocated-owner fixtures,

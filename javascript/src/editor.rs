@@ -11,7 +11,8 @@ use rocx::{
     ResolvedImage, ResolvedParagraph, ResolvedTable, Result,
     editor::{
         EditPreview, HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit,
-        HeaderImagePreview, ParagraphAlignmentEdit, ParagraphAnchor, TableAnchor, TableInsertion,
+        HeaderImagePreview, ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion,
+        TableAnchor, TableInsertion,
     },
 };
 use wasm_bindgen::JsValue;
@@ -90,6 +91,18 @@ fn table_insertion(input: &Wire, path: &str) -> Result<TableInsertion> {
     })
 }
 
+fn paragraph_insertion(input: &Wire, path: &str) -> Result<ParagraphInsertion> {
+    let edit = Record::new(input, path, &["target", "paragraph"])?;
+    Ok(ParagraphInsertion {
+        target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+        paragraph: (*b::borrow::<ResolvedParagraph>(
+            &edit.get("paragraph")?,
+            &edit.path("paragraph"),
+        )?)
+        .clone(),
+    })
+}
+
 fn cell_alignment_edit(input: &Wire, path: &str) -> Result<rocx::editor::CellAlignmentEdit> {
     let edit = Record::new(
         input,
@@ -152,9 +165,11 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "headerImages",
             "runText",
             "runRemovals",
+            "paragraphInsertions",
+            "cellAlignments",
         ],
     )?;
-    let preview = source.document().preview_with_run_removals(
+    let preview = source.document().preview_mixed(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -168,6 +183,8 @@ fn preview(input: &Wire) -> Result<JsValue> {
                 text: b::string(&edit.get("text")?, &edit.path("text"))?,
             })
         })?,
+        &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
+        &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
     )?;
     Ok(b::handle_with_methods(

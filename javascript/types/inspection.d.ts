@@ -4,11 +4,11 @@ declare const anchor: unique symbol;
 
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
-/** Read-only direct body table address. */
+/** Direct body table address for cell alignment edits. */
 export interface TableAnchor { readonly [anchor]: "table" }
-/** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement. */
+/** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement or removal. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
-/** Section-scoped target for a default-header edit. */
+/** Section-scoped target for a default or first-page header image edit. */
 export interface HeaderAnchor { readonly [anchor]: "header" }
 
 export type ImportedAlignment =

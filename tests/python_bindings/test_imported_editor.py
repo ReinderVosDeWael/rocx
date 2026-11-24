@@ -79,6 +79,109 @@ def test_inline_revision_inspection_preserves_opaque_boundaries():
     assert _parts(imported.preview([]).to_docx()) == _parts(buf.getvalue())
 
 
+async def test_mixed_cell_paragraph_and_run_edits_use_original_indices_atomically():
+    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+
+    source = docx.Document()
+    source.add_paragraph("start")
+    source.add_table(rows=1, cols=1).cell(0, 0).text = "cell"
+    tail = source.add_paragraph("keep")
+    tail.add_run("remove")
+    stream = io.BytesIO()
+    source.save(stream)
+    original = stream.getvalue()
+    imported = ImportedDocument.open(original)
+    start, table, tail = imported.body
+    target = tail.inline_structure[1].anchor
+    batch = dict(
+        paragraph_insertions=[ParagraphInsertion(start.anchor, await d.Paragraph(text="inserted").resolve())],
+        cell_alignments=[CellAlignmentEdit(table.anchor, 0, 0, "bottom")],
+        run_removals=[target],
+    )
+    preview = imported.preview([], **batch)
+    assert preview.paragraph_insertions == [0]
+    assert [(c.body_index, c.row_index, c.cell_index) for c in preview.cell_alignment_changes] == [(1, 0, 0)]
+    assert [(r.body_index, r.inline_index, r.before) for r in preview.run_removals] == [(2, 1, "remove")]
+    output = preview.to_docx()
+    readback = docx.Document(io.BytesIO(output))
+    assert [p.text for p in readback.paragraphs] == ["start", "inserted", "keep"]
+    cell = readback.tables[0].cell(0, 0)
+    assert (cell.text, cell.vertical_alignment) == ("cell", WD_CELL_VERTICAL_ALIGNMENT.BOTTOM)
+    assert isinstance(ImportedDocument.open(output).body[2], BodyTable)
+    original_parts, output_parts = _parts(original), _parts(output)
+    assert original_parts.keys() == output_parts.keys()
+    assert all(output_parts[n] == original_parts[n] for n in original_parts if n != "word/document.xml")
+
+    with pytest.raises(ValueError, match="duplicate|conflicting"):
+        imported.preview([], **batch, run_text=[RunTextEdit(target, "conflict")])
+    assert _parts(imported.preview([]).to_docx()) == original_parts
+    assert imported.preview([], **batch).to_docx() == output
+
+
+def test_remove_runs_is_atomic_and_preserves_unrelated_parts():
+    source = docx.Document()
+    p = source.add_paragraph()
+    p.add_run("first").italic = True
+    p.add_run("keep").bold = True
+    p.add_run("last")
+    p.add_run("tab\tunsafe")
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    first, keep, last, unsafe = imported.body[0].inline_structure
+    alignment = ParagraphAlignmentEdit(imported.body[0].anchor, "center")
+    preview = imported.preview([alignment], run_removals=[last.anchor, first.anchor])
+    assert [(c.body_index, c.inline_index, c.before) for c in preview.run_removals] == [
+        (0, 0, "first"), (0, 2, "last")]
+    output = preview.to_docx()
+    paragraph = docx.Document(io.BytesIO(output)).paragraphs[0]
+    assert paragraph.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    runs = paragraph.runs
+    assert [(r.text, r.bold) for r in runs] == [("keep", True), ("tab\tunsafe", None)]
+    assert all(value == _parts(output)[name] for name, value in _parts(data).items()
+               if name != "word/document.xml")
+    other = ImportedDocument.open(data).body[0].inline_structure[0]
+    for removals, edits in [
+        ([first.anchor, first.anchor], []),
+        ([first.anchor, unsafe.anchor], []),
+        ([first.anchor, other.anchor], []),
+        ([first.anchor], [RunTextEdit(first.anchor, "conflict")]),
+    ]:
+        with pytest.raises(ValueError):
+            imported.preview([], run_removals=removals, run_text=edits)
+    assert _parts(imported.preview([]).to_docx()) == _parts(data)
+
+
+def test_cell_alignment_on_independent_table_and_atomic_rejection():
+    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+
+    source = docx.Document()
+    table = source.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "keep"
+    table.cell(0, 0).merge(table.cell(0, 1))
+    data = io.BytesIO()
+    source.save(data)
+    original = data.getvalue()
+    imported = ImportedDocument.open(original)
+    table_view = next(block for block in imported.body if isinstance(block, BodyTable))
+    edit = CellAlignmentEdit(table_view.anchor, 0, 0, "center")
+    preview = imported.preview([], cell_alignments=[edit])
+    assert [(c.row_index, c.cell_index, c.before, c.after) for c in preview.cell_alignment_changes] == [(0, 0, None, "center")]
+    result = preview.to_docx()
+    cell = docx.Document(io.BytesIO(result)).tables[0].cell(0, 0)
+    assert cell.text == "keep"
+    assert cell.vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert all(value == _parts(result)[name] for name, value in _parts(original).items() if name != "word/document.xml")
+    with pytest.raises(ValueError):
+        imported.preview([], cell_alignments=[edit, edit])
+    with pytest.raises(ValueError):
+        ImportedDocument.open(original).preview([], cell_alignments=[edit])
+    with pytest.raises(ValueError):
+        imported.preview([], cell_alignments=[CellAlignmentEdit(table_view.anchor, 8, 0, "top")])
+    assert _parts(imported.preview([]).to_docx()) == _parts(original)
+
+
 def test_run_text_batch_preserves_formatting_and_is_atomic():
     source = docx.Document()
     p = source.add_paragraph()

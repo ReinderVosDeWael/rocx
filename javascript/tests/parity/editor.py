@@ -269,6 +269,13 @@ def verify(directory):
     assert cell_readback.tables[1].cell(0, 0).vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
     assert cell_readback.tables[1].cell(0, 0).text == "next A"
 
+    mixed_body = directory / "mixedBody.docx"
+    untouched(body, parts(mixed_body), (MAIN,))
+    combined = Document(mixed_body)
+    assert [p.text for p in combined.paragraphs[:3]] == [readback.paragraphs[0].text, "inserted paragraph", ""]
+    cell = combined.tables[1].cell(0, 0)
+    assert (cell.text, cell.vertical_alignment) == ("next A", WD_CELL_VERTICAL_ALIGNMENT.CENTER)
+
     shared = parts(directory / "shared.docx")
     untouched(source, shared, (HEADER, HEADER_RELS, TYPES))
     inspect_header(source, shared, reports["shared"], image)

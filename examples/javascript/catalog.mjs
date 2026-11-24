@@ -146,6 +146,12 @@ export async function generateCatalog(fixtures, options) {
   assert(imported.styles()?.styles.some((style) => style.name === "Catalog Bullets"
     && style.kind === "numbering" && style.id), "expected imported numbering style");
   const body = imported.body();
+  const revisions = body.flatMap((block) => block.kind === "paragraph" ? block.inlineStructure : [])
+    .filter((node) => node.kind === "revision" && node.author === "Catalog editor");
+  for (const [kind, text] of [["insertion", "inserted wording"], ["deletion", "old wording"]]) {
+    const revision = revisions.find((node) => node.revisionKind === kind && node.children[0]?.items[0]?.text === text);
+    assert(revision && imported.inlineAt(revision.children[0].anchor).items[0].text === text, "missing typed revision");
+  }
   const controls = body.filter((node) => node.kind === "contentControl" && node.tag === "review-block");
   assert(controls.length === 1 && controls[0].alias === "Review block" &&
     controls[0].lock === "sdtLocked", "incorrect block control metadata");

@@ -528,6 +528,15 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(bytes, plan.to_bytes()?);
     snapshot.save_with_template_and_options(output, &template, &options)?;
     let imported = editor::ImportedDocument::open(&bytes)?;
+    let styles = imported.styles()?.expect("catalog styles part");
+    assert!(
+        styles
+            .styles
+            .iter()
+            .any(|style| style.name.as_deref() == Some("Catalog Bullets")
+                && style.kind == editor::StyleKind::Numbering
+                && style.id.is_some())
+    );
     let revisions: Vec<_> = imported
         .body()
         .iter()

@@ -1,8 +1,7 @@
 import type { ResolvedImage } from "./drawings.js";
 import type { HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
-import type { Alignment } from "./text-layout.js";
-import type { ResolvedParagraph } from "./text-layout.js";
+import type { Alignment, ResolvedParagraph } from "./text-layout.js";
 
 export interface ParagraphAlignmentEdit {
   readonly target: ParagraphAnchor;
@@ -28,6 +27,12 @@ export interface CellAlignmentChange {
   readonly cellIndex: number;
   readonly before?: string;
   readonly after: CellAlignmentEdit["alignment"];
+}
+
+export interface ParagraphInsertion {
+  /** Insert immediately after this original body paragraph. */
+  readonly target: ParagraphAnchor;
+  readonly paragraph: ResolvedParagraph;
 }
 
 export type HeaderEditMode = "shared" | "sectionLocal";

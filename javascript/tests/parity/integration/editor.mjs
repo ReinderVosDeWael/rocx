@@ -7,6 +7,7 @@ export async function editorFixtures(read) {
   const files = {
     body: result.body,
     cell: result.cell,
+    mixedBody: result.mixedBody,
     noop: result.noop,
     removal: result.removal,
     shared: result.shared,

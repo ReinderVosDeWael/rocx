@@ -160,20 +160,43 @@ fn main() {
     let rocx::editor::BodyBlock::Table(table) = &reopened.body()[5] else {
         panic!("expected second inserted table")
     };
+    let cell = rocx::editor::CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: rocx::VerticalAlignment::Center,
+    };
     write(
         "native-cell.docx",
         reopened
-            .preview_with_cells(
+            .preview_with_cells(&[], &[], &[], &[], std::slice::from_ref(&cell))
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
+    let BodyBlock::Paragraph(later) = &reopened.body()[2] else {
+        panic!("expected removable body run")
+    };
+    let rocx::editor::ImportedInlineNode::Run(removed) = &later.inline_structure[0] else {
+        panic!("expected removable body run")
+    };
+    let insertion = rocx::editor::ParagraphInsertion {
+        target: anchor(&reopened, 0),
+        paragraph: immediate(Component::resolve(Paragraph::new("inserted paragraph")))
+            .unwrap()
+            .unwrap(),
+    };
+    write(
+        "native-mixedBody.docx",
+        reopened
+            .preview_mixed(
                 &[],
                 &[],
                 &[],
                 &[],
-                &[rocx::editor::CellAlignmentEdit {
-                    target: table.anchor.clone(),
-                    row_index: 0,
-                    cell_index: 0,
-                    alignment: rocx::VerticalAlignment::Center,
-                }],
+                &[insertion],
+                &[cell],
+                std::slice::from_ref(&removed.anchor),
             )
             .unwrap()
             .to_docx()

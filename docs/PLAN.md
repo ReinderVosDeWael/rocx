@@ -2,8 +2,36 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
-The initial editor checkpoint shipped in 0.3.0. The inline inspection slice
-below is unreleased; the unrelated backlog remains deferred.
+## Current milestone: qualify the combined #3 editor
+
+Nine slices based on `aefcec8` are being reconciled in one unreleased candidate.
+Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
+[CLI contract](CLI.md) for its narrower, digest-bound alignment workflow.
+
+| Slice | Scope in this candidate |
+| --- | --- |
+| Addressing | Snapshot lifetime, physical aliases, duplicate targets and range guards. |
+| Paragraphs and inlines | Insert a resolved paragraph after a direct body paragraph; replace text in, or conservatively remove, a supported direct body run. |
+| Tables | Patch vertical alignment using a direct body table anchor and physical row/cell indices. |
+| Stories | Append an inline image to a default or first-page header with explicit shared or section-local intent. |
+| Resources | Inspect relationship-selected style identities, kinds, names and base references. |
+| Controls and revisions | Inspect direct body control metadata and inline insertion/deletion wrappers; neither is editable. |
+| CLI | Inspect direct body blocks, preview alignment edits, and save to a new path. |
+
+**Combined gate pending.** Validate mixed operations, stale/conflicting targets,
+readback and untouched payloads on the same revision. Run Rust checks, the
+schema-required Python suite, strict docs, and installed Node 22/24 and Chromium
+development/production checks, including reproducible package provenance and
+exact Rust/Python/JavaScript bytes for all nine catalog artifacts. Record the
+tested revision and results before claiming qualification. Earlier branch
+results below describe their own checkpoints. #3 and release preflight remain open.
+
+Standalone evidence is available at the topic tips: addressing `b03a230`,
+CLI `c8bbaff`, controls `bdd2da5`, inlines `ce92fed`, paragraphs `21954ab`,
+resources `44d0f23`, revisions `ea3f9d9`, stories `4e3eb4b`, tables
+`d25b1bb`. For example, controls and resources recorded 813 and 814 Python
+tests respectively; revisions recorded 756 passes and a separate required-schema
+run for the other 57. Their packed-consumer runs exercised different artifacts.
 
 The [engine audit](ENGINE-AUDIT.md) records four correctness and preservation
 defects (#10–#13). Each failed its regression before the fix and passed
@@ -23,7 +51,7 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
-### Imported addressing contract (#3)
+### Standalone addressing branch (#3)
 
 The addressing inventory now states snapshot lifetime, physical story aliases,
 duplicate-edit rejection and range limitations. Focused Rust and Python imported
@@ -130,7 +158,7 @@ independent readback and untouched payloads were checked separately.
 The [evidence and review notes](JAVASCRIPT-PARITY.md#qualification-and-independent-review)
 record the final same-tarball matrix.
 
-The existing-table slice stages direct physical-cell vertical-alignment edits
+On the standalone tables branch, direct physical-cell vertical-alignment edits were staged
 alongside other preview operations. It validates explicit grids and vertical
 merge chains, rejects unsupported structures, and preserves unrelated cell
 properties. The three catalogs exercise the same patch on their inserted table.
@@ -144,7 +172,7 @@ readback and untouched-part checks also passed.
 Workstream acceptance criteria:
 
 1. Inventory the Rust surface. Map each public authoring, resolution, template, and editor capability to a JavaScript API and a test. Use Rust source as the baseline; the all-features example alone is not proof of completeness.
-2. Verify behavior from the installed package. Exercise Node 22/24 and Chromium. Require exact DOCX bytes against Rust for equivalent deterministic fixtures, including all six catalog artifacts. Check typed inspection results, edit previews, invalid inputs, and preservation of untouched parts separately; matching final bytes does not prove those behaviors.
+2. Verify behavior from the installed package. Exercise Node 22/24 and Chromium. Require exact DOCX bytes against Rust and Python for equivalent deterministic fixtures, including every catalog artifact. Check typed inspection results, edit previews, invalid inputs, and preservation of untouched parts separately; matching final bytes does not prove those behaviors.
 3. Run independent review. Have the reviewer check every inventory row against Rust and its test evidence. Fix validated findings and repeat review. Report any unverified capability as a gap, not a pass.
 
 The integrated #21 checkpoint retained the expanded legacy declarations,
@@ -177,7 +205,7 @@ branch; keep umbrella or externally blocked work open.
 | #2 | Closed as already fixed by `ab59df3`; all three builder regression tests passed on the default branch. |
 | #4 | Canonical Pages URLs returned HTTP 200; the old site path returned 404. Both hosted quickstarts ran outside the checkout against registry packages and passed independent readback. Strict build: 516 HTML pages; docs tests: 11 passed. The 0.3.0 PyPI OIDC run succeeded; crates.io used the bootstrap token. Private crates.io trusted-publisher verification remains. |
 | #7 | Closed under the revised LibreOffice-only scope. The [hosted matrix](https://reindervosdewael.github.io/rocx/viewer-compatibility/) records Writer GUI observations on four synthetic files, including the before/after catalog edit, and separate headless, readback and payload checks. Desktop Word remains untested. |
-| #3 | Direct body and default-header paragraphs expose runs, hyperlinks, and snapshot-scoped read-only anchors in Rust and Python. Aliases of one physical header share inline anchors; distinct parts do not. The umbrella remains open for broader typed stories and structured edits, including revisions. |
+| #3 | At this earlier checkpoint, direct body and default-header paragraphs gained run and hyperlink inspection in Rust and Python. The current milestone above extends inspection and adds direct body run edits. |
 | #9 | The [JavaScript package](../javascript/README.md) replaces the prototype. [Hosted CI](https://github.com/ReinderVosDeWael/rocx/actions/runs/45219366575) verified Node 22/24 and Chromium consumers and uploaded the installable artifacts. The [package guide](https://reindervosdewael.github.io/rocx/javascript/) and [API reference](https://reindervosdewael.github.io/rocx/api/javascript/) are live; the strict build checked 523 pages. No npm registry upload. |
 | #16 | Independent fixture reproduced tab-stop corruption; the fix preserves tab-stop markup and still replaces literal run tabs. Source and output passed schema/OPC validation. |
 | #17 | Block, row, and cell fixtures reproduced unguarded replacement and passed schema/OPC validation. Ordinary matches inside these controls are rejected; unrelated paragraphs and supported targeted replacement still work. |
@@ -214,8 +242,7 @@ registry setup, and passing the local and hosted preflight in
 
 After integrating the checkpoint with `main`, all six paired catalog artifacts
 matched byte for byte, and 21 Rust editor tests and 29 focused Python tests passed.
-Finish editor checkpoint task 4 before moving on to task 5. Extend structured
-inline inspection to table-cell paragraphs and broaden story inspection.
+That checkpoint preceded structured cell-paragraph and broader story inspection.
 Keep the JavaScript tarball out of the Rust/Python release path; viewer results and
 hosted release preflight remain separate.
 Repository commits, pushes, and release tags are authorized by `AGENTS.md`.
@@ -230,13 +257,13 @@ anchored alignment preview/save-copy using a complete-source digest to bind
 targets across invocations. This does not complete the broader editor milestone;
 remaining operations and acceptance remain open.
 
-Complete #3 before releasing 0.4.0. Continue the serial checkpoint with
-relationship-based inspection of footnote, endnote and comment entries.
+Complete #3 before releasing 0.4.0. Footnote, endnote and comment entries
+already have relationship-based inspection.
 Re-run release preflight on the integrated candidate, not the earlier docs commit.
 The working branch also stages plain single-text run replacements in the mixed
 transaction; property, block, table, resource and revision operations remain.
 It also stages conservative whole-run removal for direct body paragraphs.
-Packed Node 22/24 and Chromium development/production checks passed, including
+On the standalone inlines branch, packed Node 22/24 and Chromium development/production checks passed, including
 exact removal bytes against Rust and Python, independent readback, untouched
 payloads, schema/OPC validation, and reproducible package provenance.
 Every new editor slice must ship together in Rust, Python and JavaScript,
@@ -265,7 +292,7 @@ existing declarative and template APIs intact.
   relationship handling. Preserve untouched part payloads byte for byte;
   edited XML and the ZIP container may be reserialized. Keep the existing
   signature and compatibility guards.
-- Expose one Rust core through the Rust and Python APIs and a thin JSON CLI.
+- Expose one Rust core through Rust, Python and JavaScript and a thin JSON CLI.
   The workflow is inspect, submit an anchored batch, preview, then save a new
   copy. Preview the intended changes and any effects on shared resources.
   Make edits to a shared header explicit: change the shared part or make a
@@ -284,14 +311,14 @@ existing declarative and template APIs intact.
 3. Close the feature inventory. Read the all-features DOCX back into typed
    values and check them against expected content. Test preservation of
    opaque markup, unchanged part payloads, and rejection of unsafe batches.
-   Update both all-features examples, `examples/ALL_FEATURES.md`, and the
-   parity and coverage checks. Require exact Rust/Python DOCX byte parity
+   Update all three all-features examples, `examples/ALL_FEATURES.md`, and the
+   parity and coverage checks. Require exact Rust/Python/JavaScript DOCX byte parity
    for equivalent edit batches, not just normalized XML equality.
 
-The editor opens a Transitional DOCX in Rust and Python, exposes direct body
-paragraphs, tables, and placeholders for unsupported blocks, and previews
-alignment patches and declarative table insertions in one batch. Direct body
-and default-header paragraphs expose run and hyperlink structure with
+The editor opens an unsigned Transitional DOCX in all three bindings, exposes
+direct body paragraphs, tables, control metadata and opaque blocks, and previews
+alignment patches and declarative paragraph and table insertions. Body, cell
+and inspected story paragraphs expose run, hyperlink and revision structure with
 snapshot-scoped anchors alongside their flat projections. Direct body
 single-text runs support replacement and conservative removal; other inline
 edits remain unavailable. The section view reports body ranges and explicit section types,
@@ -301,10 +328,10 @@ automatic tables only in simple single-column sections and rejects insertion
 inside active or ambiguous supported ranges. Other inline objects, numbering,
 comments, revisions, and content controls in inserted tables remain open.
 
-The editor inspects existing default headers with inherited section references,
+The editor inspects existing default, first and even headers and footers with section references,
 ordered paragraph projections, and opaque unsupported direct children. Header
 inspection is lazy and distinguishes physical part identity from section
-selection. A separate preview appends an inline image. Shared mode lists all sections that
+selection. Default and first-page headers can receive an inline image. Shared mode lists all sections that
 reference or inherit that part, including first/even aliases. Section-local
 mode forks a supported text-and-link header, keeps the original part and its
 relationships, and reports any following section explicitly redirected back
@@ -339,14 +366,11 @@ checks passed, with five byte-identical reports and schema/OPC validation.
 The full Rust/Python catalog also passed exact byte parity. The full JavaScript
 binding checkpoint above supersedes this initial slice.
 
-Work through these tasks in order and checkpoint after task 10. Tasks 1–3
-passed on the python-docx fixture. Task 4 is in progress: direct body
-and default-header paragraphs have flat and structured inline readback,
-including read-only run/hyperlink anchors; direct sections and body tables
-are inspectable. Paragraphs in direct body table cells now also expose runs,
-hyperlinks, and snapshot-scoped inline anchors. The story view covers all
-six header/footer variants. Note and comment stories are outside the
-implemented slice. Tasks 5–10 have not started.
+Tasks 1–3 passed on the original python-docx fixture. Tasks 4–9 have partial
+implementations; see the current milestone above. Entry story inspection includes
+notes and comments; table structure edits, general paragraph and inline editing,
+resource mutation and broader CLI coverage remain open. Task 10 requires the
+combined gate and completion of the feature inventory.
 
 1. Generate the [python-docx editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
    with formatted body text, an insertion anchor, and two sections sharing a
@@ -368,8 +392,8 @@ implemented slice. Tasks 5–10 have not started.
    including references and their owning relationships.
 9. Expose inspect, batch preview, and save-copy through the thin JSON CLI.
    Verify atomic rejection of stale, conflicting, and unsafe edits.
-10. Run the acceptance suite: typed all-features readback, both examples and
-    coverage checks, preservation, and exact Rust/Python DOCX byte parity.
+10. Run the acceptance suite: typed all-features readback, all three examples and
+    coverage checks, preservation, and exact Rust/Python/JavaScript DOCX byte parity.
 
 ## Released: 0.3.0
 

@@ -411,7 +411,7 @@ impl ImportedDocument {
                 .is_some()
             {
                 return Err(unsupported(
-                    "multiple header image edits target one section",
+                    "multiple header image edits target one section header slot",
                 ));
             }
         }

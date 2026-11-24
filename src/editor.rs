@@ -19,6 +19,7 @@ mod entries;
 mod header;
 mod insertion;
 mod resources;
+mod tables;
 mod text;
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
@@ -26,7 +27,8 @@ pub use header::{
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
-pub use text::{RunTextChange, RunTextEdit};
+pub use tables::{CellAlignmentChange, CellAlignmentEdit};
+pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -72,7 +74,7 @@ fn read_content_control(node: &Node) -> ImportedContentControl {
     }
 }
 
-/// Snapshot-scoped identity for a direct body table. Not currently an edit target.
+/// Snapshot-scoped identity for a direct body table.
 #[derive(Clone, Debug)]
 pub struct TableAnchor {
     _snapshot: Arc<()>,
@@ -367,6 +369,7 @@ pub struct AlignmentChange {
 pub struct EditPreview {
     run_text_changes: Vec<RunTextChange>,
     run_removals: Vec<RunRemovalChange>,
+    cell_alignment_changes: Vec<CellAlignmentChange>,
     changes: Vec<AlignmentChange>,
     insertions: Vec<TableInsertionChange>,
     paragraph_insertions: Vec<usize>,
@@ -375,6 +378,10 @@ pub struct EditPreview {
 }
 
 impl EditPreview {
+    /// Changed physical cells in original document order.
+    pub fn cell_alignment_changes(&self) -> &[CellAlignmentChange] {
+        &self.cell_alignment_changes
+    }
     /// Removed direct body runs, in original document order.
     pub fn run_removals(&self) -> &[RunRemovalChange] {
         &self.run_removals
@@ -559,8 +566,8 @@ impl ImportedDocument {
 
     /// Stage body and header edits in one independently writable preview.
     /// All targets refer to this original snapshot. One alignment and one table
-    /// insertion may target the same paragraph; each section may have one header
-    /// edit. A shared edit excludes other edits of the same physical source part.
+    /// insertion may target the same paragraph; each section header slot may
+    /// have one edit. A shared edit excludes other edits of the same physical source part.
     /// Local forks use the original part even when another section forks it in
     /// the same batch. No edits are published if any operation fails.
     pub fn preview_transaction(
@@ -593,12 +600,61 @@ impl ImportedDocument {
         run_text: &[RunTextEdit],
         run_removals: &[InlineAnchor],
     ) -> Result<EditPreview> {
+        self.preview_mixed(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            &[],
+            &[],
+            run_removals,
+        )
+    }
+
+    /// Stage paragraph insertions alongside text, alignment, table and header edits.
+    pub fn preview_with_paragraphs(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+    ) -> Result<EditPreview> {
+        self.preview_mixed(edits, tables, header_images, run_text, paragraphs, &[], &[])
+    }
+
+    /// Stage cell alignment alongside text, alignment, table and header edits.
+    pub fn preview_with_cells(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        cells: &[CellAlignmentEdit],
+    ) -> Result<EditPreview> {
+        self.preview_mixed(edits, tables, header_images, run_text, &[], cells, &[])
+    }
+
+    /// Stage all edit kinds atomically against their original snapshot addresses.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_mixed(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
             .chain(tables.iter().map(|insertion| &insertion.target.snapshot))
             .chain(header_images.iter().map(HeaderImageEdit::target_snapshot))
             .chain(run_text.iter().map(|edit| &edit.target.snapshot))
+            .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
+            .chain(cells.iter().map(|edit| &edit.target._snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
         {
             self.validate_snapshot(snapshot)?;
@@ -644,16 +700,20 @@ impl ImportedDocument {
         let mut header_changes = Vec::new();
         let mut run_text_changes = Vec::new();
         let mut removed_runs = Vec::new();
+        let mut cell_alignment_changes = Vec::new();
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !run_text.is_empty()
             || !run_removals.is_empty()
+            || !paragraph_targets.is_empty()
+            || !cells.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             (run_text_changes, removed_runs) = text::apply(body, run_text, run_removals)?;
+            cell_alignment_changes = tables::apply(body, cells)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -740,6 +800,7 @@ impl ImportedDocument {
             if !changes.is_empty()
                 || !run_text_changes.is_empty()
                 || !removed_runs.is_empty()
+                || !cell_alignment_changes.is_empty()
                 || !insertions.is_empty()
                 || !paragraph_insertions.is_empty()
                 || header_changes
@@ -752,6 +813,7 @@ impl ImportedDocument {
         Ok(EditPreview {
             run_text_changes,
             run_removals: removed_runs,
+            cell_alignment_changes,
             changes,
             insertions,
             paragraph_insertions,

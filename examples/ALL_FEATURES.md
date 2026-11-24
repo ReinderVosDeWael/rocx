@@ -5,9 +5,6 @@ The catalog's block control is also inspected in all three languages: Rust
 `kind: "contentControl"` report the source tag, alias, and lock. Its contents
 remain opaque and cannot be targeted for edits.
 
-These are independent authoring programs using the public APIs, not wrappers
-around a shared prebuilt document or XML fixture:
-
 Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 `ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
 JavaScript. The optional result identifies the source part and lists direct
@@ -15,6 +12,9 @@ style IDs, kinds, names, and `basedOn` references, not effective formatting.
 Missing kinds and unknown kind values are distinct. Inspection does not rewrite
 the source package; style editing and inherited property resolution are not yet
 supported.
+
+These are independent authoring programs using the public APIs, not wrappers
+around a shared prebuilt document or XML fixture:
 
 - [Rust entrypoint](all_features.rs), with [support modules](showcase/).
 - [Python program](all_features.py).
@@ -34,7 +34,7 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync pyth
 ```
 
 This builds/runs the Rust and Python examples, compares complete DOCX ZIP bytes for the final,
-template and batch-edited catalogs and the three header-scope artifacts, verifies
+template, batch-edited and run-text catalogs and the five header-scope artifacts, verifies
 content and prints SHA-256 hashes for the main catalogs and header-scope artifacts.
 Output:
 
@@ -49,6 +49,8 @@ Output:
   independent transactions, each combining an alignment patch, a table insertion,
   and a default-header image. The `.header-first-shared.docx` and
   `.header-first-local.docx` artifacts separately preview first-page images.
+- Paired `.run-text.docx` artifacts: replace a direct body run's text and
+  insert a resolved paragraph after the original body anchor in the same batch.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -130,7 +132,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | 05 Conditional styles | Separate labeled tables for all 13 region inputs, including base whole-table; all six TableLook activation flags explicitly enabled (mask 01E0); run/font/color/script/language requests, paragraph alignment/spacing/line-height/tabs/bidi and cell shading. Properties stay in style definitions, not direct cells. |
 | 06 Lists | Nine levels/references, decimal/lowerRoman/bullet formats, abstract starts and literal text, concrete level-0 restart at 7 and level-8 override at zero; concrete level-0 lowerLetter replacement combined with restart, and level-1 upperRoman replacement-only. Abstracts remain unchanged. Format/text are open strings, not finite enum galleries. Legal-numbering requests (including false), suffix choices, level restarts (zero never restarts; trigger 1 is one-based), start overrides, label alignment, bold/italic, point indents and registered heading styles are labeled on abstract/replacement levels; omitted levels retain consumer defaults. Concrete instances 61/62 share abstract bullet definition 100, with a start override on 62; Catalog Bullets links instance 61 reciprocally to abstract 100, and instance 63 inherits through a level-free abstract definition. Separators and label positioning are consumer-generated; the viewer computes labels, while checks inspect `numFmt` and `isLgl`. |
 | 06 Links/ranges | External URL with tooltip/history and explicit display formatting; internal bookmark link; overlapping/cross-paragraph bookmarks and comment range; history=false; text/image/tab/break hyperlink children. Header/comment/note links use owner-local relationships. |
-| 06 Imported editor inline structure | The labeled paragraph has one direct run followed by a bookmark hyperlink containing two separate runs. Each editor inspects the boundaries and reads nodes back by their snapshot-scoped anchors. Coverage checks the original and batch-edited packages and rejects merged runs even when the visible text is unchanged. The addresses do not support inline edits. |
+| 06 Imported editor inline structure | The labeled paragraph has one direct run followed by a bookmark hyperlink containing two separate runs. Each editor inspects the boundaries and reads nodes back by their snapshot-scoped anchors. Coverage checks the original and batch-edited packages and rejects merged runs even when the visible text is unchanged. Hyperlinks and their child runs are read-only. |
 | 06 Comments | Plain cross-paragraph range; structured paragraph/table/image/link story with author/date/initials; paragraph/run convenience comments with author overrides. Inspect the comments pane. |
 | 06 Notes | Footnote/endnote references and distinct kind/id=0 definitions; rich footnote paragraph/table/image/link story and endnote body. Document-wide placement, formats, starts and restart modes are labeled separately. Automatic special note entries are infrastructure, not ordinary visible notes. |
 | 06 Fields | PAGE/NUMPAGES/REF/TOC/raw DATE in simple and complex forms; nested cache, dirty/locked true/false. Caches are labeled placeholders, not evaluated values. |
@@ -164,6 +166,25 @@ in Python select `document.stories` with `kind == "header"` and `variant ==
 `imported.stories()` by `view.kind === "header"` and `view.variant ===
 "first"`, then pass `story.view.anchor` to `previewHeaderImage`. These are
 reference slots, not a claim that a particular page displays the story.
+
+The edited catalog patches the first physical cell of the inserted table to
+vertical center after reopening. Rust uses `preview_with_cells` with
+`CellAlignmentEdit`, Python uses `preview(..., cell_alignments=[CellAlignmentEdit(...)])`,
+and JavaScript uses `preview({cellAlignments: [...]})`. The target is the new
+snapshot's table anchor plus physical row and cell indices.
+
+For the run-text output Rust passes `ParagraphInsertion` to
+`preview_with_paragraphs`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
+to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`
+alongside the run-text replacement. The insertion report gives the original
+anchor's body index. Inserted content follows the same inline and style
+restrictions as inserted tables. A paragraph and table cannot be inserted at
+the same anchor in one batch.
+
+Separately, all three catalogs preview removal of the labeled single-text body
+run without writing a tenth file: Rust `preview_with_run_removals`, Python
+`preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
+Removal rejects opaque or unsafe run markup.
 
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle
 rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque
@@ -205,11 +226,3 @@ bad border/conditional-order mutations. `tests/showcase.rs` runs the Rust catalo
 without Python and checks combined property order. Nothing is normalized,
 unpacked/repacked or rewritten before byte comparison; ZIP diagnostics are only
 used after a failure.
-# Anchored run removal
-
-The catalogs also preview removal of the labeled body run without changing their
-existing outputs. Equivalent APIs are Rust
-`preview_with_run_removals(&[], &[], &[], &[], &[anchor])`, Python
-`preview([], run_removals=[anchor])`, and JavaScript
-`preview({runRemovals: [anchor]})`. Removal is limited to supported single-text
-direct body runs and rejects opaque or unsafe run markup.

@@ -138,6 +138,7 @@ fn unsafe_edit_rejects_whole_batch_before_creating_output() {
         r#"<w:body><w:p><w:pPr><mc:AlternateContent><mc:Fallback><w:jc w:val="left"/></mc:Fallback></mc:AlternateContent></w:pPr>"#,
         1,
     );
+    let xml = xml.replacen("<w:sectPr", r#"<w:sdt><w:sdtPr><w:tag w:val="review"/></w:sdtPr><w:sdtContent><w:p/></w:sdtContent></w:sdt><w:sectPr"#, 1);
     entries.insert("word/document.xml".into(), xml.into_bytes());
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (name, contents) in entries {
@@ -150,6 +151,14 @@ fn unsafe_edit_rejects_whole_batch_before_creating_output() {
     let (ok, inspected) = run(json!({"command":"inspect","source":source}));
     assert!(ok, "{inspected}");
     let snapshot = &inspected["result"]["snapshot"];
+    let control = inspected["result"]["body"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|block| block["type"] == "content-control")
+        .unwrap();
+    assert_eq!(control["tag"], "review");
+    assert!(control.get("target").is_none());
     let (ok, result) = run(json!({
         "command":"save-copy", "source":source, "snapshot":snapshot,
         "edits":[{"target":0,"alignment":"center"}], "output":output

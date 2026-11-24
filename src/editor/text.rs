@@ -163,6 +163,10 @@ pub(super) fn apply(
             }
             boundaries.advance(child);
         }
+        if remove_indices.is_empty() {
+            continue;
+        }
+        let mut indices = remove_indices.into_iter().peekable();
         let mut inline_index = 0;
         block.children.retain(|content| {
             let Content::Element(node) = content else {
@@ -171,7 +175,7 @@ pub(super) fn apply(
             if node.name == "w:pPr" {
                 return true;
             }
-            let remove = remove_indices.contains(&inline_index);
+            let remove = indices.next_if_eq(&inline_index).is_some();
             inline_index += 1;
             !remove
         });

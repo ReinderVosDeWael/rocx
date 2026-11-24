@@ -1027,6 +1027,103 @@ fn resolve_insertion_table(table: rocx::Table) -> rocx::ResolvedTable {
 }
 
 #[test]
+fn mixed_cell_paragraph_and_run_edits_use_original_indices_atomically() {
+    use rocx::{
+        ResolvedBlock, VerticalAlignment,
+        editor::{CellAlignmentEdit, ImportedInlineNode::Run, ParagraphInsertion, RunTextEdit},
+    };
+    let source = fixture_with_body(
+        &BODY
+            .replace(
+                "<w:tbl><w:tr>",
+                "<w:tbl><w:tblGrid><w:gridCol/></w:tblGrid><w:tr>",
+            )
+            .replace(
+                "<w:t>Second</w:t></w:r>",
+                "<w:t>keep</w:t></w:r><w:r><w:t>remove</w:t></w:r>",
+            ),
+    );
+    let doc = ImportedDocument::open(&source).unwrap();
+    let payload = block_on(
+        Document::new(vec![
+            Section::new(vec![Paragraph::new("inserted").into()]).into(),
+        ])
+        .resolve(),
+    )
+    .unwrap();
+    let ResolvedBlock::Paragraph(content) = &payload.sections()[0].blocks()[0] else {
+        panic!("paragraph")
+    };
+    let BodyBlock::Table(table) = &doc.body()[1] else {
+        panic!("table")
+    };
+    let Run(run) = &paragraph(&doc, 3).inline_structure[1] else {
+        panic!("run")
+    };
+    let paragraphs = [ParagraphInsertion {
+        target: paragraph(&doc, 0).anchor.clone(),
+        paragraph: content.clone(),
+    }];
+    let cells = [CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Bottom,
+    }];
+    let removals = [run.anchor.clone()];
+    let batch = |text: &[RunTextEdit]| {
+        doc.preview_mixed(&[], &[], &[], text, &paragraphs, &cells, &removals)
+    };
+    let preview = batch(&[]).unwrap();
+    assert_eq!(preview.paragraph_insertions(), &[0]);
+    let [cell] = preview.cell_alignment_changes() else {
+        panic!("one cell patch")
+    };
+    assert_eq!(
+        (cell.body_index, cell.row_index, cell.cell_index),
+        (1, 0, 0)
+    );
+    let [removed] = preview.run_removals() else {
+        panic!("one removal")
+    };
+    assert_eq!(
+        (
+            removed.body_index,
+            removed.inline_index,
+            removed.before.as_str()
+        ),
+        (3, 1, "remove")
+    );
+    let output = preview.to_docx().unwrap();
+    let reopened = ImportedDocument::open(&output).unwrap();
+    assert_eq!(paragraph(&reopened, 1).text, "inserted");
+    assert!(matches!(reopened.body()[2], BodyBlock::Table(_)));
+    assert_eq!(paragraph(&reopened, 4).text, "keep");
+    let output_parts = parts(&output);
+    let xml = roxmltree::Document::parse(
+        std::str::from_utf8(&output_parts["word/document.xml"]).unwrap(),
+    )
+    .unwrap();
+    let cell_align = xml
+        .descendants()
+        .find(|n| n.has_tag_name((W, "vAlign")))
+        .unwrap();
+    assert_eq!(cell_align.attribute((W, "val")), Some("bottom"));
+    assert!(
+        batch(&[RunTextEdit {
+            target: run.anchor.clone(),
+            text: "conflict".into()
+        }])
+        .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&source)
+    );
+    assert_eq!(batch(&[]).unwrap().to_docx().unwrap(), output);
+}
+
+#[test]
 fn paragraph_insertions_are_atomic_and_preserve_other_parts() {
     use rocx::{
         ResolvedBlock,

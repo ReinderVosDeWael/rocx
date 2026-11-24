@@ -704,6 +704,33 @@ struct PyEditPreview {
 #[pymethods]
 impl PyEditPreview {
     #[getter]
+    fn paragraph_insertions(&self) -> PyResult<Vec<usize>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .paragraph_insertions()
+            .to_vec())
+    }
+    #[getter]
+    fn cell_alignment_changes(&self) -> PyResult<Vec<PyCellAlignmentChange>> {
+        let preview = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?;
+        Ok(preview
+            .cell_alignment_changes()
+            .iter()
+            .map(|c| PyCellAlignmentChange {
+                body_index: c.body_index,
+                row_index: c.row_index,
+                cell_index: c.cell_index,
+                before: c.before.clone(),
+                after: cell_alignment_name(c.after),
+            })
+            .collect())
+    }
+    #[getter]
     fn run_removals(&self) -> PyResult<Vec<PyRunRemovalChange>> {
         Ok(self
             .inner
@@ -1028,8 +1055,9 @@ impl PyImportedDocument {
         inline_object(py, doc.inline_at(&target.inner).map_err(rust_error)?)
     }
 
-    /// Stage alignment edits, table insertions and header images against one snapshot.
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None))]
+    /// Stage all supplied edits in one transaction against the original snapshot.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1037,6 +1065,8 @@ impl PyImportedDocument {
         header_images: Option<Vec<PyRef<'_, PyHeaderImageEdit>>>,
         run_text: Option<Vec<PyRef<'_, PyRunTextEdit>>>,
         run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
+        paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
+        cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1064,11 +1094,24 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_with_run_removals(
+                doc.preview_mixed(
                     &edits,
                     &insertions,
                     &header_images,
                     &run_text
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| e.inner.clone())
+                        .collect::<Vec<_>>(),
+                    &paragraph_insertions
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| editor::ParagraphInsertion {
+                            target: e.target.clone(),
+                            paragraph: e.paragraph.clone(),
+                        })
+                        .collect::<Vec<_>>(),
+                    &cell_alignments
                         .unwrap_or_default()
                         .iter()
                         .map(|e| e.inner.clone())

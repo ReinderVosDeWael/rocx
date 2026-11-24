@@ -83,6 +83,10 @@ fn execute(request: Request) -> Result<Value, String> {
                 "alignment_xml":p.alignment_xml, "has_opaque_content":p.has_opaque_content})
                 }
                 BodyBlock::Table(_) => json!({"type":"table", "index":index}),
+                BodyBlock::ContentControl(c) => json!({
+                    "type":"content-control", "index":index,
+                    "tag":c.tag, "alias":c.alias, "lock":c.lock
+                }),
                 BodyBlock::Opaque(name) => json!({"type":"opaque", "index":index, "name":name}),
                 _ => json!({"type":"unknown", "index":index}),
             })

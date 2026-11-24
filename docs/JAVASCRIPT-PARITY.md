@@ -6,7 +6,9 @@ Direct body controls expose source tag, alias, and lock as
 no edit anchors. The catalog asserts all three metadata values; the installed
 inspection fixture checks their JavaScript projection separately.
 
-Current comparison baseline: `c1c730b` (including `1c17f03` table-cell inline
+For the combined editor candidate based on `aefcec8`, see [current editor
+coverage](#editor-additions-for-3) and [gate status](PLAN.md). Historical
+comparison baseline for the tables below: `c1c730b` (including `1c17f03` table-cell inline
 readback and `5f103c5` header/footer stories), plus the integrated Rust
 changes in this worktree, including B1's `ImageData::NamedBytes`.
 The original B0–B2 qualification used `8c3cc2e` plus its own changes; it
@@ -28,7 +30,7 @@ not in a published release.
 The current paragraph-insertion slice adds `paragraphInsertions` to
 `ImportedDocument.preview`, with reports from `paragraphInsertions()`. Its
 typed installed-consumer fixture is in `javascript/tests/parity/editor.mts`.
-The same packed artifact passed focused Node 22, 24 and 26 and Chromium
+On the standalone paragraphs branch the same packed artifact passed focused Node 22, 24 and 26 and Chromium
 development/production cases. Full packed Node 22 and 24 gates passed with
 schema/OPC validation and checkout provenance checks.
 Use the installed [`index.d.ts`](../javascript/index.d.ts) barrel and
@@ -37,7 +39,7 @@ below retain Rust requirements and test case names; those are acceptance
 targets, not blanket claims of equivalent behavior.
 [`examples/support/mod.rs`](../examples/support/mod.rs) is a smaller feature
 fixture (including a skipped table row), and [`examples/showcase/`](../examples/showcase/)
-provides the six-artifact oracle, not the definition of completeness.
+provides the catalog oracle, not the definition of completeness.
 
 ## Implementation and focused evidence
 
@@ -312,15 +314,17 @@ snapshot. Never reconstruct source ZIP from the inspection DTO. Anchor tokens
 are opaque and not transferable across imports, Wasm instances or workers;
 only identical inline addresses in one physical part of one snapshot compare
 equal. Use a per-snapshot identity table and the Rust anchor, not caller-chosen
-part names/indices. `InlineAnchor` and `TableAnchor` are read-only.
+part names/indices. A supported direct body run's `InlineAnchor` can target
+replacement or removal; a direct body `TableAnchor` plus physical row/cell
+indices can target a cell alignment.
 
 | ID / owner | Rust baseline and capability | Proposed JavaScript API | Planned packed test case; Rust reference (`tests/imported_editor.rs` unless stated) |
 | --- | --- | --- | --- |
 | E01 / inspection | `ImportedDocument::open/open_with_limits`, immutable snapshot; `body`, physical `ImportedTable`/rows/cells with ordered opaque children; `sections` half-open body bounds and explicit raw/recognized types. | `openDocx(bytes, {readLimits?}) → Promise<ImportedDocument>`; `.body()`, `.sections()`; `BodyBlock`, `ImportedSection`, `ImportedTable`, `ImportedTableChild`, `ImportedTableRow`, `ImportedRowChild`, `ImportedTableCell`, `ImportedCellBlock` tagged DTOs with readonly anchors as applicable. Once initialized, read/preview/encode handle methods are synchronous. | `importedBodySectionsAndPhysicalCells`: implicit/explicit/raw boundaries, opaque content/order, no merge expansion, unknown alignment XML/raw type, open limits/unsupported input; `reads_direct_body_blocks_and_paragraph_properties`, `table_inspection_preserves_unknown_children_in_order`, `inspects_explicit_and_implicit_sections_and_refuses_ambiguity`. |
 | E02 / inspection | `ImportedParagraph` text, recognized/raw alignment, opaque flag, `inline_items`, `inline_structure`; `ImportedCellParagraph` exposes the flat and structured projections but has no paragraph edit anchor. `ImportedInline`, `ImportedInlineNode`, `ImportedRun`, `ImportedHyperlink` and `inline_at`: retain run/link boundaries, raw `relationship_id`/bookmark (not resolved URLs), explicit opaque names and literal tab/line/wrapping/page/column distinctions. | Same-named DTOs in camelCase, `.inlineAt(anchor)`; direct paragraph has `ParagraphAnchor`, run/link has `InlineAnchor` (including in direct table cells); typed foreign or forged tokens rejected. | Body and cell fixtures check two adjacent runs are not merged, cache vs opaque nodes, stale even on reopening identical bytes, actual node lookup, body independent of malformed stories, empty vs opaque cell blocks, and absence of cell-paragraph edit anchors. |
-| E03 / inspection | `default_headers` and `stories` are lazy. `ImportedStory` identifies each effective header/footer slot (`SectionStoryKind` × `HeaderFooterType`), part name, section, provenance and ordered blocks. `ImportedHeader` retains a section-scoped edit anchor. `inline_structure(block_index)` returns an empty slice for an empty paragraph, absent for opaque/out of range. | `.defaultHeaders()` and `.stories()`, each with `inlineStructure(index)`; `sectionIndex`, `partName`, `inherited`, ordered blocks, story `kind` and `variant`; stable inline anchors on physical aliases through both views. Only `.defaultHeaders()` exposes `HeaderAnchor`. | Header and story fixtures check all six slots, order, alias equality, separate physical parts unequal, inherited flags, empty/opaque/out-of-range distinction, foreign and forged anchors, and lazy failure for malformed story parts. |
+| E03 / inspection | `default_headers` and `stories` are lazy. `ImportedStory` identifies each effective header/footer slot (`SectionStoryKind` × `HeaderFooterType`), part name, section, provenance and ordered blocks. `ImportedHeader` retains a section-scoped edit anchor. `inline_structure(block_index)` returns an empty slice for an empty paragraph, absent for opaque/out of range. | `.defaultHeaders()` and `.stories()`, each with `inlineStructure(index)`; `sectionIndex`, `partName`, `inherited`, ordered blocks, story `kind` and `variant`; stable inline anchors on physical aliases through both views. Default and first-page headers supply `HeaderAnchor`; even headers and footers do not. | Header and story fixtures check all six slots, order, alias equality, separate physical parts unequal, inherited flags, empty/opaque/out-of-range distinction, foreign and forged anchors, and lazy failure for malformed story parts. |
 | E04 / editor | `ParagraphAlignmentEdit`, `TableInsertion` (resolved table), `preview` / `preview_batch`; preserve unknown properties, correct insertion width/location and range guards; one alignment and one insertion allowed on same anchor. | `imported.preview({alignments?, tableInsertions?, headerImages?})` with `target`, `alignment` or `table: ResolvedTable`; `EditPreview.changes()` and `.insertions()` ordered by original source, skip unchanged alignment, report `before` raw XML, original indices, rows/columns; `.toDocx()`. | `alignmentAndTablePreviewAndPreservation`: typed preview and reopened body, no-op all payloads, nested format/fraction/link and relationships/span sizing, ambiguous/unsafe range and stale/duplicate targets; `patch_preserves_other_markup_and_parts_and_preview_is_non_mutating`, `inserts_exactly_after_anchor_in_mixed_batch_and_preserves_untouched_parts`, `table_after_section_terminator_uses_next_section_width`. |
-| E05 / editor | `HeaderImageEdit`, `HeaderEditMode::{Shared,SectionLocal}`, `preview_header_image`/`HeaderImagePreview`, image from Rust resolution. Default and first-page story anchors are editable. Shared mode reports consumers incl. first/even aliases; local copies only supported headers, restores later inheritor for the selected slot if necessary. | `imported.previewHeaderImage({target, mode:"shared"\|"sectionLocal", image: ResolvedImage})`; obtain first-page target from `stories().view.anchor`. `.change()` and `.toDocx()`; `HeaderImageChange {sourcePart,outputPart,affectedSections,restoredSection?,mode}`. Same operation through batch. | `headerImageScopesAndEffects`: shared consumer indices vs section-scoped target; local fork keeps original payload/relationships and redirects inheritor; relocated header; reject unsupported existing/floating image or stale anchor; `first_header_image_local_preserves_aliases_and_inheritance`. |
+| E05 / editor | `HeaderImageEdit`, `HeaderEditMode::{Shared,SectionLocal}`, `preview_header_image`/`HeaderImagePreview`, image from Rust resolution. Default and first-page story anchors are editable. Shared mode reports consumers incl. first/even aliases; local copies only supported headers, restores later inheritor for the selected slot if necessary. | `imported.previewHeaderImage({target, mode:"shared"\|"sectionLocal", image: ResolvedImage})`; obtain the first-page target from the matching `stories()` entry's `view.anchor`. `.change()` and `.toDocx()`; `HeaderImageChange {sourcePart,outputPart,affectedSections,restoredSection?,mode}`. Same operation through batch. | `headerImageScopesAndEffects`: shared consumer indices vs section-scoped target; local fork keeps original payload/relationships and redirects inheritor; relocated header; reject unsupported existing/floating image or stale anchor; `first_header_image_local_preserves_aliases_and_inheritance`. |
 | E06 / editor | `preview_transaction` with all three edit types; duplicates and physical shared conflicts, local forks relative to original part, all-or-nothing; retained `EditPreview` survives source drop. | Same `.preview` as E04; `.headerChanges()` in target section order. Preview rendering repeatable and independent of source and other previews. JS checks handle type only; Rust judges anchor validity/conflicts and stages the package. | `mixedTransactionAtomicityAndRepeatPreview`: shuffled input deterministic, shared/local collisions, adjacent local precedence, stale/forged target or late failure leaks no staged output, next preview still works, repeated independent outputs, exact untouched payloads; `mixed_transaction_preserves_source_and_uses_original_slots`, `adjacent_local_forks_are_order_independent_and_failure_leaks_no_staged_work`, `retained_previews_write_independent_edits_after_source_drop`. |
 
 `AlignmentChange {bodyIndex,before?,after}` and
@@ -348,10 +352,10 @@ E04's report arrays; `before` is absent for a previously unset alignment.
 - Rust itself does not expose general imported OOXML editing. Direct body
   table-cell paragraphs expose both inline projections, but nested tables and
   row/cell wrappers may remain opaque. All six header/footer variants can be
-  inspected; only default headers accept the current image edit. Alignment is
-  direct only, and no general inline/row/section/resource edit targets exist.
-  Authoring footers, notes, controls, shapes and revisions does
-  not imply inspecting/editing their existing typed nodes. See
+  inspected; only default and first-page headers accept the image edit.
+  Direct body paragraph alignment and physical cell vertical alignment are
+  separate patches. Body controls, inline insertions/deletions and styles
+  expose limited metadata but cannot be edited. See
   [EDITOR-PARITY.md](EDITOR-PARITY.md) for separate Rust gaps.
 - Cross-thread execution/transfer of Rust `Send`/`Sync` values and Rust
   executor/drop mechanics have no direct shared-object JS analogue. Same-instance
@@ -396,8 +400,9 @@ E04's report arrays; `before` is absent for a previously unset alignment.
    existing legacy workflow and negative tests. The catalog comparison runs
    the Rust catalog and a JS authoring program with
    aligned inputs/assets/timestamps. Compare complete ZIP bytes for final,
-   `.template.docx`, `.edited.docx`, `.header-source.docx`,
-   `.header-shared.docx` and `.header-local.docx` on each runtime; no XML
+   `.template.docx`, `.edited.docx`, `.run-text.docx`, `.header-source.docx`,
+   `.header-shared.docx`, `.header-local.docx`, `.header-first-shared.docx`
+   and `.header-first-local.docx` on each runtime; no XML
    normalization. Keep Rust/Python catalog/schema/OPC checks. Use ZIP part
    diffs only to diagnose byte mismatches.
 5. **Independent assertions:** besides bytes, check typed resolved/imported
@@ -420,12 +425,26 @@ E04's report arrays; `before` is absent for a previously unset alignment.
 expose anchored run-text replacements and reports. The portable catalog checks
 entry metadata, inline lookup, duplicate-target rejection and change details;
 the `.run-text.docx` artifact must match Rust/Python in Node and Chromium.
-# Anchored body-run removal
+
+`styles()` corresponds to Rust `styles()` and Python `styles`. It inspects the
+relationship-selected styles part and distinguishes absent, unknown and known
+style kinds. Missing relationships, invalid parts and source metadata need
+installed inspection checks; see the [style resource contract](EDITOR-RESOURCES.md).
+
+`cellAlignments` / `cellAlignmentChanges()` patch a physical cell selected by
+direct body table anchor and original row/cell indices (Rust `preview_with_cells`,
+Python `preview(..., cell_alignments=[...])`). `paragraphInsertions` /
+`paragraphInsertions()` add resolved paragraphs after a direct body paragraph
+(Rust `preview_with_paragraphs`, Python `preview(..., paragraph_insertions=[...])`).
+The combined gate must exercise both alongside other edits in the same snapshot.
+
+### Anchored body-run removal
 
 `preview({runRemovals: [anchor]})` and `runRemovals()` correspond to Rust
 `preview_with_run_removals` / `run_removals` and Python
 `preview([], run_removals=[anchor])` / `run_removals`. Installed editor parity
 fixtures cover the removal report, stale and conflicting targets, independent
-readback, unchanged parts and exact Rust/Python/JavaScript bytes. Packed Node
+readback, unchanged parts and exact Rust/Python/JavaScript bytes. On the
+standalone inlines branch, packed Node
 22.23.5 and 24.22.3 and Chromium 159 development and production checks passed,
 including schema/OPC validation and reproducible package provenance.

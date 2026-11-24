@@ -118,6 +118,9 @@ pub(super) fn apply(
     body: &mut Node,
     edits: &[CellAlignmentEdit],
 ) -> Result<Vec<CellAlignmentChange>> {
+    if edits.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut targets = BTreeMap::new();
     for edit in edits {
         if targets
@@ -136,7 +139,10 @@ pub(super) fn apply(
         .filter(|n| n.name != "w:sectPr")
         .enumerate()
     {
-        if !targets.keys().any(|(index, _, _)| *index == body_index) {
+        let Some((&(next_body, _, _), _)) = targets.first_key_value() else {
+            break;
+        };
+        if next_body != body_index {
             continue;
         }
         validate(table)?;

@@ -113,6 +113,23 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   const invalidStyles = await openDocx(input["styles-invalid"]);
   rejects(() => invalidStyles.styles(), /invalid styles root/);
   const start = paragraph(doc, 0).anchor;
+  const insertedParagraph = await resolveComponent(text("inserted paragraph"));
+  check(insertedParagraph, "paragraph payload resolved");
+  const paragraphEdit = { target: start, paragraph: insertedParagraph };
+  const paragraphPreview = doc.preview({
+    alignments: [{ target: start, alignment: "center" }],
+    paragraphInsertions: [paragraphEdit],
+  });
+  same(paragraphPreview.paragraphInsertions(), [0], "paragraph insertion report");
+  const paragraphOutput = await openDocx(paragraphPreview.toDocx());
+  same(paragraph(paragraphOutput, 1).text, "inserted paragraph", "inserted paragraph readback");
+  rejects(() => doc.preview({ paragraphInsertions: [paragraphEdit, paragraphEdit] }), /multiple paragraph/);
+  const foreign = await openDocx(input.base);
+  rejects(() => foreign.preview({ paragraphInsertions: [paragraphEdit] }), /different document snapshot/);
+  const protectedSource = await openDocx(input.unsafe);
+  rejects(() => protectedSource.preview({ paragraphInsertions: [
+    { ...paragraphEdit, target: paragraph(protectedSource, 0).anchor },
+  ] }), /range/);
   const firstRun = paragraph(doc, 0).inlineStructure[0];
   check(firstRun?.kind === "run", "first body inline is a run");
   const firstAnchor = firstRun.anchor;
@@ -163,6 +180,28 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   check(patchedTable?.kind === "table", "patched table remains inspectable");
   same(cellAfter.preview({ cellAlignments: [{ ...cellEdit, target: patchedTable.anchor }] }).cellAlignmentChanges(),
     [], "unchanged cell alignment omitted");
+  const removed = paragraph(reopened, 2).inlineStructure[0];
+  check(removed?.kind === "run", "expected a removable run after the insertion point");
+  const combined = {
+    paragraphInsertions: [{ target: paragraph(reopened, 0).anchor, paragraph: insertedParagraph }],
+    cellAlignments: [cellEdit], runRemovals: [removed.anchor],
+  };
+  const mixed = reopened.preview(combined);
+  same(mixed.paragraphInsertions(), [0], "original paragraph insertion site");
+  same(mixed.cellAlignmentChanges(), cellPreview.cellAlignmentChanges(), "original table index");
+  same(mixed.runRemovals(), [{ bodyIndex: 2, inlineIndex: 0, before: "unset alignment" }], "original run indices");
+  const mixedBytes = mixed.toDocx();
+  const combinedResult = await openDocx(mixedBytes);
+  same(paragraph(combinedResult, 1).text, "inserted paragraph", "mixed paragraph insertion");
+  same(paragraph(combinedResult, 3).text, "", "run removed from shifted paragraph");
+  const shiftedTable = combinedResult.body()[6];
+  check(shiftedTable?.kind === "table", "mixed table moved one slot");
+  same(combinedResult.preview({ cellAlignments: [{ ...cellEdit, target: shiftedTable.anchor }] }).cellAlignmentChanges(),
+    [], "shifted table cell already has the requested alignment");
+  rejects(() => reopened.preview({ ...combined, runText: [{ target: removed.anchor, text: "conflict" }] }),
+    /duplicate|conflicting/);
+  bytesEqual(reopened.preview(combined).toDocx(), mixedBytes, "retry after conflict");
+  same(paragraph(reopened, 2).text, "unset alignment", "failed batch leaves original run intact");
   same(paragraph(doc, 0).alignmentXml, "start", "original alignment is unchanged");
   const noop = doc.preview({ alignments: [{ target: paragraph(doc, 4).anchor, alignment: "right" }] });
   same(noop.changes(), [], "unchanged alignment omitted");
@@ -179,7 +218,7 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   rejects(() => unsafe.preview({ tableInsertions: [{ ...insert, target: paragraph(unsafe, 0).anchor }] }), /range/);
   const ambiguous = await openDocx(input.ambiguous);
   rejects(() => ambiguous.preview({ alignments: [{ ...align, target: paragraph(ambiguous, 0).anchor }] }), /ambiguous/);
-  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx() };
+  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes };
 }
 
 export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {
