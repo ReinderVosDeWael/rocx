@@ -33,15 +33,70 @@ pub(crate) fn encode_editor_blocks(
     cell_width: Option<i64>,
     scope: &'static str,
 ) -> Result<(Package, Vec<Node>)> {
+    encode_editor_owner_blocks(
+        package,
+        main,
+        (StoryKind::Body, main),
+        blocks,
+        cell_width,
+        scope,
+    )
+}
+
+/// Style resolution belongs to the main document; fragment relationships
+/// belong to the physical story that contains the edited cell.
+pub(crate) fn encode_editor_owner_blocks(
+    package: Package,
+    main: &str,
+    owner: (StoryKind, &str),
+    blocks: &[ResolvedBlock],
+    cell_width: Option<i64>,
+    scope: &'static str,
+) -> Result<(Package, Vec<Node>)> {
+    encode_owned_blocks(package, main, owner, blocks, cell_width, scope, None)
+}
+
+pub(crate) fn encode_blocks(
+    package: Package,
+    main: &str,
+    blocks: &[ResolvedBlock],
+    cell_width: Option<i64>,
+    scope: &'static str,
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Node>)> {
+    encode_owned_blocks(
+        package,
+        main,
+        (StoryKind::Body, main),
+        blocks,
+        cell_width,
+        scope,
+        images,
+    )
+}
+
+fn encode_owned_blocks(
+    package: Package,
+    main: &str,
+    owner: (StoryKind, &str),
+    blocks: &[ResolvedBlock],
+    cell_width: Option<i64>,
+    scope: &'static str,
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Node>)> {
     let mut style_refs = BTreeSet::new();
     let path = DeclarationPath::root("sections").index(0).field("children");
     check_blocks(blocks, &path, &mut style_refs, scope)?;
     let styles = editor_styles(&package, main, style_refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
+    let mut images = images;
+    if let Some(images) = &mut images {
+        load_images(&mut renderer, images, 0)?;
+    }
     let story =
         renderer
             .stories
-            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+            .register(owner.0, PartName::new(owner.1)?, StoryContent::Blocks)?;
     let mut output = Vec::with_capacity(blocks.len());
     for block in blocks {
         let node = match block {
@@ -65,7 +120,18 @@ pub(crate) fn encode_editor_blocks(
         };
         output.push(node);
     }
+    if let Some(images) = images {
+        store_images(&mut renderer, images);
+    }
     Ok((renderer.package, output))
+}
+
+pub(crate) fn editor_table_style(
+    package: &Package,
+    main: &str,
+    name: &str,
+) -> Result<crate::StyleId> {
+    editor_styles(package, main, BTreeSet::from([("table", name.to_owned())]))?.get(name)
 }
 
 fn editor_styles(package: &Package, main: &str, style_refs: StyleRefs) -> Result<StyleCatalog> {
@@ -91,25 +157,194 @@ fn editor_styles(package: &Package, main: &str, style_refs: StyleRefs) -> Result
 pub(crate) fn encode_editor_inlines(
     package: Package,
     main: &str,
+    owner: &str,
+    kind: StoryKind,
     inlines: &[&ResolvedInline],
 ) -> Result<(Package, Vec<Vec<Node>>)> {
+    encode_owner_inlines(package, main, owner, kind, inlines, None)
+}
+
+pub(crate) fn encode_inlines(
+    package: Package,
+    main: &str,
+    inlines: &[&ResolvedInline],
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Vec<Node>>)> {
+    encode_inline_groups(
+        package,
+        main,
+        main,
+        StoryKind::Body,
+        inlines,
+        "editor.control",
+        images,
+    )
+}
+
+pub(crate) fn encode_owner_inlines(
+    package: Package,
+    main: &str,
+    owner: &str,
+    kind: StoryKind,
+    inlines: &[&ResolvedInline],
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Vec<Node>>)> {
+    let scope = if kind == StoryKind::Body {
+        "editor.inline"
+    } else {
+        "editor.entryInline"
+    };
+    encode_inline_groups(package, main, owner, kind, inlines, scope, images)
+}
+
+fn encode_inline_groups(
+    package: Package,
+    main: &str,
+    owner: &str,
+    kind: StoryKind,
+    inlines: &[&ResolvedInline],
+    scope: &'static str,
+    images: Option<&mut Option<HeaderImageResources>>,
+) -> Result<(Package, Vec<Vec<Node>>)> {
     let mut refs = StyleRefs::new();
+    let mut bookmarks = BTreeSet::new();
     for inline in inlines {
-        check_inline(inline, &mut refs, "editor.inline")?;
+        if kind != StoryKind::Body && matches!(inline, ResolvedInline::Fraction { .. }) {
+            return Err(unsupported("fraction payloads require a body paragraph").into());
+        }
+        check_inline(inline, &mut refs, scope)?;
+        if scope == "editor.inline" {
+            collect_bookmark_targets(inline, &mut bookmarks);
+        }
         inline.validate()?;
+    }
+    if !bookmarks.is_empty() {
+        validate_bookmarks(&package, main, &bookmarks)?;
     }
     let styles = editor_styles(&package, main, refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
-    let story =
-        renderer
-            .stories
-            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+    let mut fallback = None;
+    let mut images = images;
+    if inlines.iter().any(|i| {
+        matches!(
+            i,
+            ResolvedInline::Shape(_)
+                | ResolvedInline::ColumnChart(_)
+                | ResolvedInline::Image { .. }
+        )
+    }) {
+        let active = images.take().unwrap_or(&mut fallback);
+        load_images(&mut renderer, active, 0)?;
+        images = Some(active);
+    } else {
+        images = None;
+    }
+    let story = renderer
+        .stories
+        .register(kind, PartName::new(owner)?, StoryContent::Blocks)?;
     let context = renderer.context(story, 8640);
     let output = inlines
         .iter()
         .map(|inline| renderer.inline(inline, &context))
         .collect::<Result<_>>()?;
+    if let Some(images) = images {
+        store_images(&mut renderer, images);
+    }
     Ok((renderer.package, output))
+}
+
+fn validate_bookmarks(package: &Package, main: &str, requested: &BTreeSet<&str>) -> Result<()> {
+    use std::collections::BTreeMap;
+    // A target must be a direct main-story pair. Count shadowing names and
+    // numeric aliases even in nested XML and other related stories.
+    fn scan(n: &Node, names: &mut BTreeMap<String, usize>, ids: &mut BTreeMap<String, usize>) {
+        if matches!(n.name.as_str(), "w:bookmarkStart" | "w:bookmarkEnd") {
+            if let Some(id) = n.get("w:id").and_then(super::decimal_id) {
+                *ids.entry(id).or_default() += 1;
+            }
+            if n.name == "w:bookmarkStart"
+                && let Some(s) = n.get("w:name")
+            {
+                *names.entry(s.to_ascii_lowercase()).or_default() += 1;
+            }
+        }
+        for child in n.elements() {
+            scan(child, names, ids);
+        }
+    }
+    let (mut names, mut ids) = (BTreeMap::new(), BTreeMap::new());
+    let root = package.word(main)?;
+    scan(&root, &mut names, &mut ids);
+    for part in super::related_story_parts(package, main)? {
+        scan(&package.word(&part)?, &mut names, &mut ids);
+    }
+    let mut starts = BTreeMap::new();
+    let mut valid = BTreeSet::new();
+    for p in root
+        .child("w:body")
+        .into_iter()
+        .flat_map(Node::elements)
+        .filter(|p| p.name == "w:p")
+    {
+        for n in p.elements() {
+            if !matches!(n.name.as_str(), "w:bookmarkStart" | "w:bookmarkEnd") {
+                continue;
+            }
+            let Some(id) = n.get("w:id").and_then(super::decimal_id) else {
+                continue;
+            };
+            if ids.get(&id) != Some(&2) {
+                continue;
+            }
+            if n.name == "w:bookmarkStart" {
+                if let Some(name) = n.get("w:name")
+                    && names.get(&name.to_ascii_lowercase()) == Some(&1)
+                {
+                    starts.insert(id, name);
+                }
+            } else if let Some(name) = starts.remove(&id) {
+                valid.insert(name);
+            }
+        }
+    }
+    if !requested.is_subset(&valid) {
+        return Err(unsupported("expected one paired direct body bookmark target").into());
+    }
+    Ok(())
+}
+
+fn collect_bookmark_targets<'a>(inline: &'a ResolvedInline, names: &mut BTreeSet<&'a str>) {
+    let (target, children) = match inline {
+        ResolvedInline::Field(f) => (f.instruction().bookmark_name(), f.children()),
+        ResolvedInline::Hyperlink(h) => (h.target().bookmark_name(), h.children()),
+        _ => return,
+    };
+    if let Some(name) = target {
+        names.insert(name.as_str());
+    }
+    for child in children {
+        collect_bookmark_targets(child, names);
+    }
+}
+
+/// Allocate relationships for occurrence-local asset changes; other users of
+/// both the old relationship and the old asset keep their original targets.
+pub(crate) fn image_asset_links(
+    package: &mut Package,
+    main: &str,
+    images: &[&ResolvedImage],
+) -> Result<Vec<String>> {
+    if images.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut media = MediaRegistry::from_package(package)?;
+    images
+        .iter()
+        .map(|image| {
+            let part = media.register(package, image)?;
+            package.link(main, "image", &part)
+        })
+        .collect()
 }
 
 pub(crate) fn encode_editor_tables(
@@ -142,11 +377,34 @@ pub(crate) struct HeaderImageResources {
     media: MediaRegistry,
 }
 
+fn load_images(
+    renderer: &mut Compiler<'_>,
+    images: &mut Option<HeaderImageResources>,
+    floor: u32,
+) -> Result<()> {
+    let resources = match images {
+        Some(r) => r,
+        None => images.insert(HeaderImageResources {
+            drawing: DrawingId::new(super::defaults::drawing_ceiling(&renderer.package)),
+            media: MediaRegistry::from_package(&renderer.package)?,
+        }),
+    };
+    renderer.drawing = resources.drawing.max(DrawingId::new(floor));
+    renderer.media = std::mem::take(&mut resources.media);
+    Ok(())
+}
+fn store_images(renderer: &mut Compiler<'_>, images: &mut Option<HeaderImageResources>) {
+    let r = images.as_mut().unwrap();
+    r.drawing = renderer.drawing;
+    r.media = std::mem::take(&mut renderer.media);
+}
+
 pub(crate) fn encode_header_image(
     package: Package,
     main: &str,
     header: &str,
     image: &ResolvedImage,
+    floor: u32,
     resources: &mut Option<HeaderImageResources>,
 ) -> Result<(Package, Node)> {
     if image.anchor.is_some() {
@@ -159,19 +417,10 @@ pub(crate) fn encode_header_image(
     }
     let owner = PartName::new(header)?;
     let styles = StyleCatalog::new(&Node::new("w:styles"))?;
-    let resources = match resources {
-        Some(resources) => resources,
-        None => resources.insert(HeaderImageResources {
-            drawing: DrawingId::new(super::defaults::drawing_ceiling(&package)),
-            media: MediaRegistry::from_package(&package)?,
-        }),
-    };
     let mut renderer = fragment_renderer(package, main, styles);
-    renderer.drawing = resources.drawing;
-    renderer.media = std::mem::take(&mut resources.media);
+    load_images(&mut renderer, resources, floor)?;
     let node = Node::new("w:p").with(renderer.image(image, &owner)?);
-    resources.drawing = renderer.drawing;
-    resources.media = renderer.media;
+    store_images(&mut renderer, resources);
     Ok((renderer.package, node))
 }
 
@@ -235,11 +484,31 @@ fn check_table(
     Ok(())
 }
 
+fn check_non_drawing_child(run: &ResolvedInline, scope: &'static str) -> Result<()> {
+    if matches!(
+        run,
+        ResolvedInline::Shape(_) | ResolvedInline::ColumnChart(_) | ResolvedInline::Image { .. }
+    ) {
+        return Err(Diagnostic::new(
+            Rule::UnsupportedEdit,
+            "drawing payload must be a direct inline",
+        )
+        .at(scope)
+        .into());
+    }
+    Ok(())
+}
+
 fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static str) -> Result<()> {
     if let Some(style) = run.format().and_then(|format| format.style.as_ref()) {
         styles.insert(("character", style.clone()));
     }
     match run {
+        ResolvedInline::Image { comment: None, .. }
+            if matches!(scope, "editor.control" | "editor.entryInline") =>
+        {
+            Ok(())
+        }
         ResolvedInline::Text {
             comment: None,
             revision: None,
@@ -248,8 +517,25 @@ fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static st
         | ResolvedInline::Tab { comment: None, .. }
         | ResolvedInline::Break { comment: None, .. }
         | ResolvedInline::Fraction { .. } => Ok(()),
-        ResolvedInline::Hyperlink(link) if link.target().bookmark_name().is_none() => {
+        ResolvedInline::Field(field) if scope == "editor.inline" => {
+            for child in field.children() {
+                check_non_drawing_child(child, scope)?;
+                check_inline(child, styles, scope)?;
+            }
+            Ok(())
+        }
+        ResolvedInline::Shape(_)
+        | ResolvedInline::ColumnChart(_)
+        | ResolvedInline::Image { comment: None, .. }
+            if scope == "editor.inline" =>
+        {
+            Ok(())
+        }
+        ResolvedInline::Hyperlink(link)
+            if scope == "editor.inline" || link.target().bookmark_name().is_none() =>
+        {
             for child in link.children() {
+                check_non_drawing_child(child, scope)?;
                 check_inline(child, styles, scope)?;
             }
             Ok(())
@@ -258,7 +544,7 @@ fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static st
             Rule::UnsupportedEdit,
             match scope {
                 "editor.table" => "unsupported inline content in an inserted table",
-                "editor.inline" => "unsupported inline declaration",
+                "editor.inline" | "editor.entryInline" => "unsupported inline declaration",
                 _ => "unsupported inline content in an inserted paragraph",
             },
         )

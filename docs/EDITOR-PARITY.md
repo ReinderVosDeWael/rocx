@@ -52,6 +52,19 @@ report lists only changed runs, in source order. All ranges address the original
 snapshot: adjacent ranges may share a run, but overlapping/duplicate selections
 or a whole-run edit/removal on a touched run reject the entire batch.
 
+For point insertion, use Rust `EditBatch::text_insertions` with
+`TextInsertion { target, position, text }`, Python
+`preview([], text_insertions=[TextInsertion(target, position, text)])`, or
+JavaScript `preview({textInsertions: [{target, position, text}]})`.
+`position` uses the same original scalar coordinates. Inserted text must be
+nonempty single-line XML text without tabs. At a run boundary, the next scalar's
+run supplies the formatting; at paragraph end the final run supplies it. A
+runless paragraph accepts position zero and gets one unformatted run. The
+ordinary run-text report records its previous text as `""`. Points at either
+endpoint of a replacement are allowed and stay on that side of the replacement.
+Two points at one position, a point strictly inside a selection, or a conflicting
+whole-run or destructive block edit reject the batch.
+
 ## Supported imported targets
 
 The editor exposes direct body inspection with section ranges, explicit section
@@ -81,9 +94,46 @@ paragraph, row and cell containers for its context. Text edits preserve run
 formatting. Metadata edits preserve unrecognized extension properties; a text
 edit refuses unknown control properties. Content locks prohibit text edits,
 control locks prohibit metadata edits, and combined or unknown locks prohibit
-both. Bound controls, nested controls, protected ranges, ambiguous wrappers,
-and specialized controls (e.g. lists) are not editable. This does not insert
-or remove wrappers or edit controls in headers, footers or entry stories.
+both. Use the separate operations below for wrapper and choice edits.
+
+| Operation | Rust | Python | JavaScript |
+| --- | --- | --- | --- |
+| Inspect eligible wrapper sites | `doc.control_sites()` | `doc.control_sites` | `doc.controlSites()` |
+| Inspect controls by physical story part | `doc.story_controls()` | `doc.story_controls` | `doc.storyControls()` |
+| Wrap the original payload in a tagged rich-text control | `doc.preview_wrap_control(site, tag)` | `doc.preview_wrap_control(site, tag)` | `doc.previewWrapControl({target: site.anchor, tag})` |
+| Replace the complete wrapper definition | `doc.preview_replace_control(anchor, &properties)` | `doc.preview_replace_control(anchor, properties)` | `doc.previewReplaceControl({target, properties})` |
+| Select a drop-down value; optionally replace the ordered choices | `doc.preview_control_choice(anchor, value, items)` | `doc.preview_control_choice(anchor, value, choices=items)` | `doc.previewControlChoice({target, selected, choices})` |
+| Remove the wrapper, retaining its payload | `doc.preview_unwrap_control(anchor)` | `doc.preview_unwrap_control(anchor)` | `doc.previewUnwrapControl(anchor)` |
+
+`control_sites` identifies physical targets by snapshot; its `context` and
+`text` label are for inspection, not unique addresses. Each standalone operation
+returns a preview. Reopen its output before taking anchors for the next edit.
+The original control inspection also returns `kind` (e.g. `richText`, `text`,
+`dropDownList`), literal `multi_line` / `multiLine`, `selected` (the stored
+`lastValue`) and ordered `choices`. Display labels and stored values are
+separate; selection updates the cached text and preserves run formatting.
+Rust choices are `ContentControlListItem`, Python choice edits use
+`(display_text, value)` pairs, and JS uses `{displayText, value}`.
+
+Use Rust `ContentControlProperties`, Python `rocx.editor.ControlProperties`,
+or JS `ContentControlProperties` for a complete replacement, clearing omitted
+metadata. An explicit ID must be unique across the package. Rows and cells
+require rich text. Block and inline sites also support plain text and a
+drop-down whose selected label matches the existing text. Replacing a
+definition requires an unlocked control; either content or wrapper lock
+prevents replacing the choice list. A wrapper-only lock still allows selection,
+and a content-only lock permits removing an understood wrapper without
+changing its payload. Imported opaque properties, ambiguous layouts,
+protected ranges, nested controls and custom XML bindings are refused.
+Compatible siblings, including paragraphs and tables, can be wrapped together
+without re-encoding their contents. Rich block and inline controls can receive
+new supported payloads. Use `WrapperEdit` in Rust `EditBatch::wrappers`,
+Python `preview([], wrappers=[...])`, or JavaScript `preview({wrappers: [...]})`.
+Payload replacement uses `ReplaceBlocks` / `ReplaceInlines`,
+`replace_blocks` / `replace_inlines`, or `replaceBlocks` / `replaceInlines`.
+Wrapped or unwrapped blocks cannot share a target with another structural edit
+or cross a staged range. Controls in headers, footers, notes and comments are
+inspectable by physical owner but read-only.
 
 Paragraph insertion adds a resolved paragraph immediately after a direct body paragraph.
 Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
@@ -96,12 +146,17 @@ Paragraph insertion in other stories is unsupported.
 
 Whole-inline edits address a direct child of a direct body paragraph. Insert after
 or replace a single text, break or tab run, or a hyperlink containing only such
-runs. Payloads use the imported-paragraph codecs for resolved text, breaks, tabs,
-fractions and external hyperlinks. New external links allocate relationships on
+runs, or target a [supported object occurrence](#drawing-and-fraction-occurrences).
+Payloads accept resolved text, breaks, tabs, fractions, supported fields, external
+or paired-body-bookmark hyperlinks, pictures, shapes and column charts.
+See [fields and links](FIELDS.md#editing-an-imported-field-or-link) for field
+inspection, replacement, flag and instruction patches, and link metadata edits;
+see [paired ranges](RANGES.md#imported-body-ranges) for cross-paragraph bookmark
+and comment-range insertion, relocation and removal. New external links allocate relationships on
 the actual document part. Replacement refuses to discard unrecognized properties
-or markup; unused existing relationships are retained. A direct bold patch on a
-supported run sets only `w:rPr/w:b`, preserving other properties (including
-unmodeled markup). Duplicate targets, nested targets, tracked or ambiguous
+or markup; unused existing relationships are retained. Property-only patches also
+accept runs containing multiple ordinary text, tab, and break leaves. They preserve
+the leaves and unrelated run properties. Overlapping edits, nested targets, tracked or ambiguous
 properties and active supported field/range boundaries reject the batch.
 
 | Rust: `preview_with_inlines`, `InlineEdit { target, action }` | Python: `preview([], inline_edits=[…])` | JavaScript: `preview({inlineEdits: […]})` |
@@ -109,10 +164,136 @@ properties and active supported field/range boundaries reject the batch.
 | `InlineAction::InsertAfter(inline)` | `InlineEdit.insert_after(anchor, inline)` | `{kind: "insertAfter", target, inline}` |
 | `InlineAction::Replace(inline)` | `InlineEdit.replace(anchor, inline)` | `{kind: "replace", target, inline}` |
 | `InlineAction::SetBold(false)` | `InlineEdit.set_bold(anchor, False)` | `{kind: "setBold", target, bold: false}` |
+| `InlineAction::SetToggle(RunToggle::Italic, None)` | `InlineEdit.set_toggle(anchor, "italic", None)` | `{kind: "setToggle", target, property: "italic", value: null}` |
+| `InlineAction::PatchFormat { set: Box::new(RunFormat::default().with_size(12.5)), clear: vec![RunFormatField::FontEastAsia] }` | `InlineEdit.patch_format(anchor, size=12.5, clear=["font_east_asia"])` | `{kind: "patchFormat", target, format: {size: 12.5}, clear: ["fontEastAsia"]}` |
+
+Use `Bold`, `Italic`, `Strike`, or `Hidden` in Rust and `bold`, `italic`,
+`strike`, or `hidden` in Python and JavaScript. `true` and `false` set
+explicit direct values; `None`/`null` removes the property so style inheritance
+applies. A clear refuses to discard attributes or children outside the modeled
+value. Disjoint format edits on one run compose in any order and report one
+changed site. A repeated property (even twice with the same value), or mixing
+a format patch with text replacement/removal or a whole-inline edit on that
+run, rejects the batch.
+
+Read `ImportedRun.format` in all three bindings: a Rust `RunFormat`, a fresh
+Python dictionary of present keyword values, or a JavaScript `ResolvedRunFormat`.
+`PatchFormat` accepts the modeled run-format fields: character style, literal
+Latin/East Asian/complex-script fonts, point sizes, supported underline styles,
+RGB/auto/theme color (including tint and shade), superscript/subscript, bold,
+italic, strike, capitals, small capitals, snap-to-grid, script-specific bold and
+italic, right-to-left, complex-script selection and language hints. Character
+style input is an existing character-style ID or unambiguous display name in the
+staged catalog; inspection returns the ID. Sizes round to half-points.
+
+Omitted values retain the original property. To restore inheritance, use the
+corresponding `RunFormatField` variant in Rust, snake-case name in Python, or
+camel-case name in JavaScript. `VerticalAlignment` / `vertical_alignment` /
+`verticalAlignment` clears the *one* slot shared by superscript and subscript;
+requesting either as false without a true counterpart writes explicit baseline.
+Language subfields have independent clear slots: `LanguageLatin`, `LanguageEastAsia`,
+`LanguageBidi` (Python: `language_latin`, `language_east_asia`, `language_bidi`;
+JavaScript: `languageLatin`, `languageEastAsia`, `languageBidi`).
+Latin font owns the `ascii`/`hAnsi` pair. Font and language patches preserve
+sibling attributes on their shared elements. Updating an underline preserves its
+color; clearing that underline refuses to discard the color. A direct color edit
+owns both the fallback and theme attributes. A semantic no-op preserves the
+existing spelling and fallback. Unsupported direct selections, including
+themed fonts and unequal or incomplete Latin font pairs, are opaque and cannot
+be patched in the affected slot.
+
+**Property-only edits across physical owners.** For an anchored run in a body
+paragraph or a direct body-table cell paragraph, use Rust
+`doc.edit_run_format(None, &[edit])`, Python `doc.edit_run_format([edit])`,
+or JavaScript `doc.editRunFormat({inlineEdits: [edit]})`. A run can be a
+direct paragraph child or a direct child of its hyperlink. For a section
+header/footer or an ordinary note/comment entry, pass the inspected physical
+part name: `Some(&part)` in Rust, `owner_part=part` in Python, `ownerPart:
+part` in JavaScript. Each call returns new DOCX bytes. Section aliases share
+the edit; reopen before targeting another part or using the new snapshot.
+Disjoint patches to one physical run coalesce, even through section aliases.
+
+This operation changes only `rPr`. Text, tabs, breaks, inline/anchored
+drawings, symbols and supported hyphens are retained, as are the hyperlink
+wrapper and the owner's relationships. It rejects field/reference runs, active
+ranges, revision or control wrappers, reviewed ancestor properties, enforced
+document protection, non-format actions, stale anchors and owner mismatches.
+Entry identities must be unique and ordinary; separator/continuation entries
+are protected. Story tables, nested body tables, textbox stories and creating
+a local fork of a shared section part remain outside this operation.
+
+`ImportedRun.bold`, `.italic`, `.strike`, and `.hidden` inspect the same direct
+properties wherever structured runs are exposed. An unset or ambiguous toggle
+is `None` in Rust/Python and absent in JavaScript. `has_opaque_formatting`
+(`hasOpaqueFormatting` in JavaScript) signals retained properties or markup
+outside this projection. These values do not resolve styles, complex-script
+variants, or effective visual formatting.
 
 `inline_changes()` / `inline_changes` / `inlineChanges()` return original
-(body, inline) index pairs in document order; an already-matching direct bold
+(body, inline) index pairs in document order; an already-matching direct toggle
 value is omitted. There are no character-range addresses in these operations.
+
+### Drawing and fraction occurrences
+
+Use the direct body paragraph's structured inline view. A run's optional
+`drawing` describes the occurrence: `kind` (`image`, `shape`, `chart`),
+`placement` (`inline`, `floating`), explicit extent in EMUs, accessibility
+name/title/description, and owner-local relationship ID for embedded pictures
+and charts. Simple shapes expose preset geometry and plain text. Image crop
+is `[left, top, right, bottom]` in thousandths of a percent; rotation is in
+1/60000 degree units. Flips preserve explicit false versus absence. Rust and
+Python use `width_emu`, `relationship_id`, `shape_text`, `flip_horizontal`;
+JavaScript uses `widthEmu`, `relationshipId`, `shapeText`, `flipHorizontal`.
+The legacy flat projection still reports opaque XML at these locations.
+A simple stacked fraction exposes an inline anchor, numerator and denominator
+(`ImportedInlineNode::Fraction`, `ImportedFraction`, `kind: "fraction"`).
+Other math stays opaque.
+
+| Rust `InlineAction` | Python `InlineEdit` | JavaScript `inlineEdits` element |
+| --- | --- | --- |
+| `InsertAfter(inline)` / `Replace(inline)` | `insert_after(target, inline)` / `replace(target, inline)` | `{kind: "insertAfter" \| "replace", target, inline}` |
+| `RemoveObject` | `remove_object(target)` | `{kind: "removeObject", target}` |
+| `SetDrawingDescription(Some(text))` / `None` | `set_drawing_description(target, text)` / `None` | `{kind: "setDrawingDescription", target, value: text}` / `null` |
+| `SetImageAsset(image)` | `set_image_asset(target, resolved_image_run)` | `{kind: "setImageAsset", target, image: resolvedImageRun.view.image}` |
+| `PatchDrawing(DrawingProperty::Size, inline)` | `patch_drawing(target, "size", inline)` | `{kind: "patchDrawing", target, property: "size", inline}` |
+
+`PatchDrawing` copies **one property group** from a resolved declaration of
+the same object kind. Other declaration properties, drawing IDs and source
+relationships stay in place. A missing optional property in the declaration
+clears that group. Rust enum variants / Python and JavaScript selectors:
+
+* `Size` / `size`: update the outer and modeled inner extents.
+* `Placement` / `placement`: set inline/floating placement, including wrapping,
+  for a picture or shape. `Accessibility` / `accessibility`: copy occurrence
+  name/title/description. For a literal attribute removal use the separate
+  description action.
+* `Crop` / `crop` and `Transform` / `transform`: picture crop, or rotation and
+  flips. Asset replacement redirects only one `r:embed`; neither the peer
+  occurrence nor its bytes are changed.
+* `ShapeFill` / `shapeFill`, `ShapeOutline` / `shapeOutline`, `ShapeText` /
+  `shapeText`: geometric shape fill/line or simple text and its format.
+  Shape text requires compatible geometric-shape or standalone-text-box
+  declarations. `ShapeGeometry` / `shapeGeometry` switches an unadjusted
+  rectangle or ellipse in place, retaining its extent, text and appearance.
+  Replace the shape to convert to or from a standalone text box.
+* `ChartSeries` / `chartSeries`: set categories and values in an existing
+  workbook-free, literal single column series.
+  A changed series forks the chart part and redirects this occurrence only;
+  axis settings and unrelated chart XML are retained. Read the series via
+  `doc.chart_series(&anchor)` (Rust tuple), `doc.chart_series(anchor)` (Python
+  tuple), or `doc.chartSeries(anchor)` (`{categories, values}` in JavaScript).
+  Point counts can change on the plain chart profile emitted by the column
+  chart declaration. Imported charts with indexed formatting, annotations or
+  other extensions require the same count, or explicit whole-chart replacement.
+
+One edit per original occurrence per preview. To patch another group on the
+same occurrence, reopen the preview bytes and obtain a fresh anchor. Whole
+replacements/removals refuse unrecognized markup in the occurrence being
+discarded. Patches preserve unrelated opaque drawing content and reject
+ambiguous targets or unsupported markup on a subtree they would discard.
+Unused relationships and old parts remain in the package. Complex equations,
+general charts/workbooks, rich text-box stories and VML are outside this
+interface. Entry-story pictures use the separate owner-scoped operation below.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
@@ -127,6 +308,15 @@ Physical cells are not expanded into a logical grid. Unsupported
 children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
+
+Read `layout` in all three APIs for the recognized direct `fixed` or `autofit`
+setting (a `TableLayout` in Rust). `grid_widths` (Rust/Python) or `gridWidths`
+(JavaScript) lists direct grid columns in source order, in twips; a missing
+or unparseable unsigned width gives `None`/`null` at that position. On each
+physical cell, `grid_span`/`gridSpan` exposes a direct positive span, and
+`vertical_merge`/`verticalMerge` exposes the marker value (`continue` for an
+empty `w:vMerge`). Absent properties stay absent. These are source properties,
+not effective formatting or a computed viewer grid.
 
 In Rust use `CellAlignmentEdit` with `preview_with_cells`; in Python use
 `CellAlignmentEdit` with `preview(..., cell_alignments=[...])`; in JavaScript
@@ -147,6 +337,113 @@ JavaScript `preview({tableStructure: [{target, kind: "insertRow", index}]})`.
 | `InsertCell` / `RemoveCell` | `insert_cell` / `remove_cell` | `insertCell` / `removeCell` | `row`, `cell`: physical row and cell |
 | `InsertColumn` / `RemoveColumn` | `insert_column` / `remove_column` | `insertColumn` / `removeColumn` | `index`: logical grid column, across all rows |
 | `ReplaceCell` | `replace_cell` | `replaceCell` | `row`, `cell`, `blocks`: physical target and ordered resolved paragraphs/tables |
+| `Layout(Some(TableLayout::Autofit))` | `layout(target, "autofit")` | `layout` | Whole table; JS `value: "autofit"`. Also accepts `fixed`; pass `None`/`None`/`null` to clear. |
+
+The layout patch only changes `w:tblLayout`; existing cell and grid widths
+are retained. It uses the same range and grid guards as structural edits and
+requires exclusive use of the table within the table edit batch. Duplicate
+layout elements, tracked table properties, and clears that would discard
+extension attributes or children on the property are rejected.
+
+#### Independent table, row and cell property edits
+
+Read `properties` on each inspected physical table, row and cell (all bindings).
+It maps the field names below to **direct, lexical attribute values**. For
+example `properties["height"] = {"val": "320", "hRule": "exact"}` means exactly
+16 points; an empty `repeatHeader` map means the on/off element is present
+without a `val`. Missing keys mean no modeled direct value. The view is not a
+style cascade. Grid-column widths use the ordered `grid_widths`/`gridWidths`
+view instead.
+
+| Site | Field keys (identical in all bindings) |
+| --- | --- |
+| Table | `alignment`, `style`, `layout`; `look.firstRow`, `look.lastRow`, `look.firstColumn`, `look.lastColumn`, `look.horizontalBanding`, `look.verticalBanding`; `border.top`, `border.left`, `border.bottom`, `border.right`, `border.insideH`, `border.insideV` |
+| Grid column | `width` (twips; clearing leaves the column present) |
+| Physical row | `height`, `repeatHeader`, `cantSplit` |
+| Physical cell | `gridSpan`, `verticalMerge`, `backgroundColor`, `verticalAlignment`, `textDirection`; `margin.top`, `margin.start`, `margin.bottom`, `margin.end`; `border.top`, `border.start`, `border.bottom`, `border.end` |
+
+Pass a **resolved table** as `source` to copy the selected property through the
+authoring codec. Row and cell sources are its first row and first physical cell;
+column sources use its first explicit column width. Only the selected property
+is copied. A missing source property generally rejects the edit; setting layout
+from a fixed-width declaration also accepts the codec's implied fixed layout.
+To clear, explicitly pass `None`/`null`. Example: patch only the top margin of
+the third physical cell in the second row:
+
+| Rust `TableOperation` | Python `TableStructureEdit` | JavaScript `tableStructure` item |
+| --- | --- | --- |
+| `Property { site: TableSite::Cell(1, 2), field: "margin.top".into(), source: Some(Box::new(table)) }` | `patch_property(target, "margin.top", table, row=1, cell=2)` | `{target, kind: "patchProperty", row: 1, cell: 2, field: "margin.top", source: table}` |
+
+Rust sites are `TableSite::{Table, Row(r), Cell(r,c), Column(c)}`; omit
+coordinates for a whole-table property in Python/JavaScript. Distinct fields
+can share a batch. Duplicate fields, a second vertical-alignment write to the
+same cell, and property/structural edits on the same table reject. Grid and
+merge chains must be valid after the patches together. A new merge continuation
+must not hide existing content.
+
+Table style names resolve against the staged table-style catalog. Border
+patches affect one side (style, size and color together); margin patches
+affect one side; RGB fill leaves unrelated shading attributes intact. A
+destructive clear refuses to erase unmodeled markup. Look flags expose any
+individual attribute and its packed `maskBit`; `noHBand` and `noVBand` are
+the inverse of banding. Clearing a flag materializes any mask-only siblings
+before dropping the packed mask; unknown mask bits prevent such a clear.
+An unchanged direct property or a clear of a missing property does not
+rewrite the body or physical owner part, unless another edit changes that part.
+
+#### Replace or remove whole nodes
+
+`TableOperation::ReplaceNode { site, source: Box::new(table) }`,
+`TableStructureEdit.replace_node(target, table, ...)`, and
+`{target, kind: "replaceNode", source: table, ...}` replace a whole table,
+row or cell. The donor must contain exactly one row for a row replacement or
+one row with one cell for a cell replacement. A new row must cover the grid;
+a replacement cell must keep the target span. Explicit widths or unambiguous
+available width are required. A whole table can change dimensions. Whole-node
+replacement, unlike `ReplaceCell`/`replace_cell`/`replaceCell`, replaces the
+selected node's properties as well as its children.
+
+`TableOperation::RemoveTable`, `TableStructureEdit.remove_table(target)` and
+`{target, kind: "removeTable"}` remove an eligible body table. Row/cell removal
+uses the existing coordinate operations. A destructive edit requires exclusive
+use of the target table; it rejects unknown attributes, raw markup, nested
+source tables, relationships, controls, ranges and other non-disposable
+content at the discarded site. Row/cell replacement refuses vertical merges.
+Targets elsewhere in the batch retain their original body indices.
+
+#### Nested and physical-story tables
+
+Use Rust `doc.part_tables(None)` / Python `doc.part_tables()` / JavaScript
+`doc.partTables()` to discover main-story tables, including tables nested
+directly in ordinary cells. Supply the physical part name from `stories` or
+`entry_stories` (`stories()` / `entryStories()` in JS) to inspect header,
+footer, footnote, endnote or comment tables. `depth == 0` is a top-level
+table within its story. `path` is a descriptive list of element-child indices
+from the physical part root; it is not a public mutation address. Each view
+includes the part name, entry ID where relevant, grid widths and direct
+table/row/cell property maps.
+
+Pass its **physical table anchor** to an explicitly named owner operation:
+
+| Rust | Python | JavaScript |
+| --- | --- | --- |
+| `doc.edit_part_tables(&t.part_name, &[TableStructureEdit { target: t.anchor, operation: TableOperation::InsertRow(1) }])?` | `doc.edit_part_tables(t.part_name, [TableStructureEdit.insert_row(t.anchor, 1)])` | `doc.editPartTables({ownerPart:t.partName, tableStructure:[{target:t.anchor, kind:"insertRow", index:1}]})` |
+
+This returns new DOCX bytes. Reopen them before targeting the result. Aliases
+of a physical header/footer share the change. Within one table, batch distinct
+property patches or distinct cell-content replacements, or make a single
+layout/row/cell/column geometry edit. Source cell and merge guards still
+apply. Replacement paragraphs/tables use the shared codec: style references
+resolve in the document; new hyperlinks belong to the **edited owner**.
+Edits to disjoint sibling tables can share the same owner call. A stale,
+wrong-owner, or overlapping ancestor/descendant target rejects the batch.
+Ordinary body `preview` and physical table calls use distinct anchor scopes.
+
+Discovery does not descend through controls or arbitrary wrappers. Reserved
+notes and duplicate numeric entry IDs are excluded. A protected range across
+an outer table, unsafe ancestor grid, or enclosing merge continuation prevents
+a nested edit. Whole-node replacement and whole-table deletion remain direct
+body operations; no section-local story fork is performed here.
 
 Indices are zero-based; insert before an index or append at the count. A cell
 spanning three grid columns still counts as **one physical cell**. A new row
@@ -202,6 +499,8 @@ author. Direct body single-text runs support [explicit tracked text and move
 previews](REVISIONS.md#review-a-single-change-in-an-existing-docx), and supported
 wrapper anchors allow individual accept/reject (both anchors for a move).
 Child anchors and revisions in other locations remain inspection-only.
+Direct body runs can also carry [reviewable bold-only property changes](REVISIONS.md#propose-a-formatting-change).
+Supported direct body paragraphs can carry [paired mark and text revisions](REVISIONS.md#propose-or-review-a-whole-paragraph).
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in
@@ -229,11 +528,19 @@ children remain opaque. Inspecting an ambiguous relationship, wrong root,
 wrong content type or missing entry ID fails without changing the snapshot.
 
 [Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
-part identity and direct style ID, kind, name, and base reference in all three
+part identity, direct style ID, kind, name, base/next/linked references, and property groups in all three
 bindings. See [imported style edits](#imported-style-edits) for definition
 and property edits. The resource guide also covers direct [core title, default alignment
 and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
+For definition and instance creation/removal, concrete overrides and body
+paragraph list assignments, see [numbering operations](EDITOR-RESOURCES.md#numbering-definitions-instances-and-paragraph-references).
 Effective formatting and arbitrary resource editing remain outstanding.
+The [defaults field inventory](EDITOR-RESOURCES.md#editing-document-defaults)
+covers direct run/paragraph properties, tabs, footnote/endnote settings, page
+switches and revision tracking with independent set/clear semantics.
+
+For timestamps, other core fields, extended company/manager and named string
+or boolean custom properties, see [package metadata](EDITOR-RESOURCES.md#package-metadata).
 
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
@@ -256,6 +563,80 @@ one physical header, footer, or note/comment part. Inherited slots see the same
 text. References, range markers, note IDs and comment metadata stay intact.
 Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 
+`edit_entry_inlines(owner_part, edits)` (Rust/Python) and
+`editEntryInlines({ownerPart, inlineEdits})` (JavaScript) return bytes for an
+atomic batch of `InlineEdit` operations in one footnotes, endnotes or comments
+part. Insert after or replace an eligible direct run or hyperlink, or patch
+direct run formatting. Format-only batches also accept direct hyperlink child
+runs, using the same guards as `edit_run_format`. Use original inline anchors from ordinary entries with unique
+decimal IDs. Replacement uses the body editor's discard checks; note/reference
+marks, field/range interiors, nested splice targets and reserved notes are ineligible.
+External links allocate relationships in the entry part, including when its
+path is nonstandard. Existing relationships are retained. No entry or reference
+is created, deleted or renumbered. Reopen the returned package for new anchors.
+The standalone field/range operations and direct hyperlink property/removal
+operations above are scoped to the main body, not these entry batches.
+Embedded pictures in direct entry paragraphs also support occurrence insertion,
+replacement, removal, asset redirection and image property groups. The actual
+entry part owns its image relationships; shared bytes elsewhere remain intact.
+Shape, chart and fraction edits require a direct body paragraph.
+
+### Note references and entry definitions
+
+`doc.edit_note_reference(owner, &target, NoteReferenceEdit::…)` (Rust),
+`doc.edit_note_reference(owner, target, kind, **fields)` (Python) and
+`doc.editNoteReference({ownerPart, target, kind, ...fields})` (JavaScript)
+return a separate atomic DOCX copy. A simple reference item exposes its
+source ID as a string: Rust `ImportedInline::NoteReference {kind,id}`,
+Python `kind` (`footnoteReference`/`endnoteReference`) and `value`, JavaScript
+`kind` and `id`. The anchor belongs to the enclosing run.
+
+| Rust variant | Python/JS `kind` and fields | Effect |
+| --- | --- | --- |
+| `Create {id,text}` | `"create"`, `id`, `text` | After a supported direct body run, insert a reference and add its one-paragraph definition. |
+| `Attach(id)` | `"attach"`, `id` | Insert a reference after the target run to an existing unused ordinary definition. |
+| `Detach` | `"detach"` | Remove the reference run, retaining its definition. |
+| `Retarget(id)` | `"retarget"`, `id` | Change the reference to an existing unused ordinary definition of the same kind. Both definitions remain. |
+| `Renumber(id)` | `"renumber"`, `id` | Change a definition and its sole reference together to a free ID. |
+| `Delete` | `"delete"` | Remove the reference and its sole discardable definition. |
+
+For `Create` and `Attach`, the anchor must identify a supported direct run in
+a body paragraph, outside fields and ranges. For the remaining operations it
+must identify the simple reference run itself. The owner is the physical
+footnotes or endnotes part. A first `Create` can initialize `word/footnotes.xml`
+or `word/endnotes.xml` when that kind has no relationship, the paths are free
+and there are no existing note references, definitions, or special-entry
+settings of that kind. The new part, content type and relationship are created
+together; automatic Word numbering is independent of the supplied ID.
+New IDs are unsigned 32-bit values. Imported IDs are compared as arbitrary-
+precision decimal integers, separately by kind. Allocation and destruction
+check all declared XML payloads, including settings and opaque descendants.
+Ambiguous/shared references, custom marks, reserved entries, protected ranges,
+and deletion of nodes with unmodeled content are rejected.
+
+`doc.edit_entry(owner, id, EntryEdit::…)` (Rust),
+`doc.edit_entry(owner, id, kind, **fields)` (Python), and
+`doc.editEntry({ownerPart, id, kind, ...fields})` (JavaScript) address an
+ordinary definition with its physical owner and decimal **string** ID.
+
+| Rust variant | Python/JS `kind` and fields | Effect |
+| --- | --- | --- |
+| `DeleteUnusedNote` | `"deleteUnusedNote"` | Remove a discardable ordinary definition only if it has no reference anywhere in the declared XML graph. |
+| `InsertParagraph {index,text}` / `ReplaceParagraph {index,text}` | `"insertParagraph"` / `"replaceParagraph"`, `index`, `value` | Insert before the original physical block (count to append), or replace a discardable paragraph, with single-line text. |
+| `RemoveParagraph(index)` | `"removeParagraph"`, `index` | Remove a simple paragraph while retaining an entry block. |
+| `CommentAuthor(s)` | `"author"`, `value` | Set a base comment's author. |
+| `CommentInitials(Some(s))` / `CommentInitials(None)` | `"initials"`, `value` / `"clearInitials"` | Set or clear initials. |
+| `CommentDate(Some(s))` / `CommentDate(None)` | `"date"`, `value` / `"clearDate"` | Set a validated `YYYY-MM-DDTHH:MM:SSZ` timestamp or clear it. |
+
+Block indices include opaque blocks. The first note paragraph cannot be moved
+or removed; eligible replacement preserves its reference-mark run. The same
+guard applies to the standard first comment annotation mark. Tables and rich
+or opaque paragraphs cannot be discarded. Extended/threaded comment metadata
+is unsupported. These APIs do not create or delete comment ranges, their
+main-story reference runs or comment definitions. A range operation and a
+definition edit compose by reopening between calls; see the
+[fields/stories ownership contract](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7145560023).
+
 ### Combine ordinary edits
 
 Rust accepts `doc.preview_edits(EditBatch { /* slices */, ..Default::default() })`;
@@ -272,6 +653,7 @@ in JavaScript use `doc.preview({...})`. The corresponding batch fields are:
 | `cells` | `cell_alignments` | `cellAlignments` |
 | `run_removals` | `run_removals` | `runRemovals` |
 | `ranges` | `text_ranges` | `textRanges` |
+| `text_insertions` | `text_insertions` | `textInsertions` |
 | `blocks` | `block_edits` | `blockEdits` |
 | `inline_edits` | `inline_edits` | `inlineEdits` |
 | `structural` | `table_structure` | `tableStructure` |
@@ -307,7 +689,7 @@ For example:
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
-For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding; imported field edits are currently rejected. Those limits are not expanded merely by listing editor goals here.
+For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding. Those limits are not expanded merely by listing editor goals here.
 
 ## Operation contract
 
@@ -341,6 +723,9 @@ Conditions, components, property references, lazy/async/deferred values, reuse a
 
 Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python/JavaScript DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the [active plan](PLAN.md) for verification status.
 
+The [#3 acceptance map](EDITOR-ACCEPTANCE.md) links those gates and the
+individual operation groups to their evidence and records uncovered contexts.
+
 ## Body block edits
 
 Use an original direct body paragraph anchor for these operations:
@@ -351,6 +736,36 @@ Use an original direct body paragraph anchor for these operations:
 | Remove one paragraph | `Remove(anchor)` | `remove(anchor)` | `{kind: "remove", target}` |
 | Replace section content | `ReplaceSection(anchor, blocks)` | `replace_section(anchor, blocks)` | `{kind: "replaceSection", target, blocks}` |
 | Set direct keep-with-next | `KeepWithNext(anchor, bool)` | `keep_with_next(anchor, value)` | `{kind: "keepWithNext", target, value}` |
+| Patch one paragraph flag | `ParagraphFlag(anchor, flag, value)` | `paragraph_flag(anchor, flag, value)` | `{kind: "paragraphFlag", target, flag, value}` |
+| Patch one section flag | `SectionFlag(anchor, flag, value)` | `section_flag(anchor, flag, value)` | `{kind: "sectionFlag", target, flag, value}` |
+| Patch section break type | `SectionType(anchor, value)` | `section_type(anchor, value)` | `{kind: "sectionType", target, value}` |
+
+For these last three operations, pass `None` / `None` / `null` to clear the
+direct property. Explicit false and an absent flag are distinct. Read direct
+flags from the paragraph or section's `flags` map. It contains recognized
+unambiguous on/off values only; it does not calculate effective formatting.
+Read the break type from `section_type` / `section_type` / `sectionType`.
+The section target is its first direct body paragraph, including when the
+properties are owned by a later break paragraph or by the terminal body.
+
+| Rust flag (`ParagraphFlag` unless indicated) | Python flag key | JavaScript flag key |
+|---|---|---|
+| `KeepWithNext` | `keep_with_next` | `keepWithNext` |
+| `KeepTogether` | `keep_together` | `keepTogether` |
+| `PageBreakBefore` | `page_break_before` | `pageBreakBefore` |
+| `WidowControl` | `widow_control` | `widowControl` |
+| `SuppressLineNumbers` | `suppress_line_numbers` | `suppressLineNumbers` |
+| `SnapToGrid` | `snap_to_grid` | `snapToGrid` |
+| `ContextualSpacing` | `contextual_spacing` | `contextualSpacing` |
+| `MirrorIndents` | `mirror_indents` | `mirrorIndents` |
+| `Bidi` (paragraph or section) | `bidi` | `bidi` |
+| `SectionFlag::TitlePage` | `title_page` | `titlePage` |
+| `SectionFlag::RtlGutter` | `rtl_gutter` | `rtlGutter` |
+
+Setting a flag preserves attributes besides its value. Clearing a flag or type
+refuses to discard extension attributes, children or comments. A duplicate
+request for the same physical property (including the keep-with-next alias),
+an ambiguous property owner or a protected target rejects the batch.
 
 Section payloads can mix resolved paragraphs and tables, subject to the same
 style, inline and geometry restrictions as insertion. Automatic table widths
@@ -370,7 +785,59 @@ Use Rust `preview_blocks` or `preview_with_blocks` for a mixed batch, Python
 Structural block operations reserve their entire original range against other body edits.
 Keep-with-next can accompany an alignment patch on the same paragraph.
 Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
-original start index per operation (unchanged direct keep-with-next omitted).
+original start index per changed operation, sorted in body order. Distinct
+property patches can therefore report the same index; no-op patches are omitted.
+
+## Direct paragraph and section layout
+
+Read `paragraph.layout` or `section.layout` for explicit, recognized direct
+values. Use a paragraph's anchor for paragraph layout, or **the section's own
+anchor** for section layout. Section anchors address the original physical
+section in `sections()` / `.sections` / `.sections()`, including a table-first
+section or an empty implicit final section. An edit to the latter materializes
+terminal properties if needed. Reopening even identical bytes invalidates old
+anchors. This addressing does not change the older `ReplaceSection` rules.
+
+| Rust | Python (`rocx.editor`) | JavaScript |
+|---|---|---|
+| `doc.preview_layout(&[LayoutEdit::Paragraph(p.anchor.clone(), LayoutField::FirstLineIndent, Some(LayoutValue::Integer(-240)))])?` | `doc.preview_layout([LayoutEdit.paragraph(p.anchor, "first_line_indent", -240)])` | `doc.previewLayout([{target: p.anchor, field: "firstLineIndent", value: -240}])` |
+| `LayoutEdit::Section(s.anchor.clone(), LayoutField::Margins, None)` | `LayoutEdit.section(s.anchor, "margins", None)` | `{target: s.anchor, field: "margins", value: null}` |
+
+The layout preview is a separate atomic batch of paragraph and section field
+changes. It exposes normal `to_docx` / `toDocx` output; read back `layout` in
+the reopened snapshot for the result. Existing mixed-batch reports such as
+`block_changes` are not layout change reports. Duplicate fields, overlapping
+whole-group and member edits, wrong or stale anchors, competing representations
+and protected or ambiguous owners fail without publishing partial edits.
+
+The table uses the Rust `LayoutField` spellings. Python uses snake case and
+JavaScript lower camel case for **both** editing and readback: e.g.
+`GridCharSpace` / `grid_char_space` / `gridCharSpace`. Values are integers,
+tokens, booleans, tab lists or single border records (`LayoutValue` in Rust).
+An omitted operation leaves the field alone; `None` / `None` / `null` clears it.
+
+| Target | Fields | Values and units |
+|---|---|---|
+| Paragraph style and alignment | `StyleId`, `Heading`, `OutlineLevel`, `Alignment` | Exact existing paragraph style ID, heading 1–9 mapped to an existing `Heading1`–`Heading9` style, independent outline level 0–9, or direct Word alignment token (e.g. `both` for justified). Heading and style ID address the same property. Clearing `Heading` leaves a non-heading style alone. |
+| Paragraph spacing | `SpaceBefore`, `SpaceAfter`, `LineHeight`, `LineRule` | Before/after in twips; positive line height in 240ths of a line for `auto`, or twips for `exact`/`atLeast`. Set or clear height and rule together when both must change. |
+| Paragraph indents | `LeftIndent`, `RightIndent`, `FirstLineIndent` | Signed twips. A negative first-line value is a hanging indent; setting it switches the underlying attribute. |
+| Paragraph tabs | `TabStops` | Replace the direct list with `LayoutTab {position, alignment, leader}` or records with the same names. Position is signed twips, alignment is required, leader optional. Clear the list to remove overrides. |
+| Section page | `PageWidth`, `PageHeight`, `Orientation`, `VerticalAlign`, `SectionType` | Positive dimensions in twips. Orientation (`portrait`/`landscape`) does **not** swap dimensions: change both dimensions explicitly when desired. |
+| Section margins | `MarginTop`, `MarginBottom`, `MarginLeft`, `MarginRight`, `MarginHeader`, `MarginFooter`, `MarginGutter`, `Margins` | Twips; only top/bottom may be negative. All seven attributes are schema-required. Setting one when no record exists fills template defaults (top/bottom 1440, left/right 1800, header/footer 720, gutter 0). Clear `Margins` to remove the whole record. |
+| Section columns/grid | `ColumnCount`, `ColumnSpace`, `ColumnSeparator`, `GridMode`, `GridPitch`, `GridCharSpace` | Equal-width columns: 1–45, twip spacing, boolean separator. Grid mode, positive twip pitch and signed character pitch delta (1/4096 point). |
+| Section numbering | `PageStart`, `PageFormat`, `LineStart`, `LineCountBy`, `LineDistance`, `LineRestart`, `LineNumbering` | Page start and recognized page-format token; line start 0–32767, count interval 1–100, distance in twips, restart `newPage`/`newSection`/`continuous`. Clear `LineNumbering` to remove the whole record. |
+| Section borders | `BorderOffset`, `BorderDisplay`, `BorderZOrder`, `BorderTop`, `BorderLeft`, `BorderBottom`, `BorderRight` | Each edge is independently replaced/cleared. A `LayoutBorder` or `{size, space, color}` record describes a single line: optional width 2–96 eighth-points, space 0–31 points, color six hex digits or `auto`. |
+| Flags | `TitlePage`, `Bidi`, `RtlGutter` on sections; `KeepWithNext`, `KeepTogether`, `PageBreakBefore`, `WidowControl`, `SuppressLineNumbers`, `ParagraphBidi`, `SnapToGrid`, `ContextualSpacing`, `MirrorIndents` on paragraphs | Explicit on/off or clear. |
+
+Readback omits unsupported values; it is not a computed layout or an OOXML
+round-trip template. Setting an ordinary attribute preserves other attributes
+and markup. Removing a whole node, group, tab list or border edge rejects
+destructive edits over opaque annotations. The supported page-format tokens
+are `decimal`, `upperRoman`, `lowerRoman`, `upperLetter`, `lowerLetter`,
+`ordinal`, `cardinalText`, `ordinalText`, `decimalZero`, and `none`.
+Character-unit or automatic spacing/indent variants, unequal or individually
+sized columns, art/theme borders, nested/story paragraphs, paragraph numbering
+references and structural section insertion/removal are outside this layout API.
 
 ## Imported style edits
 
@@ -379,21 +846,74 @@ original start index per operation (unchanged direct keep-with-next omitted).
 | Address an exact style ID | `doc.style_anchor(id)?` | `doc.style_anchor(id)` | `doc.styleAnchor(id)` |
 | Add a declaration | `StyleEdit::Add(definition)` | `StyleEdit.add(definition)` | `{op: "add", definition}` |
 | Patch just bold / italic | `StyleEdit::Patch {target, bold, italic}` | `StyleEdit.patch(target, italic=True)` | `{op: "patch", target, italic: true}` |
+| Set or clear a direct scalar | `StyleEdit::Field {target, field, value, region}` | `StyleEdit.field(target, field, value, region=region)` | `{op: "field", target, field, value, region}` |
+| Set or clear an entire physical conditional region | `StyleEdit::Region {target, region, format}` | `StyleEdit.region(target, region, format)` | `{op: "region", target, region, format}` |
 | Replace an unused definition | `StyleEdit::Replace {target, definition}` | `StyleEdit.replace(target, definition)` | `{op: "replace", target, definition}` |
 | Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
 | Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
 
-Add paragraph, character or table declarations to an existing relationship-selected
-styles part. Names, source aliases, and generated IDs must be unambiguous
+Add paragraph, character, table or numbering declarations to the relationship-selected
+styles part. An addition can create a missing part. Names, source aliases, and generated IDs must be unambiguous
 across styles under ASCII case-insensitive comparison. The authoring codec
 resolves forward references and checks their types and inheritance cycles.
 Patches address direct paragraph/character run properties, including explicit
 false; omitted properties, unknown siblings and attributes are preserved.
 
-Replace and remove require a nondefault custom style with a simple definition
-(name, base, empty paragraph properties and/or bold/italic). Replacement retains
+`Field` uses the same OOXML local names and string values in all three bindings:
+`basedOn`, `next`, `link` take an exact style ID; `jc` takes supported
+paragraph justification tokens (e.g. `center`, `both`). The run flags
+`b`, `i`, `bCs`, `iCs`, `rtl`, `cs`, `strike`, `caps`, `smallCaps`, `vanish`
+and paragraph flags `keepNext`, `keepLines`, `pageBreakBefore`, `widowControl`,
+`bidi`, `contextualSpacing`, `mirrorIndents`, `snapToGrid` take OOXML on/off
+strings. `None`/`null` removes the field; clearing an annotated leaf is refused.
+A character style cannot carry paragraph fields. One edit per style ID per batch.
+
+Omitting the region addresses the style's direct properties, including the
+base formatting of a table style. A region name addresses an actual
+`w:tblStylePr` wrapper: `wholeTable`, `firstRow`, `lastRow`, `firstCol`,
+`lastCol`, `band1Horz`, `band2Horz`, `band1Vert`, `band2Vert`, `nwCell`,
+`neCell`, `swCell`, or `seCell`. `Region` takes a `TableSectionFormat` (boxed
+in Rust) or `None`/`null` to clear the wrapper. Replacement discards **all**
+formatting inside that wrapper; use `Field` to retain its siblings. Duplicate
+wrappers or opaque markup that would be discarded reject the operation.
+
+Adding `NumberingStyleDefinition` requires a nonzero concrete ID (existing or added in the same preview)
+whose abstract has local levels and no existing style owner. The edit writes
+the style's `numId` and the abstract's reciprocal `styleLink`. It allocates
+no numbering IDs and leaves levels, overrides and paragraph references intact.
+
+Replace and remove require a nondefault custom style with recognized markup
+(including supported direct formatting groups and conditional regions). Replacement retains
 its type, ID, display name and source slot. Both operations reject potential
 references elsewhere in the package, including other styles, settings, stories,
 numbering and fields, and reject unsupported markup or parts when usage cannot
-be established. There is no automatic retargeting, numbering-style creation or
-synthesis of a missing styles part.
+be established. Live references are not retargeted. Linked numbering styles
+cannot be replaced or removed.
+
+## Section boundaries and header/footer blocks
+
+| Rust | Python | JavaScript |
+| --- | --- | --- |
+| `preview_blocks` with `BlockEdit::SplitSection(anchor, offset)` or `BlockEdit::MergeSection(anchor)` | `preview(block_edits=[BlockEdit.split_section(anchor, offset)])` or `BlockEdit.merge_section(anchor)` | `preview({blockEdits: [{kind: "splitSection", target: anchor, offset}]})` or `kind: "mergeSection"` without `offset` |
+| `edit_story_reference(index, kind, variant, StoryReferenceEdit::Create(blocks))` (also `Link(part)` and `Remove`) | `edit_story_reference(index, kind, variant, "create", blocks=blocks)` (also `"link"` with `part_name`, or `"remove"`) | `editStoryReference({sectionIndex, storyKind, variant, action: "create", blocks})` (also `"link"` with `partName`, or `"remove"`) |
+| `edit_story_blocks(&anchor, mode, index, remove, &blocks)` | `edit_story_blocks(anchor, mode, index, remove, blocks)` | `editStoryBlocks({target: anchor, mode, index, remove, blocks})` |
+
+Split offsets count original body blocks within the selected section and
+insert a dedicated boundary paragraph; in a nonfinal section, place it before
+the existing boundary owner. The prefix receives the original explicit story
+references, and the suffix inherits them. The final section can be split even
+if it has no blocks. Merge removes a nonfinal boundary and uses the following
+section's geometry and explicit story choices, preserving its previously
+inherited references. Only a completely empty boundary paragraph is removed;
+opaque properties and protected boundaries are rejected. Reopen to obtain
+fresh anchors after either operation. Boundary edits cannot share a batch with
+resource, story image, or control edits, or with other edits targeting the
+affected section ranges.
+
+Story reference changes use snapshot-relative section indices and follow
+inheritance until the next explicit reference for that kind and slot. Removing
+a reference does not delete the part. Block splices use physical block indices
+and can insert or replace resolved paragraphs and fixed-width tables.
+Shared mode edits the physical part; section-local mode forks a supported story
+and preserves the following section's previous reference. Destructive edits
+over opaque content, drawings, protected ranges, or fields are rejected.

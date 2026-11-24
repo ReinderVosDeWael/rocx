@@ -2,9 +2,10 @@
 use std::sync::Mutex;
 
 use pyo3::{
+    IntoPyObjectExt,
     exceptions::{PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyBytes, PyModule},
+    types::{PyBool, PyBytes, PyDict, PyList, PyModule},
 };
 
 use super::rust_error;
@@ -27,6 +28,162 @@ fn alignment_name(value: crate::Alignment) -> &'static str {
 #[pyclass(name = "ParagraphAnchor", frozen, module = "rocx.editor")]
 struct PyParagraphAnchor {
     inner: editor::ParagraphAnchor,
+}
+
+#[pyclass(name = "SectionAnchor", frozen, module = "rocx.editor")]
+struct PySectionAnchor {
+    inner: editor::SectionAnchor,
+}
+
+#[pyclass(name = "LayoutEdit", frozen, module = "rocx.editor")]
+struct PyLayoutEdit {
+    inner: editor::LayoutEdit,
+}
+
+fn layout_value(o: &Bound<'_, PyAny>) -> PyResult<editor::LayoutValue> {
+    use editor::LayoutValue::*;
+    if o.is_instance_of::<PyBool>() {
+        return Ok(Boolean(o.extract()?));
+    }
+    if let Ok(s) = o.extract::<String>() {
+        return Ok(Token(s));
+    }
+    if let Ok(d) = o.cast::<PyDict>() {
+        if d.keys().iter().any(|k| {
+            !matches!(
+                k.extract::<String>().as_deref(),
+                Ok("size" | "space" | "color")
+            )
+        }) {
+            return Err(PyValueError::new_err("unknown page border field"));
+        }
+        let num = |k: &str| {
+            d.get_item(k)?
+                .map(|v| {
+                    if v.is_instance_of::<PyBool>() {
+                        Err(PyValueError::new_err("expected integer"))
+                    } else {
+                        v.extract::<i32>()
+                    }
+                })
+                .transpose()
+        };
+        return Ok(Border(editor::LayoutBorder {
+            size: num("size")?,
+            space: num("space")?,
+            color: d.get_item("color")?.map(|v| v.extract()).transpose()?,
+        }));
+    }
+    if let Ok(tabs) = o.cast::<PyList>() {
+        return Ok(Tabs(
+            tabs.iter()
+                .map(|item| {
+                    let d = item.cast::<PyDict>()?;
+                    if d.keys().iter().any(|k| {
+                        !matches!(
+                            k.extract::<String>().as_deref(),
+                            Ok("position" | "alignment" | "leader")
+                        )
+                    }) {
+                        return Err(PyValueError::new_err("unknown tab stop field"));
+                    }
+                    let pos = d
+                        .get_item("position")?
+                        .ok_or_else(|| PyValueError::new_err("missing tab position"))?;
+                    if pos.is_instance_of::<PyBool>() {
+                        return Err(PyValueError::new_err("expected integer tab position"));
+                    }
+                    Ok(editor::LayoutTab {
+                        position: pos.extract()?,
+                        alignment: d
+                            .get_item("alignment")?
+                            .ok_or_else(|| PyValueError::new_err("missing tab alignment"))?
+                            .extract()?,
+                        leader: d.get_item("leader")?.map(|k| k.extract()).transpose()?,
+                    })
+                })
+                .collect::<PyResult<_>>()?,
+        ));
+    }
+    Ok(Integer(o.extract()?))
+}
+fn layout_field(s: &str) -> PyResult<editor::LayoutField> {
+    editor::LayoutField::ALL
+        .iter()
+        .copied()
+        .find(|f| f.python_name() == s)
+        .ok_or_else(|| PyValueError::new_err("unknown layout field"))
+}
+#[pymethods]
+impl PyLayoutEdit {
+    #[staticmethod]
+    fn paragraph(
+        target: PyRef<'_, PyParagraphAnchor>,
+        field: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::LayoutEdit::Paragraph(
+                target.inner.clone(),
+                layout_field(field)?,
+                value.map(layout_value).transpose()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn section(
+        target: PyRef<'_, PySectionAnchor>,
+        field: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::LayoutEdit::Section(
+                target.inner.clone(),
+                layout_field(field)?,
+                value.map(layout_value).transpose()?,
+            ),
+        })
+    }
+}
+type LayoutMap = std::collections::BTreeMap<editor::LayoutField, editor::LayoutValue>;
+fn layout_view<'py>(py: Python<'py>, values: &LayoutMap) -> PyResult<Bound<'py, PyDict>> {
+    use editor::LayoutValue::*;
+    let d = PyDict::new(py);
+    for (f, v) in values {
+        let k = f.python_name();
+        match v {
+            Token(s) => d.set_item(k, s)?,
+            Boolean(b) => d.set_item(k, b)?,
+            Integer(i) => d.set_item(k, i)?,
+            Border(b) => {
+                let edge = PyDict::new(py);
+                if let Some(v) = b.size {
+                    edge.set_item("size", v)?
+                }
+                if let Some(v) = b.space {
+                    edge.set_item("space", v)?
+                }
+                if let Some(v) = &b.color {
+                    edge.set_item("color", v)?
+                }
+                d.set_item(k, edge)?;
+            }
+            Tabs(stops) => {
+                let list = PyList::empty(py);
+                for t in stops {
+                    let tab = PyDict::new(py);
+                    tab.set_item("position", t.position)?;
+                    tab.set_item("alignment", &t.alignment)?;
+                    if let Some(l) = &t.leader {
+                        tab.set_item("leader", l)?
+                    }
+                    list.append(tab)?;
+                }
+                d.set_item(k, list)?;
+            }
+        }
+    }
+    Ok(d)
 }
 
 #[pyclass(name = "HeaderAnchor", frozen, module = "rocx.editor")]
@@ -139,6 +296,25 @@ impl PyTextRangeEdit {
     }
 }
 
+#[pyclass(name = "TextInsertion", frozen, module = "rocx.editor")]
+struct PyTextInsertion {
+    inner: editor::TextInsertion,
+}
+
+#[pymethods]
+impl PyTextInsertion {
+    #[new]
+    fn new(target: PyRef<'_, PyParagraphAnchor>, position: usize, text: String) -> Self {
+        Self {
+            inner: editor::TextInsertion {
+                target: target.inner.clone(),
+                position,
+                text,
+            },
+        }
+    }
+}
+
 #[pyclass(name = "RunTextEdit", frozen, module = "rocx.editor")]
 struct PyRunTextEdit {
     inner: editor::RunTextEdit,
@@ -149,8 +325,28 @@ struct PyControlAnchor {
     inner: editor::ControlAnchor,
 }
 
+#[pyclass(name = "ControlSite", frozen, module = "rocx.editor")]
+struct PyControlSite {
+    inner: editor::ControlSite,
+}
+
+#[pymethods]
+impl PyControlSite {
+    #[getter]
+    fn context(&self) -> &'static str {
+        self.inner.context.as_str()
+    }
+    #[getter]
+    fn text(&self) -> &str {
+        &self.inner.text
+    }
+}
+
 #[pyclass(name = "ImportedControl", frozen, get_all, module = "rocx.editor")]
 struct PyImportedControl {
+    owner_part: Option<String>,
+    entry_id: Option<String>,
+    entry_index: Option<usize>,
     anchor: Py<PyControlAnchor>,
     context: &'static str,
     id: Option<String>,
@@ -158,11 +354,112 @@ struct PyImportedControl {
     alias: Option<String>,
     lock: Option<String>,
     bound: bool,
+    kind: &'static str,
+    choices: Vec<(String, String)>,
+    multi_line: Option<String>,
+    selected: Option<String>,
 }
 
 #[pyclass(name = "ControlEdit", frozen, module = "rocx.editor")]
 struct PyControlEdit {
     inner: editor::ControlEdit,
+}
+
+#[pyclass(name = "WrapperEdit", frozen, module = "rocx.editor")]
+struct PyWrapperEdit {
+    inner: editor::WrapperEdit,
+}
+
+#[pymethods]
+impl PyWrapperEdit {
+    #[staticmethod]
+    #[pyo3(signature=(first, tag, *, last=None))]
+    fn wrap(
+        first: PyRef<'_, PyControlSite>,
+        tag: String,
+        last: Option<PyRef<'_, PyControlSite>>,
+    ) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Wrap {
+                first: first.inner.clone(),
+                last: last.map(|s| s.inner.clone()),
+                tag,
+            },
+        }
+    }
+    #[staticmethod]
+    fn unwrap(target: PyRef<'_, PyControlAnchor>) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Unwrap(target.inner.clone()),
+        }
+    }
+    #[staticmethod]
+    fn define(target: PyRef<'_, PyControlAnchor>, properties: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::Define(
+                target.inner.clone(),
+                super::content::content_control_properties(properties)?,
+            ),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,selected,*,choices=None))]
+    fn choice(
+        target: PyRef<'_, PyControlAnchor>,
+        selected: String,
+        choices: Option<Vec<(String, String)>>,
+    ) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Choice {
+                target: target.inner.clone(),
+                selected,
+                items: choices.map(|v| {
+                    v.into_iter()
+                        .map(|(display_text, value)| crate::ContentControlListItem {
+                            display_text,
+                            value,
+                        })
+                        .collect()
+                }),
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace_inlines(
+        target: PyRef<'_, PyControlAnchor>,
+        inlines: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::ReplaceInlines(
+                target.inner.clone(),
+                inlines
+                    .iter()
+                    .map(inline_payload)
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn replace_blocks(
+        target: PyRef<'_, PyControlAnchor>,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::ReplaceBlocks(
+                target.inner.clone(),
+                blocks
+                    .iter()
+                    .map(|b| {
+                        if b.getattr("_native_kind")?.extract::<String>()? == "Table" {
+                            resolved_block_table(b).map(crate::ResolvedBlock::Table)
+                        } else {
+                            resolved_block_paragraph(b).map(crate::ResolvedBlock::Paragraph)
+                        }
+                    })
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
 }
 
 #[pymethods]
@@ -216,6 +513,11 @@ struct PyRunRemovalChange {
 
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
 struct PyImportedSection {
+    #[pyo3(get)]
+    anchor: Py<PySectionAnchor>,
+    layout: LayoutMap,
+    #[pyo3(get)]
+    flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     body_start: usize,
     #[pyo3(get)]
@@ -329,6 +631,11 @@ impl PyHeaderImagePreview {
 
 #[pyclass(name = "BodyParagraph", frozen, module = "rocx.editor")]
 struct PyBodyParagraph {
+    layout: LayoutMap,
+    #[pyo3(get)]
+    mark_revision: Option<Py<PyImportedPropertyRevision>>,
+    #[pyo3(get)]
+    flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     anchor: Py<PyParagraphAnchor>,
     #[pyo3(get)]
@@ -351,12 +658,171 @@ struct PyInlineAnchor {
     inner: editor::InlineAnchor,
 }
 
+#[pymethods]
+impl PyBodyParagraph {
+    #[getter]
+    fn layout<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        layout_view(py, &self.layout)
+    }
+}
+#[pymethods]
+impl PyImportedSection {
+    #[getter]
+    fn layout<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        layout_view(py, &self.layout)
+    }
+}
+
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
 struct PyImportedRun {
+    direct_format: crate::RunFormat,
+    #[pyo3(get)]
+    drawing: Option<Py<PyDrawingOccurrence>>,
+    #[pyo3(get)]
+    has_opaque_formatting: bool,
+    #[pyo3(get)]
+    bold: Option<bool>,
+    #[pyo3(get)]
+    italic: Option<bool>,
+    #[pyo3(get)]
+    strike: Option<bool>,
+    #[pyo3(get)]
+    hidden: Option<bool>,
+    #[pyo3(get)]
+    property_revision: Option<Py<PyImportedPropertyRevision>>,
     #[pyo3(get)]
     anchor: Py<PyInlineAnchor>,
     #[pyo3(get)]
     items: Vec<Py<PyImportedInline>>,
+}
+
+#[pyclass(name = "ImportedPropertyRevision", frozen, module = "rocx.editor")]
+struct PyImportedPropertyRevision {
+    #[pyo3(get)]
+    kind: &'static str,
+    #[pyo3(get)]
+    id: Option<String>,
+    #[pyo3(get)]
+    author: Option<String>,
+    #[pyo3(get)]
+    date: Option<String>,
+}
+
+fn revision_metadata(
+    py: Python<'_>,
+    r: Option<&editor::ImportedPropertyRevision>,
+) -> PyResult<Option<Py<PyImportedPropertyRevision>>> {
+    r.map(|r| {
+        Py::new(
+            py,
+            PyImportedPropertyRevision {
+                kind: r.kind,
+                id: r.id.clone(),
+                author: r.author.clone(),
+                date: r.date.clone(),
+            },
+        )
+    })
+    .transpose()
+}
+
+fn review_action(action: &str) -> PyResult<crate::TextRevisionAction> {
+    match action {
+        "accept" => Ok(crate::TextRevisionAction::Accept),
+        "reject" => Ok(crate::TextRevisionAction::Reject),
+        _ => Err(PyValueError::new_err("expected accept or reject")),
+    }
+}
+
+#[pyclass(name = "DrawingOccurrence", frozen, get_all, module = "rocx.editor")]
+struct PyDrawingOccurrence {
+    title: Option<String>,
+    name: Option<String>,
+    geometry: Option<String>,
+    shape_text: Option<String>,
+    crop: Option<[i32; 4]>,
+    rotation: Option<i32>,
+    flip_horizontal: Option<bool>,
+    flip_vertical: Option<bool>,
+    kind: &'static str,
+    placement: &'static str,
+    relationship_id: Option<String>,
+    description: Option<String>,
+    width_emu: Option<i64>,
+    height_emu: Option<i64>,
+}
+
+#[pyclass(name = "ImportedFraction", frozen, get_all, module = "rocx.editor")]
+struct PyImportedFraction {
+    anchor: Py<PyInlineAnchor>,
+    numerator: String,
+    denominator: String,
+}
+
+#[pymethods]
+impl PyImportedRun {
+    /// An independent dictionary of directly modeled fields; no effective styles.
+    #[getter]
+    fn format<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let f = &self.direct_format;
+        let out = PyDict::new(py);
+        macro_rules! scalars { ($($field:ident),*) => {$(
+            if let Some(v) = &f.$field { out.set_item(stringify!($field),v)?; }
+        )*}; }
+        scalars!(
+            style,
+            bold,
+            italic,
+            font,
+            size,
+            superscript,
+            subscript,
+            strike,
+            all_caps,
+            small_caps,
+            snap_to_grid,
+            bold_complex_script,
+            italic_complex_script,
+            size_complex_script,
+            rtl,
+            complex_script,
+            font_east_asia,
+            font_complex_script
+        );
+        if let Some(u) = f.underline {
+            out.set_item("underline", u.xml())?;
+        }
+        if let Some(color) = f.color {
+            match color {
+                crate::Color::Auto => out.set_item("color", "auto")?,
+                crate::Color::Rgb([r, g, b]) => out.set_item("color", (r, g, b))?,
+                crate::Color::Theme { name, tint, shade } => {
+                    let value = PyDict::new(py);
+                    value.set_item("theme", name.xml())?;
+                    if let Some(v) = tint {
+                        value.set_item("tint", v)?;
+                    }
+                    if let Some(v) = shade {
+                        value.set_item("shade", v)?;
+                    }
+                    out.set_item("color", value)?;
+                }
+            }
+        }
+        if let Some(lang) = &f.language {
+            out.set_item(
+                "language",
+                py.import("rocx.declarative")?
+                    .getattr("RunLanguage")?
+                    .call1((
+                        lang.latin.as_deref(),
+                        lang.east_asia.as_deref(),
+                        lang.bidi.as_deref(),
+                    ))?,
+            )?;
+        }
+        Ok(out)
+    }
 }
 
 #[pyclass(name = "ImportedHyperlink", frozen, module = "rocx.editor")]
@@ -367,6 +833,10 @@ struct PyImportedHyperlink {
     relationship_id: Option<String>,
     #[pyo3(get)]
     bookmark: Option<String>,
+    #[pyo3(get)]
+    tooltip: Option<String>,
+    #[pyo3(get)]
+    history_xml: Option<String>,
     #[pyo3(get)]
     children: Vec<Py<PyAny>>,
 }
@@ -401,6 +871,38 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
         ImportedInlineNode::Run(run) => Py::new(
             py,
             PyImportedRun {
+                drawing: run
+                    .drawing
+                    .as_ref()
+                    .map(|d| {
+                        Py::new(
+                            py,
+                            PyDrawingOccurrence {
+                                title: d.title.clone(),
+                                name: d.name.clone(),
+                                geometry: d.geometry.clone(),
+                                shape_text: d.shape_text.clone(),
+                                crop: d.crop,
+                                rotation: d.rotation,
+                                flip_horizontal: d.flip_horizontal,
+                                flip_vertical: d.flip_vertical,
+                                kind: d.kind,
+                                placement: d.placement,
+                                relationship_id: d.relationship_id.clone(),
+                                description: d.description.clone(),
+                                width_emu: d.width_emu,
+                                height_emu: d.height_emu,
+                            },
+                        )
+                    })
+                    .transpose()?,
+                direct_format: run.format.clone(),
+                has_opaque_formatting: run.has_opaque_formatting,
+                bold: run.bold,
+                italic: run.italic,
+                strike: run.strike,
+                hidden: run.hidden,
+                property_revision: revision_metadata(py, run.property_revision.as_ref())?,
                 anchor: anchor(&run.anchor)?,
                 items: run
                     .items
@@ -416,6 +918,8 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                 anchor: anchor(&link.anchor)?,
                 relationship_id: link.relationship_id.clone(),
                 bookmark: link.bookmark.clone(),
+                tooltip: link.tooltip.clone(),
+                history_xml: link.history_xml.clone(),
                 children: link
                     .children
                     .iter()
@@ -440,6 +944,19 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
             },
         )?
         .into_any(),
+        ImportedInlineNode::Fraction {
+            anchor: target,
+            numerator,
+            denominator,
+        } => Py::new(
+            py,
+            PyImportedFraction {
+                anchor: anchor(target)?,
+                numerator: numerator.clone(),
+                denominator: denominator.clone(),
+            },
+        )?
+        .into_any(),
         ImportedInlineNode::Opaque(xml) => {
             Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any()
         }
@@ -460,6 +977,13 @@ impl From<&editor::ImportedInline> for PyImportedInline {
         use editor::ImportedInline::*;
         let (kind, value) = match item {
             Text(text) => ("text", Some(text.clone())),
+            NoteReference { kind, id } => (
+                match kind {
+                    crate::NoteKind::Footnote => "footnoteReference",
+                    crate::NoteKind::Endnote => "endnoteReference",
+                },
+                Some(id.clone()),
+            ),
             Tab => ("tab", None),
             Break(value) => (
                 "break",
@@ -482,6 +1006,12 @@ impl From<&editor::ImportedInline> for PyImportedInline {
 #[pyclass(name = "BodyTable", frozen, module = "rocx.editor")]
 struct PyBodyTable {
     #[pyo3(get)]
+    properties: editor::DirectTableProperties,
+    #[pyo3(get)]
+    layout: Option<String>,
+    #[pyo3(get)]
+    grid_widths: Vec<Option<u32>>,
+    #[pyo3(get)]
     anchor: Py<PyTableAnchor>,
     #[pyo3(get)]
     children: Vec<Py<PyAny>>,
@@ -491,15 +1021,35 @@ struct PyBodyTable {
 struct PyTableAnchor {
     inner: editor::TableAnchor,
 }
+#[pyclass(name = "LocatedTable", frozen, module = "rocx.editor", get_all)]
+struct PyLocatedTable {
+    anchor: Py<PyTableAnchor>,
+    part_name: String,
+    path: Vec<usize>,
+    depth: usize,
+    entry_id: Option<String>,
+    properties: editor::DirectTableProperties,
+    grid_widths: Vec<Option<u32>>,
+    row_properties: Vec<editor::DirectTableProperties>,
+    cell_properties: Vec<Vec<editor::DirectTableProperties>>,
+}
 
 #[pyclass(name = "ImportedTableRow", frozen, module = "rocx.editor")]
 struct PyImportedTableRow {
+    #[pyo3(get)]
+    properties: editor::DirectTableProperties,
     #[pyo3(get)]
     children: Vec<Py<PyAny>>,
 }
 
 #[pyclass(name = "ImportedTableCell", frozen, module = "rocx.editor")]
 struct PyImportedTableCell {
+    #[pyo3(get)]
+    properties: editor::DirectTableProperties,
+    #[pyo3(get)]
+    grid_span: Option<u32>,
+    #[pyo3(get)]
+    vertical_merge: Option<String>,
     #[pyo3(get)]
     blocks: Vec<Py<PyAny>>,
 }
@@ -559,17 +1109,36 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                                     .into_any()),
                                 })
                                 .collect::<PyResult<_>>()?;
-                            Ok(Py::new(py, PyImportedTableCell { blocks })?.into_any())
+                            Ok(Py::new(
+                                py,
+                                PyImportedTableCell {
+                                    properties: cell.properties.clone(),
+                                    blocks,
+                                    grid_span: cell.grid_span,
+                                    vertical_merge: cell.vertical_merge.clone(),
+                                },
+                            )?
+                            .into_any())
                         }
                     })
                     .collect::<PyResult<_>>()?;
-                Ok(Py::new(py, PyImportedTableRow { children })?.into_any())
+                Ok(Py::new(
+                    py,
+                    PyImportedTableRow {
+                        children,
+                        properties: row.properties.clone(),
+                    },
+                )?
+                .into_any())
             }
         })
         .collect::<PyResult<_>>()?;
     Ok(Py::new(
         py,
         PyBodyTable {
+            properties: table.properties.clone(),
+            layout: table.layout.map(|v| v.xml().to_owned()),
+            grid_widths: table.grid_widths.clone(),
             anchor: Py::new(
                 py,
                 PyTableAnchor {
@@ -608,8 +1177,85 @@ struct PyParagraphAlignmentEdit {
 struct PyTableStructureEdit {
     inner: editor::TableStructureEdit,
 }
+fn table_site(
+    row: Option<usize>,
+    cell: Option<usize>,
+    column: Option<usize>,
+) -> PyResult<editor::TableSite> {
+    use editor::TableSite::*;
+    Ok(match (row, cell, column) {
+        (None, None, None) => Table,
+        (Some(r), None, None) => Row(r),
+        (Some(r), Some(c), None) => Cell(r, c),
+        (None, None, Some(c)) => Column(c),
+        _ => return Err(PyValueError::new_err("invalid table site coordinates")),
+    })
+}
 #[pymethods]
 impl PyTableStructureEdit {
+    #[staticmethod]
+    #[pyo3(signature=(target,field,source,*,row=None,cell=None,column=None))]
+    fn patch_property(
+        target: PyRef<'_, PyTableAnchor>,
+        field: String,
+        source: Option<&Bound<'_, PyAny>>,
+        row: Option<usize>,
+        cell: Option<usize>,
+        column: Option<usize>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::Property {
+                    site: table_site(row, cell, column)?,
+                    field,
+                    source: source.map(resolved_block_table).transpose()?.map(Box::new),
+                },
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,source,*,row=None,cell=None))]
+    fn replace_node(
+        target: PyRef<'_, PyTableAnchor>,
+        source: &Bound<'_, PyAny>,
+        row: Option<usize>,
+        cell: Option<usize>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::ReplaceNode {
+                    site: table_site(row, cell, None)?,
+                    source: Box::new(resolved_block_table(source)?),
+                },
+            },
+        })
+    }
+    #[staticmethod]
+    fn remove_table(target: PyRef<'_, PyTableAnchor>) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveTable,
+            },
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature = (target, value))]
+    fn layout(
+        target: PyRef<'_, PyTableAnchor>,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::Layout(
+                    value.map(super::values::tablelayout).transpose()?,
+                ),
+            },
+        })
+    }
     #[staticmethod]
     fn insert_row(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
         Self {
@@ -767,9 +1413,124 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "ImportedField", frozen, get_all, module = "rocx.editor")]
+struct PyImportedField {
+    complex: bool,
+    instruction: String,
+    dirty_xml: Option<String>,
+    locked_xml: Option<String>,
+    inline_count: usize,
+}
+
+#[pyclass(name = "BodyRangeMarker", frozen, get_all, module = "rocx.editor")]
+struct PyBodyRangeMarker {
+    body_index: usize,
+    inline_index: usize,
+    kind: &'static str,
+    id: Option<String>,
+    name: Option<String>,
+}
+
 #[pyclass(name = "InlineEdit", frozen, module = "rocx.editor")]
 struct PyInlineEdit {
     inner: editor::InlineEdit,
+}
+fn field_patch(property: &str, value: Option<&Bound<'_, PyAny>>) -> PyResult<editor::FieldPatch> {
+    use editor::FieldPatch::*;
+    Ok(match property {
+        "instruction" => Instruction(
+            value
+                .ok_or_else(|| PyTypeError::new_err("expected instruction text"))?
+                .extract()?,
+        ),
+        "dirty" => Dirty(value.map(|v| v.extract()).transpose()?),
+        "locked" => Locked(value.map(|v| v.extract()).transpose()?),
+        _ => return Err(PyTypeError::new_err("unknown field property")),
+    })
+}
+#[pyclass(name = "FieldEdit", frozen, module = "rocx.editor")]
+struct PyFieldEdit {
+    inner: editor::FieldEdit,
+}
+#[pymethods]
+impl PyFieldEdit {
+    #[staticmethod]
+    #[pyo3(signature=(target,inline_index,property,value=None))]
+    fn patch(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        property: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: editor::FieldAction::Patch(field_patch(property, value)?),
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,inline_index,field=None))]
+    fn replace(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        field: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: field
+                    .map(inline_payload)
+                    .transpose()?
+                    .map_or(editor::FieldAction::Remove, |f| {
+                        editor::FieldAction::Replace(Box::new(f))
+                    }),
+            },
+        })
+    }
+    #[staticmethod]
+    fn cache(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        children: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: editor::FieldAction::Cache(
+                    children
+                        .iter()
+                        .map(inline_payload)
+                        .collect::<PyResult<_>>()?,
+                ),
+            },
+        })
+    }
+}
+#[pyclass(name = "PairedRangeEdit", frozen, module = "rocx.editor")]
+struct PyPairedRangeEdit {
+    inner: editor::PairedRangeEdit,
+}
+#[pymethods]
+impl PyPairedRangeEdit {
+    #[new]
+    #[pyo3(signature=(id,bookmark=None,endpoints=None))]
+    fn new(
+        id: u32,
+        bookmark: Option<String>,
+        endpoints: Option<(PyRef<'_, PyInlineAnchor>, PyRef<'_, PyInlineAnchor>)>,
+    ) -> Self {
+        Self {
+            inner: editor::PairedRangeEdit {
+                id,
+                bookmark,
+                endpoints: endpoints.map(|(a, b)| (a.inner.clone(), b.inner.clone())),
+            },
+        }
+    }
 }
 
 fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
@@ -786,6 +1547,138 @@ fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
 
 #[pymethods]
 impl PyInlineEdit {
+    #[staticmethod]
+    fn remove_hyperlink(target: PyRef<'_, PyInlineAnchor>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::RemoveHyperlink,
+            },
+        }
+    }
+    #[staticmethod]
+    fn patch_drawing(
+        target: PyRef<'_, PyInlineAnchor>,
+        property: &str,
+        inline: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let property = editor::DrawingProperty::parse(property)
+            .ok_or_else(|| PyValueError::new_err("unknown drawing property"))?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::PatchDrawing(property, inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn set_image_asset(
+        target: PyRef<'_, PyInlineAnchor>,
+        image: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let crate::ResolvedInline::Image { image, .. } = inline_payload(image)? else {
+            return Err(PyTypeError::new_err("expected a resolved ImageRun"));
+        };
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetImageAsset(image),
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature = (target, *, clear=None, **properties))]
+    fn patch_format(
+        target: PyRef<'_, PyInlineAnchor>,
+        clear: Option<Vec<String>>,
+        properties: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        let py = target.py();
+        let kwargs = match properties {
+            Some(d) => d.copy()?,
+            None => PyDict::new(py),
+        };
+        let style = kwargs
+            .get_item("style")?
+            .map(|v| v.extract::<String>())
+            .transpose()?;
+        if style.is_some() {
+            kwargs.del_item("style")?;
+        }
+        let defaults = py
+            .import("rocx.declarative")?
+            .getattr("RunDefaults")?
+            .call((), Some(&kwargs))?;
+        let mut set = super::values::run_format(&defaults)?;
+        set.style = style;
+        let clear = clear
+            .unwrap_or_default()
+            .iter()
+            .map(|name| {
+                let mut camel = String::new();
+                for piece in name.split('_') {
+                    if camel.is_empty() {
+                        camel.push_str(piece);
+                    } else {
+                        let mut chars = piece.chars();
+                        if let Some(c) = chars.next() {
+                            camel.push(c.to_ascii_uppercase());
+                            camel.push_str(chars.as_str());
+                        }
+                    }
+                }
+                editor::RunFormatField::parse(&camel).ok_or_else(|| {
+                    PyValueError::new_err(format!("unknown run format field {name}"))
+                })
+            })
+            .collect::<PyResult<_>>()?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(set),
+                    clear,
+                },
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature = (target, value))]
+    fn set_drawing_description(target: PyRef<'_, PyInlineAnchor>, value: Option<String>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetDrawingDescription(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn hyperlink_tooltip(target: PyRef<'_, PyInlineAnchor>, value: Option<String>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::HyperlinkTooltip(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn hyperlink_history(target: PyRef<'_, PyInlineAnchor>, value: Option<bool>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::HyperlinkHistory(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_object(target: PyRef<'_, PyInlineAnchor>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::RemoveObject,
+            },
+        }
+    }
     #[staticmethod]
     fn insert_after(
         target: PyRef<'_, PyInlineAnchor>,
@@ -815,6 +1708,23 @@ impl PyInlineEdit {
                 action: editor::InlineAction::SetBold(bold),
             },
         }
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (target, property, value))]
+    fn set_toggle(
+        target: PyRef<'_, PyInlineAnchor>,
+        property: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let prop = editor::RunToggle::parse(property)
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("unknown run toggle"))?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetToggle(prop, value),
+            },
+        })
     }
 }
 
@@ -863,6 +1773,18 @@ struct PyBlockEdit {
 
 #[pymethods]
 impl PyBlockEdit {
+    #[staticmethod]
+    fn split_section(target: PyRef<'_, PySectionAnchor>, offset: usize) -> Self {
+        Self {
+            inner: editor::BlockEdit::SplitSection(target.inner.clone(), offset),
+        }
+    }
+    #[staticmethod]
+    fn merge_section(target: PyRef<'_, PySectionAnchor>) -> Self {
+        Self {
+            inner: editor::BlockEdit::MergeSection(target.inner.clone()),
+        }
+    }
     #[staticmethod]
     fn replace(
         target: PyRef<'_, PyParagraphAnchor>,
@@ -914,6 +1836,46 @@ impl PyBlockEdit {
             inner: editor::BlockEdit::KeepWithNext(target.inner.clone(), value),
         }
     }
+    #[staticmethod]
+    fn paragraph_flag(
+        target: PyRef<'_, PyParagraphAnchor>,
+        flag: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let flag = editor::ParagraphFlag::ALL
+            .iter()
+            .find(|f| f.python_name() == flag)
+            .ok_or_else(|| PyValueError::new_err("unknown paragraph flag"))?;
+        Ok(Self {
+            inner: editor::BlockEdit::ParagraphFlag(target.inner.clone(), *flag, value),
+        })
+    }
+    #[staticmethod]
+    fn section_flag(
+        target: PyRef<'_, PyParagraphAnchor>,
+        flag: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let flag = editor::SectionFlag::ALL
+            .iter()
+            .find(|f| f.python_name() == flag)
+            .ok_or_else(|| PyValueError::new_err("unknown section flag"))?;
+        Ok(Self {
+            inner: editor::BlockEdit::SectionFlag(target.inner.clone(), *flag, value),
+        })
+    }
+    #[staticmethod]
+    fn section_type(
+        target: PyRef<'_, PyParagraphAnchor>,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::BlockEdit::SectionType(
+                target.inner.clone(),
+                value.map(super::sectiontype).transpose()?,
+            ),
+        })
+    }
 }
 
 #[pymethods]
@@ -928,6 +1890,19 @@ impl PyTableInsertion {
             table: resolved_block_table(resolved_table)?,
         })
     }
+}
+
+fn story_blocks_payload(blocks: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<crate::ResolvedBlock>> {
+    blocks
+        .iter()
+        .map(|b| {
+            if super::kind(b)? == "Table" {
+                resolved_block_table(b).map(crate::ResolvedBlock::Table)
+            } else {
+                resolved_block_paragraph(b).map(crate::ResolvedBlock::Paragraph)
+            }
+        })
+        .collect()
 }
 
 fn resolved_block_table(resolved_table: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedTable> {
@@ -1126,6 +2101,41 @@ struct PyStyleEdit {
 #[pymethods]
 impl PyStyleEdit {
     #[staticmethod]
+    #[pyo3(signature=(target, field, value, *, region=None))]
+    fn field(
+        target: PyRef<'_, PyStyleAnchor>,
+        field: String,
+        value: Option<String>,
+        region: Option<String>,
+    ) -> Self {
+        Self {
+            inner: editor::StyleEdit::Field {
+                target: target.inner.clone(),
+                field,
+                value,
+                region,
+            },
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target, region, format))]
+    fn region(
+        target: PyRef<'_, PyStyleAnchor>,
+        region: String,
+        format: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Region {
+                target: target.inner.clone(),
+                region,
+                format: format
+                    .map(super::values::tablesectionformat)
+                    .transpose()?
+                    .map(Box::new),
+            },
+        })
+    }
+    #[staticmethod]
     fn add(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
             inner: editor::StyleEdit::Add(super::style_definition(definition)?),
@@ -1166,6 +2176,9 @@ struct PyImportedStyle {
     kind_xml: Option<String>,
     name: Option<String>,
     based_on: Option<String>,
+    next_style: Option<String>,
+    linked_style: Option<String>,
+    property_xml: Vec<String>,
 }
 
 #[pyclass(name = "ImportedStyles", module = "rocx.editor", get_all)]
@@ -1181,6 +2194,20 @@ struct PyAbstractStart {
     start: Option<u32>,
 }
 
+#[pyclass(
+    name = "ImportedNumberingInstance",
+    module = "rocx.editor",
+    frozen,
+    get_all
+)]
+struct PyImportedNumberingInstance {
+    num_id: u32,
+    abstract_id: u32,
+    /// Pairs of (level, direct starting value) in source order.
+    start_overrides: Vec<(u8, u32)>,
+    replacement_levels: Vec<u32>,
+}
+
 #[pyclass(name = "ResourceEdit", module = "rocx.editor", frozen)]
 struct PyResourceEdit {
     inner: editor::ResourceEdit,
@@ -1188,6 +2215,63 @@ struct PyResourceEdit {
 
 #[pymethods]
 impl PyResourceEdit {
+    #[staticmethod]
+    #[pyo3(signature=(field,value))]
+    fn document_default(field: &str, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        use editor::{DefaultField, DefaultValue as V};
+        let field = DefaultField::from_key(field)
+            .ok_or_else(|| PyValueError::new_err("unknown document default"))?;
+        let value = value
+            .map(|v| -> PyResult<_> {
+                if let Ok(b) = v.extract::<bool>() {
+                    Ok(V::Bool(b))
+                } else if let Ok(n) = v.extract::<i64>() {
+                    Ok(V::Integer(n))
+                } else if let Ok(s) = v.extract::<String>() {
+                    Ok(V::Text(s))
+                } else {
+                    Ok(V::Tabs(
+                        v.extract::<Vec<(i32, String, Option<String>)>>()?
+                            .into_iter()
+                            .map(|(position_twips, alignment, leader)| editor::DefaultTab {
+                                position_twips,
+                                alignment,
+                                leader,
+                            })
+                            .collect(),
+                    ))
+                }
+            })
+            .transpose()?;
+        Ok(Self {
+            inner: editor::ResourceEdit::Default(field, value),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(field, value))]
+    fn metadata(field: &str, value: Option<String>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Metadata(field.parse().map_err(rust_error)?, value),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(name, value))]
+    fn custom_property(name: String, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let value = value
+            .map(|v| {
+                if v.is_instance_of::<pyo3::types::PyBool>() {
+                    Ok(editor::CustomValue::Boolean(v.extract()?))
+                } else if v.is_instance_of::<pyo3::types::PyString>() {
+                    Ok(editor::CustomValue::Text(v.extract()?))
+                } else {
+                    Err(PyTypeError::new_err("expected a string, boolean or None"))
+                }
+            })
+            .transpose()?;
+        Ok(Self {
+            inner: editor::ResourceEdit::CustomProperty(name, value),
+        })
+    }
     #[staticmethod]
     #[pyo3(signature=(value))]
     fn core_title(value: Option<String>) -> Self {
@@ -1220,6 +2304,76 @@ impl PyResourceEdit {
             }),
         }
     }
+    #[staticmethod]
+    fn add_abstract(abstract_id: u32, levels: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
+                abstract_id,
+                levels: super::list(levels, super::numbering_level)?,
+            }),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(num_id,level,value))]
+    fn instance_level(num_id: u32, level: u8, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceLevel {
+                num_id,
+                level,
+                value: value
+                    .map(super::numbering_level)
+                    .transpose()?
+                    .flatten()
+                    .map(Box::new),
+            }),
+        })
+    }
+    #[staticmethod]
+    fn remove_abstract(abstract_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::RemoveAbstract {
+                abstract_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn add_instance(num_id: u32, abstract_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
+                num_id,
+                abstract_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn remove_instance(num_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::RemoveInstance {
+                num_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(num_id,level,start))]
+    fn instance_start(num_id: u32, level: u8, start: Option<u32>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceStart {
+                num_id,
+                level,
+                start,
+            }),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,value))]
+    fn paragraph_numbering(target: PyRef<'_, PyParagraphAnchor>, value: Option<(u32, u8)>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::Paragraph {
+                target: target.inner.clone(),
+                value: value.map(|(id, level)| crate::NumberingReference { id, level }),
+            }),
+        }
+    }
 }
 
 #[pymethods]
@@ -1232,6 +2386,26 @@ impl PyImportedDocument {
         Ok(PyStyleAnchor {
             inner: doc.style_anchor(id).map_err(rust_error)?,
         })
+    }
+    fn metadata_field(&self, field: &str) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .metadata_field(field.parse().map_err(rust_error)?)
+            .map_err(rust_error)
+    }
+    fn custom_property(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+        match self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .custom_property(name)
+            .map_err(rust_error)?
+        {
+            Some(editor::CustomValue::Text(s)) => s.into_py_any(py),
+            Some(editor::CustomValue::Boolean(v)) => v.into_py_any(py),
+            None => Ok(py.None()),
+        }
     }
     #[getter]
     fn core_title(&self) -> PyResult<Option<String>> {
@@ -1260,6 +2434,31 @@ impl PyImportedDocument {
             .map(alignment_name))
     }
     #[getter]
+    fn document_defaults<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        use editor::DefaultValue as V;
+        let values = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .document_defaults()
+            .map_err(rust_error)?;
+        let dict = pyo3::types::PyDict::new(py);
+        for (f, v) in values {
+            match v {
+                V::Bool(b) => dict.set_item(f.key(), b)?,
+                V::Integer(i) => dict.set_item(f.key(), i)?,
+                V::Text(s) => dict.set_item(f.key(), s)?,
+                V::Tabs(t) => dict.set_item(
+                    f.key(),
+                    t.into_iter()
+                        .map(|t| (t.position_twips, t.alignment, t.leader))
+                        .collect::<Vec<_>>(),
+                )?,
+            }
+        }
+        Ok(dict)
+    }
+    #[getter]
     fn abstract_starts(&self) -> PyResult<Vec<PyAbstractStart>> {
         Ok(self
             .inner
@@ -1276,30 +2475,145 @@ impl PyImportedDocument {
             .collect())
     }
     #[getter]
+    fn numbering_instances(&self) -> PyResult<Vec<PyImportedNumberingInstance>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .numbering_instances()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|n| PyImportedNumberingInstance {
+                num_id: n.num_id,
+                replacement_levels: n.replacement_levels.into_iter().map(u32::from).collect(),
+                abstract_id: n.abstract_id,
+                start_overrides: n
+                    .start_overrides
+                    .into_iter()
+                    .map(|o| (o.level, o.start))
+                    .collect(),
+            })
+            .collect())
+    }
+    fn paragraph_numbering(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+    ) -> PyResult<Option<(u32, u8)>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .paragraph_numbering(&target.inner)
+            .map_err(rust_error)?
+            .map(|r| (r.id, r.level)))
+    }
+    #[getter]
     fn controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
         let doc = self
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        doc.controls()
+        doc.controls().iter().map(|c| control_view(py, c)).collect()
+    }
+    #[getter]
+    fn story_controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.story_controls()
+            .map_err(rust_error)?
             .iter()
-            .map(|c| {
-                Ok(PyImportedControl {
-                    anchor: Py::new(
-                        py,
-                        PyControlAnchor {
-                            inner: c.anchor.clone(),
-                        },
-                    )?,
-                    context: c.context.as_str(),
-                    id: c.id.clone(),
-                    tag: c.tag.clone(),
-                    alias: c.alias.clone(),
-                    lock: c.lock.clone(),
-                    bound: c.bound,
-                })
-            })
+            .map(|c| control_view(py, c))
             .collect()
+    }
+    #[getter]
+    fn control_sites(&self) -> PyResult<Vec<PyControlSite>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .control_sites()
+            .iter()
+            .cloned()
+            .map(|inner| PyControlSite { inner })
+            .collect())
+    }
+    fn preview_wrap_control(
+        &self,
+        site: PyRef<'_, PyControlSite>,
+        tag: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_wrap_control(&site.inner, tag)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    fn preview_replace_control(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+        properties: &Bound<'_, PyAny>,
+    ) -> PyResult<PyEditPreview> {
+        let props = super::content::content_control_properties(properties)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_replace_control(&target.inner, &props)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    fn preview_unwrap_control(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_unwrap_control(&target.inner)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    #[pyo3(signature=(target, selected, *, choices=None))]
+    fn preview_control_choice(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+        selected: &str,
+        choices: Option<Vec<(String, String)>>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let choices = choices.map(|items| {
+            items
+                .into_iter()
+                .map(|(display_text, value)| crate::ContentControlListItem {
+                    display_text,
+                    value,
+                })
+                .collect::<Vec<_>>()
+        });
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_control_choice(&target.inner, selected, choices.as_deref())
+                    .map_err(rust_error)?,
+            ),
+        })
     }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
@@ -1327,6 +2641,9 @@ impl PyImportedDocument {
                                 kind_xml,
                                 name: style.name,
                                 based_on: style.based_on,
+                                next_style: style.next_style,
+                                linked_style: style.linked_style,
+                                property_xml: style.property_xml,
                             },
                         )
                     })
@@ -1346,22 +2663,35 @@ impl PyImportedDocument {
     }
 
     #[getter]
-    fn sections(&self) -> PyResult<Vec<PyImportedSection>> {
+    fn sections(&self, py: Python<'_>) -> PyResult<Vec<PyImportedSection>> {
         let doc = self
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        Ok(doc
-            .sections()
+        doc.sections()
             .map_err(rust_error)?
             .into_iter()
-            .map(|section| PyImportedSection {
-                body_start: section.body_start,
-                body_end: section.body_end,
-                section_type: section.section_type.map(crate::SectionType::xml),
-                section_type_xml: section.section_type_xml,
+            .map(|section| {
+                Ok(PyImportedSection {
+                    layout: section.layout,
+                    anchor: Py::new(
+                        py,
+                        PySectionAnchor {
+                            inner: section.anchor,
+                        },
+                    )?,
+                    flags: section
+                        .flags
+                        .iter()
+                        .map(|(f, v)| (f.python_name(), *v))
+                        .collect(),
+                    body_start: section.body_start,
+                    body_end: section.body_end,
+                    section_type: section.section_type.map(crate::SectionType::xml),
+                    section_type_xml: section.section_type_xml,
+                })
             })
-            .collect())
+            .collect()
     }
 
     #[getter]
@@ -1445,6 +2775,323 @@ impl PyImportedDocument {
             .collect()
     }
 
+    #[pyo3(signature=(edits, *, owner_part=None))]
+    fn edit_run_format<'py>(
+        &self,
+        py: Python<'py>,
+        edits: Vec<PyRef<'_, PyInlineEdit>>,
+        owner_part: Option<&str>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_run_format(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    #[pyo3(signature = (owner_part, target, kind, *, id=None, text=None))]
+    fn edit_note_reference<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        target: PyRef<'_, PyInlineAnchor>,
+        kind: &str,
+        id: Option<u32>,
+        text: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::NoteReferenceEdit::*;
+        let edit = match (kind, id, text) {
+            ("create", Some(id), Some(text)) => Create { id, text },
+            ("delete", None, None) => Delete,
+            ("detach", None, None) => Detach,
+            ("attach", Some(id), None) => Attach(id),
+            ("retarget", Some(id), None) => Retarget(id),
+            ("renumber", Some(id), None) => Renumber(id),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "invalid note reference edit arguments",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_note_reference(owner_part, &target.inner, edit)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    #[pyo3(signature = (owner_part, id, kind, *, index=None, value=None))]
+    fn edit_entry<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        id: &str,
+        kind: &str,
+        index: Option<usize>,
+        value: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::EntryEdit::*;
+        let edit = match (kind, index, value) {
+            ("insertParagraph", Some(index), Some(text)) => InsertParagraph { index, text },
+            ("replaceParagraph", Some(index), Some(text)) => ReplaceParagraph { index, text },
+            ("removeParagraph", Some(index), None) => RemoveParagraph(index),
+            ("deleteUnusedNote", None, None) => DeleteUnusedNote,
+            ("author", None, Some(s)) => CommentAuthor(s),
+            ("initials", None, Some(s)) => CommentInitials(Some(s)),
+            ("clearInitials", None, None) => CommentInitials(None),
+            ("date", None, Some(s)) => CommentDate(Some(s)),
+            ("clearDate", None, None) => CommentDate(None),
+            _ => return Err(PyValueError::new_err("invalid entry edit arguments")),
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_entry(owner_part, id, edit).map_err(rust_error)?,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (section_index, story_kind, variant, action, *, blocks=None, part_name=None))]
+    fn edit_story_reference<'py>(
+        &self,
+        py: Python<'py>,
+        section_index: usize,
+        story_kind: &str,
+        variant: &Bound<'_, PyAny>,
+        action: &str,
+        blocks: Option<Vec<Bound<'_, PyAny>>>,
+        part_name: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::{SectionStoryKind, StoryReferenceEdit::*};
+        let kind = match story_kind {
+            "header" => SectionStoryKind::Header,
+            "footer" => SectionStoryKind::Footer,
+            _ => return Err(PyValueError::new_err("expected header or footer")),
+        };
+        let variant = super::values::headerfootertype(variant)?;
+        let edit = match (action, blocks, part_name) {
+            ("create", Some(b), None) => Create(story_blocks_payload(b)?),
+            ("link", None, Some(p)) => Link(p),
+            ("remove", None, None) => Remove,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected create with blocks, link with part_name, or remove",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_reference(section_index, kind, variant, edit)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    fn edit_story_blocks<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyHeaderAnchor>,
+        mode: &str,
+        index: usize,
+        remove: usize,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let mode = match mode {
+            "shared" => editor::HeaderEditMode::Shared,
+            "section_local" => editor::HeaderEditMode::SectionLocal,
+            _ => return Err(PyValueError::new_err("expected shared or section_local")),
+        };
+        let blocks = story_blocks_payload(blocks)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_blocks(&target.inner, mode, index, remove, &blocks)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    fn edit_entry_inlines<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyInlineEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_entry_inlines(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    #[pyo3(signature=(owner_part=None))]
+    fn part_tables(
+        &self,
+        py: Python<'_>,
+        owner_part: Option<&str>,
+    ) -> PyResult<Vec<PyLocatedTable>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.part_tables(owner_part)
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|t| {
+                Ok(PyLocatedTable {
+                    anchor: Py::new(py, PyTableAnchor { inner: t.anchor })?,
+                    part_name: t.part_name,
+                    path: t.path,
+                    depth: t.depth,
+                    entry_id: t.entry_id,
+                    properties: t.properties,
+                    grid_widths: t.grid_widths,
+                    row_properties: t.row_properties,
+                    cell_properties: t.cell_properties,
+                })
+            })
+            .collect()
+    }
+    fn edit_part_tables<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyTableStructureEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_part_tables(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    #[getter]
+    fn body_range_markers(&self) -> PyResult<Vec<PyBodyRangeMarker>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .body_range_markers()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|m| PyBodyRangeMarker {
+                body_index: m.body_index,
+                inline_index: m.inline_index,
+                kind: m.kind,
+                id: m.id,
+                name: m.name,
+            })
+            .collect())
+    }
+    fn field_at(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+    ) -> PyResult<PyImportedField> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let f = doc
+            .field_at(&target.inner, inline_index)
+            .map_err(rust_error)?;
+        Ok(PyImportedField {
+            complex: f.complex,
+            instruction: f.instruction,
+            dirty_xml: f.dirty_xml,
+            locked_xml: f.locked_xml,
+            inline_count: f.inline_count,
+        })
+    }
+    #[pyo3(signature=(target, inline_index, property, value=None))]
+    fn patch_field<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        property: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let patch = field_patch(property, value)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.patch_field(&target.inner, inline_index, patch)
+                .map_err(rust_error)?,
+        ))
+    }
+    #[pyo3(signature=(target, inline_index, field=None))]
+    fn replace_field<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        field: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let field = field.map(inline_payload).transpose()?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.replace_field(&target.inner, inline_index, field.as_ref())
+                .map_err(rust_error)?,
+        ))
+    }
+    #[pyo3(signature=(id, bookmark=None, endpoints=None))]
+    fn set_paired_range<'py>(
+        &self,
+        py: Python<'py>,
+        id: u32,
+        bookmark: Option<&str>,
+        endpoints: Option<(PyRef<'_, PyInlineAnchor>, PyRef<'_, PyInlineAnchor>)>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.set_paired_range(
+                id,
+                bookmark,
+                endpoints.as_ref().map(|(a, b)| (&a.inner, &b.inner)),
+            )
+            .map_err(rust_error)?,
+        ))
+    }
     fn edit_story_text<'py>(
         &self,
         py: Python<'py>,
@@ -1488,6 +3135,9 @@ impl PyImportedDocument {
                 BodyBlock::Paragraph(p) => Ok(Py::new(
                     py,
                     PyBodyParagraph {
+                        layout: p.layout.clone(),
+                        mark_revision: revision_metadata(py, p.mark_revision.as_ref())?,
+                        flags: p.flags.iter().map(|(f, v)| (f.python_name(), *v)).collect(),
                         anchor: Py::new(
                             py,
                             PyParagraphAnchor {
@@ -1528,7 +3178,16 @@ impl PyImportedDocument {
             .collect()
     }
 
-    /// Read a body or default-header run or hyperlink from this snapshot.
+    /// Read explicit labels and values from a direct body column chart.
+    fn chart_series(&self, target: PyRef<'_, PyInlineAnchor>) -> PyResult<(Vec<String>, Vec<f64>)> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .chart_series(&target.inner)
+            .map_err(rust_error)
+    }
+
+    /// Read the structured inline node identified by this snapshot's anchor.
     fn inline_at(&self, py: Python<'_>, target: PyRef<'_, PyInlineAnchor>) -> PyResult<Py<PyAny>> {
         let doc = self
             .inner
@@ -1570,6 +3229,84 @@ impl PyImportedDocument {
         })
     }
 
+    fn preview_layout(&self, edits: Vec<PyRef<'_, PyLayoutEdit>>) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyEditPreview {
+            inner: Mutex::new(doc.preview_layout(&edits).map_err(rust_error)?),
+        })
+    }
+
+    #[pyo3(signature = (target, bold, author, date=None))]
+    fn preview_tracked_bold(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        bold: bool,
+        author: &str,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_bold(&target.inner, bold, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    #[pyo3(signature = (target, kind, author, *, text=None, date=None))]
+    fn preview_tracked_paragraph(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        kind: &str,
+        author: &str,
+        text: Option<String>,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        let edit = match (kind, text) {
+            ("insertBefore", Some(t)) => editor::TrackedParagraph::InsertBefore(t),
+            ("delete", None) => editor::TrackedParagraph::Delete,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected insertBefore with text or delete without text",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_paragraph(&target.inner, edit, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    fn preview_paragraph_revision(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        action: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_paragraph_revision(&target.inner, review_action(action)?)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
     fn preview_tracked_move(
         &self,
         target: PyRef<'_, PyInlineAnchor>,
@@ -1597,11 +3334,7 @@ impl PyImportedDocument {
         action: &str,
         paired: Option<PyRef<'_, PyInlineAnchor>>,
     ) -> PyResult<PyEditPreview> {
-        let action = match action {
-            "accept" => crate::TextRevisionAction::Accept,
-            "reject" => crate::TextRevisionAction::Reject,
-            _ => return Err(PyValueError::new_err("expected accept or reject")),
-        };
+        let action = review_action(action)?;
         let doc = self
             .inner
             .lock()
@@ -1616,7 +3349,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, text_insertions=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None, wrappers=None, fields=None, paired_ranges=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1627,12 +3360,16 @@ impl PyImportedDocument {
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
         text_ranges: Option<Vec<PyRef<'_, PyTextRangeEdit>>>,
+        text_insertions: Option<Vec<PyRef<'_, PyTextInsertion>>>,
         block_edits: Option<Vec<PyRef<'_, PyBlockEdit>>>,
         inline_edits: Option<Vec<PyRef<'_, PyInlineEdit>>>,
         table_structure: Option<Vec<PyRef<'_, PyTableStructureEdit>>>,
         style_edits: Option<Vec<PyRef<'_, PyStyleEdit>>>,
         resources: Option<Vec<PyRef<'_, PyResourceEdit>>>,
         controls: Option<Vec<PyRef<'_, PyControlEdit>>>,
+        wrappers: Option<Vec<PyRef<'_, PyWrapperEdit>>>,
+        fields: Option<Vec<PyRef<'_, PyFieldEdit>>>,
+        paired_ranges: Option<Vec<PyRef<'_, PyPairedRangeEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1681,12 +3418,16 @@ impl PyImportedDocument {
                     cells: &inner_edits!(cell_alignments),
                     run_removals: &inner_edits!(run_removals),
                     ranges: &inner_edits!(text_ranges),
+                    text_insertions: &inner_edits!(text_insertions),
                     blocks: &inner_edits!(block_edits),
                     inline_edits: &inner_edits!(inline_edits),
                     structural: &inner_edits!(table_structure),
                     styles: &inner_edits!(style_edits),
                     resources: &inner_edits!(resources),
                     controls: &inner_edits!(controls),
+                    wrappers: &inner_edits!(wrappers),
+                    fields: &inner_edits!(fields),
+                    paired_ranges: &inner_edits!(paired_ranges),
                 })
                 .map_err(rust_error)?,
             ),
@@ -1696,10 +3437,13 @@ impl PyImportedDocument {
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAbstractStart>()?;
+    module.add_class::<PyImportedNumberingInstance>()?;
     module.add_class::<PyResourceEdit>()?;
     module.add_class::<PyStyleAnchor>()?;
     module.add_class::<PyStyleEdit>()?;
     module.add_class::<PyControlAnchor>()?;
+    module.add_class::<PyControlSite>()?;
+    module.add_class::<PyWrapperEdit>()?;
     module.add_class::<PyControlEdit>()?;
     module.add_class::<PyImportedControl>()?;
     module.add_class::<PyBlockEdit>()?;
@@ -1711,6 +3455,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedStyle>()?;
     module.add_class::<PyImportedStyles>()?;
     module.add_class::<PyTextRangeEdit>()?;
+    module.add_class::<PyTextInsertion>()?;
     module.add_class::<PyRunTextEdit>()?;
     module.add_class::<PyRunTextChange>()?;
     module.add_class::<PyRunRemovalChange>()?;
@@ -1719,15 +3464,21 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyHeaderImageChange>()?;
     module.add_class::<PyHeaderImagePreview>()?;
     module.add_class::<PyParagraphAnchor>()?;
+    module.add_class::<PySectionAnchor>()?;
+    module.add_class::<PyLayoutEdit>()?;
     module.add_class::<PyBodyParagraph>()?;
     module.add_class::<PyImportedInline>()?;
     module.add_class::<PyInlineAnchor>()?;
     module.add_class::<PyImportedRun>()?;
+    module.add_class::<PyImportedPropertyRevision>()?;
+    module.add_class::<PyImportedFraction>()?;
+    module.add_class::<PyDrawingOccurrence>()?;
     module.add_class::<PyImportedHyperlink>()?;
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
     module.add_class::<PyTableStructureEdit>()?;
+    module.add_class::<PyLocatedTable>()?;
     module.add_class::<PyCellAlignmentEdit>()?;
     module.add_class::<PyCellAlignmentChange>()?;
     module.add_class::<PyImportedTableRow>()?;
@@ -1739,9 +3490,41 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyParagraphInsertion>()?;
     module.add_class::<PyInlineEdit>()?;
+    module.add_class::<PyFieldEdit>()?;
+    module.add_class::<PyPairedRangeEdit>()?;
+    module.add_class::<PyImportedField>()?;
+    module.add_class::<PyBodyRangeMarker>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;
     module.add_class::<PyImportedDocument>()?;
     Ok(())
+}
+
+fn control_view(py: Python<'_>, c: &editor::ImportedControl) -> PyResult<PyImportedControl> {
+    Ok(PyImportedControl {
+        owner_part: c.owner_part.clone(),
+        entry_id: c.entry_id.clone(),
+        entry_index: c.entry_index,
+        anchor: Py::new(
+            py,
+            PyControlAnchor {
+                inner: c.anchor.clone(),
+            },
+        )?,
+        context: c.context.as_str(),
+        id: c.id.clone(),
+        tag: c.tag.clone(),
+        alias: c.alias.clone(),
+        lock: c.lock.clone(),
+        bound: c.bound,
+        kind: c.kind,
+        multi_line: c.multi_line.clone(),
+        choices: c
+            .choices
+            .iter()
+            .map(|i| (i.display_text.clone(), i.value.clone()))
+            .collect(),
+        selected: c.selected.clone(),
+    })
 }

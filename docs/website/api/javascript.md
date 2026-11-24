@@ -163,6 +163,12 @@ Transitional DOCX snapshot. Its methods are synchronous:
   source relationship ID or bookmark, not a resolved URL. Inline anchors
   are snapshot-local: aliases of one physical story reuse the same inline
   addresses, but reopening identical bytes produces a distinct snapshot.
+- `previewTrackedBold` records a direct bold change on a plain or bold-only
+  body run. Inspect `propertyRevision` on the reopened run and use its anchor
+  with `previewRevision`. `previewTrackedParagraph` inserts a plain paragraph
+  before an ordinary paragraph or deletes an eligible single-run paragraph.
+  Inspect `markRevision` on the reopened paragraph, then pass its paragraph
+  anchor and `"accept"` or `"reject"` to `previewParagraphRevision`.
 
 Opaque markers report names, not editable XML. The inspection view is not a
 round-trip authoring declaration.
@@ -171,9 +177,12 @@ round-trip authoring declaration.
 
 | Synchronous API | Behavior |
 | --- | --- |
-| `imported.preview(batch: EditBatch): EditPreview` | Stages ordinary edits against original snapshot targets. All fields are optional: `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `textRanges`, `runText`, `runRemovals`, `blockEdits`, `inlineEdits`, `tableStructure`, `styleEdits`, `resources`, `controls`. |
+| `imported.preview(batch: EditBatch): EditPreview` | Stages ordinary edits against original snapshot targets. All fields are optional: `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `textRanges`, `textInsertions`, `runText`, `runRemovals`, `blockEdits`, `inlineEdits`, `tableStructure`, `styleEdits`, `resources`, `controls`. |
 | `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one image append to an effective header or footer slot. Obtain the target from `stories()`; `change()` reports the effect. |
 | `imported.editStoryText({ownerPart, runText}): Uint8Array` | Returns DOCX bytes for a separate atomic batch in one physical part. Supply the inspected part name and anchors for eligible direct runs in that header/footer or ordinary footnote/endnote/comment entry. All aliases see the edit. |
+| `imported.editEntryInlines({ownerPart, inlineEdits}): Uint8Array` | Insert after or replace eligible direct runs/hyperlinks, or patch direct run bold, in ordinary note/comment entries of one part. New external links belong to that part; reference marks and reserved notes are protected. |
+| `imported.editNoteReference({ownerPart, target, kind, ...fields}): Uint8Array` | `create` takes an unused numeric ID and text; `attach`, `retarget`, `renumber` take an ID. `detach` retains the definition; `delete` also removes its simple definition. |
+| `imported.editEntry({ownerPart, id, kind, ...fields}): Uint8Array` | Use the decimal string ID. Insert, replace or remove a simple paragraph; set base comment author/date/initials or clear date/initials; `deleteUnusedNote` removes a simple unreferenced note. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
 Alignment edits take a `ParagraphAnchor` and `alignment`; table insertions
@@ -205,12 +214,53 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   of Unicode scalar positions in a plain direct-body paragraph. Count with
   `Array.from(text)`, not `.length`. The replacement retains the formatting
   of the first selected scalar; `runTextChanges()` reports changed runs.
-- `blockEdits` accepts `replace`, `remove`, `replaceSection` and `keepWithNext`
-  at eligible direct body paragraph anchors. `inlineEdits` accepts
-  `insertAfter`, `replace` and `setBold` at eligible direct inline anchors.
+- `textInsertions: [{target, position, text}]` inserts nonempty text at an
+  original scalar position. At a run boundary it takes the next character's
+  formatting, or the last run's formatting at paragraph end.
+- `blockEdits` accepts `replace`, `remove`, `replaceSection`, `keepWithNext`,
+  `paragraphFlag`, `sectionFlag` and `sectionType` at eligible direct body
+  paragraph anchors. Section edits target the section's first body block,
+  which must be a paragraph. Read direct on/off properties from `flags`.
+  A `null` value clears a flag or break type. `inlineEdits` accepts
+  `insertAfter`, `replace`, `setBold`, `setToggle` and `patchFormat` at eligible direct inline anchors.
+  `setToggle` takes `property` (`bold`, `italic`, `strike`, `hidden`) and `value`
+  (`true`, `false`, or `null` to clear). Structured run inspection exposes the
+  four direct values, a `format` view and `hasOpaqueFormatting`. Use `patchFormat`
+  with a `RunFormat` value under `format` and optional field names under `clear`.
+  Multiple format edits can share a run when their properties are disjoint.
+  `editRunFormat({inlineEdits, ownerPart?})` returns new bytes and accepts
+  run anchors in body cells and hyperlink children. For header/footer and
+  ordinary note/comment runs, name their inspected physical `ownerPart`.
+- `blockEdits` also accepts `splitSection` (`target: section.anchor`, `offset`
+  in original blocks) and `mergeSection` (`target: section.anchor` for a
+  nonfinal section). Merging retains the following section's layout.
+- `previewLayout([{target, field, value}])` patches direct paragraph or section
+  layout. For example, `{target: doc.sections()[0].anchor, field: "marginLeft",
+  value: 1440}` sets a one-inch margin even if that section starts with a table.
+  Use `null` to clear a field (clear `"margins"` as a group). Reopen the preview
+  and inspect `paragraph.layout` or `section.layout`. See `DirectParagraphLayout`,
+  `DirectSectionLayout` and `LayoutEdit` in the package declarations.
+- `editStoryReference` creates, links, or removes an explicit header/footer
+  reference by section index, story kind, and variant. `editStoryBlocks`
+  splices physical blocks in `shared` or `sectionLocal` mode at a story anchor.
 - `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
-  `insertColumn`, `removeColumn` and `replaceCell`. Row/cell positions are
-  physical; column positions count logical grid columns.
+  `insertColumn`, `removeColumn`, `replaceCell` and `layout`. Row/cell positions
+  are physical; column positions count logical grid columns. Pass `{target,
+  kind: "layout", value: "fixed" | "autofit" | null}` to set or clear direct
+  layout. Inspect a table's `layout`, `gridWidths` (twips), and each physical
+  cell's `gridSpan` and `verticalMerge`.
+- `patchProperty` copies one direct field from a resolved table, or clears it
+  with `source: null`. For example, `{target, kind:"patchProperty", row:0,
+  cell:1, field:"margin.end", source:table}` sets only that side. Table, row
+  and cell `properties` expose field-to-attribute maps; `gridWidths` exposes
+  columns. `replaceNode` replaces the addressed table, row or cell from a
+  resolved table; `removeTable` removes an eligible direct body table.
+- `partTables(ownerPart?)` lists physical tables, including tables nested in
+  ordinary cells. Omit the part name for the main body, or use a physical
+  header/footer or note/comment part. Pass the returned anchor to
+  `editPartTables({ownerPart, tableStructure})` for geometry, property or
+  cell-content edits; it returns new DOCX bytes. Shared aliases see the same
+  edit. Hyperlinks inserted in a story cell belong to that part.
 - `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
   Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
   without discarding other properties; replace/remove only safe unused custom styles.
@@ -218,6 +268,23 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   with `value` (`null` clears). Abstract starts also require `abstractId` and
   `level`. Inspect direct values with `coreTitle()`, `coreSubject()`, `defaultAlignment()` and
   `abstractStarts()`.
+- Inspect direct run, paragraph and document-wide settings with
+  `doc.documentDefaults()`. For example,
+  `doc.preview({resources: [{kind: "documentDefault", field: "bold", value: false}]})`
+  turns default bold off. `null` clears the field, restoring absence. `DefaultValues`
+  lists keys and their types; tab positions and indent lengths use twips.
+
+- `metadataField(field)` reads a core or extended string, and
+  `customProperty(name)` reads a named string or boolean. Missing properties
+  return `undefined`. Pass `{kind: "metadata", field, value}` or
+  `{kind: "customProperty", name, value}` in `resources`; `null` removes the property.
+
+- Numbering resource edits include `addAbstract`, `removeAbstract`, `addInstance`,
+  `removeInstance`, `instanceStart`, `instanceLevel` and `paragraphNumbering`.
+  `numberingInstances()` lists concrete IDs, abstract links, start overrides and
+  replacement-level indices. `paragraphNumbering(anchor)` returns a direct
+  `{id, level}` or `undefined`. Clear an override or direct reference with
+  `value: null`. Live references and opaque content can block removal.
 
 ```javascript
 import { openDocx } from "rocx-docx";

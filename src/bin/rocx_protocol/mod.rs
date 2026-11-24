@@ -6,6 +6,17 @@ use rocx::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+mod declarations;
+mod discovery;
+mod resources;
+mod rich;
+mod scoped;
+mod structure;
+use declarations::*;
+use resources::*;
+use rich::*;
+use scoped::*;
+use structure::*;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,8 +68,283 @@ pub(super) enum Edit {
         cell_index: usize,
         alignment: String,
     },
+    TextRange {
+        target: usize,
+        start: usize,
+        end: usize,
+        text: String,
+    },
+    TextInsertion {
+        target: usize,
+        position: usize,
+        text: String,
+    },
+    ReplaceParagraph {
+        target: usize,
+        text: String,
+    },
+    RemoveParagraph {
+        target: usize,
+    },
+    ReplaceSection {
+        target: usize,
+        blocks: Vec<Block>,
+    },
+    SplitSection {
+        target: usize,
+        offset: usize,
+    },
+    MergeSection {
+        target: usize,
+    },
+    ParagraphLayout {
+        target: usize,
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<LayoutInput>,
+    },
+    SectionLayout {
+        target: usize,
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<LayoutInput>,
+    },
+    KeepWithNext {
+        target: usize,
+        value: bool,
+    },
+    ParagraphFlag {
+        target: usize,
+        flag: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<bool>,
+    },
+    SectionFlag {
+        target: usize,
+        flag: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<bool>,
+    },
+    SectionType {
+        target: usize,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    InsertInline {
+        target: usize,
+        inline_index: usize,
+        inline: Inline,
+    },
+    ReplaceInline {
+        target: usize,
+        inline_index: usize,
+        inline: Inline,
+    },
+    RunBold {
+        target: usize,
+        inline_index: usize,
+        value: bool,
+    },
+    #[serde(rename = "inline-edit")]
+    RichInline {
+        target: usize,
+        inline_index: usize,
+        operation: RichInline,
+    },
+    Field {
+        target: usize,
+        inline_index: usize,
+        operation: FieldOperation,
+    },
+    PairedRange {
+        id: u32,
+        bookmark: Option<String>,
+        endpoints: Option<[RunAddress; 2]>,
+    },
+    ControlWrapper {
+        operation: WrapperOperation,
+    },
+    TableStructure {
+        target: usize,
+        operation: Geometry,
+    },
+    PartTables {
+        owner_part: String,
+        operations: Vec<PhysicalOperation>,
+    },
+    CoreTitle {
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    CoreSubject {
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    Metadata {
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    CustomProperty {
+        name: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<CustomScalar>,
+    },
+    DefaultAlignment {
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    AbstractStart {
+        abstract_id: u32,
+        level: u8,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<u32>,
+    },
+    DocumentDefault {
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<DefaultScalar>,
+    },
+    AddAbstract {
+        abstract_id: u32,
+        levels: Vec<Level>,
+    },
+    RemoveAbstract {
+        abstract_id: u32,
+    },
+    AddInstance {
+        num_id: u32,
+        abstract_id: u32,
+    },
+    RemoveInstance {
+        num_id: u32,
+    },
+    InstanceStart {
+        num_id: u32,
+        level: u8,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<u32>,
+    },
+    InstanceLevel {
+        num_id: u32,
+        level: u8,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<Level>,
+    },
+    ParagraphNumbering {
+        target: usize,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<ListRef>,
+    },
+    StyleField {
+        id: String,
+        region: Option<String>,
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    StyleRegion {
+        id: String,
+        region: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<Region>,
+    },
+    StyleAdd {
+        definition: Style,
+    },
+    StyleReplace {
+        id: String,
+        definition: Style,
+    },
+    StylePatch {
+        id: String,
+        bold: Option<bool>,
+        italic: Option<bool>,
+    },
+    StyleRemove {
+        id: String,
+    },
+    Control {
+        target: usize,
+        tag: Option<String>,
+        alias: Option<String>,
+        text: Option<String>,
+    },
+    StoryImage {
+        target: Slot,
+        mode: String,
+        bytes: Vec<u8>,
+    },
+    StoryText {
+        part: String,
+        runs: Vec<StoryRun>,
+    },
+    StoryReference {
+        target: Slot,
+        action: ReferenceAction,
+    },
+    StoryBlocks {
+        target: Slot,
+        mode: String,
+        index: usize,
+        remove: usize,
+        blocks: Vec<Block>,
+    },
+    TrackedText {
+        target: RunAddress,
+        action: Tracking,
+        author: String,
+        date: Option<String>,
+    },
+    TrackedMove {
+        target: RunAddress,
+        after: RunAddress,
+        name: String,
+        author: String,
+        date: String,
+    },
+    TrackedBold {
+        target: RunAddress,
+        value: bool,
+        author: String,
+        date: Option<String>,
+    },
+    TrackedParagraph {
+        target: usize,
+        operation: ParagraphTracking,
+        author: String,
+        date: Option<String>,
+    },
+    ReviewParagraphRevision {
+        target: usize,
+        action: Review,
+    },
+    ReviewRevision {
+        target: RunAddress,
+        action: Review,
+        paired: Option<RunAddress>,
+    },
     #[serde(untagged)]
     LegacyAlignment(AlignmentPayload),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum CustomScalar {
+    Text(String),
+    Boolean(bool),
+}
+
+fn section_type(value: &str) -> Result<rocx::SectionType, String> {
+    use rocx::SectionType::*;
+    match value {
+        "nextPage" => Ok(NextPage),
+        "nextColumn" => Ok(NextColumn),
+        "evenPage" => Ok(EvenPage),
+        "oddPage" => Ok(OddPage),
+        "continuous" => Ok(Continuous),
+        _ => Err("unknown section type".into()),
+    }
 }
 
 fn alignment(value: &str) -> Result<Alignment, String> {
@@ -95,7 +381,10 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
                 })
                 .collect();
             json!({"type":"paragraph","target":index,"text":p.text,"alignment_xml":p.alignment_xml,
-                   "has_opaque_content":p.has_opaque_content,"runs":runs})
+                   "flags": p.flags.iter().map(|(f,v)|(f.python_name(),v)).collect::<std::collections::BTreeMap<_,_>>(),
+                   "layout": structure::layout_view(&p.layout),
+                   "mark_revision":p.mark_revision.as_ref().map(discovery::revision_metadata),
+                   "has_opaque_content":p.has_opaque_content,"runs":runs,"inlines":discovery::inlines(&p.inline_structure)})
         }
         BodyBlock::Table(t) => {
             let mut cells = Vec::new();
@@ -108,7 +397,9 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
                     }
                 }
             }
-            json!({"type":"table","index":index,"target":index,"cells":cells})
+            json!({"type":"table","index":index,"target":index,"cells":cells,"grid_widths":t.grid_widths,
+                "properties":t.properties,
+                "layout":t.layout.map(|l|match l {rocx::TableLayout::Autofit=>"autofit",rocx::TableLayout::Fixed=>"fixed"})})
         }
         BodyBlock::ContentControl(c) => json!({"type":"content-control","index":index,
             "tag":c.tag,"alias":c.alias,"lock":c.lock}),
@@ -117,43 +408,38 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
     }
 }
 
-// The public story API also exposes editable footers and even-page headers.
-// The CLI address has no story-kind field and supports only these two slots.
-fn cli_headers(doc: &ImportedDocument) -> Result<impl Iterator<Item = ImportedStory>, String> {
-    Ok(doc
-        .stories()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|s| {
-            s.kind == SectionStoryKind::Header
-                && matches!(
-                    s.variant,
-                    HeaderFooterType::Default | HeaderFooterType::First
-                )
-                && s.anchor.is_some()
-        }))
-}
-
-pub(super) fn inspect(doc: &ImportedDocument, snapshot: String) -> Value {
+pub(super) fn inspect(
+    doc: &ImportedDocument,
+    snapshot: String,
+    fields: Vec<String>,
+    names: Vec<String>,
+    numbering_targets: Vec<usize>,
+    table_owner: Option<&str>,
+) -> Result<Value, String> {
     let body: Vec<_> = doc.body().iter().enumerate().map(inspect_block).collect();
     let mut result = json!({"snapshot":snapshot,"body":body});
-    match cli_headers(doc) {
-        Ok(stories) => {
-            result["headers"] = stories
-                .map(|s| {
-                    let variant = match s.variant {
-                        HeaderFooterType::Default => "default",
-                        HeaderFooterType::First => "first",
-                        HeaderFooterType::Even => "even",
-                    };
-                    json!({"target":{"section_index":s.section_index,"variant":variant},
-                       "part":s.part_name, "inherited":s.inherited})
-                })
-                .collect();
-        }
-        Err(e) => result["headers_error"] = json!(e.to_string()),
+    discovery::extend(doc, &mut result);
+    for target in numbering_targets {
+        let reference = doc
+            .paragraph_numbering(&paragraph(doc, target)?.anchor)
+            .map_err(|e| e.to_string())?;
+        result["paragraph_numbering"][target.to_string()] =
+            json!(reference.map(|r| json!({"id":r.id,"level":r.level})));
     }
-    result
+    structure::discover_tables(doc, table_owner, &mut result);
+    for field in fields {
+        let key = field.parse().map_err(|e: rocx::Error| e.to_string())?;
+        result["metadata"][field] = json!(doc.metadata_field(key).map_err(|e| e.to_string())?);
+    }
+    for name in names {
+        let value = doc.custom_property(&name).map_err(|e| e.to_string())?;
+        result["custom_properties"][name] = match value {
+            Some(CustomValue::Text(s)) => json!(s),
+            Some(CustomValue::Boolean(b)) => json!(b),
+            None => Value::Null,
+        };
+    }
+    Ok(result)
 }
 
 fn paragraph(doc: &ImportedDocument, index: usize) -> Result<&ImportedParagraph, String> {
@@ -176,12 +462,319 @@ fn resolve<C: Component>(c: C) -> Result<C::Resolved, String> {
         .ok_or_else(|| "declaration produced no content".into())
 }
 
-pub(super) fn preview(doc: &ImportedDocument, edits: Vec<Edit>) -> Result<EditPreview, String> {
+pub(super) fn preview(
+    doc: &ImportedDocument,
+    edits: Vec<Edit>,
+    snapshot: String,
+) -> Result<(Vec<u8>, Value), String> {
+    if edits.iter().any(Edit::is_direct_layout) {
+        return structure::preview_layout(doc, edits, snapshot);
+    }
     let (mut align, mut tables, mut headers, mut texts, mut paragraphs, mut cells, mut removals) =
         (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
-    let mut stories = None;
+    let mut stories = std::cell::OnceCell::new();
+    let mut points = Vec::new();
+    let (
+        mut ranges,
+        mut blocks,
+        mut inline_edits,
+        mut structural,
+        mut styles,
+        mut resources,
+        mut controls,
+    ) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
+    let (mut fields, mut paired_ranges, mut wrappers) = (vec![], vec![], vec![]);
+    let count = edits.len();
     for edit in edits {
         match edit {
+            e @ (Edit::StoryText { .. }
+            | Edit::StoryReference { .. }
+            | Edit::StoryBlocks { .. }
+            | Edit::PartTables { .. }
+            | Edit::TrackedText { .. }
+            | Edit::TrackedMove { .. }
+            | Edit::TrackedBold { .. }
+            | Edit::TrackedParagraph { .. }
+            | Edit::ReviewParagraphRevision { .. }
+            | Edit::ReviewRevision { .. }) => {
+                if count != 1 {
+                    return Err("a scoped story, physical table or revision operation must be the only edit".into());
+                }
+                return scoped::preview_scoped(doc, e, snapshot);
+            }
+            Edit::ParagraphLayout { .. } | Edit::SectionLayout { .. } => unreachable!(),
+            Edit::SplitSection { target, offset } => {
+                blocks.push(BlockEdit::SplitSection(
+                    section_anchor(doc, target)?,
+                    offset,
+                ));
+            }
+            Edit::MergeSection { target } => {
+                blocks.push(BlockEdit::MergeSection(section_anchor(doc, target)?));
+            }
+            Edit::TextRange {
+                target,
+                start,
+                end,
+                text,
+            } => ranges.push(TextRangeEdit {
+                target: paragraph(doc, target)?.anchor.clone(),
+                start,
+                end,
+                text,
+            }),
+            Edit::TextInsertion {
+                target,
+                position,
+                text,
+            } => points.push(TextInsertion {
+                target: paragraph(doc, target)?.anchor.clone(),
+                position,
+                text,
+            }),
+            Edit::ReplaceParagraph { target, text } => blocks.push(BlockEdit::Replace(
+                paragraph(doc, target)?.anchor.clone(),
+                Box::new(resolve(Paragraph::new(text))?),
+            )),
+            Edit::RemoveParagraph { target } => {
+                blocks.push(BlockEdit::Remove(paragraph(doc, target)?.anchor.clone()))
+            }
+            Edit::ReplaceSection {
+                target,
+                blocks: payload,
+            } => blocks.push(BlockEdit::ReplaceSection(
+                paragraph(doc, target)?.anchor.clone(),
+                resolve_blocks(payload)?,
+            )),
+            Edit::KeepWithNext { target, value } => blocks.push(BlockEdit::KeepWithNext(
+                paragraph(doc, target)?.anchor.clone(),
+                value,
+            )),
+            Edit::ParagraphFlag {
+                target,
+                flag,
+                value,
+            } => blocks.push(BlockEdit::ParagraphFlag(
+                paragraph(doc, target)?.anchor.clone(),
+                *ParagraphFlag::ALL
+                    .iter()
+                    .find(|f| f.python_name() == flag)
+                    .ok_or("unknown paragraph flag")?,
+                value,
+            )),
+            Edit::SectionFlag {
+                target,
+                flag,
+                value,
+            } => blocks.push(BlockEdit::SectionFlag(
+                paragraph(doc, target)?.anchor.clone(),
+                *SectionFlag::ALL
+                    .iter()
+                    .find(|f| f.python_name() == flag)
+                    .ok_or("unknown section flag")?,
+                value,
+            )),
+            Edit::SectionType { target, value } => blocks.push(BlockEdit::SectionType(
+                paragraph(doc, target)?.anchor.clone(),
+                value.as_deref().map(section_type).transpose()?,
+            )),
+            Edit::InsertInline {
+                target,
+                inline_index,
+                inline,
+            } => inline_edits.push(InlineEdit {
+                target: inline_anchor(doc, target, inline_index)?,
+                action: InlineAction::InsertAfter(inline.resolve()?),
+            }),
+            Edit::ReplaceInline {
+                target,
+                inline_index,
+                inline,
+            } => inline_edits.push(InlineEdit {
+                target: inline_anchor(doc, target, inline_index)?,
+                action: InlineAction::Replace(inline.resolve()?),
+            }),
+            Edit::RunBold {
+                target,
+                inline_index,
+                value,
+            } => inline_edits.push(InlineEdit {
+                target: run(doc, target, inline_index)?,
+                action: InlineAction::SetBold(value),
+            }),
+            Edit::RichInline {
+                target,
+                inline_index,
+                operation,
+            } => inline_edits.push(InlineEdit {
+                target: inline_anchor(doc, target, inline_index)?,
+                action: operation.resolve()?,
+            }),
+            Edit::Field {
+                target,
+                inline_index,
+                operation,
+            } => fields.push(FieldEdit {
+                target: paragraph(doc, target)?.anchor.clone(),
+                inline_index,
+                action: operation.resolve()?,
+            }),
+            Edit::PairedRange {
+                id,
+                bookmark,
+                endpoints,
+            } => paired_ranges.push(PairedRangeEdit {
+                id,
+                bookmark,
+                endpoints: endpoints
+                    .map(|[a, z]| {
+                        Ok::<_, String>((
+                            inline_anchor(doc, a.target, a.inline_index)?,
+                            inline_anchor(doc, z.target, z.inline_index)?,
+                        ))
+                    })
+                    .transpose()?,
+            }),
+            Edit::ControlWrapper { operation } => wrappers.push(operation.resolve(doc)?),
+            Edit::TableStructure { target, operation } => {
+                let Some(BodyBlock::Table(t)) = doc.body().get(target) else {
+                    return Err("expected direct body table".into());
+                };
+                structural.push(TableStructureEdit {
+                    target: t.anchor.clone(),
+                    operation: operation.resolve()?,
+                });
+            }
+            Edit::CoreTitle { value } => resources.push(ResourceEdit::CoreTitle(value)),
+            Edit::CoreSubject { value } => resources.push(ResourceEdit::CoreSubject(value)),
+            Edit::Metadata { field, value } => resources.push(ResourceEdit::Metadata(
+                field.parse().map_err(|e: rocx::Error| e.to_string())?,
+                value,
+            )),
+            Edit::CustomProperty { name, value } => resources.push(ResourceEdit::CustomProperty(
+                name,
+                value.map(|v| match v {
+                    CustomScalar::Text(s) => CustomValue::Text(s),
+                    CustomScalar::Boolean(b) => CustomValue::Boolean(b),
+                }),
+            )),
+            Edit::DefaultAlignment { value } => resources.push(ResourceEdit::DefaultAlignment(
+                value.as_deref().map(alignment).transpose()?,
+            )),
+            Edit::AbstractStart {
+                abstract_id,
+                level,
+                value,
+            } => resources.push(ResourceEdit::AbstractStart(AbstractStart {
+                abstract_id,
+                level,
+                start: value,
+            })),
+            Edit::StyleAdd { definition } => styles.push(StyleEdit::Add(definition.into())),
+            Edit::StyleField {
+                id,
+                region,
+                field,
+                value,
+            } => styles.push(StyleEdit::Field {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                region,
+                field,
+                value,
+            }),
+            Edit::StyleRegion { id, region, value } => styles.push(StyleEdit::Region {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                region,
+                format: value.map(Region::resolve).transpose()?,
+            }),
+            Edit::DocumentDefault { field, value } => resources.push(ResourceEdit::Default(
+                DefaultField::from_key(&field).ok_or("unknown document default")?,
+                value.map(Into::into),
+            )),
+            Edit::AddAbstract {
+                abstract_id,
+                levels,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::AddAbstract {
+                abstract_id,
+                levels: levels.into_iter().map(Into::into).collect(),
+            })),
+            Edit::RemoveAbstract { abstract_id } => {
+                resources.push(ResourceEdit::Numbering(NumberingEdit::RemoveAbstract {
+                    abstract_id,
+                }))
+            }
+            Edit::AddInstance {
+                num_id,
+                abstract_id,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::AddInstance {
+                num_id,
+                abstract_id,
+            })),
+            Edit::RemoveInstance { num_id } => {
+                resources.push(ResourceEdit::Numbering(NumberingEdit::RemoveInstance {
+                    num_id,
+                }))
+            }
+            Edit::InstanceStart {
+                num_id,
+                level,
+                value,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::InstanceStart {
+                num_id,
+                level,
+                start: value,
+            })),
+            Edit::InstanceLevel {
+                num_id,
+                level,
+                value,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::InstanceLevel {
+                num_id,
+                level,
+                value: value.map(|l| Box::new(l.into())),
+            })),
+            Edit::ParagraphNumbering { target, value } => {
+                resources.push(ResourceEdit::Numbering(NumberingEdit::Paragraph {
+                    target: paragraph(doc, target)?.anchor.clone(),
+                    value: value.map(|r| rocx::NumberingReference {
+                        id: r.id,
+                        level: r.level,
+                    }),
+                }))
+            }
+            Edit::StyleReplace { id, definition } => styles.push(StyleEdit::Replace {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                definition: definition.into(),
+            }),
+            Edit::StyleRemove { id } => styles.push(StyleEdit::Remove(
+                doc.style_anchor(&id).map_err(|e| e.to_string())?,
+            )),
+            Edit::StylePatch { id, bold, italic } => styles.push(StyleEdit::Patch {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                bold,
+                italic,
+            }),
+            Edit::Control {
+                target,
+                tag,
+                alias,
+                text,
+            } => controls.push(ControlEdit {
+                target: doc
+                    .controls()
+                    .get(target)
+                    .ok_or("unknown control index")?
+                    .anchor
+                    .clone(),
+                tag,
+                alias,
+                text,
+            }),
+            Edit::StoryImage {
+                target,
+                mode,
+                bytes,
+            } => headers.push(target.image(doc, &mut stories, &mode, bytes)?),
             Edit::LegacyAlignment(e) | Edit::Alignment(e) => align.push(ParagraphAlignmentEdit {
                 target: paragraph(doc, e.target)?.anchor.clone(),
                 alignment: alignment(&e.alignment)?,
@@ -199,54 +792,19 @@ pub(super) fn preview(doc: &ImportedDocument, edits: Vec<Edit>) -> Result<EditPr
                 target: paragraph(doc, target)?.anchor.clone(),
                 paragraph: resolve(Paragraph::new(text))?,
             }),
-            Edit::InsertTable { target, rows } => {
-                let width = rows.first().map_or(0, Vec::len);
-                if width == 0 || rows.iter().any(|r| r.len() != width) {
-                    return Err("rows must form a nonempty rectangular table".into());
-                }
-                let mut result = Vec::new();
-                for row in rows {
-                    let mut cells = Vec::new();
-                    for text in row {
-                        cells.push(TableCell::new(vec![Paragraph::new(text).into()]).into());
-                    }
-                    result.push(TableRow::new(cells).into());
-                }
-                tables.push(TableInsertion {
-                    target: paragraph(doc, target)?.anchor.clone(),
-                    table: resolve(Table::new(result))?,
-                })
-            }
+            Edit::InsertTable { target, rows } => tables.push(TableInsertion {
+                target: paragraph(doc, target)?.anchor.clone(),
+                table: table(rows)?,
+            }),
             Edit::HeaderImage {
                 target,
                 mode,
                 bytes,
             } => {
-                let variant = match target.variant.as_str() {
-                    "default" => HeaderFooterType::Default,
-                    "first" => HeaderFooterType::First,
-                    _ => return Err("unknown header variant".into()),
-                };
-                let mode = match mode.as_str() {
-                    "shared" => HeaderEditMode::Shared,
-                    "section-local" => HeaderEditMode::SectionLocal,
-                    _ => return Err("unknown header edit mode".into()),
-                };
-                if stories.is_none() {
-                    stories = Some(cli_headers(doc)?.collect::<Vec<_>>());
+                if !matches!(target.variant.as_str(), "default" | "first") {
+                    return Err("unknown header variant".into());
                 }
-                let anchor = stories
-                    .iter()
-                    .flatten()
-                    .filter(|s| s.section_index == target.section_index && s.variant == variant)
-                    .find_map(|s| s.anchor.clone())
-                    .ok_or("missing header target")?;
-                let inline = resolve(ImageRun::new(bytes))?;
-                headers.push(HeaderImageEdit {
-                    target: anchor,
-                    mode,
-                    image: inline.image().ok_or("expected image")?.clone(),
-                });
+                headers.push(Slot::legacy(target).image(doc, &mut stories, &mode, bytes)?);
             }
             Edit::CellAlignment {
                 target,
@@ -273,16 +831,32 @@ pub(super) fn preview(doc: &ImportedDocument, edits: Vec<Edit>) -> Result<EditPr
             }
         }
     }
-    doc.preview_mixed(
-        &align,
-        &tables,
-        &headers,
-        &texts,
-        &paragraphs,
-        &cells,
-        &removals,
-    )
-    .map_err(|e| format!("preview: {e}"))
+    let preview = doc
+        .preview_edits(EditBatch {
+            alignments: &align,
+            tables: &tables,
+            header_images: &headers,
+            run_text: &texts,
+            paragraphs: &paragraphs,
+            cells: &cells,
+            run_removals: &removals,
+            ranges: &ranges,
+            text_insertions: &points,
+            blocks: &blocks,
+            inline_edits: &inline_edits,
+            structural: &structural,
+            styles: &styles,
+            resources: &resources,
+            controls: &controls,
+            fields: &fields,
+            paired_ranges: &paired_ranges,
+            wrappers: &wrappers,
+        })
+        .map_err(|e| format!("preview: {e}"))?;
+    Ok((
+        preview.to_docx().map_err(|e| e.to_string())?,
+        report(&preview, snapshot),
+    ))
 }
 
 pub(super) fn report(p: &EditPreview, snapshot: String) -> Value {
@@ -306,6 +880,8 @@ pub(super) fn report(p: &EditPreview, snapshot: String) -> Value {
             "target": c.after_body_index, "rows": c.rows, "columns": c.columns
         })),
         "paragraph_insertions": p.paragraph_insertions(),
+        "block_changes": p.block_changes(),
+        "inline_changes": p.inline_changes(),
         "header_images": headers,
         "run_text": records(p.run_text_changes(), |c| json!({
             "target": c.body_index, "inline_index": c.inline_index, "before": c.before, "after": c.after

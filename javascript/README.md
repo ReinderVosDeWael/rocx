@@ -88,10 +88,14 @@ const bytes = report.toDocx(); // synchronous; snapshot can be rendered again
 | Patch a cell | `cellAlignments` selects a direct body table by anchor and a single physical cell by `rowIndex` and `cellIndex`. |
 | Remove a run | `runRemovals` accepts anchors of supported single-text direct body runs; `runRemovals()` reports the removed text. |
 | Track or review a body run | Use `previewTrackedText` for an insertion, deletion or replacement. `previewTrackedMove` creates both move legs. Reopen the output and use `previewRevision` with one wrapper anchor, or both for a move. |
-| Edit body content | Use `textRanges` for scalar offsets in a plain paragraph, `blockEdits` for paragraph/section operations, `inlineEdits` for whole inlines or direct bold, and `tableStructure` for row/cell/column edits. |
+| Edit body content | Use `textRanges` and `textInsertions` for scalar offsets in a plain paragraph, `blockEdits` for paragraph/section operations, `inlineEdits` for whole inlines or direct bold, and `tableStructure` for row/cell/column edits. |
 | Edit controls, styles and resources | `controls()` supplies physical control anchors for `controls` edits. Use `styleAnchor(id)` for a style patch, replacement or removal in `styleEdits`; `resources` sets or clears core title, default alignment and abstract level starts. |
 | Edit a copy | Combine ordinary edits and images in effective default/first/even header or footer slots in `preview(batch)`. Inspect the reports before calling `toDocx()`. |
 | Edit text in a story | `editStoryText({ownerPart, runText})` returns DOCX bytes for a separate batch of simple run edits in one physical header, footer, footnote, endnote or comment part. |
+| Edit ordinary note/comment inlines | `editEntryInlines({ownerPart, inlineEdits})` inserts or replaces supported direct inlines or patches direct run properties in one entry part. Use anchors from `entryStories()`; reference marks are protected. |
+| Format anchored runs | `editRunFormat({inlineEdits, ownerPart?})` patches ordinary runs and hyperlink child runs in body cells, paragraphs or the named physical section/entry owner. |
+| Edit a note definition and reference | `editNoteReference({ownerPart, target, kind, ...fields})` creates, attaches, detaches, retargets, renumbers or deletes a direct-body reference. |
+| Edit an existing entry | `editEntry({ownerPart, id, kind, ...fields})` updates simple paragraphs, sets base comment metadata, or deletes an unused simple note. |
 | Read/write in Node | `templateFile` reads on each render; `imageFile` captures bytes and basename at resolution. `saveDocx` encodes before replacing the destination. |
 
 Use anchors from the same snapshot. Untouched parts retain their payload bytes; edited XML and ZIP bytes may change. See [preview examples and shared-header modes](https://reindervosdewael.github.io/rocx/api/javascript/#preview-anchored-edits).

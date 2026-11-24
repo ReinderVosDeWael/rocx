@@ -13,6 +13,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod fields;
+mod numbering;
 
 #[derive(Clone, Debug)]
 /// Exact style identity issued by one imported document snapshot.
@@ -25,6 +27,19 @@ pub struct StyleAnchor {
 /// Definition edits against the selected catalog. Omitted patch flags are retained.
 pub enum StyleEdit {
     Add(StyleDefinition),
+    /// Replace or clear one physical conditional table-style wrapper.
+    Region {
+        target: StyleAnchor,
+        region: String,
+        format: Option<Box<crate::TableSectionFormat>>,
+    },
+    /// Set or clear a selected direct scalar field, optionally in a table region.
+    Field {
+        target: StyleAnchor,
+        region: Option<String>,
+        field: String,
+        value: Option<String>,
+    },
     Patch {
         target: StyleAnchor,
         bold: Option<bool>,
@@ -37,17 +52,13 @@ pub enum StyleEdit {
     Remove(StyleAnchor),
 }
 
-fn identity(def: &StyleDefinition) -> Result<(&str, &str)> {
-    Ok(match def {
+fn identity(def: &StyleDefinition) -> (&str, &str) {
+    match def {
         StyleDefinition::Character(s) => (&s.name, "character"),
         StyleDefinition::Paragraph(s) => (&s.name, "paragraph"),
         StyleDefinition::Table(s) => (&s.name, "table"),
-        StyleDefinition::Numbering(_) => {
-            return Err(unsupported(
-                "numbering style edits need a numbering transaction",
-            ));
-        }
-    })
+        StyleDefinition::Numbering(s) => (&s.name, "numbering"),
+    }
 }
 
 fn unique_child<'a>(node: &'a Node, name: &str) -> Result<Option<&'a Node>> {
@@ -78,33 +89,22 @@ fn nested_style(node: &Node) -> bool {
 }
 
 fn discardable(n: &Node) -> bool {
-    let (attrs, children): (&[&str], &[&str]) = match n.name.as_str() {
-        "w:style"
-            if n.get("w:customStyle")
-                .is_some_and(|v| matches!(v, "1" | "true" | "on"))
-                && matches!(n.get("w:type"), Some("paragraph" | "character" | "table")) =>
-        {
-            (
-                &["w:type", "w:styleId", "w:customStyle"],
-                &["w:name", "w:basedOn", "w:pPr", "w:rPr"],
-            )
-        }
-        "w:name" | "w:basedOn" | "w:b" | "w:i" => (&["w:val"], &[]),
-        "w:pPr" => (&[], &[]),
-        "w:rPr" => (&[], &["w:b", "w:i"]),
-        _ => return false,
-    };
-    n.attrs
-        .iter()
-        .all(|(a, _)| a.declaration().is_some() || attrs.contains(&a.as_str()))
+    n.name == "w:style"
+        && n.get("w:customStyle")
+            .is_some_and(|v| matches!(v, "1" | "on" | "true"))
+        && matches!(n.get("w:type"), Some("paragraph" | "character" | "table"))
+        && n.attrs.iter().all(|(a, _)| {
+            a.declaration().is_some()
+                || matches!(a.as_str(), "w:type" | "w:styleId" | "w:customStyle")
+        })
         && n.children.iter().all(|c| match c {
             Content::Text(t) => t.trim().is_empty(),
-            Content::Element(e) => children.contains(&e.name.as_str()) && discardable(e),
+            Content::Element(e) => fields::known(e, "w:style"),
             Content::Raw(_) => false,
         })
 }
 
-fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
+pub(super) fn opaque_reference_context(n: &Node) -> bool {
     // Fields can assemble style names across runs, or use aliases. Also
     // decline deferred content and externally supplied style definitions.
     let baseline_extension = matches!(
@@ -130,9 +130,9 @@ fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
                 | "w:subDoc"
                 | "w:attachedTemplate"
         )
-        || n.attrs.iter().any(|(a, v)| {
+        || n.attrs.iter().any(|(a, _)| {
             a.declaration().is_none()
-                && ((!baseline_extension
+                && (!baseline_extension
                     && !matches!(
                         a.namespace(),
                         Some(
@@ -144,7 +144,14 @@ fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
                     )
                     && a.as_str()
                         != "{http://schemas.openxmlformats.org/markup-compatibility/2006}Ignorable")
-                    || v.eq_ignore_ascii_case(id)
+        })
+}
+
+fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
+    opaque_reference_context(n)
+        || n.attrs.iter().any(|(a, v)| {
+            a.declaration().is_none()
+                && (v.eq_ignore_ascii_case(id)
                     || v.eq_ignore_ascii_case(name)
                     || v.split(',').any(|s| {
                         s.trim().eq_ignore_ascii_case(id) || s.trim().eq_ignore_ascii_case(name)
@@ -175,6 +182,14 @@ fn check_unused(package: &Package, path: &str, root: &Node, target: &Node) -> Re
     {
         return Err(unsupported("style has live or uninspectable references"));
     }
+    check_other_parts(package, path, |n| possible_reference(n, id, name))
+}
+
+pub(super) fn check_other_parts(
+    package: &Package,
+    path: &str,
+    may_reference: impl Fn(&Node) -> bool,
+) -> Result<()> {
     for part in package
         .parts
         .keys()
@@ -183,7 +198,10 @@ fn check_unused(package: &Package, path: &str, root: &Node, target: &Node) -> Re
         if part == "[Content_Types].xml" {
             continue;
         }
-        let typ = package.content_type_for(part)?.unwrap_or_default();
+        let typ = package
+            .content_type_for(part)?
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         if matches!(
             typ.as_str(),
             "image/png"
@@ -194,15 +212,16 @@ fn check_unused(package: &Package, path: &str, root: &Node, target: &Node) -> Re
                 | "application/vnd.openxmlformats-package.relationships+xml"
                 | "application/vnd.openxmlformats-package.core-properties+xml"
                 | "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+                | "application/vnd.openxmlformats-officedocument.custom-properties+xml"
                 | "application/vnd.openxmlformats-officedocument.theme+xml"
-                | "application/vnd.openxmlformats-officedocument.customXmlProperties+xml"
+                | "application/vnd.openxmlformats-officedocument.customxmlproperties+xml"
         ) {
             continue;
         }
         let word = typ
             .starts_with("application/vnd.openxmlformats-officedocument.wordprocessingml.")
             && typ.ends_with("+xml")
-            || typ == "application/vnd.ms-word.stylesWithEffects+xml";
+            || typ == "application/vnd.ms-word.styleswitheffects+xml";
         // The stock Word template ships an empty bibliography data store.
         if typ == "application/xml" {
             let n = package.xml(part)?;
@@ -213,8 +232,8 @@ fn check_unused(package: &Package, path: &str, root: &Node, target: &Node) -> Re
                 continue;
             }
         }
-        if !word || possible_reference(&package.word(part)?, id, name) {
-            return Err(unsupported("style has live or uninspectable references"));
+        if !word || may_reference(&package.word(part)?) {
+            return Err(unsupported("resource has live or uninspectable references"));
         }
     }
     Ok(())
@@ -311,15 +330,51 @@ fn patch_flags(style: &mut Node, bold: Option<bool>, italic: Option<bool>) -> Re
 }
 
 impl ImportedDocument {
+    /// Recheck references after body payloads and other resources have been
+    /// encoded. Do not replay mutations or overwrite a newly staged catalog.
+    pub(super) fn check_final_style_uses(
+        &self,
+        package: &Package,
+        edits: &[StyleEdit],
+    ) -> Result<()> {
+        let (path, source) = self
+            .style_part()?
+            .ok_or_else(|| unsupported("missing styles part"))?;
+        let final_root = package.word(&path)?;
+        for edit in edits {
+            let anchor = match edit {
+                StyleEdit::Remove(a) | StyleEdit::Replace { target: a, .. } => a,
+                _ => continue,
+            };
+            let id = anchor.id.as_str();
+            let name = source
+                .elements()
+                .find(|n| n.get("w:styleId") == Some(id))
+                .and_then(|n| n.child("w:name"))
+                .and_then(|n| n.get("w:val"))
+                .ok_or_else(|| unsupported("missing style identity"))?;
+            if node_may_reference(&final_root, id, name)
+                || final_root.elements().any(|n| {
+                    !(n.name == "w:style" && n.get("w:styleId") == Some(id))
+                        && possible_reference(n, id, name)
+                })
+            {
+                return Err(unsupported(
+                    "style acquired live or uninspectable references",
+                ));
+            }
+            check_other_parts(package, &path, |n| possible_reference(n, id, name))?;
+        }
+        Ok(())
+    }
     /// Resolve an exact ID in the selected catalog; names are not edit addresses.
     pub fn style_anchor(&self, id: &str) -> Result<StyleAnchor> {
-        let catalog = self
-            .styles()?
+        let (_, root) = self
+            .style_part()?
             .ok_or_else(|| unsupported("missing styles part"))?;
-        if catalog
-            .styles
-            .iter()
-            .filter(|s| s.id.as_deref() == Some(id))
+        if root
+            .elements()
+            .filter(|s| s.name == "w:style" && s.get("w:styleId") == Some(id))
             .count()
             != 1
         {
@@ -335,9 +390,16 @@ impl ImportedDocument {
         if edits.is_empty() {
             return Ok(());
         }
-        let (path, mut root) = self
-            .style_part()?
-            .ok_or_else(|| unsupported("missing styles part"))?;
+        let (path, mut root) = match self.style_part()? {
+            Some(part) => part,
+            None if edits.iter().all(|e| matches!(e, StyleEdit::Add(_))) => {
+                let (path, root) =
+                    super::resource_fields::create_word_part(package, &self.main, "styles")?;
+                package.put_word(&path, root.clone())?;
+                (path, root)
+            }
+            None => return Err(unsupported("missing styles part")),
+        };
         let mut aliases = BTreeMap::new();
         let mut slots = BTreeMap::new();
         for (slot, content) in root.children.iter().enumerate() {
@@ -372,7 +434,13 @@ impl ImportedDocument {
             }
         }
         let mut targets = BTreeSet::new();
+        let original = edits
+            .iter()
+            .any(|edit| matches!(edit, StyleEdit::Replace { .. } | StyleEdit::Remove(_)))
+            .then(|| root.clone());
         let mut definitions = Vec::new();
+        let mut added = Vec::new();
+        let mut added_numbering = false;
         let mut affected = BTreeSet::new();
         let mut replace_slots = BTreeMap::new();
         let mut remove = BTreeSet::new();
@@ -381,6 +449,8 @@ impl ImportedDocument {
             let target = match edit {
                 StyleEdit::Add(_) => None,
                 StyleEdit::Patch { target, .. }
+                | StyleEdit::Field { target, .. }
+                | StyleEdit::Region { target, .. }
                 | StyleEdit::Replace { target, .. }
                 | StyleEdit::Remove(target) => {
                     self.validate_snapshot(&target.snapshot)?;
@@ -396,7 +466,7 @@ impl ImportedDocument {
                 definition: def, ..
             } = edit
             {
-                let (name, kind) = identity(def)?;
+                let (name, kind) = identity(def);
                 let id = name.replace(' ', "");
                 if let Some(i) = slot {
                     let Content::Element(n) = &root.children[i] else {
@@ -418,21 +488,54 @@ impl ImportedDocument {
                 }
                 claim(&mut aliases, &id, &id)?;
                 claim(&mut aliases, name, &id)?;
-                definitions.push(def.clone());
+                if slot.is_none() {
+                    added.push(id.clone());
+                }
+                if let StyleDefinition::Numbering(s) = def {
+                    if slot.is_some() {
+                        return Err(unsupported("cannot replace a linked numbering style"));
+                    }
+                    numbering::add(self, package, &mut root, &id, s)?;
+                    added_numbering = true;
+                    changed = true;
+                } else {
+                    definitions.push(def.clone());
+                }
                 affected.insert(id);
             }
             if let Some(slot) = slot {
                 let Content::Element(style) = &root.children[slot] else {
                     unreachable!()
                 };
-                if let StyleEdit::Patch { bold, italic, .. } = edit {
+                if matches!(
+                    edit,
+                    StyleEdit::Patch { .. } | StyleEdit::Field { .. } | StyleEdit::Region { .. }
+                ) {
                     affected.insert(style.get("w:styleId").unwrap().to_owned());
                     let Content::Element(style) = &mut root.children[slot] else {
                         unreachable!()
                     };
-                    changed |= patch_flags(style, *bold, *italic)?;
+                    changed |= match edit {
+                        StyleEdit::Region { region, format, .. } => {
+                            fields::region(style, region, format.as_deref())?
+                        }
+                        StyleEdit::Field {
+                            region,
+                            field,
+                            value,
+                            ..
+                        } => fields::patch(style, region.as_deref(), field, value.as_deref())?,
+                        StyleEdit::Patch { bold, italic, .. } => {
+                            patch_flags(style, *bold, *italic)?
+                        }
+                        _ => unreachable!(),
+                    };
                 } else {
-                    check_unused(package, &path, &root, style)?;
+                    let original = original.as_ref().unwrap();
+                    let Content::Element(style) = &original.children[slot] else {
+                        unreachable!()
+                    };
+                    check_unused(package, &path, original, style)?;
                     remove.insert(slot);
                 }
             }
@@ -456,17 +559,35 @@ impl ImportedDocument {
                 styles::apply(package, &self.main, &definitions, &[], None)?
             };
             validate_chains(&final_root, &affected)?;
+            for id in replace_slots.values() {
+                let name = final_root
+                    .elements()
+                    .find(|n| n.get("w:styleId") == Some(id))
+                    .and_then(|n| n.child("w:name"))
+                    .and_then(|n| n.get("w:val"))
+                    .ok_or_else(|| unsupported("missing replacement name"))?;
+                if final_root
+                    .elements()
+                    .any(|n| n.get("w:styleId") != Some(id) && possible_reference(n, id, name))
+                {
+                    return Err(unsupported("replacement acquired a live style reference"));
+                }
+            }
             // The authoring codec appends new definitions. Move replacements
             // back into their original slots, including around opaque siblings.
-            if !replace_slots.is_empty() {
-                let replacing: BTreeSet<_> = replace_slots.values().map(String::as_str).collect();
+            if !replace_slots.is_empty() || added_numbering {
+                let moving: BTreeSet<_> = replace_slots
+                    .values()
+                    .chain(&added)
+                    .map(String::as_str)
+                    .collect();
                 let mut nodes = BTreeMap::new();
                 final_root.children = final_root
                     .children
                     .into_iter()
                     .filter_map(|c| {
                         if let Content::Element(n) = &c
-                            && let Some(id) = n.get("w:styleId").filter(|id| replacing.contains(id))
+                            && let Some(id) = n.get("w:styleId").filter(|id| moving.contains(id))
                         {
                             nodes.insert(id.to_owned(), c);
                             return None;
@@ -479,6 +600,9 @@ impl ImportedDocument {
                         i - remove.range(..*i).count() + restored,
                         nodes.remove(id).unwrap(),
                     );
+                }
+                for id in added {
+                    final_root.children.push(nodes.remove(&id).unwrap());
                 }
                 package.put_word(&path, final_root)?;
             }

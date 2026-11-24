@@ -39,8 +39,259 @@ fn pair(a: &str, b: &str) -> Table {
     ])
 }
 
+fn structural_resources(directory: &std::path::Path) -> Vec<u8> {
+    use rocx::editor::{
+        CustomValue, EditBatch, NumberingEdit as N,
+        ResourceEdit::{CustomProperty, Numbering},
+        StyleEdit, TableOperation, TableSite, TableStructureEdit,
+    };
+
+    let original = fs::read(directory.join("table-layout.docx")).unwrap();
+    let doc = ImportedDocument::open(&original).unwrap();
+    let table = |index: usize| {
+        let BodyBlock::Table(table) = &doc.body()[index] else {
+            panic!("expected table");
+        };
+        table.anchor.clone()
+    };
+    let paragraph = anchor(&doc, 2);
+    let replacement = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![
+                Paragraph::from_children(vec![
+                    Hyperlink::new(
+                        HyperlinkTarget::external("https://example.invalid/staged-table").unwrap(),
+                        vec![TextRun::new("staged link").into()],
+                    )
+                    .into(),
+                ])
+                .into(),
+            ])
+            .into(),
+        ])
+        .into(),
+    ])
+    .with_properties(TableProperties::default().with_style("Staged Table"));
+    let replacement = immediate(Component::resolve(replacement)).unwrap().unwrap();
+    let structural = [
+        TableStructureEdit {
+            target: table(0),
+            operation: TableOperation::ReplaceNode {
+                site: TableSite::Table,
+                source: Box::new(replacement),
+            },
+        },
+        TableStructureEdit {
+            target: table(1),
+            operation: TableOperation::RemoveTable,
+        },
+    ];
+    let styles = [StyleEdit::Add(
+        rocx::TableStyleDefinition::default()
+            .with_name("Staged Table")
+            .into(),
+    )];
+    let reference = rocx::NumberingReference { id: 91, level: 0 };
+    let resources = [
+        Numbering(N::AddAbstract {
+            abstract_id: 90,
+            levels: vec![
+                rocx::NumberingLevel::default()
+                    .with_start(1)
+                    .with_format("decimal")
+                    .with_text("%1."),
+            ],
+        }),
+        Numbering(N::AddInstance {
+            num_id: 91,
+            abstract_id: 90,
+        }),
+        Numbering(N::Paragraph {
+            target: paragraph.clone(),
+            value: Some(reference.clone()),
+        }),
+        CustomProperty("Staged".into(), Some(CustomValue::Boolean(true))),
+    ];
+    let preview = |resources| {
+        doc.preview_edits(EditBatch {
+            structural: &structural,
+            styles: &styles,
+            resources,
+            ..Default::default()
+        })
+    };
+    // Existing ListBullet still uses numId 1. Reject the whole batch after
+    // staging the new body, style, hyperlink relationship and custom part.
+    let mut rejected = resources.to_vec();
+    rejected.push(Numbering(N::RemoveInstance { num_id: 1 }));
+    let Err(error) = preview(&rejected) else {
+        panic!("removed live numbering")
+    };
+    assert!(error.to_string().contains("references"), "{error}");
+    let data = preview(&resources).unwrap().to_docx().unwrap();
+    assert_eq!(preview(&resources).unwrap().to_docx().unwrap(), data);
+    assert_eq!(doc.paragraph_numbering(&paragraph).unwrap(), None);
+    let reopened = ImportedDocument::open(&data).unwrap();
+    assert_eq!(reopened.body().len(), 2);
+    assert!(reopened.paragraph_numbering(&paragraph).is_err());
+    assert_eq!(
+        reopened.paragraph_numbering(&anchor(&reopened, 1)).unwrap(),
+        Some(reference)
+    );
+    data
+}
+
+fn table_nodes(directory: &std::path::Path, pair: &rocx::ResolvedTable) -> Vec<u8> {
+    use rocx::editor::{EditBatch, TableOperation::*, TableSite, TableStructureEdit};
+    let doc =
+        ImportedDocument::open(&fs::read(directory.join("table-layout.docx")).unwrap()).unwrap();
+    let edit = |doc: &ImportedDocument, index, operation| {
+        let BodyBlock::Table(t) = &doc.body()[index] else {
+            panic!("table")
+        };
+        TableStructureEdit {
+            target: t.anchor.clone(),
+            operation,
+        }
+    };
+    let single = immediate(Component::resolve(
+        Table::new(vec![
+            TableRow::new(vec![
+                TableCell::new(vec![Paragraph::new("cell").into()])
+                    .with_properties(
+                        TableCellProperties::default()
+                            .with_margins(rocx::CellMargins::default().with_top(4.5)),
+                    )
+                    .into(),
+            ])
+            .with_properties(rocx::TableRowProperties::default().with_repeat_header(false))
+            .into(),
+        ])
+        .with_properties(TableProperties::default().with_alignment(rocx::TableAlignment::Center)),
+    ))
+    .unwrap()
+    .unwrap();
+    let mut data = doc
+        .preview_edits(EditBatch {
+            structural: &[
+                edit(
+                    &doc,
+                    0,
+                    ReplaceNode {
+                        site: TableSite::Table,
+                        source: Box::new(pair.clone()),
+                    },
+                ),
+                edit(&doc, 1, RemoveTable),
+            ],
+            alignments: &[ParagraphAlignmentEdit {
+                target: anchor(&doc, 2),
+                alignment: Alignment::Right,
+            }],
+            ..Default::default()
+        })
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    for ops in [
+        vec![ReplaceNode {
+            site: TableSite::Row(0),
+            source: Box::new(pair.clone()),
+        }],
+        vec![ReplaceNode {
+            site: TableSite::Cell(0, 1),
+            source: Box::new(single.clone()),
+        }],
+        [
+            (TableSite::Table, "alignment"),
+            (TableSite::Row(0), "repeatHeader"),
+            (TableSite::Cell(0, 0), "margin.top"),
+        ]
+        .into_iter()
+        .map(|(site, field)| Property {
+            site,
+            field: field.into(),
+            source: Some(Box::new(single.clone())),
+        })
+        .collect(),
+    ] {
+        let doc = ImportedDocument::open(&data).unwrap();
+        let edits = ops
+            .into_iter()
+            .map(|op| edit(&doc, 0, op))
+            .collect::<Vec<_>>();
+        data = doc
+            .preview_edits(EditBatch {
+                structural: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+    }
+    data
+}
+
 fn main() {
     let directory = PathBuf::from(env::args_os().nth(1).expect("fixture directory"));
+    fs::write(
+        directory.join("native-structuralResources.docx"),
+        structural_resources(&directory),
+    )
+    .unwrap();
+    {
+        use rocx::editor::{
+            ImportedInlineNode::{Hyperlink, Run},
+            ImportedRowChild, ImportedTableChild, InlineAction, InlineEdit,
+        };
+        let mut bytes = fs::read(directory.join("format-owners-source.docx")).unwrap();
+        for label in ["cell", "header", "footer"] {
+            let source = ImportedDocument::open(&bytes).unwrap();
+            let stories = source.stories().unwrap();
+            let (owner, structure) = if label == "cell" {
+                let BodyBlock::Table(t) = &source.body()[0] else {
+                    panic!("table")
+                };
+                let ImportedTableChild::Row(r) = &t.children[0] else {
+                    panic!("row")
+                };
+                let ImportedRowChild::Cell(c) = &r.children[0] else {
+                    panic!("cell")
+                };
+                (None, c.inline_structure(0).unwrap())
+            } else {
+                let s = stories
+                    .iter()
+                    .find(|s| {
+                        s.kind.as_str() == label
+                            && s.section_index == 1
+                            && s.variant == rocx::HeaderFooterType::Default
+                    })
+                    .unwrap();
+                assert!(s.inherited);
+                (Some(s.part_name.as_str()), s.inline_structure(0).unwrap())
+            };
+            let Hyperlink(link) = &structure[0] else {
+                panic!("link")
+            };
+            let Run(r) = &link.children[0] else {
+                panic!("run")
+            };
+            bytes = source
+                .edit_run_format(
+                    owner,
+                    &[InlineEdit {
+                        target: r.anchor.clone(),
+                        action: InlineAction::PatchFormat {
+                            set: Box::new(RunFormat::default().with_size(13.5)),
+                            clear: vec![],
+                        },
+                    }],
+                )
+                .unwrap();
+        }
+        fs::write(directory.join("native-formatOwners.docx"), bytes).unwrap();
+    }
     let doc = ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
     let headers = doc.default_headers().unwrap();
     let image = immediate(Component::resolve(ImageRun::new(
@@ -111,23 +362,208 @@ fn main() {
         edit(1, HeaderEditMode::SectionLocal),
     ];
     let shared = edit(1, HeaderEditMode::Shared);
-    let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    let write = |name: &str, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    use rocx::editor::{TableOperation, TableSite};
+    let mut physical = fs::read(directory.join("physical-table-source.docx")).unwrap();
+    let linked_cell = immediate(Component::resolve(Paragraph::from_children(vec![
+        Hyperlink::new(
+            HyperlinkTarget::external("https://example.invalid/physical-cell").unwrap(),
+            vec![TextRun::new("Footer link").into()],
+        )
+        .into(),
+    ])))
+    .unwrap()
+    .unwrap();
+    for (owner, depth, operation) in [
+        (None, 1, TableOperation::InsertRow(1)),
+        (
+            Some("word/footer1.xml"),
+            1,
+            TableOperation::Layout(Some(rocx::TableLayout::Fixed)),
+        ),
+        (
+            Some("word/footer1.xml"),
+            1,
+            TableOperation::ReplaceCell {
+                row: 0,
+                cell: 0,
+                blocks: vec![rocx::ResolvedBlock::Paragraph(linked_cell)],
+            },
+        ),
+        (
+            Some("word/comments.xml"),
+            0,
+            TableOperation::Property {
+                site: TableSite::Column(0),
+                field: "width".into(),
+                source: None,
+            },
+        ),
+    ] {
+        let doc = ImportedDocument::open(&physical).unwrap();
+        let t = doc
+            .part_tables(owner)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.depth == depth)
+            .unwrap();
+        physical = doc
+            .edit_part_tables(
+                &t.part_name,
+                &[rocx::editor::TableStructureEdit {
+                    target: t.anchor,
+                    operation,
+                }],
+            )
+            .unwrap();
+    }
+    write("native-physicalTables.docx", physical);
+    write(
+        "native-tableNodes.docx",
+        table_nodes(&directory, &insertions[1].table),
+    );
+    {
+        use rocx::editor::{
+            LayoutBorder, LayoutEdit as E, LayoutField as F, LayoutTab, LayoutValue as V,
+        };
+        let d = ImportedDocument::open(&fs::read(directory.join("layout-source.docx")).unwrap())
+            .unwrap();
+        let sections = d.sections().unwrap();
+        let p = |f, v| E::Paragraph(anchor(&d, 1), f, v);
+        let s = |i: usize, f, v| E::Section(sections[i].anchor.clone(), f, Some(v));
+        let edits = [
+            p(F::SpaceAfter, Some(V::Integer(180))),
+            p(F::Heading, Some(V::Integer(2))),
+            p(F::WidowControl, Some(V::Boolean(false))),
+            p(F::Alignment, None),
+            p(F::FirstLineIndent, Some(V::Integer(-240))),
+            p(
+                F::TabStops,
+                Some(V::Tabs(vec![LayoutTab {
+                    position: 720,
+                    alignment: "right".into(),
+                    leader: Some("dot".into()),
+                }])),
+            ),
+            s(0, F::PageWidth, V::Integer(16000)),
+            s(0, F::MarginTop, V::Integer(-220)),
+            s(0, F::ColumnCount, V::Integer(2)),
+            s(
+                0,
+                F::BorderTop,
+                V::Border(LayoutBorder {
+                    color: Some("223344".into()),
+                    size: Some(8),
+                    space: None,
+                }),
+            ),
+            s(1, F::GridPitch, V::Integer(360)),
+            s(1, F::TitlePage, V::Boolean(false)),
+        ];
+        write(
+            "native-layout.docx",
+            d.preview_layout(&edits).unwrap().to_docx().unwrap(),
+        );
+        let split = d
+            .preview_blocks(&[rocx::editor::BlockEdit::SplitSection(
+                sections[0].anchor.clone(),
+                1,
+            )])
+            .unwrap();
+        assert_eq!(split.block_changes(), &[1]);
+        write("native-sectionSplit.docx", split.to_docx().unwrap());
+        let split = ImportedDocument::open(&split.to_docx().unwrap()).unwrap();
+        let merge = split
+            .preview_blocks(&[rocx::editor::BlockEdit::MergeSection(
+                split.sections().unwrap()[0].anchor.clone(),
+            )])
+            .unwrap();
+        write("native-sectionMerge.docx", merge.to_docx().unwrap());
+        let p = futures::executor::block_on(rocx::Component::resolve(rocx::Paragraph::new(
+            "Shared story replacement",
+        )))
+        .unwrap()
+        .unwrap();
+        write(
+            "native-storyShared.docx",
+            d.edit_story_blocks(
+                &d.default_headers().unwrap()[1].anchor,
+                HeaderEditMode::Shared,
+                0,
+                1,
+                &[rocx::ResolvedBlock::Paragraph(p)],
+            )
+            .unwrap(),
+        );
+    }
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {
+            styles: &[rocx::editor::StyleEdit::Add(
+                rocx::NumberingStyleDefinition {
+                    name: "Batch List".into(),
+                    numbering_id: 702,
+                }
+                .into(),
+            )],
             ranges: &[rocx::editor::TextRangeEdit {
                 target: anchor(&doc, 1),
                 start: 0,
                 end: 1,
                 text: "X".into(),
             }],
-            blocks: &[rocx::editor::BlockEdit::KeepWithNext(anchor(&doc, 4), true)],
-            resources: &[rocx::editor::ResourceEdit::CoreTitle(Some(
-                "Combined editor".into(),
-            ))],
+            blocks: &[
+                BlockEdit::KeepWithNext(anchor(&doc, 4), true),
+                BlockEdit::ParagraphFlag(
+                    anchor(&doc, 4),
+                    rocx::editor::ParagraphFlag::PageBreakBefore,
+                    Some(false),
+                ),
+                BlockEdit::SectionFlag(
+                    anchor(&doc, 4),
+                    rocx::editor::SectionFlag::TitlePage,
+                    Some(true),
+                ),
+                BlockEdit::SectionType(anchor(&doc, 0), Some(rocx::SectionType::Continuous)),
+            ],
+            resources: &[
+                rocx::editor::ResourceEdit::Default(
+                    rocx::editor::DefaultField::TabStops,
+                    Some(rocx::editor::DefaultValue::Tabs(vec![
+                        rocx::editor::DefaultTab {
+                            position_twips: 720,
+                            alignment: "right".into(),
+                            leader: Some("dot".into()),
+                        },
+                    ])),
+                ),
+                rocx::editor::ResourceEdit::CoreTitle(Some("Combined editor".into())),
+                rocx::editor::ResourceEdit::Metadata(
+                    rocx::editor::MetadataField::Subject,
+                    Some("Batch resources".into()),
+                ),
+                rocx::editor::ResourceEdit::Default(
+                    rocx::editor::DefaultField::Bold,
+                    Some(rocx::editor::DefaultValue::Bool(false)),
+                ),
+                rocx::editor::ResourceEdit::Numbering(rocx::editor::NumberingEdit::AddInstance {
+                    num_id: 702,
+                    abstract_id: 701,
+                }),
+                rocx::editor::ResourceEdit::Numbering(rocx::editor::NumberingEdit::AddAbstract {
+                    abstract_id: 701,
+                    levels: vec![rocx::NumberingLevel {
+                        level: 0,
+                        start: 1,
+                        format: "decimal".into(),
+                        text: "%1.".into(),
+                        ..Default::default()
+                    }],
+                }),
+            ],
             ..Default::default()
         })
         .unwrap();
-    assert_eq!(combined.block_changes(), &[4]);
+    assert_eq!(combined.block_changes(), &[0, 4, 4, 4]);
     write("native-combined.docx", combined.to_docx().unwrap());
     use rocx::editor::BlockEdit;
     let paragraph = immediate(Component::resolve(Paragraph::new("inserted paragraph")))
@@ -184,6 +620,33 @@ fn main() {
         let catalog =
             ImportedDocument::open(&fs::read(directory.join("styles-source.docx")).unwrap())
                 .unwrap();
+        use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit::Numbering};
+        let numbers = catalog
+            .preview_edits(EditBatch {
+                resources: &[
+                    Numbering(N::AddAbstract {
+                        abstract_id: 90,
+                        levels: vec![rocx::NumberingLevel {
+                            level: 0,
+                            start: 1,
+                            format: "decimal".into(),
+                            text: "%1.".into(),
+                            ..Default::default()
+                        }],
+                    }),
+                    Numbering(N::AddInstance {
+                        num_id: 91,
+                        abstract_id: 90,
+                    }),
+                    Numbering(N::Paragraph {
+                        target: anchor(&catalog, 0),
+                        value: Some(rocx::NumberingReference { id: 91, level: 0 }),
+                    }),
+                ],
+                ..Default::default()
+            })
+            .unwrap();
+        write("native-numberingEdits.docx", numbers.to_docx().unwrap());
         let style = |name: &str| ParagraphStyleDefinition::default().with_name(name);
         let changes = [
             StyleEdit::Add(style("Memo Added").with_base_style("Memo Active").into()),
@@ -192,6 +655,28 @@ fn main() {
                 definition: style("Memo Replace").with_bold(true).into(),
             },
             StyleEdit::Remove(catalog.style_anchor("MemoDrop").unwrap()),
+            StyleEdit::Field {
+                target: catalog.style_anchor("Heading1").unwrap(),
+                region: None,
+                field: "next".into(),
+                value: Some("MemoAdded".into()),
+            },
+            StyleEdit::Region {
+                target: catalog.style_anchor("TableGrid").unwrap(),
+                region: "nwCell".into(),
+                format: Some(Box::new(rocx::TableSectionFormat {
+                    bold: Some(true),
+                    background: Some([10, 20, 30]),
+                    ..Default::default()
+                })),
+            },
+            StyleEdit::Add(
+                rocx::NumberingStyleDefinition {
+                    name: "Memo List".into(),
+                    numbering_id: 1,
+                }
+                .into(),
+            ),
             StyleEdit::Patch {
                 target: catalog.style_anchor("MemoActive").unwrap(),
                 bold: None,
@@ -266,15 +751,353 @@ fn main() {
             "native-controlEdits.docx",
             preview(&source, &edits).unwrap().to_docx().unwrap(),
         );
+        let bytes = fs::read(directory.join("control-choice-source.docx")).unwrap();
+        let original = ImportedDocument::open(&bytes).unwrap();
+        let choice = &original.controls()[0];
+        assert_eq!(
+            (choice.kind, choice.selected.as_deref()),
+            ("dropDownList", Some("1"))
+        );
+        assert_eq!(choice.choices.len(), 2);
+        assert!(
+            original
+                .preview_control_choice(&choice.anchor, "absent", None)
+                .is_err()
+        );
+        assert!(source.preview_unwrap_control(&c[0].anchor).is_err());
+        assert!(source.preview_unwrap_control(&c[4].anchor).is_err());
+        let selected = ImportedDocument::open(
+            &original
+                .preview_control_choice(&choice.anchor, "2", None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        )
+        .unwrap();
+        let second = &selected.controls()[0];
+        assert_eq!(second.choices, choice.choices);
+        let items = [rocx::ContentControlListItem {
+            display_text: " Revised ".into(),
+            value: "R".into(),
+        }];
+        let mut data = selected
+            .preview_control_choice(&second.anchor, "R", Some(&items))
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        for ctx in ["block", "inline", "row", "cell"] {
+            let doc = ImportedDocument::open(&data).unwrap();
+            let site = doc
+                .control_sites()
+                .iter()
+                .find(|s| s.context.as_str() == ctx && s.text == ctx)
+                .unwrap();
+            assert!(original.preview_wrap_control(site, ctx).is_err());
+            data = doc
+                .preview_wrap_control(site, ctx)
+                .unwrap()
+                .to_docx()
+                .unwrap();
+        }
+        let doc = ImportedDocument::open(&data).unwrap();
+        let props = rocx::ContentControlProperties::default()
+            .with_tag("inline")
+            .with_id(42)
+            .with_text(rocx::ContentControlText::Plain {
+                multi_line: Some(false),
+            });
+        let by = |tag| {
+            &doc.controls()
+                .iter()
+                .find(|c| c.tag.as_deref() == Some(tag))
+                .unwrap()
+                .anchor
+        };
+        assert!(doc.preview_replace_control(by("row"), &props).is_err());
+        data = doc
+            .preview_replace_control(by("inline"), &props)
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        write("native-controlWrapped.docx", data.clone());
+        for ctx in ["block", "inline", "row", "cell"] {
+            let doc = ImportedDocument::open(&data).unwrap();
+            let c = doc
+                .controls()
+                .iter()
+                .find(|c| c.context.as_str() == ctx && c.tag.as_deref() == Some(ctx))
+                .unwrap();
+            data = doc
+                .preview_unwrap_control(&c.anchor)
+                .unwrap()
+                .to_docx()
+                .unwrap();
+        }
+        write("native-controlUnwrapped.docx", data);
+    }
+    {
+        use rocx::editor::{
+            EditBatch, FieldAction, FieldEdit, FieldPatch, ImportedInlineNode, InlineAction,
+            InlineEdit, PairedRangeEdit, ParagraphInsertion, WrapperEdit as W,
+        };
+        let source =
+            ImportedDocument::open(&fs::read(directory.join("rich-control-source.docx")).unwrap())
+                .unwrap();
+        let stories = source.story_controls().unwrap();
+        assert_eq!(stories.len(), 5);
+        assert_eq!(stories.iter().filter(|c| c.entry_id.is_some()).count(), 3);
+        assert!(source.preview_unwrap_control(&stories[0].anchor).is_err());
+        let site = |ctx, label| {
+            source
+                .control_sites()
+                .iter()
+                .find(|s| s.context.as_str() == ctx && s.text == label)
+                .unwrap()
+                .clone()
+        };
+        let wrap = |ctx, first, last, tag: &str| W::Wrap {
+            first: site(ctx, first),
+            last: Some(site(ctx, last)),
+            tag: tag.into(),
+        };
+        let c = source.controls();
+        let p = |s: &str| {
+            immediate(Component::resolve(Paragraph::new(s)))
+                .unwrap()
+                .unwrap()
+        };
+        let wrappers = [
+            wrap("block", "range start", "range end", "group"),
+            wrap("inline", "one", "two", "runs"),
+            W::ReplaceBlocks(
+                c[0].anchor.clone(),
+                vec![
+                    rocx::ResolvedBlock::Paragraph(p("A")),
+                    rocx::ResolvedBlock::Paragraph(p("B")),
+                ],
+            ),
+            W::ReplaceInlines(
+                c[1].anchor.clone(),
+                vec![
+                    p("picture:").runs()[0].clone(),
+                    rocx::ResolvedInline::Image {
+                        image: image.clone(),
+                        format: Default::default(),
+                        comment: None,
+                    },
+                ],
+            ),
+        ];
+        let headers = source.default_headers().unwrap();
+        let h = HeaderImageEdit {
+            target: headers[0].anchor.clone(),
+            mode: HeaderEditMode::Shared,
+            image: image.clone(),
+        };
+        let run = |source: &ImportedDocument, p: usize, i: usize| {
+            let BodyBlock::Paragraph(p) = &source.body()[p] else {
+                panic!("expected paragraph")
+            };
+            let ImportedInlineNode::Run(r) = &p.inline_structure[i] else {
+                panic!("expected run")
+            };
+            r.anchor.clone()
+        };
+        let field_index = |source: &ImportedDocument| {
+            source.body().iter().position(|p| matches!(p,BodyBlock::Paragraph(p) if p.text.starts_with("mixed-field left"))).unwrap()
+        };
+        let idx = field_index(&source);
+        let fields = [FieldEdit {
+            target: anchor(&source, idx),
+            inline_index: 1,
+            action: FieldAction::Patch(FieldPatch::Dirty(Some(true))),
+        }];
+        let range = |id, name: &str, first, last| PairedRangeEdit {
+            id,
+            bookmark: Some(name.into()),
+            endpoints: Some((first, last)),
+        };
+        let paired_ranges = [range(
+            91,
+            "MixedControl",
+            run(&source, idx, 0),
+            run(&source, idx, 2),
+        )];
+        assert!(
+            source
+                .preview_edits(EditBatch {
+                    wrappers: &wrappers,
+                    paired_ranges: &[range(92, "Crossed", run(&source, 1, 0), run(&source, 3, 0))],
+                    ..Default::default()
+                })
+                .is_err()
+        );
+        let inline_edits = [
+            InlineEdit {
+                target: run(&source, 0, 0),
+                action: InlineAction::InsertAfter(rocx::ResolvedInline::Image {
+                    image: image.clone(),
+                    format: Default::default(),
+                    comment: None,
+                }),
+            },
+            InlineEdit {
+                target: run(&source, idx, 0),
+                action: InlineAction::PatchFormat {
+                    set: Box::new(rocx::RunFormat {
+                        size: Some(13.5),
+                        ..Default::default()
+                    }),
+                    clear: vec![],
+                },
+            },
+        ];
+        let batch = EditBatch {
+            wrappers: &wrappers,
+            fields: &fields,
+            paired_ranges: &paired_ranges,
+            inline_edits: &inline_edits,
+            header_images: &[h],
+            paragraphs: &[ParagraphInsertion {
+                target: anchor(&source, 0),
+                paragraph: p("adjacent"),
+            }],
+            ..Default::default()
+        };
+        let data = source.preview_edits(batch).unwrap().to_docx().unwrap();
+        let reopened = ImportedDocument::open(&data).unwrap();
+        assert!(
+            reopened
+                .preview_tracked_bold(
+                    &run(&reopened, field_index(&reopened), 1),
+                    false,
+                    "Reviewer",
+                    None
+                )
+                .is_err()
+        );
+        write("native-richControls.docx", data);
+        let unwrap: Vec<_> = reopened
+            .controls()
+            .iter()
+            .filter(|c| matches!(c.tag.as_deref(), Some("group" | "runs")))
+            .map(|c| W::Unwrap(c.anchor.clone()))
+            .collect();
+        write(
+            "native-richUnwrapped.docx",
+            reopened
+                .preview_edits(EditBatch {
+                    wrappers: &unwrap,
+                    ..Default::default()
+                })
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
     }
     let ranged =
         ImportedDocument::open(&fs::read(directory.join("range-source.docx")).unwrap()).unwrap();
+    {
+        use rocx::editor::{EditBatch, InlineAction, InlineEdit, RunToggle};
+        let edits = [
+            (0, 0, RunToggle::Bold, Some(false)),
+            (1, 0, RunToggle::Hidden, Some(true)),
+            (1, 1, RunToggle::Strike, Some(true)),
+            (1, 2, RunToggle::Italic, None),
+        ]
+        .map(|(body, slot, prop, value)| {
+            let BodyBlock::Paragraph(p) = &ranged.body()[body] else {
+                panic!("paragraph")
+            };
+            let Run(run) = &p.inline_structure[slot] else {
+                panic!("run")
+            };
+            InlineEdit {
+                target: run.anchor.clone(),
+                action: InlineAction::SetToggle(prop, value),
+            }
+        });
+        let mut edits = edits.to_vec();
+        edits.push(InlineEdit {
+            target: edits[2].target.clone(),
+            action: InlineAction::PatchFormat {
+                set: Box::new(RunFormat {
+                    style: Some("Strong".into()),
+                    font: Some("Cambria".into()),
+                    font_east_asia: Some("Yu Mincho".into()),
+                    font_complex_script: Some("Amiri".into()),
+                    size: Some(12.5),
+                    size_complex_script: Some(14.),
+                    underline: Some(rocx::Underline::Double),
+                    color: Some(rocx::Color::Theme {
+                        name: rocx::ThemeColor::Accent2,
+                        tint: Some(150),
+                        shade: None,
+                    }),
+                    superscript: Some(true),
+                    all_caps: Some(false),
+                    small_caps: Some(true),
+                    snap_to_grid: Some(false),
+                    bold_complex_script: Some(true),
+                    italic_complex_script: Some(false),
+                    rtl: Some(true),
+                    complex_script: Some(true),
+                    language: Some(rocx::RunLanguage {
+                        latin: Some("fr-CA".into()),
+                        east_asia: Some("ja-JP".into()),
+                        bidi: None,
+                    }),
+                    ..Default::default()
+                }),
+                clear: vec![rocx::editor::RunFormatField::LanguageBidi],
+            },
+        });
+        let bytes = ranged
+            .preview_edits(EditBatch {
+                inline_edits: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        let reopened = ImportedDocument::open(&bytes).unwrap();
+        let BodyBlock::Paragraph(p) = &reopened.body()[1] else {
+            unreachable!()
+        };
+        let Run(run) = &p.inline_structure[1] else {
+            unreachable!()
+        };
+        assert_eq!(run.format.size, Some(12.5));
+        assert_eq!(run.format.underline, Some(rocx::Underline::Double));
+        assert!(run.has_opaque_formatting);
+        write("native-runFormatting.docx", bytes);
+    }
     let selection = rocx::editor::TextRangeEdit {
         target: anchor(&ranged, 1),
         start: 1,
         end: 6,
         text: " 🐈 ".into(),
     };
+    let point = |index, position, text: &str| rocx::editor::TextInsertion {
+        target: anchor(&ranged, index),
+        position,
+        text: text.into(),
+    };
+    write(
+        "native-points.docx",
+        ranged
+            .preview_edits(rocx::editor::EditBatch {
+                text_insertions: &[
+                    point(1, 3, "➡"),
+                    point(1, 7, "!"),
+                    point(ranged.body().len() - 1, 0, " Empty paragraph "),
+                ],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     write(
         "native-range.docx",
         ranged
@@ -307,6 +1130,261 @@ fn main() {
         }
     };
     let date = "2024-02-29T12:34:56Z";
+    {
+        let open = |data: Vec<u8>| ImportedDocument::open(&data).unwrap();
+        let original = open(fs::read(directory.join("control-choice-source.docx")).unwrap());
+        let target = paragraph(&original, 0, 0);
+        let marked = open(
+            original
+                .set_paired_range(90, Some("Guard"), Some((&target, &target)))
+                .unwrap(),
+        );
+        assert!(marked.control_sites().iter().all(|s| s.text != "block"));
+        assert!(
+            marked
+                .preview_tracked_bold(&paragraph(&marked, 0, 1), false, "Reviewer", None)
+                .is_err()
+        );
+        let plain = open(marked.set_paired_range(90, Some("Guard"), None).unwrap());
+        let changed = open(
+            plain
+                .preview_tracked_bold(&paragraph(&plain, 0, 0), false, "Reviewer", None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+        let BodyBlock::Paragraph(p) = &changed.body()[0] else {
+            unreachable!()
+        };
+        let Run(r) = &p.inline_structure[0] else {
+            unreachable!()
+        };
+        let id = r
+            .property_revision
+            .as_ref()
+            .unwrap()
+            .id
+            .as_deref()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let other = paragraph(&changed, 1, 0);
+        assert!(
+            changed
+                .set_paired_range(id, Some("Other"), Some((&other, &other)))
+                .is_err()
+        );
+        assert!(changed.control_sites().iter().all(|s| s.text != "block"));
+        let reviewed = open(
+            changed
+                .preview_revision(&r.anchor, TextRevisionAction::Accept, None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+        let site = reviewed
+            .control_sites()
+            .iter()
+            .find(|s| s.context.as_str() == "block" && s.text == "block")
+            .unwrap();
+        write(
+            "native-guardedWorkflow.docx",
+            reviewed
+                .preview_wrap_control(site, "reviewed")
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
+    use rocx::editor::TrackedParagraph;
+    let mut source =
+        ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
+    for (label, edit) in [
+        (
+            "Insert",
+            TrackedParagraph::InsertBefore(" proposed ".into()),
+        ),
+        ("Delete", TrackedParagraph::Delete),
+    ] {
+        let bytes = source
+            .preview_tracked_paragraph(&anchor(&source, 1), edit, "A & B", Some(date))
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        let changed = ImportedDocument::open(&bytes).unwrap();
+        write(&format!("native-para{label}.docx"), bytes);
+        for (action, suffix) in [
+            (TextRevisionAction::Accept, "Accepted"),
+            (TextRevisionAction::Reject, "Rejected"),
+        ] {
+            let bytes = changed
+                .preview_paragraph_revision(&anchor(&changed, 1), action)
+                .unwrap()
+                .to_docx()
+                .unwrap();
+            if action == TextRevisionAction::Accept {
+                source = ImportedDocument::open(&bytes).unwrap();
+            }
+            write(&format!("native-para{label}{suffix}.docx"), bytes);
+        }
+    }
+    let bold = doc
+        .preview_tracked_bold(&run.anchor, false, "A & B", Some(date))
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let review = ImportedDocument::open(&bold).unwrap();
+    write("native-boldChange.docx", bold);
+    for (action, name) in [
+        (TextRevisionAction::Accept, "native-boldAccepted.docx"),
+        (TextRevisionAction::Reject, "native-boldRejected.docx"),
+    ] {
+        write(
+            name,
+            review
+                .preview_revision(&paragraph(&review, 0, 0), action, None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
+    {
+        use rocx::{
+            Field, FieldForm, FieldInstruction, FieldProperties,
+            editor::{FieldPatch, ImportedInlineNode, InlineAction, InlineEdit},
+        };
+        let open = |bytes: Vec<u8>| ImportedDocument::open(&bytes).unwrap();
+        let mut d = open(fs::read(directory.join("paired-source.docx")).unwrap());
+        let field = immediate(Component::resolve(Paragraph::from_children(vec![
+            Field::new(
+                FieldInstruction::Page,
+                vec![TextRun::new("new cache").into()],
+            )
+            .with_properties(FieldProperties::default().with_form(FieldForm::Complex))
+            .into(),
+        ])))
+        .unwrap()
+        .unwrap();
+        d = open(
+            d.replace_field(&anchor(&d, 0), 0, Some(&field.runs()[0]))
+                .unwrap(),
+        );
+        d = open(
+            d.patch_field(
+                &anchor(&d, 0),
+                0,
+                FieldPatch::Instruction(" NUMPAGES ".into()),
+            )
+            .unwrap(),
+        );
+        let link = |d: &ImportedDocument, i: usize| {
+            let BodyBlock::Paragraph(p) = &d.body()[2] else {
+                panic!()
+            };
+            let ImportedInlineNode::Hyperlink(l) = &p.inline_structure[i] else {
+                panic!()
+            };
+            l.anchor.clone()
+        };
+        let edit = InlineEdit {
+            target: link(&d, 0),
+            action: InlineAction::HyperlinkTooltip(Some("hover".into())),
+        };
+        d = open(
+            d.preview_edits(rocx::editor::EditBatch {
+                inline_edits: &[edit],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
+        d = open(
+            d.set_paired_range(0, None, Some((&link(&d, 0), &paragraph(&d, 3, 0))))
+                .unwrap(),
+        );
+        write(
+            "native-fieldsRanges.docx",
+            d.set_paired_range(
+                7,
+                Some("Crossing"),
+                Some((&paragraph(&d, 1, 0), &link(&d, 1))),
+            )
+            .unwrap(),
+        );
+        use rocx::editor::{FieldAction, FieldEdit, PairedRangeEdit};
+        let d = open(fs::read(directory.join("field-batch-source.docx")).unwrap());
+        let children = immediate(Component::resolve(Paragraph::from_children(vec![
+            Hyperlink::new(
+                HyperlinkTarget::external("https://example.invalid/cache").unwrap(),
+                vec![TextRun::new("remote").into()],
+            )
+            .into(),
+            Hyperlink::new(
+                HyperlinkTarget::bookmark(rocx::BookmarkName::new("BatchMark").unwrap()),
+                vec![TextRun::new("jump").into()],
+            )
+            .into(),
+        ])))
+        .unwrap()
+        .unwrap();
+        let fields = [
+            FieldEdit {
+                target: anchor(&d, 4),
+                inline_index: 1,
+                action: FieldAction::Cache(children.runs().to_vec()),
+            },
+            FieldEdit {
+                target: anchor(&d, 4),
+                inline_index: 1,
+                action: FieldAction::Patch(FieldPatch::Dirty(Some(false))),
+            },
+            FieldEdit {
+                target: anchor(&d, 0),
+                inline_index: 0,
+                action: FieldAction::Patch(FieldPatch::Instruction(" NUMPAGES ".into())),
+            },
+            FieldEdit {
+                target: anchor(&d, 0),
+                inline_index: 0,
+                action: FieldAction::Patch(FieldPatch::Dirty(Some(true))),
+            },
+        ];
+        let ranges = [
+            PairedRangeEdit {
+                id: 7,
+                bookmark: Some("BatchMark".into()),
+                endpoints: Some((paragraph(&d, 1, 1), link(&d, 0))),
+            },
+            PairedRangeEdit {
+                id: 0,
+                bookmark: None,
+                endpoints: Some((link(&d, 0), paragraph(&d, 3, 0))),
+            },
+        ];
+        let edits = [
+            InlineEdit {
+                target: link(&d, 0),
+                action: InlineAction::HyperlinkTooltip(Some("Batch tooltip".into())),
+            },
+            InlineEdit {
+                target: link(&d, 0),
+                action: InlineAction::HyperlinkHistory(Some(false)),
+            },
+        ];
+        write(
+            "native-fieldBatch.docx",
+            d.preview_edits(rocx::editor::EditBatch {
+                fields: &fields,
+                paired_ranges: &ranges,
+                inline_edits: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
+    }
     let tracked = doc
         .preview_tracked_text(
             &run.anchor,
@@ -381,7 +1459,7 @@ fn main() {
             },
             InlineEdit {
                 target: target(0),
-                action: InlineAction::SetBold(false),
+                action: InlineAction::SetToggle(rocx::editor::RunToggle::Bold, None),
             },
             InlineEdit {
                 target: target(1),
@@ -462,6 +1540,8 @@ fn main() {
     use rocx::editor::{TableOperation::*, TableStructureEdit};
     let mut structure = body.clone();
     for operation in [
+        Layout(None),
+        Layout(Some(rocx::TableLayout::Autofit)),
         InsertRow(1),
         RemoveRow(1),
         InsertColumn(1),

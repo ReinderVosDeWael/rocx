@@ -1,4 +1,6 @@
 //! The Rust visual catalog also runs without Python or official schemas.
+#[path = "support/catalog_readback.rs"]
+mod catalog_readback;
 #[path = "../examples/showcase/mod.rs"]
 mod showcase;
 
@@ -10,6 +12,7 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
     std::fs::create_dir(&directory).unwrap();
     let path = directory.join("catalog.docx");
     futures::executor::block_on(showcase::generate(&path)).unwrap();
+    catalog_readback::verify(&path);
     let bytes = std::fs::read(&path).unwrap();
     let mut package = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
     let mut xml = String::new();
@@ -59,6 +62,10 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
     std::fs::remove_file(path.with_extension("edited.docx")).unwrap();
     for suffix in [
         "entry-text.docx",
+        "objects.docx",
+        "controls.docx",
+        "entry-edits.docx",
+        "story-blocks.docx",
         "footer-even.docx",
         "run-text.docx",
         "header-source.docx",
@@ -67,8 +74,6 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
         "header-first-shared.docx",
         "header-first-local.docx",
     ] {
-        let bytes = std::fs::read(path.with_extension(suffix)).unwrap();
-        rocx::editor::ImportedDocument::open(&bytes).unwrap();
         std::fs::remove_file(path.with_extension(suffix)).unwrap();
     }
     std::fs::remove_file(path).unwrap();

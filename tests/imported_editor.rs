@@ -34,6 +34,250 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn section_lifecycle_guards_protected_gaps_and_opaque_donors() {
+    use rocx::editor::BlockEdit;
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}" xmlns:x="urn:test"><w:body>{body}</w:body></w:document>"#
+        )))
+        .unwrap()
+    };
+    let doc = make(
+        r#"<w:p><w:bookmarkStart w:id="1" w:name="protected"/></w:p>
+        <w:p><w:bookmarkEnd w:id="1"/></w:p><w:p/><w:sectPr/>"#,
+    );
+    let section = &doc.sections().unwrap()[0].anchor;
+    assert!(
+        doc.preview_blocks(&[BlockEdit::SplitSection(section.clone(), 1)])
+            .is_err()
+    );
+    assert!(
+        doc.preview_blocks(&[BlockEdit::SplitSection(section.clone(), 2)])
+            .is_ok()
+    );
+    let doc = make(r#"<w:p/><w:p><w:pPr><w:sectPr x:keep="true"/></w:pPr></w:p><w:sectPr/>"#);
+    let section = &doc.sections().unwrap()[0].anchor;
+    for edit in [
+        BlockEdit::SplitSection(section.clone(), 1),
+        BlockEdit::MergeSection(section.clone()),
+    ] {
+        assert!(doc.preview_blocks(&[edit]).is_err());
+    }
+    assert_eq!(doc.sections().unwrap().len(), 2);
+}
+
+#[test]
+fn layout_edits_guard_ranges_alternatives_opaque_values_and_foreign_section_owners() {
+    use rocx::editor::{
+        LayoutBorder, LayoutEdit as E, LayoutField as F, LayoutTab, LayoutValue as V,
+    };
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(r#"<w:document xmlns:w="{W}" xmlns:x="urn:example"><w:body>{body}</w:body></w:document>"#))).unwrap()
+    };
+    let make_p = |props: &str| make(&format!("<w:p><w:pPr>{props}</w:pPr></w:p>"));
+    for (props, field, val) in [
+        (
+            "<w:jc x:note=\"retain\" w:val=\"left\"/>",
+            F::Alignment,
+            None,
+        ),
+        (
+            "<w:spacing w:beforeLines=\"1\"/>",
+            F::SpaceBefore,
+            Some(V::Integer(42)),
+        ),
+        (
+            "<w:ind w:hanging=\"240\" w:firstLine=\"80\"/>",
+            F::FirstLineIndent,
+            Some(V::Integer(-120)),
+        ),
+        (
+            "<w:tabs><w:tab w:pos=\"100\" w:val=\"left\" x:tag=\"retain\"/></w:tabs>",
+            F::TabStops,
+            None,
+        ),
+        ("<w:pPrChange/>", F::LeftIndent, Some(V::Integer(42))),
+        ("<w:spacing/><w:spacing/>", F::LineRule, None),
+        (
+            "",
+            F::TabStops,
+            Some(V::Tabs(vec![LayoutTab {
+                position: 10,
+                alignment: "future".into(),
+                leader: None,
+            }])),
+        ),
+        ("", F::StyleId, Some(V::Token("missing style".into()))),
+    ] {
+        let d = make_p(props);
+        assert!(
+            d.preview_layout(&[E::Paragraph(paragraph(&d, 0).anchor.clone(), field, val)])
+                .is_err(),
+            "{props}"
+        );
+    }
+    for (source, field, v) in [
+        (
+            "<w:p><w:bookmarkStart w:id=\"1\"/></w:p><w:sectPr/>",
+            F::PageWidth,
+            Some(V::Integer(5000)),
+        ),
+        (
+            "<w:sectPr><w:cols w:equalWidth=\"0\"><w:col/></w:cols></w:sectPr>",
+            F::ColumnCount,
+            Some(V::Integer(2)),
+        ),
+        (
+            "<w:sectPr><w:pgBorders><w:top w:val=\"single\" x:opaque=\"yes\"/></w:pgBorders></w:sectPr>",
+            F::BorderTop,
+            None,
+        ),
+        (
+            "<w:sectPr><w:lnNumType x:opaque=\"yes\"/></w:sectPr>",
+            F::LineNumbering,
+            None,
+        ),
+        (
+            "<w:sectPr/>",
+            F::BorderLeft,
+            Some(V::Border(LayoutBorder {
+                size: Some(100),
+                space: None,
+                color: None,
+            })),
+        ),
+    ] {
+        let d = make(source);
+        assert!(
+            d.preview_layout(&[E::Section(
+                d.sections().unwrap()[0].anchor.clone(),
+                field,
+                v
+            )])
+            .is_err(),
+            "{source}"
+        );
+    }
+    let d = make("<w:p/><w:p><w:pPr><w:sectPr/></w:pPr></w:p>");
+    let sections = d.sections().unwrap();
+    assert_eq!((sections[1].body_start, sections[1].body_end), (2, 2));
+    let a = sections[1].anchor.clone();
+    let e = |f, v| E::Section(a.clone(), f, v);
+    let data = d
+        .preview_layout(&[
+            e(F::MarginLeft, Some(V::Integer(600))),
+            e(F::LineCountBy, Some(V::Integer(3))),
+            e(F::PageFormat, Some(V::Token("lowerRoman".into()))),
+            e(F::ColumnSeparator, Some(V::Boolean(false))),
+            e(F::GridCharSpace, Some(V::Integer(-40))),
+        ])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let result = ImportedDocument::open(&data).unwrap();
+    assert!(result.preview_layout(&[e(F::PageFormat, None)]).is_err());
+    let s = result.sections().unwrap();
+    assert!(s[0].layout.is_empty());
+    assert_eq!(s[1].layout[&F::MarginRight], V::Integer(1800));
+    assert_eq!(s[1].layout[&F::GridCharSpace], V::Integer(-40));
+    let noop = E::Section(
+        s[1].anchor.clone(),
+        F::PageFormat,
+        Some(V::Token("lowerRoman".into())),
+    );
+    assert_eq!(
+        parts(&result.preview_layout(&[noop]).unwrap().to_docx().unwrap()),
+        parts(&data)
+    );
+}
+
+#[test]
+fn direct_property_edits_set_clear_and_refuse_ambiguous_or_protected_targets() {
+    use rocx::editor::{BlockEdit as E, ParagraphFlag as P, SectionFlag as S};
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}" xmlns:x="urn:test"><w:body>{body}</w:body></w:document>"#
+        )))
+        .unwrap()
+    };
+    let doc = make(
+        r#"<w:p><w:pPr><w:keepLines w:val="on"/></w:pPr></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p/>"#,
+    );
+    let a = paragraph(&doc, 0).anchor.clone();
+    let last = paragraph(&doc, 2).anchor.clone();
+    let edits = P::ALL
+        .iter()
+        .map(|&f| E::ParagraphFlag(a.clone(), f, Some(true)))
+        .chain(
+            S::ALL
+                .iter()
+                .map(|&f| E::SectionFlag(last.clone(), f, Some(false))),
+        )
+        .chain([E::SectionType(
+            a.clone(),
+            Some(rocx::SectionType::NextColumn),
+        )])
+        .collect::<Vec<_>>();
+    let preview = doc.preview_blocks(&edits).unwrap();
+    assert_eq!(preview.block_changes().len(), edits.len() - 1);
+    let result = ImportedDocument::open(&preview.to_docx().unwrap()).unwrap();
+    assert_eq!(paragraph(&result, 0).flags.len(), P::ALL.len());
+    assert!(paragraph(&result, 0).flags.values().all(|&v| v));
+    let sections = result.sections().unwrap();
+    assert_eq!(
+        sections[0].section_type,
+        Some(rocx::SectionType::NextColumn)
+    );
+    assert_eq!(sections[1].flags.len(), S::ALL.len());
+    assert!(sections[1].flags.values().all(|&v| !v));
+    let clear = E::ParagraphFlag(paragraph(&result, 0).anchor.clone(), P::KeepTogether, None);
+    let cleared = result
+        .preview_blocks(&[
+            clear,
+            E::SectionType(paragraph(&result, 0).anchor.clone(), None),
+            E::SectionFlag(paragraph(&result, 2).anchor.clone(), S::RtlGutter, None),
+        ])
+        .unwrap();
+    let cleared = ImportedDocument::open(&cleared.to_docx().unwrap()).unwrap();
+    assert!(!paragraph(&cleared, 0).flags.contains_key(&P::KeepTogether));
+    assert!(cleared.sections().unwrap()[0].section_type_xml.is_none());
+    assert!(
+        !cleared.sections().unwrap()[1]
+            .flags
+            .contains_key(&S::RtlGutter)
+    );
+    let foreign = E::SectionFlag(last, S::Bidi, None);
+    assert!(result.preview_blocks(&[foreign]).is_err());
+    for inner in [
+        r#"<w:keepLines x:opaque="1"/>"#,
+        "<w:keepLines><!--opaque--></w:keepLines>",
+        "<w:keepLines/><w:keepLines/>",
+        "<w:pPrChange/>",
+    ] {
+        let doc = make(&format!("<w:p><w:pPr>{inner}</w:pPr></w:p>"));
+        assert!(
+            doc.preview_blocks(&[E::ParagraphFlag(
+                paragraph(&doc, 0).anchor.clone(),
+                P::KeepTogether,
+                None
+            )])
+            .is_err()
+        );
+    }
+    let doc = make(
+        r#"<w:p/><w:p><w:bookmarkStart w:id="1"/></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p>"#,
+    );
+    assert!(
+        doc.preview_blocks(&[E::SectionFlag(
+            paragraph(&doc, 0).anchor.clone(),
+            S::Bidi,
+            Some(true)
+        )])
+        .is_err()
+    );
+}
+
+#[test]
 fn mixed_new_edits_preserve_original_coordinates_across_parts() {
     use rocx::editor::{
         BlockEdit, EditBatch, ImportedInlineNode::Run, InlineAction, InlineEdit, ResourceEdit,
@@ -147,6 +391,23 @@ fn text_ranges_use_snapshot_coordinates_at_run_boundaries() {
         doc.preview_with_ranges(&[], &[], &[], &[], &[], &[], &[], ranges)
     };
     assert!(preview(&[edit(1, usize::MAX, "out of bounds")]).is_err());
+    let point = rocx::editor::TextInsertion {
+        target: p.anchor.clone(),
+        position: 1,
+        text: "+".into(),
+    };
+    let inserted = doc
+        .preview_edits(rocx::editor::EditBatch {
+            text_insertions: &[point],
+            ..Default::default()
+        })
+        .unwrap();
+    let changes = inserted.run_text_changes();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(
+        (changes[0].inline_index, changes[0].after.as_str()),
+        (2, "+é")
+    );
     let changes = preview(&[edit(1, 2, "new"), edit(0, 1, "first")]).unwrap();
     assert_eq!(
         changes
@@ -195,6 +456,60 @@ fn resource_numbering_starts_reject_duplicate_identities_and_preserve_lexical_no
             assert!(preview.is_err());
         }
     }
+}
+
+#[test]
+fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
+    use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit};
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let name = "word/numbering.xml";
+    entries.insert(name.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="07"><w:lvl w:ilvl="0"/></w:abstractNum><w:num w:numId="001"><w:abstractNumId w:val="007"/></w:num><w:numIdMacAtCleanup w:val="1"/></w:numbering>"#).into_bytes());
+    let doc = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    let anchor = paragraph(&doc, 0).anchor.clone();
+    let render = |edits: Vec<N>| {
+        let resources = edits
+            .into_iter()
+            .map(ResourceEdit::Numbering)
+            .collect::<Vec<_>>();
+        doc.preview_edits(EditBatch {
+            resources: &resources,
+            ..Default::default()
+        })
+    };
+    assert!(
+        render(vec![N::AddInstance {
+            num_id: 1,
+            abstract_id: 7
+        }])
+        .is_err()
+    );
+    let insert = || N::AddInstance {
+        num_id: 2,
+        abstract_id: 7,
+    };
+    let patch = || N::Paragraph {
+        target: anchor.clone(),
+        value: Some(rocx::NumberingReference { id: 2, level: 0 }),
+    };
+    let data = render(vec![patch(), insert()]).unwrap().to_docx().unwrap();
+    let result = parts(&data);
+    let xml = std::str::from_utf8(&result[name]).unwrap();
+    assert!(xml.find("w:numId=\"2\"").unwrap() < xml.find("<w:numIdMacAtCleanup").unwrap());
+    let edited = ImportedDocument::open(&data).unwrap();
+    assert!(edited.paragraph_numbering(&anchor).is_err());
+    assert_eq!(
+        edited
+            .paragraph_numbering(&paragraph(&edited, 0).anchor)
+            .unwrap()
+            .unwrap()
+            .id,
+        2
+    );
+    assert_eq!(edited.numbering_instances().unwrap()[0].abstract_id, 7);
+    assert_eq!(
+        entries,
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap())
+    );
 }
 
 #[test]
@@ -456,6 +771,98 @@ fn block_edit_guards_validate_discarded_markup_and_section_ownership() {
             doc.preview_blocks(&[BlockEdit::Remove(paragraph(&doc, 2).anchor.clone())])
                 .is_err()
         );
+    }
+}
+
+#[test]
+fn paragraph_revisions_require_complete_matching_marks_and_a_safe_neighbor() {
+    use rocx::{TextRevisionAction::Reject, editor::TrackedParagraph};
+    let open = |xml: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}"><w:body>{xml}<w:sectPr/></w:body></w:document>"#
+        )))
+        .unwrap()
+    };
+    let marked = r#"<w:p><w:pPr><w:rPr><w:ins w:id="41" w:author="Ann"/></w:rPr></w:pPr><w:ins w:id="42" w:author="Ann"><w:r><w:t>pending</w:t></w:r></w:ins></w:p>"#;
+    for xml in [
+        marked.replace("42", "41"),
+        marked.replacen("Ann", "Other", 1),
+        marked.replace("Ann", " "),
+        marked.replace(r#"w:author="Ann""#, r#"w:author="Ann" w:date="not a date""#),
+        marked.replace("</w:pPr>", "<w:sectPr/></w:pPr>"),
+        marked.replace("</w:p>", "<!--keep--></w:p>"),
+        marked.replace("</w:p>", "<w:r><w:t>ordinary</w:t></w:r></w:p>"),
+    ] {
+        let doc = open(&format!("{xml}<w:p/>"));
+        assert!(
+            doc.preview_paragraph_revision(&paragraph(&doc, 0).anchor, Reject)
+                .is_err()
+        );
+    }
+    let plain = "<w:p><w:r><w:t>old</w:t></w:r></w:p>";
+    for following in [
+        "",
+        "<w:tbl/>",
+        "<w:p><w:pPr><w:sectPr/></w:pPr></w:p>",
+        "<!--keep--><w:p/>",
+    ] {
+        let doc = open(&format!("{plain}{following}"));
+        assert!(
+            doc.preview_tracked_paragraph(
+                &paragraph(&doc, 0).anchor,
+                TrackedParagraph::Delete,
+                "Reviewer",
+                None
+            )
+            .is_err()
+        );
+        let pending = open(&format!("{marked}{following}"));
+        assert!(
+            pending
+                .preview_paragraph_revision(&paragraph(&pending, 0).anchor, Reject)
+                .is_err()
+        );
+    }
+    let doc = open(&format!(
+        r#"<w:p><w:bookmarkStart w:id="10" w:name="guard"/></w:p>{plain}<w:p/><w:p><w:bookmarkEnd w:id="10"/></w:p>"#
+    ));
+    assert!(
+        doc.preview_tracked_paragraph(
+            &paragraph(&doc, 1).anchor,
+            TrackedParagraph::Delete,
+            "Ann",
+            None
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn tracked_bold_refuses_opaque_or_ambiguous_property_history() {
+    use rocx::{TextRevisionAction, editor::ImportedInlineNode::Run};
+    for history in [
+        "<w:rPr><w:i/></w:rPr>",
+        "<w:rPr><w:b/><w:b/></w:rPr>",
+        "<w:rPr><!--comment--></w:rPr>",
+        "<w:rPr/><w:rPr/>",
+    ] {
+        let xml = format!(
+            "<w:p><w:r><w:rPr><w:b/><w:rPrChange w:id='42' w:author='A'>{history}</w:rPrChange></w:rPr><w:t>text</w:t></w:r></w:p>"
+        );
+        let bytes = fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}"><w:body>{xml}<w:sectPr/></w:body></w:document>"#
+        ));
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let Run(run) = &paragraph(&doc, 0).inline_structure[0] else {
+            panic!()
+        };
+        assert_eq!(
+            run.property_revision.as_ref().unwrap().id.as_deref(),
+            Some("42")
+        );
+        for action in [TextRevisionAction::Accept, TextRevisionAction::Reject] {
+            assert!(doc.preview_revision(&run.anchor, action, None).is_err());
+        }
     }
 }
 
@@ -870,6 +1277,29 @@ fn whole_inline_edits_respect_cross_paragraph_fields_and_keep_opaque_formatting(
     let carriage_return = preview(&[node(3, InlineAction::Replace(line.clone()))]).unwrap();
     assert_eq!(carriage_return.inline_changes(), &[(1, 3)]);
     assert!(preview(&[node(2, InlineAction::Replace(line))]).is_err());
+    let Run(source) = &paragraph(&doc, 1).inline_structure[2] else {
+        unreachable!()
+    };
+    assert!(source.has_opaque_formatting);
+    assert_eq!((source.bold, source.italic), (Some(true), None));
+    assert!(
+        preview(&[node(
+            2,
+            InlineAction::SetToggle(rocx::editor::RunToggle::Bold, None)
+        )])
+        .is_err()
+    );
+    let toggle = preview(&[node(
+        2,
+        InlineAction::SetToggle(rocx::editor::RunToggle::Italic, Some(false)),
+    )])
+    .unwrap();
+    let reopened = ImportedDocument::open(&toggle.to_docx().unwrap()).unwrap();
+    let Run(view) = &paragraph(&reopened, 1).inline_structure[2] else {
+        unreachable!()
+    };
+    assert!(view.has_opaque_formatting);
+    assert_eq!((view.bold, view.italic), (Some(true), Some(false)));
     let bold = preview(&[node(2, InlineAction::SetBold(false))]).unwrap();
     assert_eq!(bold.inline_changes(), &[(1, 2)]);
     let package = parts(&bold.to_docx().unwrap());
@@ -1032,6 +1462,59 @@ fn control_targets_refuse_active_ranges_nested_wrappers_and_ambiguous_properties
             .unwrap_err();
         assert!(error.to_string().contains(reason), "{error}");
     }
+}
+
+#[test]
+fn choice_selection_respects_content_and_definition_locks_independently() {
+    let props = "<w:dropDownList w:lastValue='a'><w:listItem w:displayText='Alpha' w:value='a'/><w:listItem w:displayText='Beta' w:value='b'/></w:dropDownList>";
+    let wrapper = |lock, extra| {
+        format!(
+            "<w:sdt><w:sdtPr><w:lock w:val='{lock}'/>{props}{extra}</w:sdtPr><w:sdtContent><w:r><w:t>Alpha</w:t></w:r></w:sdtContent></w:sdt>"
+        )
+    };
+    let data = fixture_with_body(&format!(
+        "<w:document xmlns:w='{W}'><w:body><w:p>{}{}{}</w:p><w:sectPr/></w:body></w:document>",
+        wrapper("sdtLocked", ""),
+        wrapper("contentLocked", ""),
+        wrapper("unlocked", "<!--opaque-->")
+    ));
+    let doc = ImportedDocument::open(&data).unwrap();
+    let [definition, content, opaque] = doc.controls() else {
+        panic!("three controls")
+    };
+    let select =
+        |c: &rocx::editor::ImportedControl| doc.preview_control_choice(&c.anchor, "b", None);
+    assert!(select(content).unwrap_err().to_string().contains("locked"));
+    assert!(
+        doc.preview_control_choice(&definition.anchor, "b", Some(&definition.choices))
+            .unwrap_err()
+            .to_string()
+            .contains("locked")
+    );
+    assert!(doc.preview_unwrap_control(&definition.anchor).is_err());
+    assert!(doc.preview_unwrap_control(&content.anchor).is_ok());
+    assert!(select(opaque).unwrap_err().to_string().contains("opaque"));
+    assert!(doc.preview_unwrap_control(&opaque.anchor).is_err());
+    let changed = ImportedDocument::open(&select(definition).unwrap().to_docx().unwrap()).unwrap();
+    assert_eq!(changed.controls()[0].selected.as_deref(), Some("b"));
+    assert_eq!(doc.controls()[0].selected.as_deref(), Some("a"));
+}
+
+#[test]
+fn wrapping_sites_exclude_protected_ranges_in_other_blocks_and_nested_payloads() {
+    let data = fixture_with_body(&format!("<w:document xmlns:w='{W}'><w:body>
+        <w:p><w:bookmarkStart w:id='1' w:name='B'/></w:p>
+        <w:p><w:r><w:t>protected</w:t></w:r></w:p><w:p><w:bookmarkEnd w:id='1'/></w:p>
+        <w:sdt><w:sdtPr/><w:sdtContent><w:p><w:r><w:t>nested</w:t></w:r></w:p></w:sdtContent></w:sdt>
+        <w:p><w:r><w:t>eligible</w:t></w:r></w:p><w:sectPr/></w:body></w:document>"));
+    let doc = ImportedDocument::open(&data).unwrap();
+    assert_eq!(
+        doc.control_sites()
+            .iter()
+            .map(|s| (s.context.as_str(), s.text.as_str()))
+            .collect::<Vec<_>>(),
+        [("block", "eligible"), ("inline", "eligible")]
+    );
 }
 
 #[test]
@@ -3070,6 +3553,138 @@ fn first_header_image_local_preserves_aliases_and_inheritance() {
                 };
             assert_eq!(&story.part_name, expected);
         }
+    }
+}
+
+#[test]
+fn unknown_look_bits_and_duplicate_leafs_fail_atomically_with_table_removal() {
+    use rocx::editor::{EditBatch, TableOperation, TableSite, TableStructureEdit};
+    let t = r#"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2400"/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#;
+    for (props, field, message) in [
+        (
+            "<w:tblLook w:val=\"8020\"/>",
+            "look.firstRow",
+            "unknown mask bits",
+        ),
+        (
+            "<w:jc w:val=\"left\"/><w:jc w:val=\"right\"/>",
+            "alignment",
+            "ambiguous table properties",
+        ),
+    ] {
+        let xml = format!(
+            "<w:document xmlns:w=\"{W}\"><w:body>{t}{}<w:sectPr/></w:body></w:document>",
+            t.replace("<w:tblPr/>", &format!("<w:tblPr>{props}</w:tblPr>"))
+        );
+        let bytes = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let [BodyBlock::Table(first), BodyBlock::Table(second)] = doc.body() else {
+            panic!("tables")
+        };
+        let remove = TableStructureEdit {
+            target: first.anchor.clone(),
+            operation: TableOperation::RemoveTable,
+        };
+        let clear = TableStructureEdit {
+            target: second.anchor.clone(),
+            operation: TableOperation::Property {
+                field: field.into(),
+                site: TableSite::Table,
+                source: None,
+            },
+        };
+        assert!(
+            doc.preview_edits(EditBatch {
+                structural: &[remove.clone(), clear],
+                ..Default::default()
+            })
+            .unwrap_err()
+            .to_string()
+            .contains(message)
+        );
+        let output = doc
+            .preview_edits(EditBatch {
+                structural: &[remove],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        assert_eq!(ImportedDocument::open(&output).unwrap().body().len(), 1);
+        assert_eq!(
+            parts(&bytes),
+            parts(&doc.preview(&[]).unwrap().to_docx().unwrap())
+        );
+    }
+}
+
+#[test]
+fn physical_nested_tables_reject_hidden_merge_continuations_without_invalidating_peers() {
+    use rocx::editor::{TableOperation, TableStructureEdit};
+    let inner = r#"<w:tbl><w:tblGrid><w:gridCol w:w="1200"/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#;
+    let main = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblGrid><w:gridCol w:w="1200"/></w:tblGrid>
+      <w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr>{inner}<w:p/></w:tc></w:tr>
+      <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr>{inner}<w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let source = ImportedDocument::open(&fixture_with_body(&main)).unwrap();
+    let tables = source.part_tables(None).unwrap();
+    assert_eq!(
+        tables.iter().map(|t| t.depth).collect::<Vec<_>>(),
+        [0, 1, 1]
+    );
+    let edit = |i: usize| TableStructureEdit {
+        target: tables[i].anchor.clone(),
+        operation: TableOperation::InsertRow(1),
+    };
+    let owner = &tables[0].part_name;
+    assert!(
+        source
+            .edit_part_tables(owner, &[edit(1), edit(2)])
+            .unwrap_err()
+            .to_string()
+            .contains("protected")
+    );
+    let out = source.edit_part_tables(owner, &[edit(1)]).unwrap();
+    let readback = ImportedDocument::open(&out)
+        .unwrap()
+        .part_tables(None)
+        .unwrap();
+    assert_eq!(
+        readback
+            .iter()
+            .map(|t| t.row_properties.len())
+            .collect::<Vec<_>>(),
+        [2, 2, 1]
+    );
+}
+
+#[test]
+fn layout_rejects_duplicate_or_tracked_properties() {
+    use rocx::editor::{EditBatch, TableOperation, TableStructureEdit};
+    for (props, message) in [
+        ("<w:tblLayout/><w:tblLayout/>", "ambiguous table properties"),
+        ("<w:tblPrChange/>", "tracked table properties"),
+    ] {
+        let xml = format!(
+            r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblPr>{props}</w:tblPr><w:tblGrid><w:gridCol w:w="2400"/><w:gridCol/></w:tblGrid><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl></w:body></w:document>"#
+        );
+        let bytes = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let BodyBlock::Table(t) = &doc.body()[0] else {
+            panic!("table")
+        };
+        assert_eq!(t.grid_widths, [Some(2400), None]);
+        let err = doc
+            .preview_edits(EditBatch {
+                structural: &[TableStructureEdit {
+                    target: t.anchor.clone(),
+                    operation: TableOperation::Layout(Some(rocx::TableLayout::Fixed)),
+                }],
+                ..Default::default()
+            })
+            .expect_err("ambiguous properties must reject layout change");
+        assert!(err.to_string().contains(message), "{err}");
     }
 }
 

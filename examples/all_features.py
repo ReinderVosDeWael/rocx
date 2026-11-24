@@ -13,8 +13,8 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit,
-    TableInsertion, TextRangeEdit, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit, LayoutEdit, ImportedFraction,
+    TableInsertion, TextRangeEdit, TextInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -460,6 +460,9 @@ async def generate(output: pathlib.Path) -> bytes:
     styled = imported.preview([], style_edits=[
         StyleEdit.add(d.ParagraphStyleDefinition(name="Catalog Imported Child", base_style="Catalog Base")),
         StyleEdit.patch(imported.style_anchor("CatalogBase"), italic=True),
+        StyleEdit.field(imported.style_anchor("Regionfirst_row"), "b", None, region="firstRow"),
+        StyleEdit.region(imported.style_anchor("Regionlast_row"), "lastRow", d.TableSectionFormat(italic=True)),
+        StyleEdit.add(d.NumberingStyleDefinition(name="Catalog Imported List", numbering_id=60)),
     ])
     assert any(s.id == "CatalogImportedChild" and s.based_on == "CatalogBase"
                for s in ImportedDocument.open(styled.to_docx()).styles.styles)
@@ -486,11 +489,59 @@ async def generate(output: pathlib.Path) -> bytes:
                      (e.author == "Structured reviewer" if kind == "comment" else e.id == "0"))
         entry_run = next(n for n in entry.blocks[0].inline_structure if isinstance(n, ImportedRun) and
                    len(n.items) == 1 and n.items[0].kind == "text")
-        entries_output = source.edit_story_text(entry.part_name, [RunTextEdit(entry_run.anchor, f"Edited {kind} entry")])
+        label = f"Edited {kind} entry"
+        source = ImportedDocument.open(source.edit_story_text(entry.part_name, [RunTextEdit(entry_run.anchor, label)]))
+        entry = next(e for e in source.entry_stories if e.kind == kind and e.id == entry.id)
+        entry_run = next(n for n in entry.blocks[0].inline_structure if isinstance(n, ImportedRun) and
+                         n.items and n.items[0].kind == "text" and n.items[0].value == label)
+        review_link = await d.Hyperlink("https://example.com/entry-review", [d.TextRun("Review link")]).resolve()
+        entries_output = source.edit_entry_inlines(entry.part_name, [InlineEdit.insert_after(entry_run.anchor, review_link)])
+        source = ImportedDocument.open(entries_output)
+        entry = next(e for e in source.entry_stories if e.kind == kind and e.id == entry.id)
+        link_run = next(n.children[0] for n in entry.blocks[0].inline_structure if isinstance(n, ImportedHyperlink)
+                        and n.children[0].items[0].value == "Review link")
+        entries_output = source.edit_run_format([InlineEdit.patch_format(link_run.anchor, size=13.5)], owner_part=entry.part_name)
     output.with_suffix(".entry-text.docx").write_bytes(entries_output)
+    owner = next(e.part_name for e in entries if e.kind == "footnote")
+    note_body = next(p for p in imported.body if getattr(p, "text", None) == "Footnote reference; endnote reference")
+    created = imported.edit_note_reference(owner, note_body.inline_structure[0].anchor, "create", id=47, text="Lifecycle note")
+    appended = ImportedDocument.open(created).edit_entry(owner, "47", "insertParagraph", index=1, value="Second note paragraph")
+    lifecycle = ImportedDocument.open(appended).edit_entry(review.part_name, review.id, "initials", value="ED")
+    output.with_suffix(".entry-edits.docx").write_bytes(lifecycle)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
+    nodes = [n for b in imported.body for n in getattr(b, "inline_structure", ())]
+    def drawings(kind):
+        return [n.anchor for n in nodes if isinstance(n, ImportedRun) and n.drawing and n.drawing.kind == kind]
+    fraction = next(n for n in nodes if isinstance(n, ImportedFraction) and (n.numerator, n.denominator) == ("1", "2"))
+    edits = [InlineEdit.set_drawing_description(drawings("image")[0], "Edited picture"),
+             InlineEdit.set_image_asset(drawings("image")[1], await image("gif").resolve()),
+             InlineEdit.patch_drawing(drawings("shape")[2], "size", await d.ShapeRun(75, 25).resolve()),
+             InlineEdit.replace(drawings("shape")[0], await image("png").resolve()),
+             InlineEdit.remove_object(drawings("shape")[1]),
+             InlineEdit.replace(drawings("chart")[0], await d.ShapeRun(40, 20, text="Edited shape").resolve()),
+             InlineEdit.insert_after(label.anchor, await d.ColumnChartRun(120, 80, ["Edited"], [9]).resolve()),
+             InlineEdit.replace(fraction.anchor, await d.InlineFraction("3", "7").resolve())]
+    object_edit = imported.preview([], inline_edits=edits)
+    assert len(object_edit.inline_changes) == 8
+    next_doc = ImportedDocument.open(object_edit.to_docx())
+    chart = next(n for b in next_doc.body for n in getattr(b, "inline_structure", ())
+                 if isinstance(n, ImportedRun) and n.drawing and n.drawing.kind == "chart")
+    assert next_doc.chart_series(chart.anchor) == (["Edited"], [9.])
+    shape = next(n for b in next_doc.body for n in getattr(b, "inline_structure", ())
+                 if isinstance(n, ImportedRun) and n.drawing and n.drawing.shape_text == "Edited shape")
+    fork = next_doc.preview([], inline_edits=[
+        InlineEdit.patch_drawing(chart.anchor, "chartSeries", await d.ColumnChartRun(120, 80, ["Final", "Revised"], [12, 8]).resolve()),
+        InlineEdit.patch_drawing(shape.anchor, "shapeGeometry", await d.ShapeRun(10, 10, geometry="ellipse").resolve())])
+    after = ImportedDocument.open(fork.to_docx())
+    site = next(s for s in after.control_sites if s.context == "block" and s.text == EDIT_LABEL)
+    wrapped = ImportedDocument.open(after.preview_wrap_control(site, "object-sibling").to_docx())
+    note = next(e for e in wrapped.entry_stories if e.kind == "footnote" and e.id == "0")
+    note_run = next(n for n in note.blocks[0].inline_structure if isinstance(n, ImportedRun) and
+               len(n.items) == 1 and n.items[0].kind == "text")
+    output.with_suffix(".objects.docx").write_bytes(wrapped.edit_entry_inlines(note.part_name, [
+        InlineEdit.insert_after(note_run.anchor, await image("png").resolve())]))
     replacement = "Imported editor: replaced this run by its anchor. "
     inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
     targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]
@@ -499,15 +550,42 @@ async def generate(output: pathlib.Path) -> bytes:
         ("text", EDIT_LABEL),
     ]
     assert imported.core_title == "All features visual inspection" and imported.default_alignment is None
+    assert imported.document_defaults["sizeHalfPoints"] == 22
     assert any((s.abstract_id, s.level, s.start) == (100, 0, 1) for s in imported.abstract_starts)
     assert {(c.context, c.id) for c in imported.controls} >= {
         ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
     caption, = (c for c in imported.controls if c.id == "5001")
+    from rocx.editor import ControlProperties
+    status, = (c for c in imported.controls if c.tag == "review-status")
+    pending = ImportedDocument.open(imported.preview_control_choice(status.anchor, "pending").to_docx())
+    site, = (s for s in pending.control_sites if s.context == "block" and s.text == EDIT_LABEL)
+    wrapped = ImportedDocument.open(pending.preview_wrap_control(site, "workflow").to_docx())
+    workflow, = (c for c in wrapped.controls if c.tag == "workflow")
+    qualified = wrapped.preview_replace_control(workflow.anchor, ControlProperties(
+        alias="Imported plain-text sample", text_type="plain", multi_line=False)).to_docx()
+    plain = ImportedDocument.open(qualified)
+    sample, = (c for c in plain.controls if c.alias == "Imported plain-text sample")
+    assert sample.tag is None and sample.kind == "text"
+    plain.preview_unwrap_control(sample.anchor)
+    output.with_suffix(".controls.docx").write_bytes(qualified)
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
+                               style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Reviewed List", 9049))],
+                               text_insertions=[TextInsertion(targets[0].anchor, 8, " + point")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
                                           ResourceEdit.core_subject("Imported resource edits"),
+                                          ResourceEdit.metadata("creator", "Review team"),
+                                          ResourceEdit.metadata("manager", "Review lead"),
+                                          ResourceEdit.custom_property("Reviewed", False),
                                           ResourceEdit.default_alignment("center"),
-                                          ResourceEdit.abstract_start(100, 0, 7)],
+                                          ResourceEdit.document_default("bold", False),
+                                          ResourceEdit.document_default("footnoteStart", 5),
+                                          ResourceEdit.document_default("afterTwips", None),
+                                          ResourceEdit.abstract_start(100, 0, 7),
+                                          ResourceEdit.add_abstract(9048, [d.NumberingLevel(start=2)]),
+                                          ResourceEdit.instance_level(9049, 0, d.NumberingLevel(format="lowerRoman", text="(%1)")),
+                                          ResourceEdit.add_instance(9049, 9048),
+                                          ResourceEdit.instance_start(9049, 0, 6),
+                                          ResourceEdit.paragraph_numbering(targets[0].anchor, (9049, 0))],
                                controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
                                run_text=[RunTextEdit(label.anchor, replacement)],
                                paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
@@ -516,12 +594,29 @@ async def generate(output: pathlib.Path) -> bytes:
              if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     ]
     assert any(c.before == INLINE_LABEL for c in preview.run_text_changes)
-    whole = imported.preview([], inline_edits=[InlineEdit.set_bold(label.anchor, False),
+    assert label.italic is None
+    whole = imported.preview([], inline_edits=[InlineEdit.set_toggle(label.anchor, "italic", True),
+        InlineEdit.patch_format(label.anchor, size=12.5, clear=["font_east_asia"]),
         InlineEdit.insert_after(inline_link.anchor, await d.TextRun("Imported editor: inserted paragraph.").resolve())])
     assert whole.inline_changes[-1][1] == 1
+    field = await d.Field(d.FieldInstruction.page(), [d.TextRun("sample cache")]).resolve()
+    sample = ImportedDocument.open(imported.preview([], inline_edits=[
+        InlineEdit.insert_after(label.anchor, field),
+        InlineEdit.hyperlink_tooltip(inline_link.anchor, "Catalog link")]).to_docx())
+    sample_para = next(p for p in sample.body if getattr(p, "text", "").startswith(INLINE_LABEL))
+    assert sample.field_at(sample_para.anchor, 1).instruction == " PAGE "
+    from rocx.editor import FieldEdit, PairedRangeEdit
+    left, _, right = sample_para.inline_structure
+    marked = sample.preview([], fields=[FieldEdit.patch(sample_para.anchor, 1, "dirty", True)],
+        paired_ranges=[PairedRangeEdit(842901, "CatalogEditorRange", (left.anchor, right.anchor))],
+        inline_edits=[InlineEdit.hyperlink_history(right.anchor, True)]).to_docx()
+    assert any(m.name == "CatalogEditorRange" for m in ImportedDocument.open(marked).body_range_markers)
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
-    output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
+    edited_bytes = preview.to_docx()
+    resource_result = ImportedDocument.open(edited_bytes)
+    assert resource_result.metadata_field("manager") == "Review lead" and resource_result.custom_property("Reviewed") is False
+    output.with_suffix(".run-text.docx").write_bytes(edited_bytes)
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
     assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]
     assert inline_link.bookmark == "CatalogBookmark" and inline_link.relationship_id is None
@@ -559,6 +654,19 @@ async def generate(output: pathlib.Path) -> bytes:
     reopened_again = ImportedDocument.open(edited)
     other_cell = reopened_again.body[table_index].children[0].children[1]
     assert other_cell.blocks[0].inline_structure[1].anchor != suffix.anchor
+    # Layout sample: change the direct layout while preserving grid widths.
+    assert inserted.layout == "fixed" and inserted.grid_widths == [2160, 2160]
+    layout = reopened.preview([], table_structure=[TableStructureEdit.layout(inserted.anchor, "autofit")])
+    adjusted = ImportedDocument.open(layout.to_docx()).body[table_index]
+    assert adjusted.layout == "autofit" and adjusted.grid_widths == inserted.grid_widths
+    # Direct property sample: clear a single grid width.
+    cleared = reopened.preview([], table_structure=[TableStructureEdit.patch_property(inserted.anchor, "width", None, column=1)])
+    partial = ImportedDocument.open(cleared.to_docx()).body[table_index]
+    assert partial.grid_widths == [2160, None] and partial.properties["layout"] == {"type": "fixed"}
+    # Physical-owner sample: clear the nested 1440-twip table's direct layout.
+    nested = next(t for t in reopened.part_tables() if t.depth == 1 and t.grid_widths == [1440])
+    nested_copy = reopened.edit_part_tables(nested.part_name, [TableStructureEdit.layout(nested.anchor, None)])
+    assert "layout" not in next(t for t in ImportedDocument.open(nested_copy).part_tables() if t.path == nested.path).properties
     # Structural sample: append an empty row to this original table.
     appended = reopened.preview([], table_structure=[TableStructureEdit.insert_row(inserted.anchor, 1)])
     assert len(ImportedDocument.open(appended.to_docx()).body[table_index].children) == 2
@@ -587,13 +695,30 @@ async def generate(output: pathlib.Path) -> bytes:
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
     target = header_doc.body[2].anchor
+    layout = header_doc.preview_layout([LayoutEdit.paragraph(target, "space_after", 180),
+                                        LayoutEdit.section(header_doc.sections[1].anchor, "grid_pitch", 360)])
+    assert ImportedDocument.open(layout.to_docx()).sections[1].layout["grid_pitch"] == 360
+    split = header_doc.preview([], block_edits=[BlockEdit.split_section(header_doc.sections[1].anchor, 1)])
+    divided = ImportedDocument.open(split.to_docx())
+    assert len(divided.sections) == 3
+    merged = divided.preview([], block_edits=[BlockEdit.merge_section(divided.sections[1].anchor)])
+    assert len(ImportedDocument.open(merged.to_docx()).sections) == 2
+    addition = header_doc.preview_tracked_paragraph(target, "insertBefore", "Reviewer", text="Review this paragraph.", date=STAMP)
+    pending = ImportedDocument.open(addition.to_docx())
+    assert pending.body[2].mark_revision.kind == "insertion"
+    reviewed = pending.preview_paragraph_revision(pending.body[2].anchor, "reject")
+    assert len(ImportedDocument.open(reviewed.to_docx()).body) == len(header_doc.body)
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
-                 BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True)):
+                 BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True),
+                 BlockEdit.paragraph_flag(target, "keep_together", True),
+                 BlockEdit.section_flag(target, "rtl_gutter", True), BlockEdit.section_type(target, "evenPage")):
         assert header_doc.preview([], block_edits=[edit]).block_changes == [2]
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
     # Tracked replacement and paired move are independent opt-in previews.
     start, after = (header_doc.body[i].inline_structure[0].anchor for i in (0, 2))
+    proposal = header_doc.preview_tracked_bold(start, True, "Reviewer", STAMP)
+    assert ImportedDocument.open(proposal.to_docx()).body[0].inline_structure[0].property_revision.author == "Reviewer"
     tracked = header_doc.preview_tracked_text(start, "replace", "Reviewer", text="Reviewed label", date=STAMP)
     assert ImportedDocument.open(tracked.to_docx()).body[0].text == ""
     moved = header_doc.preview_tracked_move(start, after, "CatalogMove", "Reviewer", STAMP)
@@ -618,6 +743,14 @@ async def generate(output: pathlib.Path) -> bytes:
     assert [[item.value for item in header_doc.inline_at(run.anchor).items]
             for run in header_link.children] == [[text] for text in HEADER_LINK_RUNS]
     stories = header_doc.stories
+    rich = await d.Paragraph(children=[d.Hyperlink("https://example.com/story-block", [d.TextRun("Story block link")])]).resolve()
+    footer_slot = (1, "footer", "first")
+    created = ImportedDocument.open(header_doc.edit_story_reference(*footer_slot, "create", blocks=[rich]))
+    new_part = next(s.part_name for s in created.stories if (s.section_index,s.kind,s.variant) == footer_slot)
+    removed = ImportedDocument.open(created.edit_story_reference(*footer_slot, "remove"))
+    linked = ImportedDocument.open(removed.edit_story_reference(*footer_slot, "link", part_name=new_part))
+    output.with_suffix(".story-blocks.docx").write_bytes(linked.edit_story_blocks(
+        linked.default_headers[0].anchor, "section_local", 2, 0, [resolved_table, rich]))
     assert [(s.section_index, s.kind, s.variant, s.inherited) for s in stories] == [
         (index, kind, variant, bool(index))
         for index in range(2) for kind in ("header", "footer") for variant in variants

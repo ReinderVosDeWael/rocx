@@ -11,6 +11,9 @@ use crate::{HeaderFooterType, ResolvedImage, Result, SectionType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod block_edits;
+pub use block_edits::StoryReferenceEdit;
+
 const HEADER_MIME: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
 const FOOTER_MIME: &str =
@@ -211,7 +214,8 @@ impl ImportedDocument {
         let mut body_start = 0;
         section_slots(&root)?
             .into_iter()
-            .map(|(_, body_end, props)| {
+            .enumerate()
+            .map(|(index, (_, body_end, props))| {
                 let section_type_xml = if let Some(props) = props {
                     if props.child(ALTERNATE).is_some() {
                         return Err(unsupported("ambiguous section properties"));
@@ -230,6 +234,12 @@ impl ImportedDocument {
                 .into_iter()
                 .find(|value| Some(value.xml()) == section_type_xml);
                 Ok(ImportedSection {
+                    anchor: super::SectionAnchor {
+                        snapshot: self.snapshot.clone(),
+                        index,
+                    },
+                    layout: super::layout::inspect(props, true),
+                    flags: super::SectionFlag::read(props),
                     body_start: std::mem::replace(&mut body_start, body_end),
                     body_end,
                     section_type,
@@ -462,9 +472,14 @@ impl HeaderBatch<'_> {
         mut package: Package,
         main: &str,
         body: &mut Node,
+        mut resources: Option<crate::ooxml::HeaderImageResources>,
     ) -> Result<(Package, Vec<HeaderImageChange>)> {
         let mut changes = Vec::with_capacity(self.targets.len());
-        let mut resources = None;
+        let floor = if self.targets.is_empty() {
+            0
+        } else {
+            crate::ooxml::defaults::drawing_node_ceiling(body)
+        };
         for (&(index, kind, variant), edit) in &self.targets {
             let (mut header, change) =
                 self.prepare_image(&mut package, main, body, (index, kind, variant), edit.mode)?;
@@ -473,6 +488,7 @@ impl HeaderBatch<'_> {
                 main,
                 &change.output_part,
                 &edit.image,
+                floor,
                 &mut resources,
             )?;
             package = staged;
@@ -552,7 +568,7 @@ impl HeaderBatch<'_> {
 }
 
 #[derive(Clone, Copy)]
-enum Slot {
+pub(super) enum Slot {
     Paragraph(usize),
     Terminal,
 }
@@ -576,36 +592,31 @@ pub(super) fn rewrite_section_ranges<'a>(
     package: &Package,
     main: &str,
 ) -> Result<Vec<(std::ops::Range<usize>, Option<&'a Node>)>> {
+    let mut start = 0;
+    Ok(validated_section_slots(root, package, main)?
+        .into_iter()
+        .map(|(_, end, owner)| (std::mem::replace(&mut start, end)..end, owner))
+        .collect())
+}
+
+pub(super) fn validated_section_slots<'a>(
+    root: &'a Node,
+    package: &Package,
+    main: &str,
+) -> Result<Vec<(Slot, usize, Option<&'a Node>)>> {
     let slots = section_slots(root)?;
     for (_, _, owner) in &slots {
         if let Some(owner) = owner {
             only_child(owner, "w:type")?;
         }
     }
-    let body = root.child("w:body").ok_or_else(missing_body)?;
-    for p in body.elements().filter(|n| n.name == "w:p") {
-        if p.elements().any(|n| {
-            if n.name == "w:pPr" {
-                n.elements()
-                    .any(|prop| prop.name != "w:sectPr" && contains_section(prop))
-            } else {
-                contains_section(n)
-            }
-        }) {
-            return Err(unsupported("non-direct section boundary"));
-        }
-    }
     for kind in [SectionStoryKind::Header, SectionStoryKind::Footer] {
         story_sections(package, main, &slots, kind)?;
     }
-    let mut start = 0;
-    Ok(slots
-        .into_iter()
-        .map(|(_, end, owner)| (std::mem::replace(&mut start, end)..end, owner))
-        .collect())
+    Ok(slots)
 }
 
-fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
+pub(super) fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
     let body = only_child(root, "w:body")?.ok_or_else(missing_body)?;
     let mut slots = Vec::new();
     let mut terminal = None;
@@ -627,11 +638,17 @@ fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
                     if let Some(section) = only_child(props, "w:sectPr")? {
                         slots.push((Slot::Paragraph(index), body_end, Some(section)));
                     }
-                    if props.elements().any(hides_section) {
+                    if props
+                        .elements()
+                        .any(|prop| prop.name != "w:sectPr" && contains_section(prop))
+                    {
                         return Err(unsupported("ambiguous section properties"));
                     }
                 }
-                if node.elements().any(hides_section) {
+                if node
+                    .elements()
+                    .any(|n| n.name != "w:pPr" && contains_section(n))
+                {
                     return Err(unsupported("ambiguous section properties"));
                 }
             }
@@ -722,10 +739,6 @@ fn contains_section(node: &Node) -> bool {
         || (node.name != "w:txbxContent" && node.elements().any(contains_section))
 }
 
-fn hides_section(node: &Node) -> bool {
-    node.name == ALTERNATE && contains_section(node)
-}
-
 fn set_story_reference(
     body: &mut Node,
     kind: SectionStoryKind,
@@ -734,16 +747,7 @@ fn set_story_reference(
     id: &str,
 ) -> Result<()> {
     let variant = VARIANTS[variant].xml();
-    let props = match slot {
-        Slot::Terminal => body.ensure("w:sectPr"),
-        Slot::Paragraph(index) => match body.children.get_mut(index) {
-            Some(Content::Element(paragraph)) => paragraph
-                .child_mut("w:pPr")
-                .and_then(|props| props.child_mut("w:sectPr"))
-                .ok_or_else(|| unsupported("section properties not found"))?,
-            _ => return Err(unsupported("section paragraph not found")),
-        },
-    };
+    let props = section_props(body, slot)?;
     let existing = props
         .elements_mut()
         .find(|node| node.name == kind.part_type().0 && node.get("w:type") == Some(variant));
@@ -757,6 +761,19 @@ fn set_story_reference(
         );
     }
     Ok(())
+}
+
+pub(super) fn section_props(body: &mut Node, slot: Slot) -> Result<&mut Node> {
+    Ok(match slot {
+        Slot::Terminal => body.ensure("w:sectPr"),
+        Slot::Paragraph(index) => match body.children.get_mut(index) {
+            Some(Content::Element(paragraph)) => paragraph
+                .child_mut("w:pPr")
+                .and_then(|props| props.child_mut("w:sectPr"))
+                .ok_or_else(|| unsupported("section properties not found"))?,
+            _ => return Err(unsupported("section paragraph not found")),
+        },
+    })
 }
 
 fn check_copy(node: &mut Node, links: &[(String, String)]) -> Result<()> {
@@ -796,6 +813,21 @@ fn check_copy(node: &mut Node, links: &[(String, String)]) -> Result<()> {
             | "w:keepNext"
             | "w:keepLines"
             | "w:widowControl"
+            | "w:tbl"
+            | "w:tblPr"
+            | "w:tblGrid"
+            | "w:gridCol"
+            | "w:tblW"
+            | "w:tblStyle"
+            | "w:tblLayout"
+            | "w:tblLook"
+            | "w:tr"
+            | "w:tc"
+            | "w:tcPr"
+            | "w:tcW"
+            | "w:gridSpan"
+            | "w:vMerge"
+            | "w:vAlign"
     ) {
         return Err(unsupported(
             "header contains content that cannot be safely copied",

@@ -62,7 +62,7 @@ fn axis(kind: &str, id: u32, side: &str, crosses: u32) -> Node {
         .with(val("crosses", "autoZero"))
 }
 
-fn chart_space(chart: &ColumnChartProperties) -> Node {
+pub(crate) fn chart_space(chart: &ColumnChartProperties) -> Node {
     let count = chart.categories.len();
     let mut labels = c("strLit").with(val("ptCount", count));
     let mut values = c("numLit")

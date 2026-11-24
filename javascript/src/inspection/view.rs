@@ -45,6 +45,17 @@ fn optional(result: &JsValue, key: &str, value: Option<&str>) {
         b::set(result, key, &value.into());
     }
 }
+pub(super) fn table_properties(properties: &rocx::editor::DirectTableProperties) -> JsValue {
+    let record = b::record(&[]);
+    for (key, attrs) in properties {
+        let attr = b::record(&[]);
+        for (k, v) in attrs {
+            b::set(&attr, k, &v.as_str().into());
+        }
+        b::set(&record, key, &attr);
+    }
+    record
+}
 
 pub(super) fn cached<K: Eq + Hash, T: Clone + 'static>(
     cache: &RefCell<HashMap<K, JsValue>>,
@@ -80,21 +91,53 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
             );
             optional(&result, "alignment", p.alignment.map(alignment));
             optional(&result, "alignmentXml", p.alignment_xml.as_deref());
+            b::set(&result, "layout", &layout(&p.layout));
+            revision_metadata(&result, "markRevision", p.mark_revision.as_ref());
+            b::set(
+                &result,
+                "flags",
+                &b::record(
+                    &p.flags
+                        .iter()
+                        .map(|(f, v)| (f.name(), (*v).into()))
+                        .collect::<Vec<_>>(),
+                ),
+            );
             result
         }
-        BodyBlock::Table(t) => record(
-            "table",
-            &[
-                (
-                    "anchor",
-                    cached(&anchors.tables, index, "tableAnchor", &t.anchor),
-                ),
-                (
-                    "children",
-                    try_array(t.children.iter().map(|child| table_child(child, anchors)))?,
-                ),
-            ],
-        ),
+        BodyBlock::Table(t) => {
+            let result = record(
+                "table",
+                &[
+                    ("properties", table_properties(&t.properties)),
+                    (
+                        "anchor",
+                        cached(&anchors.tables, index, "tableAnchor", &t.anchor),
+                    ),
+                    (
+                        "gridWidths",
+                        array(
+                            t.grid_widths
+                                .iter()
+                                .map(|w| w.map_or(JsValue::NULL, JsValue::from)),
+                        ),
+                    ),
+                    (
+                        "children",
+                        try_array(t.children.iter().map(|child| table_child(child, anchors)))?,
+                    ),
+                ],
+            );
+            optional(
+                &result,
+                "layout",
+                t.layout.map(|v| match v {
+                    rocx::TableLayout::Fixed => "fixed",
+                    rocx::TableLayout::Autofit => "autofit",
+                }),
+            );
+            result
+        }
         BodyBlock::ContentControl(control) => {
             let result = record("contentControl", &[]);
             optional(&result, "tag", control.tag.as_deref());
@@ -111,10 +154,13 @@ fn table_child(child: &ImportedTableChild, anchors: &Anchors) -> Result<JsValue>
     Ok(match child {
         ImportedTableChild::Row(row) => record(
             "row",
-            &[(
-                "children",
-                try_array(row.children.iter().map(|child| row_child(child, anchors)))?,
-            )],
+            &[
+                ("properties", table_properties(&row.properties)),
+                (
+                    "children",
+                    try_array(row.children.iter().map(|child| row_child(child, anchors)))?,
+                ),
+            ],
         ),
         ImportedTableChild::Opaque(name) => opaque(name),
         _ => return Err(unmodeled("table child")),
@@ -123,36 +169,47 @@ fn table_child(child: &ImportedTableChild, anchors: &Anchors) -> Result<JsValue>
 
 fn row_child(child: &ImportedRowChild, anchors: &Anchors) -> Result<JsValue> {
     Ok(match child {
-        ImportedRowChild::Cell(cell) => record(
-            "cell",
-            &[(
-                "blocks",
-                try_array(
-                    cell.blocks
-                        .iter()
-                        .enumerate()
-                        .map(|(i, block)| match block {
-                            ImportedCellBlock::Paragraph(values) => {
-                                let nodes = cell.inline_structure(i).ok_or_else(|| {
-                                    Failure::invalid(
-                                        "",
-                                        "missing Rust cell paragraph inline structure",
-                                    )
-                                })?;
-                                Ok(record(
-                                    "paragraph",
-                                    &[
-                                        ("inlineItems", items(values)?),
-                                        ("inlineStructure", inline_nodes(nodes, anchors, None)?),
-                                    ],
-                                ))
-                            }
-                            ImportedCellBlock::Opaque(name) => Ok(opaque(name)),
-                            _ => Err(unmodeled("cell block")),
-                        }),
-                )?,
-            )],
-        ),
+        ImportedRowChild::Cell(cell) => {
+            let result =
+                record(
+                    "cell",
+                    &[
+                        ("properties", table_properties(&cell.properties)),
+                        (
+                            "blocks",
+                            try_array(cell.blocks.iter().enumerate().map(
+                                |(i, block)| match block {
+                                    ImportedCellBlock::Paragraph(values) => {
+                                        let nodes = cell.inline_structure(i).ok_or_else(|| {
+                                            Failure::invalid(
+                                                "",
+                                                "missing Rust cell paragraph inline structure",
+                                            )
+                                        })?;
+                                        Ok(record(
+                                            "paragraph",
+                                            &[
+                                                ("inlineItems", items(values)?),
+                                                (
+                                                    "inlineStructure",
+                                                    inline_nodes(nodes, anchors, None)?,
+                                                ),
+                                            ],
+                                        ))
+                                    }
+                                    ImportedCellBlock::Opaque(name) => Ok(opaque(name)),
+                                    _ => Err(unmodeled("cell block")),
+                                },
+                            ))?,
+                        ),
+                    ],
+                );
+            if let Some(span) = cell.grid_span {
+                b::set(&result, "gridSpan", &span.into());
+            }
+            optional(&result, "verticalMerge", cell.vertical_merge.as_deref());
+            result
+        }
         ImportedRowChild::Opaque(name) => opaque(name),
         _ => return Err(unmodeled("row child")),
     })
@@ -166,6 +223,13 @@ fn items(items: &[ImportedInline]) -> Result<JsValue> {
     try_array(items.iter().map(|item| {
         Ok(match item {
             ImportedInline::Text(value) => record("text", &[("text", value.as_str().into())]),
+            ImportedInline::NoteReference { kind, id } => record(
+                match kind {
+                    rocx::NoteKind::Footnote => "footnoteReference",
+                    rocx::NoteKind::Endnote => "endnoteReference",
+                },
+                &[("id", id.as_str().into())],
+            ),
             ImportedInline::Tab => record("tab", &[]),
             ImportedInline::Break(value) => record(
                 "break",
@@ -228,13 +292,78 @@ pub(super) fn inline_node(
             .clone()
     };
     Ok(match node {
-        ImportedInlineNode::Run(run) => record(
-            "run",
+        ImportedInlineNode::Fraction {
+            anchor,
+            numerator,
+            denominator,
+        } => record(
+            "fraction",
             &[
-                ("anchor", token(&run.anchor)),
-                ("items", items(&run.items)?),
+                ("anchor", token(anchor)),
+                ("numerator", numerator.as_str().into()),
+                ("denominator", denominator.as_str().into()),
             ],
         ),
+        ImportedInlineNode::Run(run) => {
+            let result = record(
+                "run",
+                &[
+                    ("anchor", token(&run.anchor)),
+                    ("hasOpaqueFormatting", run.has_opaque_formatting.into()),
+                    ("format", crate::text_layout::run_format_view(&run.format)),
+                    ("items", items(&run.items)?),
+                ],
+            );
+            for (key, value) in [
+                ("bold", run.bold),
+                ("italic", run.italic),
+                ("strike", run.strike),
+                ("hidden", run.hidden),
+            ] {
+                if let Some(value) = value {
+                    b::set(&result, key, &value.into());
+                }
+            }
+            revision_metadata(&result, "propertyRevision", run.property_revision.as_ref());
+            if let Some(d) = &run.drawing {
+                let drawing = record(d.kind, &[("placement", d.placement.into())]);
+                optional(&drawing, "relationshipId", d.relationship_id.as_deref());
+                optional(&drawing, "description", d.description.as_deref());
+                for (key, value) in [
+                    ("title", &d.title),
+                    ("name", &d.name),
+                    ("geometry", &d.geometry),
+                    ("shapeText", &d.shape_text),
+                ] {
+                    optional(&drawing, key, value.as_deref());
+                }
+                if let Some(crop) = d.crop {
+                    b::set(
+                        &drawing,
+                        "crop",
+                        &array(crop.into_iter().map(JsValue::from)),
+                    );
+                }
+                if let Some(rot) = d.rotation {
+                    b::set(&drawing, "rotation", &rot.into());
+                }
+                for (key, value) in [
+                    ("flipHorizontal", d.flip_horizontal),
+                    ("flipVertical", d.flip_vertical),
+                ] {
+                    if let Some(v) = value {
+                        b::set(&drawing, key, &v.into());
+                    }
+                }
+                for (key, v) in [("widthEmu", d.width_emu), ("heightEmu", d.height_emu)] {
+                    if let Some(v) = v {
+                        b::set(&drawing, key, &(v as f64).into());
+                    }
+                }
+                b::set(&result, "drawing", &drawing);
+            }
+            result
+        }
         ImportedInlineNode::Hyperlink(link) => {
             let result = record(
                 "hyperlink",
@@ -245,6 +374,8 @@ pub(super) fn inline_node(
             );
             optional(&result, "relationshipId", link.relationship_id.as_deref());
             optional(&result, "bookmark", link.bookmark.as_deref());
+            optional(&result, "tooltip", link.tooltip.as_deref());
+            optional(&result, "historyXml", link.history_xml.as_deref());
             result
         }
         ImportedInlineNode::Revision(revision) => {
@@ -269,6 +400,20 @@ pub(super) fn inline_node(
     })
 }
 
+fn revision_metadata(
+    result: &JsValue,
+    key: &str,
+    change: Option<&rocx::editor::ImportedPropertyRevision>,
+) {
+    if let Some(change) = change {
+        let metadata = record(change.kind, &[]);
+        optional(&metadata, "author", change.author.as_deref());
+        optional(&metadata, "id", change.id.as_deref());
+        optional(&metadata, "date", change.date.as_deref());
+        b::set(result, key, &metadata);
+    }
+}
+
 fn alignment(value: Alignment) -> &'static str {
     match value {
         Alignment::Left => "left",
@@ -283,9 +428,59 @@ fn alignment(value: Alignment) -> &'static str {
     }
 }
 
-pub(super) fn section(section: &ImportedSection) -> JsValue {
+fn layout(
+    fields: &std::collections::BTreeMap<rocx::editor::LayoutField, rocx::editor::LayoutValue>,
+) -> JsValue {
+    use rocx::editor::LayoutValue::*;
+    let out = b::record(&[]);
+    for (f, v) in fields {
+        let value = match v {
+            Integer(i) => (*i).into(),
+            Token(s) => s.as_str().into(),
+            Boolean(b) => (*b).into(),
+            Border(b) => {
+                let edge = b::record(&[]);
+                if let Some(i) = b.size {
+                    b::set(&edge, "size", &i.into())
+                }
+                if let Some(i) = b.space {
+                    b::set(&edge, "space", &i.into())
+                }
+                optional(&edge, "color", b.color.as_deref());
+                edge
+            }
+            Tabs(tabs) => array(tabs.iter().map(|t| {
+                let n = b::record(&[
+                    ("position", t.position.into()),
+                    ("alignment", t.alignment.as_str().into()),
+                ]);
+                optional(&n, "leader", t.leader.as_deref());
+                n
+            })),
+        };
+        b::set(&out, &f.name(), &value)
+    }
+    out
+}
+
+pub(super) fn section(section: &ImportedSection, index: usize, anchors: &Anchors) -> JsValue {
     let result = b::record(&[
         ("bodyStart", section.body_start.into()),
+        (
+            "anchor",
+            cached(&anchors.sections, index, "sectionAnchor", &section.anchor),
+        ),
+        ("layout", layout(&section.layout)),
+        (
+            "flags",
+            b::record(
+                &section
+                    .flags
+                    .iter()
+                    .map(|(f, v)| (f.name(), (*v).into()))
+                    .collect::<Vec<_>>(),
+            ),
+        ),
         ("bodyEnd", section.body_end.into()),
     ]);
     optional(

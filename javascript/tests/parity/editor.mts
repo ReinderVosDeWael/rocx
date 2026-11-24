@@ -7,8 +7,9 @@ import {
 } from "rocx-docx";
 
 export const editorSources = [
-  "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid",
+  "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source", "layout-source",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "physical-table-source",
+  "control-choice-source", "paired-source", "format-owners-source", "rich-control-source", "field-batch-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -101,9 +102,15 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   check(normal?.kind === "paragraph" && normal.kindXml === "paragraph"
     && normal.name === "Normal", "typed Normal style metadata");
   const edge = (await openDocx(input["styles-edge"])).styles();
-  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future" },
-    { kind: "missing" }], "unknown and missing style kinds");
-  check((await openDocx(input["styles-missing"])).styles() === undefined, "missing styles relationship");
+  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future", propertyXml: [] },
+    { kind: "missing", propertyXml: [] }], "unknown and missing style kinds");
+  const missingStyles = await openDocx(input["styles-missing"]);
+  check(missingStyles.styles() === undefined, "missing styles relationship");
+  const newDefaults = await openDocx(missingStyles.preview({
+    resources: [{kind: "documentDefault", field: "bold", value: false}],
+  }).toDocx());
+  check(newDefaults.documentDefaults().bold === false && missingStyles.styles() === undefined,
+    "creating a direct run default must allocate a styles part only in the preview");
   const invalidStyles = await openDocx(input["styles-invalid"]);
   rejects(() => invalidStyles.styles(), /invalid styles root/);
   const start = paragraph(doc, 0).anchor;
@@ -226,6 +233,7 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   same(final.blockChanges(), [5], "retry after rejected batch");
   let tableStructure = bytes;
   const steps: ((target: TableAnchor) => TableStructureEdit)[] = [
+    target => ({target, kind: "layout", value: null}), target => ({target, kind: "layout", value: "autofit"}),
     target => ({target, kind: "insertRow", index: 1}), target => ({target, kind: "removeRow", index: 1}),
     target => ({target, kind: "insertColumn", index: 1}), target => ({target, kind: "removeColumn", index: 1}),
     target => ({target, kind: "insertCell", row: 0, cell: 1}), target => ({target, kind: "removeCell", row: 0, cell: 1}),
@@ -238,6 +246,11 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
     rejects(() => reopened.preview({tableStructure: [edit]}), /different document snapshot/);
     rejects(() => source.preview({tableStructure: [edit, edit]}), /exclusive|duplicate/);
     tableStructure = source.preview({tableStructure: [edit]}).toDocx();
+    if (edit.kind === "layout") {
+      const adjusted = (await openDocx(tableStructure)).body()[5];
+      check(adjusted.kind === "table" && adjusted.layout === (edit.value ?? undefined), "direct layout");
+      same(adjusted.gridWidths, table.gridWidths, "preserved widths");
+    }
   }
   return { tableStructure, body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes, blocks: final.toDocx() };
 }
@@ -412,25 +425,355 @@ async function editControls(fixtures: Fixtures) {
   rejects(() => controlled.preview({ controls: [edits[0], edits[0]] }), /duplicate/);
   const stale = await openDocx(fixtures["control-source"]);
   rejects(() => stale.preview({ controls: edits }), /snapshot/);
-  return controlled.preview({ controls: edits }).toDocx();
+  const source = await openDocx(fixtures["control-choice-source"]);
+  const [choice] = source.controls();
+  const items = [{displayText:"First",value:"1"},{displayText:"Second",value:"2"}];
+  same([choice.kind, choice.selected, choice.choices], ["dropDownList","1",items], "drop-down inspection");
+  rejects(() => source.previewControlChoice({target:choice.anchor,selected:"absent"}), /unknown/);
+  rejects(() => source.previewControlChoice({target:choice.anchor,selected:"1",choices:[items[0],items[0]]}), /unique/);
+  rejects(() => controlled.previewControlChoice({target:choice.anchor,selected:"2"}), /snapshot/);
+  rejects(() => controlled.previewUnwrapControl(block), /locked/);
+  rejects(() => controlled.previewUnwrapControl(bound), /bound/);
+  rejects(() => controlled.previewUnwrapControl(inline), /opaque/);
+  const selected = await openDocx(source.previewControlChoice({target:choice.anchor,selected:"2"}).toDocx());
+  const [second] = selected.controls();
+  same([second.selected,second.choices],["2",items],"retain choices");
+  let data = selected.previewControlChoice({target:second.anchor, selected:"R",choices:[{displayText:" Revised ",value:"R"}]}).toDocx();
+  const contexts = ["block","inline","row","cell"];
+  for (const ctx of contexts) {
+    const target = await openDocx(data);
+    const site = target.controlSites().find(s => s.context === ctx && s.text === ctx)!;
+    rejects(() => source.previewWrapControl({target:site.anchor, tag:"bad"}), /snapshot/);
+    data = target.previewWrapControl({target:site.anchor, tag:ctx}).toDocx();
+  }
+  const beforeReplace = await openDocx(data);
+  const props = {tag:"inline", text:{kind:"plain",multiLine:false}, id:42} as const;
+  rejects(() => beforeReplace.previewReplaceControl({target:beforeReplace.controls().find(c => c.tag === "row")!.anchor,properties:props}), /rich text/);
+  data = beforeReplace.previewReplaceControl({target:beforeReplace.controls().find(c => c.tag === "inline")!.anchor,properties:props}).toDocx();
+  const replaced = await openDocx(data);
+  const plain = replaced.controls().find(c => c.tag === "inline")!;
+  same([plain.kind,plain.multiLine,plain.id], ["text","0","42"], "replacement");
+  rejects(() => replaced.previewReplaceControl({target:replaced.controls().find(c => c.tag === "row")!.anchor,properties:{id:42}}), /duplicate/);
+  const controlWrapped = data;
+  for (const ctx of contexts) {
+    const target = await openDocx(data);
+    const wrap = target.controls().find(s => s.context === ctx && s.tag === ctx)!;
+    data = target.previewUnwrapControl(wrap.anchor).toDocx();
+  }
+  const run = (d: ImportedDocument, p:number, i:number) => {
+    const r=paragraph(d,p).inlineStructure[i]; check(r.kind==="run","expected run"); return r;
+  };
+  const anchor=run(source,0,0).anchor;
+  const marked=await openDocx(source.setPairedRange({id:90,bookmark:"Guard",endpoints:[anchor,anchor]}));
+  check(!marked.controlSites().some(s=>s.text==="block"),"control site inside bookmark");
+  rejects(()=>marked.previewTrackedBold({target:run(marked,0,1).anchor,bold:false,author:"Reviewer"}),/protected/);
+  const unmarked=await openDocx(marked.setPairedRange({id:90,bookmark:"Guard"}));
+  const proposal=await openDocx(unmarked.previewTrackedBold({target:run(unmarked,0,0).anchor,bold:false,author:"Reviewer"}).toDocx());
+  const revised=run(proposal,0,0), other=run(proposal,1,0).anchor;
+  check(!proposal.controlSites().some(s=>s.text==="block"),"control site over pending revision");
+  rejects(()=>proposal.setPairedRange({id:Number(revised.propertyRevision!.id),bookmark:"Other",endpoints:[other,other]}),/collides/);
+  const accepted=await openDocx(proposal.previewRevision({target:revised.anchor,action:"accept"}).toDocx());
+  const reviewedSite=accepted.controlSites().find(s=>s.context==="block" && s.text==="block")!;
+  const guardedWorkflow=accepted.previewWrapControl({target:reviewedSite.anchor,tag:"reviewed"}).toDocx();
+  const rich = await openDocx(fixtures["rich-control-source"]);
+  const stories = rich.storyControls();
+  same(stories.map(c => c.ownerPart).sort(), ["word/comments.xml","word/endnotes.xml","word/footer1.xml","word/footnotes.xml","word/header1.xml"],"physical story controls");
+  same(stories.filter(c => c.entryIndex !== undefined).map(c => c.entryId).sort(),["0","1","1"],"entry identities");
+  rejects(() => rich.previewUnwrapControl(stories[0].anchor),/read-only/);
+  const site = (ctx:string,label:string) => rich.controlSites().find(s => s.context===ctx && s.text===label)!.anchor;
+  const wrap = (ctx:string,first:string,last:string,tag:string) => ({kind:"wrap" as const,target:site(ctx,first),last:site(ctx,last),tag});
+  const [targetBlock,targetInline,locked]=rich.controls();
+  const [a,b,adjacent] = await Promise.all(["A","B","adjacent"].map(s => resolveComponent(text(s))));
+  const picture = await resolveComponent({kind:"image",data:fixtures.image});
+  const caption = await resolveComponent({kind:"text",text:"picture:"});
+  check(a && b && adjacent && picture && caption,"rich payloads");
+  const first = wrap("block","range start","range end","group");
+  const wrappers = [first,wrap("inline","one","two","runs"),
+    {kind:"replaceBlocks" as const,target:targetBlock.anchor,blocks:[a,b]},
+    {kind:"replaceInlines" as const,target:targetInline.anchor,inlines:[caption,picture]}];
+  const fieldIndex = rich.body().findIndex(p=>p.kind==="paragraph" && p.text.startsWith("mixed-field left"));
+  const fieldPara = paragraph(rich,fieldIndex);
+  const fields = [{target:fieldPara.anchor,inlineIndex:1,op:"patch",property:"dirty",value:true}] as const;
+  const pairedRanges = [{id:91,bookmark:"MixedControl",endpoints:[run(rich,fieldIndex,0).anchor,run(rich,fieldIndex,2).anchor]}] as const;
+  rejects(()=>rich.preview({wrappers:[first,{kind:"replaceBlocks",target:locked.anchor,blocks:[a]}]}),/locked/);
+  rejects(()=>rich.preview({wrappers,alignments:[{target:paragraph(rich,1).anchor,alignment:"center"}]}),/conflicting/);
+  rejects(()=>rich.preview({wrappers,pairedRanges:[{id:92,bookmark:"Crossed",endpoints:[run(rich,1,0).anchor,run(rich,3,0).anchor]}]}),/conflicting/);
+  const mixed = rich.preview({wrappers,fields,pairedRanges,paragraphInsertions:[{target:paragraph(rich,0).anchor,paragraph:adjacent}],
+    inlineEdits:[{kind:"insertAfter",target:run(rich,0,0).anchor,inline:picture},
+      {kind:"patchFormat",target:run(rich,fieldIndex,0).anchor,format:{size:13.5}}],
+    headerImages:[{target:rich.defaultHeaders()[0].view.anchor,mode:"shared",image:picture.view.image}]}).toDocx();
+  const promoted = await openDocx(mixed);
+  const protectedIndex = promoted.body().findIndex(p=>p.kind==="paragraph" && p.text.startsWith("mixed-field left"));
+  rejects(()=>promoted.previewTrackedBold({target:run(promoted,protectedIndex,1).anchor,bold:false,author:"Reviewer"}),/protected/);
+  const richUnwrapped = promoted.preview({wrappers:promoted.controls().filter(c=>["group","runs"].includes(c.tag??""))
+    .map(c=>({kind:"unwrap",target:c.anchor}))}).toDocx();
+  return {guardedWorkflow, richControls:mixed, richUnwrapped, controlWrapped, controlUnwrapped:data, controlEdits:controlled.preview({ controls: edits }).toDocx()};
 }
 
+async function fieldsAndRanges(bytes:Uint8Array) {
+  let d=await openDocx(bytes);
+  const field=await resolveComponent({kind:"field",instruction:{kind:"page"},children:[{kind:"text",text:"new cache"}],properties:{form:"complex"}});
+  check(field,"field resolved");
+  const old=paragraph(d,0).anchor;
+  d=await openDocx(d.replaceField({target:old,inlineIndex:0,field}));
+  rejects(()=>d.patchField({target:old,inlineIndex:0,property:"dirty",value:true}),/snapshot/);
+  d=await openDocx(d.patchField({target:paragraph(d,0).anchor,inlineIndex:0,property:"instruction",value:" NUMPAGES "}));
+  same(d.fieldAt({target:paragraph(d,0).anchor,inlineIndex:0}),{complex:true,inlineCount:5,instruction:" NUMPAGES "},"inspected complex field");
+  const at=(p:number,i:number)=>{
+    const n=paragraph(d,p).inlineStructure[i];
+    check(n.kind==="run" || n.kind==="hyperlink","range endpoint");return n.anchor;
+  };
+  d=await openDocx(d.preview({inlineEdits:[{kind:"hyperlinkTooltip",target:at(2,0),value:"hover"}]}).toDocx());
+  const inspected=paragraph(d,2).inlineStructure[0];
+  check(inspected.kind==="hyperlink" && inspected.tooltip==="hover","inspected tooltip");
+  rejects(()=>d.setPairedRange({id:0,endpoints:[at(3,0),at(2,0)]}),/reversed/);
+  d=await openDocx(d.setPairedRange({id:0,endpoints:[at(2,0),at(3,0)]}));
+  same(d.bodyRangeMarkers().map(m=>[m.kind,m.bodyIndex,m.inlineIndex,m.id]),[["commentRangeStart",2,0,"0"],["commentRangeEnd",3,1,"0"],["commentReference",3,2,"0"]],"physical comment markers");
+  const removed=await openDocx(d.setPairedRange({id:0}));
+  check(paragraph(removed,2).inlineStructure.length===1 && paragraph(removed,3).inlineStructure.length===1 && removed.entryStories().length===1,"paired removal preserves comment definition");
+  return d.setPairedRange({id:7,bookmark:"Crossing",endpoints:[at(1,0),at(2,1)]});
+}
+async function mixedFields(bytes: Uint8Array) {
+  const d = await openDocx(bytes);
+  const at = (p: number, i: number) => {
+    const n = paragraph(d,p).inlineStructure[i];
+    check(n.kind === "run" || n.kind === "hyperlink", "original inline target");
+    return n.anchor;
+  };
+  const payload = await resolveComponent({kind:"paragraph", runs:[
+    {kind:"hyperlink", target:{kind:"external",url:"https://example.invalid/cache"}, children:[{kind:"text",text:"remote"}]},
+    {kind:"hyperlink", target:{kind:"bookmark",name:"BatchMark"}, children:[{kind:"text",text:"jump"}]},
+  ]});
+  check(payload, "cache payload");
+  const target = paragraph(d,0).anchor, crossing = paragraph(d,4).anchor;
+  const info = d.fieldAt({target:crossing, inlineIndex:1});
+  same([info.inlineCount,info.instruction,info.lockedXml],[6," PAGE ","1"],"cross-paragraph field metadata");
+  const fields: NonNullable<EditBatch["fields"]> = [
+    {target:crossing,inlineIndex:1,op:"cache",children:payload.view.runs},
+    {target:crossing,inlineIndex:1,op:"patch",property:"dirty",value:false},
+    {target,inlineIndex:0,op:"patch",property:"dirty",value:true},
+    {target,inlineIndex:0,op:"patch",property:"instruction",value:" NUMPAGES "},
+  ];
+  const batch: EditBatch = {fields,
+    pairedRanges:[
+      {id:0,endpoints:[at(2,0),at(3,0)]},
+      {id:7,bookmark:"BatchMark",endpoints:[at(1,1),at(2,0)]},
+    ],
+    inlineEdits:[{kind:"hyperlinkHistory",target:at(2,0),value:false},{kind:"hyperlinkTooltip",target:at(2,0),value:"Batch tooltip"}],
+  };
+  const stale = await openDocx(bytes);
+  rejects(() => stale.preview(batch), /snapshot/);
+  rejects(() => d.preview({...batch, fields:[...fields,fields[1]]}), /duplicate field property/);
+  rejects(() => d.preview({...batch, inlineEdits:[...batch.inlineEdits!,batch.inlineEdits![0]]}), /duplicate/);
+  rejects(() => d.preview({...batch, runRemovals:[at(5,0)]}), /conflicting/);
+  const out = d.preview(batch).toDocx();
+  bytesEqual(d.preview({...batch, fields:[...fields].reverse(),pairedRanges:[...batch.pairedRanges!].reverse()}).toDocx(),out,"mixed batch order");
+  return out;
+}
 export async function run(fixtures: Fixtures) {
+  let physicalTables:Uint8Array=fixtures["physical-table-source"];
+  for (const [owner,depth] of [[undefined,1],["word/footer1.xml",1],["word/comments.xml",0]] as const) {
+    const source=await openDocx(physicalTables);
+    const nodes=source.partTables(owner);
+    same(nodes.map(t=>t.depth),depth===1?[0,1]:[0],"physical table depths");
+    const t=nodes[depth];
+    check(t.anchor===source.partTables(t.partName)[depth].anchor,"stable physical table handle");
+    if(depth===0) same(t.entryId,"0","comment identity");
+    const op:TableStructureEdit=owner===undefined?{target:t.anchor,kind:"insertRow",index:1}:
+      depth===1?{target:t.anchor,kind:"layout",value:"fixed"}:{target:t.anchor,kind:"patchProperty",column:0,field:"width",source:null};
+    rejects(()=>source.preview({tableStructure:[op]}),/physical table anchor/);
+    rejects(()=>source.editPartTables({ownerPart:"word/styles.xml",tableStructure:[op]}),/owner mismatch/);
+    if(depth===1) rejects(()=>source.editPartTables({ownerPart:t.partName,tableStructure:[op,{target:nodes[0].anchor,kind:"insertRow",index:1}]}),/overlapping/);
+    const other=await openDocx(physicalTables);
+    rejects(()=>other.editPartTables({ownerPart:t.partName,tableStructure:[op]}),/different document snapshot/);
+    physicalTables=source.editPartTables({ownerPart:t.partName,tableStructure:[op]});
+    if(owner==="word/footer1.xml"){
+      const linked=await resolveComponent({kind:"paragraph",runs:[{kind:"hyperlink",target:{kind:"external",url:"https://example.invalid/physical-cell"},children:[{kind:"text",text:"Footer link"}]}]});
+      check(linked,"resolved linked cell paragraph");
+      const doc=await openDocx(physicalTables), table=doc.partTables(owner)[1];
+      physicalTables=doc.editPartTables({ownerPart:owner,tableStructure:[{target:table.anchor,kind:"replaceCell",row:0,cell:0,blocks:[linked]}]});
+    }
+  }
+  const merged = await openDocx(fixtures["table-layout"]);
+  const physical = merged.body()[0];
+  check(physical.kind === "table" && physical.layout === "fixed", "merged table layout");
+  same(physical.gridWidths, [2880, 2880, 2880], "explicit grid widths in twips");
+  for (const [index, row] of physical.children.entries()) {
+    check(row.kind === "row" && row.children.length === 2, "physical merged row");
+    const [wide, plain] = row.children;
+    check(wide.kind === "cell" && plain.kind === "cell", "physical cells");
+    same([wide.gridSpan, wide.verticalMerge], [2, index ? "continue" : "restart"], "merged interval");
+    check(plain.gridSpan === undefined && plain.verticalMerge === undefined, "unset direct properties");
+  }
+  const geometry = await openDocx(fixtures["layout-source"]);
+  const [firstSection, finalSection] = geometry.sections();
+  check(geometry.body()[firstSection.bodyStart].kind === "table" &&
+    finalSection.bodyStart === finalSection.bodyEnd, "section anchor coverage");
+  const par = paragraph(geometry, 1);
+  const layoutChanges: import("rocx-docx").LayoutEdit[] = [
+    {target:par.anchor,field:"spaceAfter",value:180},{target:par.anchor,field:"alignment",value:null},
+    {target:par.anchor,field:"heading",value:2},{target:par.anchor,field:"widowControl",value:false},
+    {target:par.anchor,field:"firstLineIndent",value:-240},
+    {target:par.anchor,field:"tabStops",value:[{position:720,alignment:"right",leader:"dot"}]},
+    {target:firstSection.anchor,field:"pageWidth",value:16000},{target:firstSection.anchor,field:"marginTop",value:-220},
+    {target:firstSection.anchor,field:"columnCount",value:2},{target:firstSection.anchor,field:"borderTop",value:{color:"223344",size:8}},
+    {target:finalSection.anchor,field:"gridPitch",value:360},{target:finalSection.anchor,field:"titlePage",value:false},
+  ];
+  rejects(() => geometry.previewLayout([...layoutChanges,layoutChanges[0]]), /duplicate/);
+  const layout = geometry.previewLayout(layoutChanges).toDocx();
+  const layouts = await openDocx(layout);
+  rejects(() => layouts.previewLayout([{target: firstSection.anchor, field: "pageWidth", value: 16000}]), /snapshot/);
+  check(layouts.sections()[0].layout.columnCount === 2 && layouts.sections()[1].layout.titlePage === false &&
+    paragraph(layouts,1).layout.firstLineIndent === -240 && paragraph(layouts,1).layout.heading === 2 &&
+    par.layout.firstLineIndent === 72, "layout readback");
+  const splitEdit = {kind:"splitSection",target:firstSection.anchor,offset:1} as const;
+  rejects(() => geometry.preview({blockEdits:[{...splitEdit,offset:99}]}), /outside section/);
+  rejects(() => geometry.preview({blockEdits:[splitEdit,splitEdit]}), /conflicting edits/);
+  rejects(() => geometry.preview({blockEdits:[{kind:"mergeSection",target:finalSection.anchor}]}), /final section/);
+  const split = geometry.preview({blockEdits:[splitEdit]});
+  same(split.blockChanges(), [1], "original split gap");
+  const sectionSplit = split.toDocx();
+  const divided = await openDocx(sectionSplit);
+  rejects(() => divided.preview({blockEdits:[splitEdit]}), /snapshot/);
+  same(divided.sections().map(s => [s.bodyStart,s.bodyEnd]), [[0,2],[2,4],[4,4]], "split section ranges");
+  const sectionMerge = divided.preview({blockEdits:[
+    {kind:"mergeSection",target:divided.sections()[0].anchor}]}).toDocx();
+  same((await openDocx(sectionMerge)).sections().map(s => [s.bodyStart,s.bodyEnd]), [[0,3],[3,3]], "merged ranges");
+  const sharedReplacement = await resolveComponent({kind:"paragraph",text:"Shared story replacement"});
+  check(sharedReplacement !== undefined, "resolved story paragraph");
+  const originalHeader = geometry.defaultHeaders()[1].view;
+  const storyEdit = {target:originalHeader.anchor, mode:"shared", index:0, remove:1, blocks:[sharedReplacement]} as const;
+  rejects(() => divided.editStoryBlocks(storyEdit), /snapshot/);
+  rejects(() => geometry.editStoryBlocks({...storyEdit,index:2}), /out of bounds/);
+  const storyShared = geometry.editStoryBlocks(storyEdit);
+  const sharedHeaders = (await openDocx(storyShared)).defaultHeaders();
+  check(sharedHeaders.length === 2 && sharedHeaders.every(s => s.view.partName === originalHeader.partName),
+    "shared edit retains aliases");
+  let formatOwners = fixtures["format-owners-source"];
+  for (const label of ["cell","header","footer"] as const) {
+    const source = await openDocx(formatOwners);
+    let structure;
+    let ownerPart: string | undefined;
+    if (label === "cell") {
+      const t = source.body()[0]; check(t.kind === "table","cell table");
+      const row=t.children[0]; check(row.kind === "row","cell row");
+      const cell=row.children[0]; check(cell.kind === "cell","physical cell");
+      const p=cell.blocks[0]; check(p.kind === "paragraph","cell paragraph"); structure=p.inlineStructure;
+    } else {
+      const story=source.stories().find(s=>s.view.kind===label && s.view.sectionIndex===1 && s.view.variant==="default");
+      check(story?.view.inherited,"shared inherited owner");
+      ownerPart=story.view.partName; structure=story.inlineStructure(0);
+    }
+    const link=structure?.[0]; check(link?.kind==="hyperlink","owner link");
+    const r=link.children[0]; check(r.kind==="run","hyperlink run");
+    const inlineEdits=[{kind:"patchFormat",target:r.anchor,format:{size:13.5}}] as const;
+    rejects(()=>source.editRunFormat({ownerPart:"word/unrelated.xml",inlineEdits}),/owner mismatch/);
+    formatOwners=source.editRunFormat({ownerPart,inlineEdits});
+    const reopened=await openDocx(formatOwners);
+    rejects(()=>reopened.editRunFormat({ownerPart,inlineEdits}),/snapshot/);
+  }
+  const fieldBatch = await mixedFields(fixtures["field-batch-source"]);
   const catalog = await openDocx(fixtures["styles-source"]);
+  const listTarget = paragraph(catalog, 0).anchor;
+  const numberingEdits = catalog.preview({resources: [
+    {kind: "addAbstract", abstractId: 90, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}]},
+    {kind: "addInstance", numId: 91, abstractId: 90},
+    {kind: "paragraphNumbering", target: listTarget, value: {id: 91, level: 0}},
+  ]}).toDocx();
+  const numbers = await openDocx(numberingEdits);
+  const numbered = paragraph(numbers, 0).anchor;
+  rejects(() => numbers.paragraphNumbering(listTarget), /snapshot/);
+  rejects(() => numbers.preview({resources: [{kind: "removeInstance", numId: 91}]}), /references/);
+  same(numbers.paragraphNumbering(numbered), {id: 91, level: 0}, "direct reference");
+  const removed = await openDocx(numbers.preview({resources: [
+    {kind: "removeAbstract", abstractId: 90}, {kind: "removeInstance", numId: 91},
+    {kind: "paragraphNumbering", target: numbered, value: null},
+  ]}).toDocx());
+  check(!removed.numberingInstances().some(n => n.numId === 91), "removed unused numbering instance");
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Memo Added", baseStyle: "Memo Active" } },
     { op: "replace", target: catalog.styleAnchor("MemoReplace"), definition: {kind: "paragraph", name: "Memo Replace", bold: true} },
     { op: "remove", target: catalog.styleAnchor("MemoDrop") },
+    { op: "field", target: catalog.styleAnchor("Heading1"), field: "next", value: "MemoAdded" },
+    { op: "region", target: catalog.styleAnchor("TableGrid"), region: "nwCell", format: {bold: true, background: [10,20,30]} },
+    { op: "add", definition: {kind: "numbering", name: "Memo List", numberingId: 1} },
     { op: "patch", target: active, italic: true },
   ] };
   rejects(() => catalog.preview({styleEdits: [...batch.styleEdits!, {op: "remove", target: active}]}), /duplicate/);
   rejects(() => catalog.preview({styleEdits: [{op: "remove", target: active}]}), /references/);
   const styleEdits = catalog.preview(batch).toDocx();
   const reopened = await openDocx(styleEdits);
+  check(reopened.styles()?.styles.find(s => s.id === "Heading1")?.nextStyle === "MemoAdded", "changed next reference");
+  check(reopened.styles()?.styles.find(s => s.id === "TableGrid")?.propertyXml.some(x => x.includes("nwCell") && x.includes("0A141E")), "conditional format");
+  rejects(() => catalog.preview({styleEdits: [{op:"field",target:active,field:"basedOn",value:"MemoActive"}]}), /cycle/);
+  rejects(() => reopened.preview({styleEdits: [{op:"region",target:active,region:"firstRow",format:null}]}), /snapshot/);
   rejects(() => reopened.preview({styleEdits: [{op: "patch", target: active, bold: true}]}), /different document snapshot/);
   check(reopened.styles()?.styles.find(s => s.id === "MemoAdded")?.basedOn === "MemoActive", "new style inheritance");
   const resolved = await payloads(fixtures.image);
+  const drop = merged.body()[1];
+  check(drop.kind === "table", "second table for removal");
+  const styledTable = await resolveComponent({
+    kind: "table", properties: {style: "Staged Table"},
+    rows: [{kind: "tableRow", children: [{kind: "tableCell", children: [{
+      kind: "paragraph", runs: [{kind: "hyperlink",
+        target: {kind: "external", url: "https://example.invalid/staged-table"},
+        children: [{kind: "text", text: "staged link"}]}],
+    }]}]}],
+  });
+  check(styledTable, "resolved styled table");
+  const afterTables = paragraph(merged, 2).anchor;
+  const stagedBatch: EditBatch = {
+    tableStructure: [{target: physical.anchor, kind: "replaceNode", source: styledTable},
+      {target: drop.anchor, kind: "removeTable"}],
+    styleEdits: [{op: "add", definition: {kind: "table", name: "Staged Table"}}],
+    resources: [
+      {kind: "addAbstract", abstractId: 90, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}]},
+      {kind: "addInstance", numId: 91, abstractId: 90},
+      {kind: "paragraphNumbering", target: afterTables, value: {id: 91, level: 0}},
+      {kind: "customProperty", name: "Staged", value: true},
+    ],
+  };
+  rejects(() => merged.preview({...stagedBatch,
+    resources: [...stagedBatch.resources!, {kind: "removeInstance", numId: 1}]}), /references/);
+  const structuralResources = merged.preview(stagedBatch).toDocx();
+  bytesEqual(merged.preview(stagedBatch).toDocx(), structuralResources, "repeat staged transaction");
+  check(merged.paragraphNumbering(afterTables) === undefined, "original numbering unchanged");
+  const staged = await openDocx(structuralResources);
+  check(staged.body().length === 2 && staged.customProperty("Staged") === true, "removal and custom part");
+  const stagedTable = staged.body()[0];
+  check(stagedTable.kind === "table" && stagedTable.properties.style.val === "StagedTable", "staged style applied");
+  rejects(() => staged.paragraphNumbering(afterTables), /snapshot/);
+  same(staged.paragraphNumbering(paragraph(staged, 1).anchor), {id: 91, level: 0}, "numbering after table removal");
+  const single = await resolveComponent({kind: "table", properties: {alignment:"center"},
+    rows: [{kind:"tableRow", properties:{repeatHeader:false}, children:[{
+      kind:"tableCell", properties:{margins:{top:4.5}}, children:[text("cell")]}]}]});
+  check(single, "resolved single cell");
+  let tableNodes = merged.preview({
+    alignments:[{target:paragraph(merged,2).anchor,alignment:"right"}],
+    tableStructure:[{target:physical.anchor,kind:"replaceNode",source:resolved.auto},{target:drop.anchor,kind:"removeTable"}]
+  }).toDocx();
+  const steps: ((target:TableAnchor)=>TableStructureEdit[])[] = [
+    target=>[{target,kind:"replaceNode",row:0,source:resolved.auto}],
+    target=>[{target,kind:"replaceNode",row:0,cell:1,source:single}],
+    target=>[{target,kind:"patchProperty",field:"alignment",source:single},
+      {target,kind:"patchProperty",field:"repeatHeader",row:0,source:single},
+      {target,kind:"patchProperty",field:"margin.top",row:0,cell:0,source:single}],
+  ];
+  for (const step of steps) {
+    const doc = await openDocx(tableNodes), target=doc.body()[0];
+    check(target.kind==="table", "reopened table");
+    const ops=step(target.anchor);
+    rejects(()=>merged.preview({tableStructure:ops}),/different document snapshot/);
+    rejects(()=>doc.preview({tableStructure:[...ops,ops[0]]}),/duplicate|exclusive/);
+    tableNodes=doc.preview({tableStructure:ops}).toDocx();
+  }
+  const result=(await openDocx(tableNodes)).body()[0];
+  check(result.kind==="table" && result.properties.alignment.val==="center","copied alignment");
+  const row=result.children[0];
+  check(row.kind==="row" && row.properties.repeatHeader.val==="0","explicit false");
+  const padded=row.children[0];
+  check(padded.kind==="cell" && padded.properties["margin.top"].w==="90","top padding in twips");
   const doc = await openDocx(fixtures.base);
   const first = paragraph(doc, 0).inlineStructure[0];
   check(first?.kind === "run", "expected removable run");
@@ -441,17 +784,66 @@ export async function run(fixtures: Fixtures) {
   const other = await openDocx(fixtures.base);
   rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
   const ranged = await openDocx(fixtures["range-source"]);
+  const [a, b, c] = paragraph(ranged, 1).inlineStructure;
+  const heading = paragraph(ranged, 0).inlineStructure[0];
+  check(a.kind === "run" && b.kind === "run" && c.kind === "run" && heading.kind === "run", "format targets");
+  const runFormatting = ranged.preview({inlineEdits: [
+    {kind: "setToggle", target: heading.anchor, property: "bold", value: false},
+    {kind: "setToggle", target: a.anchor, property: "hidden", value: true},
+    {kind: "setToggle", target: b.anchor, property: "strike", value: true},
+    {kind: "setToggle", target: c.anchor, property: "italic", value: null},
+    {kind: "patchFormat", target: b.anchor, format: {style:"Strong",font:"Cambria",
+      fontEastAsia:"Yu Mincho",fontComplexScript:"Amiri",size:12.5,sizeComplexScript:14,
+      underline:"double",color:{kind:"theme",name:"accent2",tint:150},superscript:true,allCaps:false,
+      smallCaps:true,snapToGrid:false,boldComplexScript:true,italicComplexScript:false,rtl:true,
+      complexScript:true,language:{latin:"fr-CA",eastAsia:"ja-JP"}}, clear:["languageBidi"]},
+  ]}).toDocx();
+  const [x, y, z] = paragraph(await openDocx(runFormatting), 1).inlineStructure;
+  check(x.kind === "run" && x.bold && x.hidden && y.kind === "run" && y.strike &&
+    y.hasOpaqueFormatting && z.kind === "run" && z.italic === undefined, "reopened direct run formatting");
+  same(y.format, {style:"Strong",font:"Cambria",fontEastAsia:"Yu Mincho",fontComplexScript:"Amiri",
+    size:12.5,sizeComplexScript:14,underline:"double",color:{kind:"theme",name:"accent2",tint:150},
+    superscript:true,allCaps:false,smallCaps:true,snapToGrid:false,boldComplexScript:true,
+    italicComplexScript:false,rtl:true,complexScript:true,language:{latin:"fr-CA",eastAsia:"ja-JP"},strike:true}, "rich direct formatting");
+  rejects(() => ranged.preview({inlineEdits:[{kind:"patchFormat",target:b.anchor,format:{bold:true}},
+    {kind:"setBold",target:b.anchor,bold:false}]}), /duplicate|conflicting/);
   const selection = {target: paragraph(ranged, 1).anchor, start: 1, end: 6, text: " 🐈 "};
+  const point = {target: selection.target, position: 3, text: "➡"};
+  rejects(() => ranged.preview({textInsertions: [point, point]}), /overlapping/);
+  rejects(() => doc.preview({textInsertions: [point]}), /different document snapshot/);
+  rejects(() => ranged.preview({textInsertions: [point], textRanges: [selection]}), /overlapping/);
+  const points = ranged.preview({textInsertions: [point, {...point, position: 7, text: "!"},
+    {target: paragraph(ranged, ranged.body().length - 1).anchor, position: 0, text: " Empty paragraph "}]});
+  same(points.runTextChanges().map(c => c.after), ["➡é", "cd!", " Empty paragraph "], "point ownership");
   rejects(() => ranged.preview({textRanges: [selection, selection]}), /overlapping/);
   rejects(() => doc.preview({textRanges: [selection]}), /different document snapshot/);
   rejects(() => doc.preview({textRanges: [{...selection, target: paragraph(doc, 0).anchor}]}), /plain direct body/);
   same(ranged.preview({textRanges: [selection]}).runTextChanges().map(c => c.after), ["a 🐈 ", "", "d"], "scalar ranges retain run containers");
   const ordinary: EditBatch = {
+    styleEdits: [{op:"add", definition:{kind:"numbering",name:"Batch List",numberingId:702}}],
     textRanges: [{target: paragraph(doc, 1).anchor, start: 0, end: 1, text: "X"}],
-    blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true}],
-    resources: [{kind: "coreTitle", value: "Combined editor"}],
+    blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true},
+      {kind: "paragraphFlag", target: paragraph(doc, 4).anchor, flag: "pageBreakBefore", value: false},
+      {kind: "sectionFlag", target: paragraph(doc, 4).anchor, flag: "titlePage", value: true},
+      {kind: "sectionType", target: paragraph(doc, 0).anchor, value: "continuous"}],
+    resources: [{kind: "documentDefault", field: "tabStops", value:[{positionTwips:720, alignment:"right", leader:"dot"}]},
+      {kind: "coreTitle", value: "Combined editor"}, {kind:"metadata",field:"subject",value:"Batch resources"},
+      {kind:"documentDefault",field:"bold",value:false}, {kind:"addInstance",numId:702,abstractId:701},
+      {kind:"addAbstract",abstractId:701,levels:[{level:0,start:1,format:"decimal",text:"%1."}]}],
   };
   const combined = doc.preview(ordinary).toDocx();
+  const combinedDoc = await openDocx(combined);
+  check(combinedDoc.metadataField("subject") === "Batch resources" && combinedDoc.documentDefaults().bold === false,"mixed properties");
+  rejects(() => combinedDoc.preview({resources:[{kind:"removeInstance",numId:702}]}),/references/);
+  rejects(() => doc.preview({...ordinary,resources:[...ordinary.resources!,{kind:"metadata",field:"title",value:null}]}),/duplicate/);
+  same((await openDocx(combined)).documentDefaults().tabStops,
+    [{positionTwips:720, alignment:"right", leader:"dot"}], "direct tab stop readback");
+  const changedProperties = await openDocx(combined);
+  check(paragraph(changedProperties, 4).flags.pageBreakBefore === false && changedProperties.sections()[1].flags.titlePage &&
+    changedProperties.sections()[0].sectionType === "continuous", "direct paragraph and section properties");
+  rejects(() => changedProperties.preview({blockEdits: ordinary.blockEdits}), /different document snapshot/);
+  rejects(() => doc.preview({blockEdits: [{kind: "sectionType", target: paragraph(doc, 1).anchor, value: null}]}),
+    /first paragraph/);
   rejects(() => doc.preview({...ordinary, textRanges: [selection]}),
     /different document snapshot/);
   bytesEqual(doc.preview(ordinary).toDocx(), combined, "mixed retry after stale anchor");
@@ -465,15 +857,46 @@ export async function run(fixtures: Fixtures) {
   check(payload, "inline declarations resolved");
   const inlineEdits: NonNullable<EditBatch["inlineEdits"]> = [
     { kind: "insertAfter", target: fourth.anchor, inline: payload.view.runs[0] },
-    { kind: "setBold", target: first.anchor, bold: false },
+    { kind: "setToggle", target: first.anchor, property: "bold", value: null },
     { kind: "replace", target: second.anchor, inline: payload.view.runs[1] },
   ];
   const inline = doc.preview({inlineEdits});
+  const cleared = paragraph(await openDocx(inline.toDocx()), 0).inlineStructure[0];
+  check(first.kind === "run" && first.bold === true && !first.hasOpaqueFormatting &&
+    cleared.kind === "run" && cleared.bold === undefined, "direct bold clear and readback");
+  const italic = doc.preview({inlineEdits: [{kind: "setToggle", target: first.anchor, property: "italic", value: false}]});
+  const explicit = paragraph(await openDocx(italic.toDocx()), 0).inlineStructure[0];
+  check(explicit.kind === "run" && explicit.bold === true && explicit.italic === false, "explicit false and retained bold");
   same(inline.inlineChanges(), [[0,0],[1,0],[4,0]], "inline change sites");
   rejects(() => other.preview({inlineEdits}), /different document snapshot/);
   rejects(() => doc.preview({inlineEdits, runRemovals: [first.anchor]}), /conflicting/);
   bytesEqual(doc.preview({inlineEdits}).toDocx(), inline.toDocx(), "inline retry");
   const meta = {author: "A & B", date: "2024-02-29T12:34:56Z"};
+  const blockRevisions: Record<string,Uint8Array> = {};
+  let current = doc;
+  for (const label of ["Insert","Delete"]) {
+    const edit = label === "Insert" ? {kind:"insertBefore" as const, text:" proposed "} : {kind:"delete" as const};
+    const tracked = current.previewTrackedParagraph({target:paragraph(current,1).anchor,...edit,...meta}).toDocx();
+    blockRevisions["para"+label] = tracked;
+    const reopened = await openDocx(tracked), p = paragraph(reopened,1);
+    same([p.markRevision?.kind,p.markRevision?.author,p.markRevision?.date,p.text],
+      [label==="Insert"?"insertion":"deletion",meta.author,meta.date,""],"paragraph mark and projection");
+    rejects(()=>current.previewParagraphRevision({target:p.anchor,action:"reject"}), /different document snapshot/);
+    for(const action of ["accept","reject"] as const){
+      const bytes=reopened.previewParagraphRevision({target:p.anchor,action}).toDocx();
+      blockRevisions["para"+label+(action==="accept"?"Accepted":"Rejected")] = bytes;
+      if(action==="accept") current=await openDocx(bytes);
+    }
+  }
+  const boldChange = doc.previewTrackedBold({target:first.anchor, bold:false, ...meta}).toDocx();
+  const formatted = await openDocx(boldChange);
+  const formattedRun = paragraph(formatted, 0).inlineStructure[0];
+  check(formattedRun.kind === "run" && !!formattedRun.propertyRevision?.id, "run property revision");
+  same([formattedRun.propertyRevision.author, formattedRun.propertyRevision.date], [meta.author, meta.date], "property revision metadata");
+  rejects(() => formatted.previewTrackedBold({target:first.anchor, bold:true, ...meta}), /different document snapshot/);
+  rejects(() => formatted.previewTrackedBold({target:formattedRun.anchor, bold:true, ...meta}), /supported formatting/);
+  const boldAccepted = formatted.previewRevision({target:formattedRun.anchor, action:"accept"}).toDocx();
+  const boldRejected = formatted.previewRevision({target:formattedRun.anchor, action:"reject"}).toDocx();
   const tracked = doc.previewTrackedText({target:first.anchor, kind:"replace", text:" Revised ", ...meta}).toDocx();
   const changed = await openDocx(tracked);
   const [deleted, added] = paragraph(changed,0).inlineStructure;
@@ -490,10 +913,18 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, numberingEdits,
+    tableNodes, physicalTables, layout,
+    sectionSplit, sectionMerge, storyShared, structuralResources, inline: inline.toDocx(),
+    boldChange, boldAccepted, boldRejected,
+    ...blockRevisions,
+    formatOwners,
+    fieldsRanges: await fieldsAndRanges(fixtures["paired-source"]),
+    fieldBatch,
     range: ranged.preview({textRanges: [selection]}).toDocx(),
+    points: points.toDocx(),
     removal: removal.toDocx(),
-    controlEdits: await editControls(fixtures),
+    ...await editControls(fixtures),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),
@@ -502,6 +933,10 @@ export async function run(fixtures: Fixtures) {
 
 // Compile only. Check public inputs and output types without letting invalid calls execute.
 export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  const keep: boolean | undefined = doc.documentDefaults().keepWithNext;
+  doc.preview({resources: [{kind: "documentDefault", field: "keepWithNext", value: keep ?? null}]});
+  // @ts-expect-error numeric settings require a number
+  doc.preview({resources: [{kind: "documentDefault", field: "footnoteStart", value: "3"}]});
   // @ts-expect-error source tags and IDs are not physical control anchors
   doc.preview({ controls: [{ target: "repeat", tag: "new" }] });
   for (const {abstractId, level} of doc.abstractStarts()) {
@@ -514,7 +949,22 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
     for (const block of e.blocks) {
       if (block.kind !== "paragraph") continue;
       for (const node of block.inlineStructure) {
-        if (node.kind === "run") doc.inlineAt(node.anchor);
+        if (node.kind === "run") {
+          doc.inlineAt(node.anchor);
+          const bytes: Uint8Array = doc.editEntryInlines({
+            ownerPart: e.partName, inlineEdits: [{kind: "setBold", target: node.anchor, bold: true}],
+          });
+          const first = node.items[0];
+          if (first?.kind === "footnoteReference" || first?.kind === "endnoteReference") {
+            const lexical: string = first.id;
+            doc.editEntry({ownerPart:e.partName,id:lexical,kind:"replaceParagraph",index:0,value:"Updated"});
+          }
+          doc.editNoteReference({ownerPart:e.partName,target:node.anchor,kind:"create",id:47,text:"Review"});
+          // @ts-expect-error a note creation requires definition text
+          doc.editNoteReference({ownerPart:e.partName,target:node.anchor,kind:"create",id:47});
+          // @ts-expect-error decimal entry IDs are metadata, not inline anchors
+          doc.editEntryInlines({ownerPart: e.partName, inlineEdits: [{kind: "setBold", target: id, bold: true}]});
+        }
       }
     }
   }

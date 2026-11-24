@@ -1,8 +1,9 @@
 import type { ResolvedImage } from "./drawings.js";
-import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
-import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
-import type { ResolvedTable } from "./tables.js";
-import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
+import type { StyleDefinition, NumberingStyleDefinition, NumberingLevel, TableSectionFormat } from "./styles.js";
+import type { ControlAnchor, DefaultValues, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor, ParagraphFlag, SectionFlag, ImportedSectionType } from "./inspection.js";
+import type { ResolvedTable, TableLayout } from "./tables.js";
+import type { Alignment, ResolvedInline, ResolvedParagraph, RunFormat } from "./text-layout.js";
+import type { SectionAnchor, DirectParagraphLayout, DirectSectionLayout } from "./inspection.js";
 
 export interface ParagraphAlignmentEdit {
   readonly target: ParagraphAnchor;
@@ -37,8 +38,19 @@ export interface ParagraphInsertion {
 }
 
 export type HeaderEditMode = "shared" | "sectionLocal";
+type LayoutChange<A, T> = { [K in keyof T]-?: {
+  readonly target: A; readonly field: K; readonly value: NonNullable<T[K]> | null
+} }[keyof T];
+export type LayoutEdit = LayoutChange<ParagraphAnchor, DirectParagraphLayout>
+  | LayoutChange<SectionAnchor, Omit<DirectSectionLayout, "margins" | "lineNumbering">>
+  | { readonly target: SectionAnchor; readonly field: "margins" | "lineNumbering"; readonly value: null };
 
 export type BlockEdit =
+  | { readonly kind: "splitSection"; readonly target: SectionAnchor; readonly offset: number }
+  | { readonly kind: "mergeSection"; readonly target: SectionAnchor }
+  | { readonly kind: "paragraphFlag"; readonly target: ParagraphAnchor; readonly flag: ParagraphFlag; readonly value: boolean | null }
+  | { readonly kind: "sectionFlag"; readonly target: ParagraphAnchor; readonly flag: SectionFlag; readonly value: boolean | null }
+  | { readonly kind: "sectionType"; readonly target: ParagraphAnchor; readonly value: ImportedSectionType | null }
   | { readonly kind: "replace"; readonly target: ParagraphAnchor; readonly paragraph: ResolvedParagraph }
   | { readonly kind: "remove"; readonly target: ParagraphAnchor }
   | { readonly kind: "replaceSection"; readonly target: ParagraphAnchor; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[] }
@@ -51,18 +63,33 @@ export interface HeaderImageEdit {
 }
 
 export type InlineEdit = { readonly target: InlineAnchor } & (
+  | { readonly kind: "removeObject" }
+  | { readonly kind: "patchDrawing"; readonly property: "size" | "placement" | "crop" | "transform" | "accessibility" | "shapeFill" | "shapeOutline" | "shapeText" | "shapeGeometry" | "chartSeries"; readonly inline: ResolvedInline }
+  | { readonly kind: "setImageAsset"; readonly image: ResolvedImage }
+  | { readonly kind: "setDrawingDescription"; readonly value: string | null }
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
   | { readonly kind: "setBold"; readonly bold: boolean }
+  | { readonly kind: "setToggle"; readonly property: "bold" | "italic" | "strike" | "hidden"; readonly value: boolean | null }
+  | { readonly kind: "removeHyperlink" }
+  | { readonly kind: "hyperlinkTooltip"; readonly value?: string }
+  | { readonly kind: "hyperlinkHistory"; readonly value?: boolean }
+  | { readonly kind: "patchFormat"; readonly format?: RunFormat; readonly clear?: readonly
+      (Exclude<keyof RunFormat, "superscript" | "subscript" | "language"> |
+        "verticalAlignment" | "languageLatin" | "languageEastAsia" | "languageBidi" | "hidden")[] }
 );
 
 export interface EditBatch {
+  readonly fields?: readonly FieldEdit[];
+  readonly pairedRanges?: readonly PairedRangeEdit[];
   readonly blockEdits?: readonly BlockEdit[];
   readonly inlineEdits?: readonly InlineEdit[];
   readonly tableStructure?: readonly TableStructureEdit[];
   readonly styleEdits?: readonly StyleEdit[];
   readonly resources?: readonly ResourceEdit[];
   readonly controls?: readonly ControlEdit[];
+  readonly wrappers?: readonly WrapperEdit[];
   readonly textRanges?: readonly TextRangeEdit[];
+  readonly textInsertions?: readonly TextInsertion[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
@@ -72,8 +99,36 @@ export interface EditBatch {
   readonly cellAlignments?: readonly CellAlignmentEdit[];
 }
 
+export type FieldEdit = {readonly target: ParagraphAnchor; readonly inlineIndex: number} & (
+  | { readonly op: "patch"; readonly property: "instruction"; readonly value: string }
+  | { readonly op: "patch"; readonly property: "dirty" | "locked"; readonly value?: boolean }
+  | { readonly op: "replace"; readonly field?: import("./structured.js").ResolvedField }
+  | { readonly op: "cache"; readonly children: readonly ResolvedInline[] }
+);
+export interface PairedRangeEdit {
+  readonly id: number;
+  readonly bookmark?: string;
+  readonly endpoints?: readonly [InlineAnchor, InlineAnchor];
+}
+
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
+export interface TextInsertion { readonly target: ParagraphAnchor; readonly position: number; readonly text: string }
+type TableCoordinate =
+  | { readonly row?: never; readonly cell?: never }
+  | { readonly row: number; readonly cell?: number };
+type PropertyCoordinate =
+  | {readonly column: number; readonly row?: never; readonly cell?: never; readonly field: "width"}
+  | {readonly column?: never; readonly row?: never; readonly cell?: never; readonly field:
+      "style" | "alignment" | "layout" | `look.${"firstRow"|"lastRow"|"firstColumn"|"lastColumn"|"horizontalBanding"|"verticalBanding"}` |
+      `border.${"top"|"left"|"bottom"|"right"|"insideH"|"insideV"}`}
+  | {readonly column?: never; readonly row: number; readonly cell?: never; readonly field: "height"|"repeatHeader"|"cantSplit"}
+  | {readonly column?: never; readonly row: number; readonly cell: number; readonly field: "gridSpan"|"verticalMerge"|"backgroundColor"|"verticalAlignment"|"textDirection"|
+      `border.${"top"|"start"|"bottom"|"end"}` | `margin.${"top"|"start"|"bottom"|"end"}`};
 export type TableStructureEdit =
+  | { readonly target: TableAnchor; readonly kind: "removeTable" }
+  | ({ readonly target: TableAnchor; readonly kind: "replaceNode"; readonly source: ResolvedTable } & TableCoordinate)
+  | ({ readonly target: TableAnchor; readonly kind: "patchProperty"; readonly source: ResolvedTable | null } & PropertyCoordinate)
+  | { readonly target: TableAnchor; readonly kind: "layout"; readonly value: TableLayout | null }
   | { readonly target: TableAnchor; readonly kind: "insertRow" | "removeRow" | "insertColumn" | "removeColumn"; readonly index: number }
   | { readonly target: TableAnchor; readonly kind: "insertCell" | "removeCell"; readonly row: number; readonly cell: number }
   | { readonly target: TableAnchor; readonly kind: "replaceCell"; readonly row: number; readonly cell: number; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[] };
@@ -82,12 +137,27 @@ declare const styleAnchor: unique symbol;
 export interface StyleAnchor { readonly [styleAnchor]: true }
 type EditableDefinition = Exclude<StyleDefinition, NumberingStyleDefinition>;
 export type StyleEdit =
-  | { readonly op: "add"; readonly definition: EditableDefinition }
+  | { readonly op: "field"; readonly target: StyleAnchor; readonly region?: StyleRegion; readonly field: StyleField; readonly value: string | null }
+  | { readonly op: "region"; readonly target: StyleAnchor; readonly region: StyleRegion; readonly format: TableSectionFormat | null }
+  | { readonly op: "add"; readonly definition: StyleDefinition }
   | { readonly op: "patch"; readonly target: StyleAnchor; readonly bold?: boolean; readonly italic?: boolean }
   | { readonly op: "replace"; readonly target: StyleAnchor; readonly definition: EditableDefinition }
   | { readonly op: "remove"; readonly target: StyleAnchor };
 
+type StyleRegion = "wholeTable" | "firstRow" | "lastRow" | "firstCol" | "lastCol" | "band1Horz" | "band2Horz" | "band1Vert" | "band2Vert" | "nwCell" | "neCell" | "swCell" | "seCell";
+type StyleField = "basedOn" | "next" | "link" | "b" | "i" | "bCs" | "iCs" | "rtl" | "cs" | "strike" | "caps" | "smallCaps" | "vanish" | "keepNext" | "keepLines" | "pageBreakBefore" | "widowControl" | "bidi" | "contextualSpacing" | "mirrorIndents" | "snapToGrid" | "jc";
+
 export type ResourceEdit =
+  | { [K in keyof DefaultValues]: {readonly kind: "documentDefault"; readonly field: K; readonly value: DefaultValues[K] | null} }[keyof DefaultValues]
+  | { readonly kind: "metadata"; readonly field: import("./inspection.js").MetadataField; readonly value: string | null }
+  | { readonly kind: "customProperty"; readonly name: string; readonly value: string | boolean | null }
+  | { readonly kind: "addAbstract"; readonly abstractId: number; readonly levels: readonly NumberingLevel[] }
+  | { readonly kind: "instanceLevel"; readonly numId: number; readonly level: number; readonly value: NumberingLevel | null }
+  | { readonly kind: "removeAbstract"; readonly abstractId: number }
+  | { readonly kind: "addInstance"; readonly numId: number; readonly abstractId: number }
+  | { readonly kind: "removeInstance"; readonly numId: number }
+  | { readonly kind: "instanceStart"; readonly numId: number; readonly level: number; readonly value: number | null }
+  | { readonly kind: "paragraphNumbering"; readonly target: ParagraphAnchor; readonly value: { readonly id: number; readonly level: number } | null }
   | { readonly kind: "coreTitle"; readonly value: string | null }
   | { readonly kind: "coreSubject"; readonly value: string | null }
   | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
@@ -99,6 +169,13 @@ export interface ControlEdit {
   readonly alias?: string;
   readonly text?: string;
 }
+export type WrapperEdit =
+  | {readonly kind:"wrap"; readonly target:import("./inspection.js").ControlSiteAnchor; readonly last?:import("./inspection.js").ControlSiteAnchor; readonly tag:string}
+  | {readonly kind:"unwrap"; readonly target:ControlAnchor}
+  | {readonly kind:"define"; readonly target:ControlAnchor; readonly properties:import("./structured.js").ContentControlProperties}
+  | {readonly kind:"choice"; readonly target:ControlAnchor; readonly selected:string; readonly choices?:import("./inspection.js").ImportedControl["choices"]}
+  | {readonly kind:"replaceInlines"; readonly target:ControlAnchor; readonly inlines:readonly ResolvedInline[]}
+  | {readonly kind:"replaceBlocks"; readonly target:ControlAnchor; readonly blocks:readonly (ResolvedParagraph|ResolvedTable)[]};
 
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
 export interface RunRemovalChange {
@@ -162,7 +239,19 @@ export interface HeaderImagePreview {
 
 declare module "./inspection.js" {
   interface ImportedDocument {
+    previewLayout(edits: readonly LayoutEdit[]): EditPreview;
     styleAnchor(id: string): StyleAnchor;
+    previewWrapControl(edit: {readonly target: import("./inspection.js").ControlSiteAnchor; readonly tag: string}): EditPreview;
+    previewUnwrapControl(target: ControlAnchor): EditPreview;
+    previewReplaceControl(edit: {readonly target: ControlAnchor; readonly properties: import("./structured.js").ContentControlProperties}): EditPreview;
+    previewControlChoice(edit: {readonly target: ControlAnchor; readonly selected: string;
+      readonly choices?: import("./inspection.js").ImportedControl["choices"]}): EditPreview;
+    previewTrackedBold(edit: { readonly target: InlineAnchor; readonly bold: boolean; readonly author: string; readonly date?: string }): EditPreview;
+    previewTrackedParagraph(edit: { readonly target: ParagraphAnchor; readonly author: string; readonly date?: string } & (
+      | { readonly kind: "insertBefore"; readonly text: string }
+      | { readonly kind: "delete"; readonly text?: never }
+    )): EditPreview;
+    previewParagraphRevision(edit: { readonly target: ParagraphAnchor; readonly action: "accept" | "reject" }): EditPreview;
     /** Explicitly track a single-text direct body run edit. */
     previewTrackedText(edit: {
       readonly target: InlineAnchor; readonly author: string; readonly date?: string;
@@ -181,6 +270,31 @@ declare module "./inspection.js" {
     }): EditPreview;
     /** Change single-text runs in the named physical story part, including all aliases. */
     editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
+    editStoryReference(edit: {readonly sectionIndex: number; readonly storyKind: "header" | "footer"; readonly variant: "default" | "first" | "even"} & (
+      | {readonly action: "create"; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[]}
+      | {readonly action: "link"; readonly partName: string}
+      | {readonly action: "remove"}
+    )): Uint8Array;
+    editStoryBlocks(edit: {readonly target: HeaderAnchor; readonly mode: HeaderEditMode; readonly index: number; readonly remove: number; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[]}): Uint8Array;
+    editEntryInlines(batch: { readonly ownerPart: string; readonly inlineEdits: readonly InlineEdit[] }): Uint8Array;
+    replaceField(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number; readonly field?: import("./structured.js").ResolvedField}): Uint8Array;
+    fieldAt(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number}): {readonly complex: boolean; readonly instruction: string; readonly inlineCount: number; readonly dirtyXml?: string; readonly lockedXml?: string};
+    patchField(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number} & ({readonly property: "instruction"; readonly value: string} | {readonly property: "dirty" | "locked"; readonly value?: boolean})): Uint8Array;
+    setPairedRange(batch: {readonly id: number; readonly bookmark?: string; readonly endpoints?: readonly [InlineAnchor, InlineAnchor]}): Uint8Array;
+    bodyRangeMarkers(): readonly {readonly bodyIndex: number; readonly inlineIndex: number; readonly kind: "bookmarkStart" | "bookmarkEnd" | "commentRangeStart" | "commentRangeEnd" | "commentReference"; readonly id?: string; readonly name?: string}[];
+    editRunFormat(batch: { readonly ownerPart?: string; readonly inlineEdits: readonly Extract<InlineEdit, { readonly kind: "setBold" | "setToggle" | "patchFormat" }>[] }): Uint8Array;
+    editNoteReference(edit: { readonly ownerPart: string; readonly target: InlineAnchor } & (
+      | { readonly kind: "create"; readonly id: number; readonly text: string }
+      | { readonly kind: "delete" | "detach" }
+      | { readonly kind: "attach" | "retarget" | "renumber"; readonly id: number }
+    )): Uint8Array;
+    editEntry(edit: { readonly ownerPart: string; readonly id: string } & (
+      | { readonly kind: "insertParagraph" | "replaceParagraph"; readonly index: number; readonly value: string }
+      | { readonly kind: "removeParagraph"; readonly index: number }
+      | { readonly kind: "author" | "date" | "initials"; readonly value: string }
+      | { readonly kind: "clearDate" | "clearInitials" | "deleteUnusedNote" }
+    )): Uint8Array;
+    editPartTables(batch: { readonly ownerPart: string; readonly tableStructure: readonly Exclude<TableStructureEdit, {readonly kind: "replaceNode" | "removeTable"}>[] }): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to a shared header/footer or a section-local fork. */

@@ -11,6 +11,8 @@ from rocx.editor import (
     ImportedRun, ImportedStoryParagraph,
 )
 
+from catalog_readback import authored, verify_catalog
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("check_examples", ROOT / "tools/check_examples.py")
 checks = importlib.util.module_from_spec(spec)
@@ -21,6 +23,32 @@ spec.loader.exec_module(checks)
 def catalogs(tmp_path_factory):
     """Generate independently through the two public authoring APIs."""
     return checks.generate(tmp_path_factory.mktemp("catalogs"))
+
+
+def test_installed_python_typed_catalog_readback(catalogs) -> None:
+    rust, python = catalogs
+    expected = {path.with_suffix(suffix).name for path in catalogs for suffix in checks.CATALOG_SUFFIXES}
+    assert {p.name for p in rust.parent.glob("all_features-*.docx")} == expected
+    for suffix in checks.CATALOG_SUFFIXES:
+        checks.exact_bytes(rust.with_suffix(suffix).read_bytes(), python.with_suffix(suffix).read_bytes())
+    verify_catalog(python, checks.CATALOG_SUFFIXES)
+
+
+def test_typed_catalog_detects_missing_explicit_false(catalogs) -> None:
+    from test_notes import rewrite
+
+    _, python = catalogs
+
+    def remove_explicit_false(root):
+        toggle, = root.xpath(
+            "//w:r[w:t[text()='Builder bold disabled, italic enabled.']]/w:rPr/w:b",
+            namespaces=checks.NS,
+        )
+        toggle.getparent().remove(toggle)
+
+    changed = rewrite(python.read_bytes(), "word/document.xml", remove_explicit_false)
+    with pytest.raises(AssertionError):
+        authored(ImportedDocument.open(changed))
 
 
 def test_all_features_catalogs_have_exact_byte_parity_and_expected_content(catalogs) -> None:

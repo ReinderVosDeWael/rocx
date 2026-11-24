@@ -92,7 +92,7 @@ payload bytes, but edited XML is not guaranteed to preserve every unknown featur
 | Tracked revisions | P1 §17.13.5 | Direct tracked text insertions, deletions, and paired moves; selected imported revisions can be accepted or rejected | [Revision contract](REVISIONS.md) |
 | Content controls/custom markup | P1 §17.5; §§17.5.2.29–17.5.2.32 (`sdt` in different contexts) | Context-specific inline, block, row, and cell controls; selected imported plain-text controls can be edited by tag; no custom XML data binding | [Content control contract](CONTENT_CONTROLS.md) |
 | Hyperlinks, `hyperlink`, `r:id`, `anchor`, `tooltip`, `history` | P1 §17.16.22; normative Annex A.1 `CT_Hyperlink`/`EG_PContent`; P2 §§6.4–6.5 | External URI/IRI and internal bookmark links; rich display runs; no nesting | [domain](../src/document/hyperlink.rs), [codec](../src/ooxml/wordprocessing/paragraph.rs); internal anchors have no external relationship |
-| Fields, `fldChar` | P1 §17.16; §§17.16.18–19, 17.16.23 | Simple/complex paragraph-local fields and nested cached results, PAGE/NUMPAGES/REF/TOC helpers and raw instructions; no evaluation | [field codec](../src/ooxml/wordprocessing/fields.rs), [contract](FIELDS.md); imported field edits rejected |
+| Fields, `fldChar` | P1 §17.16; §§17.16.18–19, 17.16.23 | Simple/complex paragraph-local fields and nested cached results, PAGE/NUMPAGES/REF/TOC helpers and raw instructions; no evaluation | [field codec](../src/ooxml/wordprocessing/fields.rs), [imported direct body field contract](FIELDS.md#editing-an-imported-field-or-link) |
 | Mail merge | P1 §17.14 | No typed generation yet | Future fields/data-source integration |
 | Document settings | P1 §17.15; §11.3.3 | Defaults plus selected changes, including even/odd headers | `ooxml/defaults.rs`, section/story codecs |
 
@@ -215,6 +215,8 @@ separate.
   are different capabilities. For edited WordprocessingML, the editor checks
   `MustUnderstand` on the root and ordinary WordprocessingML descendants using
   in-scope namespace bindings, and rejects unbound or unsupported prefixes.
+  It rejects wrappers matched by `ProcessContent` rather than treating their
+  children as absent or changing the physical addresses by unwrapping them.
   Foreign subtrees are opaque: the editor does not select `AlternateContent`
   branches. See the [editing policy](../COMPATIBILITY.md#resolution-editing-and-output)
   for the recognized namespaces and where the guard stops.

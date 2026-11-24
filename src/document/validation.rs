@@ -29,7 +29,7 @@ impl RunFormat {
     }
 }
 impl NumberingLevel {
-    fn validate_formats(&self) -> Result<(), Diagnostic> {
+    pub(crate) fn validate_formats(&self) -> Result<(), Diagnostic> {
         if let Some(format) = &self.label_format {
             if format.style.is_some() {
                 return Err(Diagnostic::new(

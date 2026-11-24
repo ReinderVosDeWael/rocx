@@ -22,6 +22,7 @@ impl Compiler<'_> {
 }
 mod comments;
 mod content_control;
+pub(crate) use content_control::control_props;
 mod fields;
 pub(crate) mod format;
 mod paragraph;
@@ -29,5 +30,5 @@ pub(crate) mod run_child;
 pub(crate) mod sections;
 mod stories;
 pub(crate) mod styles;
-mod table;
+pub(crate) mod table;
 pub(crate) mod text;

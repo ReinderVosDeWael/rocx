@@ -5,6 +5,10 @@ use crate::opc::Package;
 use crate::xml::{Content, Node};
 use crate::{Alignment, Result};
 use std::collections::{BTreeMap, BTreeSet};
+mod defaults;
+pub use defaults::{DefaultField, DefaultTab, DefaultValue};
+mod metadata;
+pub use metadata::{CustomValue, MetadataField};
 
 /// A physical abstract numbering level (shared by all referencing instances).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,26 +22,24 @@ pub struct AbstractStart {
 /// Each supplied edit sets or clears one property. Omit the edit to retain it.
 #[derive(Clone, Debug)]
 pub enum ResourceEdit {
+    Numbering(super::NumberingEdit),
     CoreTitle(Option<String>),
     CoreSubject(Option<String>),
     DefaultAlignment(Option<Alignment>),
+    Default(DefaultField, Option<DefaultValue>),
     AbstractStart(AbstractStart),
+    Metadata(MetadataField, Option<String>),
+    CustomProperty(String, Option<CustomValue>),
 }
 
-enum Part {
-    Core,
+pub(super) enum Part {
     Defaults,
+    Settings,
     Numbers,
 }
 impl Part {
-    fn load(&self, pkg: &Package, main: &str) -> Result<Option<(String, Node)>> {
+    pub(super) fn load(&self, pkg: &Package, main: &str) -> Result<Option<(String, Node)>> {
         let (owner, rel, mime, root) = match self {
-            Self::Core => (
-                "",
-                "core-properties",
-                "application/vnd.openxmlformats-package.core-properties+xml",
-                "cp:coreProperties",
-            ),
             Self::Defaults => (
                 main,
                 "styles",
@@ -50,6 +52,12 @@ impl Part {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",
                 "w:numbering",
             ),
+            Self::Settings => (
+                main,
+                "settings",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
+                "w:settings",
+            ),
         };
         if pkg.relationships(owner, rel)?.len() > 1 {
             return Err(unsupported(&format!("ambiguous {rel} relationship")));
@@ -57,7 +65,10 @@ impl Part {
         let Some((_, path)) = pkg.related(owner, rel)? else {
             return Ok(None);
         };
-        if pkg.content_type_for(&path)?.as_deref() != Some(mime) {
+        if !pkg
+            .content_type_for(&path)?
+            .is_some_and(|ty| ty.eq_ignore_ascii_case(mime))
+        {
             return Err(unsupported(&format!("invalid {rel} content type")));
         }
         let node = pkg.word(&path)?;
@@ -68,7 +79,28 @@ impl Part {
     }
 }
 
-fn unique<'a>(parent: &'a Node, name: &str) -> Result<Option<&'a Node>> {
+/// Allocate a relationship-selected Word part without claiming orphan parts.
+pub(super) fn create_word_part(
+    pkg: &mut Package,
+    main: &str,
+    kind: &str,
+) -> Result<(String, Node)> {
+    let prefix = main.rsplit_once('/').map_or_else(
+        || format!("rocx-{kind}"),
+        |(dir, _)| format!("{dir}/rocx-{kind}"),
+    );
+    let path = pkg.unique(&prefix, "xml");
+    pkg.content_type(
+        &path,
+        &format!("application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"),
+    )?;
+    pkg.link(main, kind, &path)?;
+    let mut root = Node::new(format!("w:{kind}"));
+    root.namespaces();
+    Ok((path, root))
+}
+
+pub(super) fn unique<'a>(parent: &'a Node, name: &str) -> Result<Option<&'a Node>> {
     let mut matches = parent.elements().filter(|n| n.name == name);
     let first = matches.next();
     if matches.next().is_some() || parent.child(ALTERNATE).is_some() {
@@ -77,7 +109,7 @@ fn unique<'a>(parent: &'a Node, name: &str) -> Result<Option<&'a Node>> {
     Ok(first)
 }
 
-fn scalar(node: &Node, attr: bool) -> Result<String> {
+pub(super) fn scalar(node: &Node, attr: bool) -> Result<String> {
     if node
         .attrs
         .iter()
@@ -93,16 +125,20 @@ fn scalar(node: &Node, attr: bool) -> Result<String> {
                 .ok_or_else(|| unsupported("missing w:val"));
         }
     } else {
-        let mut value = String::new();
-        for child in &node.children {
-            let Content::Text(t) = child else {
-                return Err(unsupported("non-text core property"));
-            };
-            value.push_str(t);
-        }
-        return Ok(value);
+        return text_value(node);
     }
     Err(unsupported("non-simple resource property"))
+}
+
+fn text_value(node: &Node) -> Result<String> {
+    let mut value = String::new();
+    for child in &node.children {
+        let Content::Text(t) = child else {
+            return Err(unsupported("non-text resource property"));
+        };
+        value.push_str(t);
+    }
+    Ok(value)
 }
 
 const DEFAULT_PATH: &[&str] = &["w:docDefaults", "w:pPrDefault", "w:pPr", "w:jc"];
@@ -148,16 +184,18 @@ fn patch(root: &mut Node, path: &[&str], attr: bool, value: Option<String>) -> R
 }
 
 fn parse_start(s: &str) -> Result<u32> {
-    s.parse()
-        .map_err(|_| unsupported("invalid numbering start"))
+    unsigned_decimal(s).ok_or_else(|| unsupported("invalid numbering start"))
+}
+pub(super) fn unsigned_decimal(s: &str) -> Option<u32> {
+    crate::ooxml::decimal_id(s)?.parse().ok()
 }
 fn parse_alignment(s: &str) -> Result<Alignment> {
     read_alignment(s).ok_or_else(|| unsupported("unsupported default alignment"))
 }
 
-fn id(n: &Node, key: &str) -> Result<u32> {
+pub(super) fn id(n: &Node, key: &str) -> Result<u32> {
     n.get(key)
-        .and_then(|s| s.parse().ok())
+        .and_then(unsigned_decimal)
         .ok_or_else(|| unsupported(&format!("invalid {key}")))
 }
 
@@ -188,16 +226,10 @@ fn visit_levels(
 
 impl ImportedDocument {
     pub fn core_title(&self) -> Result<Option<String>> {
-        self.core_text("dc:title")
+        self.metadata_field(MetadataField::Title)
     }
     pub fn core_subject(&self) -> Result<Option<String>> {
-        self.core_text("dc:subject")
-    }
-    fn core_text(&self, name: &str) -> Result<Option<String>> {
-        let Some((_, root)) = Part::Core.load(&self.package, &self.main)? else {
-            return Ok(None);
-        };
-        property(&root, &[name], false)
+        self.metadata_field(MetadataField::Subject)
     }
     pub fn default_alignment(&self) -> Result<Option<Alignment>> {
         let Some((_, root)) = Part::Defaults.load(&self.package, &self.main)? else {
@@ -227,12 +259,16 @@ impl ImportedDocument {
 }
 
 pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Result<()> {
-    let (mut title, mut subject, mut alignment, mut starts) = (None, None, None, BTreeMap::new());
+    defaults::apply(pkg, main, edits)?;
+    metadata::apply(pkg, edits)?;
+    let (mut alignment, mut starts) = (None, BTreeMap::new());
     for edit in edits {
         let duplicate = match edit {
-            ResourceEdit::CoreTitle(v) => title.replace(v).is_some(),
-            ResourceEdit::CoreSubject(v) => subject.replace(v).is_some(),
+            ResourceEdit::Default(_, _) => continue,
+            ResourceEdit::Numbering(_) => continue,
+            ResourceEdit::CoreTitle(_) | ResourceEdit::CoreSubject(_) => continue,
             ResourceEdit::DefaultAlignment(v) => alignment.replace(v).is_some(),
+            ResourceEdit::Metadata(..) | ResourceEdit::CustomProperty(..) => continue,
             ResourceEdit::AbstractStart(v) => {
                 starts.insert((v.abstract_id, v.level), v.start).is_some()
             }
@@ -241,32 +277,16 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
             return Err(unsupported("duplicate resource property edit"));
         }
     }
-    for (part, path, attr, value) in [
-        (Part::Core, &["dc:title"][..], false, title.cloned()),
-        (Part::Core, &["dc:subject"][..], false, subject.cloned()),
-        (
-            Part::Defaults,
+    if let Some(value) = alignment
+        && let Some((name, mut root)) = Part::Defaults.load(pkg, main)?
+        && patch(
+            &mut root,
             DEFAULT_PATH,
             true,
-            alignment.map(|v| v.map(|a| a.xml().to_owned())),
-        ),
-    ] {
-        let Some(value) = value else { continue };
-        if !attr && let Some(s) = &value {
-            crate::xml::validate_text(s)?;
-            if s.chars().count() > 255 {
-                return Err(unsupported(&format!("{} exceeds 255 characters", path[0])));
-            }
-        }
-        let Some((part_name, mut root)) = part.load(pkg, main)? else {
-            if value.is_none() {
-                continue;
-            }
-            return Err(unsupported("creating resource parts is unsupported"));
-        };
-        if patch(&mut root, path, attr, value)? {
-            pkg.put_word(part_name, root)?;
-        }
+            value.map(|a| a.xml().to_owned()),
+        )?
+    {
+        pkg.put_word(name, root)?;
     }
     if !starts.is_empty() {
         let (path, mut root) = Part::Numbers

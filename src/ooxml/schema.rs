@@ -19,6 +19,7 @@ pub(crate) fn order(name: &crate::xml::Name) -> Option<Vec<&'static str>> {
         "w:tcBorders" | "w:tblBorders" => {
             "top start left bottom end right insideH insideV tl2br tr2bl"
         }
+        "w:tcMar" => "top start left bottom end right",
         "w:style" => {
             "name aliases basedOn next link autoRedefine hidden uiPriority semiHidden unhideWhenUsed qFormat locked personal personalCompose personalReply rsid pPr rPr tblPr trPr tcPr tblStylePr"
         }
@@ -28,7 +29,8 @@ pub(crate) fn order(name: &crate::xml::Name) -> Option<Vec<&'static str>> {
         "w:footnotePr" => "pos numFmt numStart numRestart footnote",
         "w:endnotePr" => "pos numFmt numStart numRestart endnote",
         "w:pgBorders" => "top left bottom right",
-        "w:numbering" => "numPicBullet abstractNum num numIdMac",
+        "w:numbering" => "numPicBullet abstractNum num numIdMacAtCleanup",
+        "w:numPr" => "ilvl numId numberingChange ins",
         "w:abstractNum" => "nsid multiLevelType tmpl name styleLink numStyleLink lvl",
         "w:lvlOverride" => "startOverride lvl",
         "w:lvl" => {

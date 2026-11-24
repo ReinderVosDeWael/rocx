@@ -27,6 +27,18 @@ def validator():
     return validation.Validator(directory)
 
 
+def test_new_resource_parts_in_one_transaction_are_schema_valid(validator):
+    from rocx.editor import ImportedDocument
+    from test_mixed_resource_edit import fixture, mixed_edits, pack
+
+    styles, edits = mixed_edits()
+    source = ImportedDocument.open(pack(fixture()))
+    checked = validator.validate(source.preview([], resources=edits, style_edits=styles).to_docx())
+    # The core-properties namespace is OPC, outside the Part 1 schema set.
+    assert {"docProps/app1.xml", "docProps/custom.xml", "word/rocx-numbering1.xml",
+            "word/rocx-styles1.xml", "word/rocx-settings1.xml"} <= set(checked)
+
+
 def test_direct_body_revision_previews_are_schema_valid(validator):
     from docx import Document
     from docx.oxml.ns import qn
@@ -60,6 +72,20 @@ def test_direct_body_revision_previews_are_schema_valid(validator):
         return result
 
     ordinary = check(original.preview([], run_text=[RunTextEdit(first.anchor, "plain")]), "plainafter")
+    for index, run, previous in [(0, first, True), (1, last, None)]:
+        changed = check(original.preview_tracked_bold(run.anchor, False, "A & B", date), "beforeafter")
+        current = changed.body[0].inline_structure[index]
+        meta = current.property_revision
+        assert meta.id and (meta.author, meta.date) == ("A & B", date)
+        with pytest.raises(ValueError):
+            changed.preview_tracked_bold(current.anchor, True, "another")
+        with pytest.raises(ValueError):
+            original.preview_revision(current.anchor, "reject")
+        for action, value in [("accept", False), ("reject", previous)]:
+            preview = changed.preview_revision(current.anchor, action)
+            result = check(preview, "beforeafter")
+            assert result.body[0].inline_structure[index].property_revision is None
+            assert Document(io.BytesIO(preview.to_docx())).paragraphs[0].runs[index].bold is value
     assert len(ordinary.body[0].inline_structure) == 2
     for kind, kwargs, visible, slot, accepted, rejected in [
         ("insertAfter", {"text": " <added> "}, "beforeafter", 1, "before <added> after", "beforeafter"),
@@ -81,6 +107,46 @@ def test_direct_body_revision_previews_are_schema_valid(validator):
     for author, bad_date in [(" ", date), ("A", "2023-02-29T12:34:56Z"), ("A\x00", date)]:
         with pytest.raises(ValueError):
             original.preview_tracked_text(first.anchor, "delete", author, date=bad_date)
+
+
+def test_imported_paragraph_deletion_reviews_the_mark_and_run_together(validator):
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import ImportedDocument
+
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run("removed")
+    run.bold = True
+    run._r.find(qn("w:t")).tag = qn("w:delText")
+    props = OxmlElement("w:rPr")
+    paragraph._p.get_or_add_pPr().append(props)
+    mark, wrapper = [OxmlElement("w:del") for _ in range(2)]
+    for change, ident in [(mark, "12"), (wrapper, "13")]:
+        change.set(qn("w:id"), ident)
+        change.set(qn("w:author"), "External reviewer")
+    props.append(mark)
+    paragraph._p.append(wrapper)
+    wrapper.append(run._r)
+    doc.add_paragraph("following")
+    data = io.BytesIO()
+    doc.save(data)
+    original = ImportedDocument.open(data.getvalue())
+    p = original.body[0]
+    assert (p.mark_revision.kind, p.mark_revision.id, p.mark_revision.date) == ("deletion", "12", None)
+    with pytest.raises(ValueError):
+        ImportedDocument.open(data.getvalue()).preview_paragraph_revision(p.anchor, "reject")
+    with pytest.raises(ValueError):
+        original.preview_tracked_paragraph(p.anchor, "delete", "Reviewer")
+    for action, expected in [("accept", ["following"]), ("reject", ["removed", "following"])]:
+        result = original.preview_paragraph_revision(p.anchor, action).to_docx()
+        assert "word/document.xml" in validator.validate(result)
+        paragraphs = Document(io.BytesIO(result)).paragraphs
+        assert [p.text for p in paragraphs] == expected
+        if action == "reject":
+            assert paragraphs[0].runs[0].bold is True
 
 
 @pytest.fixture
@@ -324,6 +390,8 @@ def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fails(va
     data = catalog.read_bytes()
     checked = validator.validate(data)
     assert {"word/charts/chart1.xml", "docProps/custom.xml", "docProps/app.xml"} <= set(checked)
+    entry_parts = validator.validate(catalog.with_suffix(".entry-edits.docx").read_bytes())
+    assert {"word/document.xml", "word/footnotes.xml", "word/comments.xml"} <= set(entry_parts)
     for suffix in [".header-shared.docx", ".header-local.docx"]:
         mixed = validator.validate(catalog.with_suffix(suffix).read_bytes())
         assert {"word/document.xml", "word/header1.xml"} <= set(mixed)

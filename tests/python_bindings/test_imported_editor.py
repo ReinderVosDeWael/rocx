@@ -45,6 +45,78 @@ from rocx.editor import (
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 
+def test_direct_flags_and_section_type_round_trip_with_snapshot_checks():
+    source = docx.Document()
+    source.add_paragraph("first").paragraph_format.widow_control = False
+    source.add_section()
+    source.add_paragraph("last")
+    data = io.BytesIO()
+    source.save(data)
+    doc = ImportedDocument.open(data.getvalue())
+    first, last = doc.body[0].anchor, doc.body[-1].anchor
+    assert doc.body[0].flags == {"widow_control": False}
+    edits = [BlockEdit.section_flag(first, "title_page", True),
+             BlockEdit.paragraph_flag(first, "widow_control", None),
+             BlockEdit.paragraph_flag(last, "keep_together", False),
+             BlockEdit.section_type(last, "evenPage")]
+    for bad in [BlockEdit.section_type(doc.body[1].anchor, None), edits[0]]:
+        with pytest.raises(ValueError):
+            doc.preview([], block_edits=[*edits, bad])
+    output = doc.preview([], block_edits=edits).to_docx()
+    result = ImportedDocument.open(output)
+    assert result.body[0].flags == {} and result.body[-1].flags == {"keep_together": False}
+    assert result.sections[0].flags == {"title_page": True}
+    assert result.sections[1].section_type == "evenPage"
+    with pytest.raises(ValueError, match="different document snapshot"):
+        result.preview([], block_edits=edits)
+    assert docx.Document(io.BytesIO(output)).paragraphs[0].paragraph_format.widow_control is None
+
+
+def test_layout_sets_and_clears_groups_on_an_empty_section():
+    from rocx.editor import LayoutEdit as L
+    source = docx.Document()
+    data = io.BytesIO()
+    source.save(data)
+    doc = ImportedDocument.open(data.getvalue())
+    section, = doc.sections
+    assert section.body_start == section.body_end == 0
+    edits = [L.section(section.anchor, "line_start", 3), L.section(section.anchor, "margin_gutter", 420)]
+    for bad in [L.section(section.anchor, "margins", None), L.section(section.anchor, "grid_mode", "invalid"),
+                L.section(section.anchor, "page_width", -5), L.section(section.anchor, "column_count", True)]:
+        with pytest.raises(ValueError):
+            doc.preview_layout([*edits, bad])
+    edited = ImportedDocument.open(doc.preview_layout(edits).to_docx())
+    a = edited.sections[0]
+    assert a.layout["line_start"] == 3 and a.layout["margin_gutter"] == 420
+    with pytest.raises(ValueError, match="snapshot"):
+        edited.preview_layout(edits)
+    removed = ImportedDocument.open(edited.preview_layout([L.section(a.anchor, "margins", None),
+                                                          L.section(a.anchor, "line_numbering", None)]).to_docx())
+    assert "margins" not in removed.sections[0].layout and "line_start" not in removed.sections[0].layout
+
+
+def test_layout_heading_alias_checks_existing_style_and_keeps_independent_outline():
+    from rocx.editor import LayoutEdit as L
+    source = docx.Document()
+    source.add_paragraph("heading")
+    data = io.BytesIO()
+    source.save(data)
+    doc = ImportedDocument.open(data.getvalue())
+    p = doc.body[0].anchor
+    edits = [L.paragraph(p, "heading", 2), L.paragraph(p, "outline_level", 3),
+             L.paragraph(p, "widow_control", False), L.paragraph(p, "line_height", 360),
+             L.paragraph(p, "line_rule", "auto")]
+    with pytest.raises(ValueError, match="duplicate"):
+        doc.preview_layout([*edits, L.paragraph(p, "style_id", "Normal")])
+    result = doc.preview_layout(edits).to_docx()
+    read = docx.Document(io.BytesIO(result)).paragraphs[0]
+    assert read.style.style_id == "Heading2" and read.paragraph_format.line_spacing == 1.5
+    assert ImportedDocument.open(result).body[0].layout == {
+        "heading": 2, "style_id": "Heading2", "outline_level": 3, "widow_control": False,
+        "line_height": 360, "line_rule": "auto",
+    }
+
+
 async def test_block_edits_protect_ranges_conflicts_and_original_addresses():
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -1235,6 +1307,141 @@ async def test_inline_range_and_ambiguous_properties_reject_batch():
         with pytest.raises(ValueError):
             doc.preview([], run_text=[RunTextEdit(first.anchor, "other")], inline_edits=[bad])
     assert _parts(doc.preview([]).to_docx()) == _parts(out.getvalue())
+
+
+def test_direct_run_toggles_preserve_mixed_leaves_and_opaque_formatting():
+    from rocx.editor import InlineEdit
+
+    source = docx.Document()
+    p = source.add_paragraph()
+    r = p.add_run("text\twith\nbreaks")
+    r.bold = True
+    r.underline = True
+    p.add_run("visible").font.hidden = True
+    p.add_run("third").font.strike = False
+    out = io.BytesIO()
+    source.save(out)
+    imported = ImportedDocument.open(out.getvalue())
+    a, b, c = imported.body[0].inline_structure
+    assert not a.has_opaque_formatting and (a.bold, a.italic) == (True, None)
+    assert b.hidden is True and c.strike is False
+    edits = [InlineEdit.set_toggle(a.anchor, "italic", False),
+             InlineEdit.set_toggle(b.anchor, "hidden", None),
+             InlineEdit.set_toggle(c.anchor, "strike", True)]
+    with pytest.raises(ValueError):
+        imported.preview([], inline_edits=[*edits, edits[0]])
+    result = imported.preview([], inline_edits=edits).to_docx()
+    reopened = ImportedDocument.open(result)
+    with pytest.raises(ValueError):
+        reopened.preview([], inline_edits=edits)
+    a, b, c = reopened.body[0].inline_structure
+    assert (a.bold, a.italic, b.hidden, c.strike) == (True, False, None, True)
+    assert a.format["underline"] == "single" and not c.has_opaque_formatting
+    r, shown, struck = docx.Document(io.BytesIO(result)).paragraphs[0].runs
+    assert r.text == "text\twith\nbreaks" and r.underline and r.bold and r.italic is False
+    assert shown.font.hidden is None and struck.font.strike is True
+    assert reopened.preview([], inline_edits=[InlineEdit.set_toggle(b.anchor, "hidden", None)]).inline_changes == []
+
+
+def test_disjoint_run_format_updates_clears_and_rollbacks():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import InlineEdit as E
+
+    source = docx.Document()
+    run = source.add_paragraph().add_run("mixed\ttext")
+    run.font.name = "Original"
+    props = run._r.rPr
+    fonts = props.find(qn("w:rFonts"))
+    fonts.set(qn("w:hint"), "eastAsia")
+    fonts.set(qn("w:eastAsiaTheme"), "minorEastAsia")
+    for tag, attrs in [
+        ("color", {"val": "112233", "themeColor": "accent1", "themeTint": "17"}),
+        ("lang", {"val": "en-GB", "bidi": "ar"}),
+        ("u", {"val": "wave", "color": "123456"}),
+    ]:
+        node = OxmlElement("w:" + tag)
+        for key, val in attrs.items():
+            node.set(qn("w:" + key), val)
+        props.append(node)
+    out = io.BytesIO()
+    source.save(out)
+    original = ImportedDocument.open(out.getvalue())
+    target = original.body[0].inline_structure[0]
+    assert target.has_opaque_formatting and target.format["color"] == {"theme":"accent1","tint":23}
+    at = target.anchor
+    # Keep the imported RGB fallback when its theme selection does not change.
+    noop = original.preview([], inline_edits=[E.patch_format(at, color=target.format["color"])])
+    assert noop.inline_changes == [] and _parts(noop.to_docx()) == _parts(out.getvalue())
+    edits = [E.patch_format(at, color=(4,5,6), font_complex_script="Amiri", clear=["font"]),
+             E.patch_format(at, underline="dotted", clear=["language_latin"]),
+             E.patch_format(at, language=d.RunLanguage(east_asia="ja"), subscript=False, size=8.25)]
+    for rejected in [E.patch_format(at, clear=["underline"]), E.patch_format(at, font_east_asia="literal"),
+                     E.patch_format(at, style="Normal"), E.patch_format(at, style="Missing"),
+                     E.patch_format(at, color="auto", clear=["color"]), E.patch_format(at, font="bad\0name")]:
+        with pytest.raises(ValueError):
+            original.preview([], inline_edits=[rejected])
+    result = original.preview([], inline_edits=edits)
+    assert result.inline_changes == [(0, 0)]
+    assert result.to_docx() == original.preview([], inline_edits=list(reversed(edits))).to_docx()
+    reopened = ImportedDocument.open(result.to_docx())
+    final = reopened.body[0].inline_structure[0]
+    assert final.format == {"font_complex_script":"Amiri","color":(4,5,6),"underline":"dotted",
+                            "language":d.RunLanguage(east_asia="ja", bidi="ar"),
+                            "size":8.5,"subscript":False,"superscript":False}
+    check = docx.Document(io.BytesIO(result.to_docx())).paragraphs[0].runs[0]._r.rPr
+    assert dict(check.find(qn("w:rFonts")).attrib) == {
+        qn("w:hint"):"eastAsia", qn("w:eastAsiaTheme"):"minorEastAsia", qn("w:cs"):"Amiri"}
+    assert check.find(qn("w:u")).get(qn("w:color")) == "123456"
+    assert dict(check.find(qn("w:color")).attrib) == {qn("w:val"):"040506"}
+    noop = reopened.preview([], inline_edits=[E.patch_format(final.anchor, **final.format)])
+    assert noop.inline_changes == [] and noop.to_docx() == result.to_docx()
+    with pytest.raises(ValueError):
+        reopened.preview([], inline_edits=edits)
+
+
+@pytest.mark.parametrize("guard", ["deleted_row","changed_cell","reviewed_run","field","cross_cell","protection"])
+def test_cell_run_format_rejects_reviewed_protected_and_active_contexts(guard):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import InlineEdit
+
+    source = docx.Document()
+    source.add_paragraph("before")
+    table = source.add_table(rows=1,cols=2)
+    table.cell(0,0).text = "left"
+    p = table.cell(0,1).paragraphs[0]
+    run = p.add_run("right")
+    if guard == "deleted_row":
+        table.rows[0]._tr.get_or_add_trPr().append(OxmlElement("w:del"))
+    elif guard == "changed_cell":
+        table.cell(0,1)._tc.get_or_add_tcPr().append(OxmlElement("w:tcPrChange"))
+    elif guard == "reviewed_run":
+        wrapper = OxmlElement("w:ins"); wrapper.append(run._r); p._p.append(wrapper)
+    elif guard == "field":
+        begin = OxmlElement("w:fldChar"); begin.set(qn("w:fldCharType"),"begin")
+        table.cell(0,0).paragraphs[0].add_run()._r.append(begin)
+    elif guard == "cross_cell":
+        start = OxmlElement("w:permStart"); start.set(qn("w:id"),"4")
+        end = OxmlElement("w:permEnd"); end.set(qn("w:id"),"4")
+        table.cell(0,0).paragraphs[0]._p.append(start); p._p.append(end)
+    else:
+        protection = OxmlElement("w:documentProtection")
+        protection.set(qn("w:enforcement"),"on"); protection.set(qn("w:edit"),"readOnly")
+        source.settings.element.append(protection)
+    out = io.BytesIO(); source.save(out)
+    imported = ImportedDocument.open(out.getvalue())
+    body = imported.body
+    good = InlineEdit.set_bold(body[0].inline_structure[0].anchor,True)
+    target = body[1].children[0].children[1].blocks[0].inline_structure[0]
+    if guard == "reviewed_run":
+        target = target.children[0]
+    with pytest.raises(ValueError):
+        imported.edit_run_format([good,InlineEdit.set_bold(target.anchor,True)])
+    assert body[0].inline_structure[0].bold is None
+    if guard != "protection":
+        retry = ImportedDocument.open(imported.edit_run_format([good]))
+        assert retry.body[0].inline_structure[0].bold is True
 
 
 async def test_table_structure_merged_fixture_and_atomic_rejection():

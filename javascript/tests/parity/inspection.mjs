@@ -222,13 +222,18 @@ async function importedBodySectionsAndPhysicalCells() {
   const [left, right] = cellLink.children;
   const [afterRun] = merged.blocks[3].inlineStructure;
   const [tailRun] = tail.blocks[0].inlineStructure;
-  const run = (node, value) => ({ kind: "run", anchor: node.anchor, items: [text(value)] });
+  const run = (node, value) => ({ kind: "run", format: {}, hasOpaqueFormatting: false, anchor: node.anchor, items: [text(value)] });
   assert.deepEqual(table, {
-    kind: "table", anchor: table.anchor,
+    kind: "table", anchor: table.anchor, gridWidths: [2880, 2880, 2880],
+    properties: {
+      "look.firstRow": {firstRow:"1",maskBit:"1"}, "look.lastRow": {lastRow:"0",maskBit:"0"},
+      "look.firstColumn": {firstColumn:"1",maskBit:"1"}, "look.lastColumn": {lastColumn:"0",maskBit:"0"},
+      "look.horizontalBanding": {noHBand:"0",maskBit:"0"}, "look.verticalBanding": {noVBand:"1",maskBit:"1"},
+    },
     children: [
       opaque("w:sdt"),
-      { kind: "row", children: [
-        { kind: "cell", blocks: [
+      { kind: "row", properties: {}, children: [
+        { kind: "cell", gridSpan: 2, properties: {gridSpan:{val:"2"}}, blocks: [
           {
             kind: "paragraph",
             inlineItems: [text("Span"), opaque("w:fldSimple"), text("Cell"), text("Link")],
@@ -244,7 +249,7 @@ async function importedBodySectionsAndPhysicalCells() {
             inlineStructure: [run(afterRun, "After nested")] },
         ] },
         opaque("w:sdt"),
-        { kind: "cell", blocks: [
+        { kind: "cell", properties: {}, blocks: [
           { kind: "paragraph", inlineItems: [text("Tail")], inlineStructure: [run(tailRun, "Tail")] },
         ] },
       ] },
@@ -266,10 +271,10 @@ async function importedBodySectionsAndPhysicalCells() {
   const reopened = await openDocx(input);
   assert.notEqual(table.anchor, reopened.body()[2].anchor);
   assert.throws(() => reopened.inlineAt(right.anchor), /different document snapshot/);
-  assert.deepEqual((await openDocx(bytes("implicit"))).sections(), [
-    { bodyStart: 0, bodyEnd: 1, sectionType: "continuous", sectionTypeXml: "continuous" },
-    { bodyStart: 1, bodyEnd: 2, sectionTypeXml: "unknown" },
-    { bodyStart: 2, bodyEnd: 3 },
+  assert.deepEqual((await openDocx(bytes("implicit"))).sections().map(({anchor, layout, ...rest}) => rest), [
+    { bodyStart: 0, bodyEnd: 1, flags: {}, sectionType: "continuous", sectionTypeXml: "continuous" },
+    { bodyStart: 1, bodyEnd: 2, flags: {}, sectionTypeXml: "unknown" },
+    { bodyStart: 2, bodyEnd: 3, flags: {} },
   ]);
   const ambiguous = await openDocx(bytes("ambiguous"));
   assert.throws(() => ambiguous.sections(), { rule: "unsupported_edit" });
@@ -296,21 +301,21 @@ async function importedBodyInlineAnchorsAndProjections() {
     text("A"), text("B"), ...breaks, opaque("w:fldSimple"), text("L"), text("ink"), text("Jump"),
   ]);
   const [a, b, controls, field, external, internal] = p.inlineStructure;
-  assert.deepEqual(a, { kind: "run", anchor: a.anchor, items: [text("A")] });
-  assert.deepEqual(b, { kind: "run", anchor: b.anchor, items: [text("B")] });
+  assert.deepEqual(a, { kind: "run", format: {bold:true}, hasOpaqueFormatting: false, bold: true, anchor: a.anchor, items: [text("A")] });
+  assert.deepEqual(b, { kind: "run", format: {}, hasOpaqueFormatting: false, anchor: b.anchor, items: [text("B")] });
   assert.deepEqual(controls.items, breaks);
   assert.deepEqual(field, opaque("w:fldSimple"));
   assert.deepEqual(external, {
     kind: "hyperlink", anchor: external.anchor, relationshipId: fixtures.bodyLink,
     bookmark: "Somewhere",
     children: [
-      { kind: "run", anchor: external.children[0].anchor, items: [text("L")] },
-      { kind: "run", anchor: external.children[1].anchor, items: [text("ink")] },
+      { kind: "run", format: {}, hasOpaqueFormatting: false, anchor: external.children[0].anchor, items: [text("L")] },
+      { kind: "run", format: {}, hasOpaqueFormatting: false, anchor: external.children[1].anchor, items: [text("ink")] },
     ],
   });
   assert.deepEqual(internal, {
     kind: "hyperlink", anchor: internal.anchor, bookmark: "Local",
-    children: [{ kind: "run", anchor: internal.children[0].anchor, items: [text("Jump")] }],
+    children: [{ kind: "run", format: {}, hasOpaqueFormatting: false, anchor: internal.children[0].anchor, items: [text("Jump")] }],
   });
   const run = external.children[1];
   for (const node of [a, b, controls, external, internal, ...external.children, ...internal.children]) {

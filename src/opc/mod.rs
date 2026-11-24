@@ -409,7 +409,16 @@ impl Package {
     }
     /// Visit all declared XML payloads, including relocated parts with arbitrary
     /// extensions. An unreadable XML part cannot establish absence of references.
-    pub(crate) fn visit_source_xml(&self, mut visit: impl FnMut(&Node)) -> Result<()> {
+    pub(crate) fn visit_source_xml(&self, visit: impl FnMut(&Node)) -> Result<()> {
+        self.visit_xml(false, visit)
+    }
+
+    /// Include unmaterialized transaction edits when checking output identities.
+    pub(crate) fn visit_staged_xml(&self, visit: impl FnMut(&Node)) -> Result<()> {
+        self.visit_xml(true, visit)
+    }
+
+    fn visit_xml(&self, staged: bool, mut visit: impl FnMut(&Node)) -> Result<()> {
         fn walk(node: &Node, visit: &mut impl FnMut(&Node)) {
             visit(node);
             for child in node.elements() {
@@ -417,6 +426,7 @@ impl Package {
             }
         }
         let (defaults, overrides) = self.content_types()?;
+        let cache = self.xml_cache.borrow();
         for (path, bytes) in &self.parts {
             let lower = path.to_ascii_lowercase();
             let mime = overrides.get(&lower).or_else(|| {
@@ -428,7 +438,11 @@ impl Package {
                 let m = m.split(';').next().unwrap_or("").to_ascii_lowercase();
                 m.ends_with("+xml") || m.ends_with("/xml")
             }) {
-                walk(&Node::parse_original(bytes)?, &mut visit);
+                if staged && let Some(edit) = cache.get(path).filter(|edit| edit.dirty) {
+                    walk(&edit.node, &mut visit);
+                } else {
+                    walk(&Node::parse_original(bytes)?, &mut visit);
+                }
             }
         }
         Ok(())

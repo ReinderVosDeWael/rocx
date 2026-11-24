@@ -12,6 +12,22 @@ pub(crate) struct RevisionIds {
 }
 
 impl RevisionIds {
+    pub(crate) fn property_change(&mut self, revision: &TextRevision) -> Result<Node> {
+        Ok(annotate("w:rPrChange", self.next()?, revision))
+    }
+
+    pub(crate) fn paragraph_mark(&mut self, revision: &TextRevision) -> Result<Node> {
+        Ok(annotate(
+            match revision.kind {
+                RevisionKind::Insertion => "w:ins",
+                RevisionKind::Deletion => "w:del",
+                _ => unreachable!("paragraph insert/delete"),
+            },
+            self.next()?,
+            revision,
+        ))
+    }
+
     pub(crate) fn reserved(used: BTreeSet<u32>, move_names: BTreeSet<String>) -> Self {
         Self {
             used,

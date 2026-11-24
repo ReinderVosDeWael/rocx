@@ -51,19 +51,32 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Inspect the styles part and direct style metadata | `doc.styles()?` | `doc.styles` | `doc.styles()` |
 | Inspect direct body control metadata | `BodyBlock::ContentControl` | `BodyContentControl` | `kind: "contentControl"` |
 | Inspect block/inline/row/cell controls and their physical anchors | `doc.controls()` | `doc.controls` | `doc.controls()` |
+| Discover wrapping sites; wrap / replace / unwrap single-text controls | `control_sites`, `preview_wrap_control`, `preview_replace_control`, `preview_unwrap_control` | Same spellings, `control_sites` is a property | `controlSites`, `previewWrapControl`, `previewReplaceControl`, `previewUnwrapControl` |
+| Select a drop-down value or replace the choices and selection | `preview_control_choice` | `preview_control_choice` | `previewControlChoice` |
 | Patch an eligible control's alias, tag or single-text value | `ControlEdit` / `preview_with_controls` | `ControlEdit` / `preview([], controls=[edit])` | `preview({controls: [edit]})` |
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
 | Track a direct body text edit / paired move | `preview_tracked_text` / `preview_tracked_move` | `preview_tracked_text` / `preview_tracked_move` | `previewTrackedText` / `previewTrackedMove` |
+| Track direct bold / inspect the pending property change on a run | `preview_tracked_bold` / `property_revision` | `preview_tracked_bold` / `property_revision` | `previewTrackedBold` / `propertyRevision` |
+| Track / review a whole direct body paragraph | `preview_tracked_paragraph` / `preview_paragraph_revision` | `preview_tracked_paragraph` / `preview_paragraph_revision` | `previewTrackedParagraph` / `previewParagraphRevision` |
 | Accept/reject supported anchored revision(s) | `preview_revision` | `preview_revision` | `previewRevision` |
 | Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
 | Replace/remove a paragraph, replace section content or patch keep-with-next | `BlockEdit` / `preview_blocks` | `preview([], block_edits=[edit])` | `preview({blockEdits: [edit]})` |
-| Insert/replace a direct inline or patch run bold | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
+| Insert/replace a direct inline or patch modeled direct run formatting | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
+| Format runs in body cells, hyperlinks, shared section stories or ordinary entries | `edit_run_format(owner, &[edit])` | `edit_run_format([edit], owner_part=part)` | `editRunFormat({ownerPart, inlineEdits: [edit]})` |
 | Insert/remove rows, cells or columns; replace cell contents | `TableStructureEdit` / `preview_with_table_structure` | `preview([], table_structure=[edit])` | `preview({tableStructure: [edit]})` |
+| Set/clear direct table layout (same batch field) | `TableOperation::Layout(Some(TableLayout::Fixed))` / `Layout(None)` | `TableStructureEdit.layout(target, "fixed")` / `layout(target, None)` | `{target, kind: "layout", value: "fixed"}` / `value: null` |
+| Inspect/patch a direct table, row or cell property | `properties` / `TableOperation::Property { site, field, source }` | `properties` / `TableStructureEdit.patch_property(target, field, source, ...)` | `properties` / `{target, kind:"patchProperty", field, source, ...}` |
+| Replace table/row/cell or remove table | `TableOperation::ReplaceNode` / `RemoveTable` | `TableStructureEdit.replace_node(...)` / `remove_table(target)` | `kind: "replaceNode"` / `"removeTable"` |
+| Discover and edit nested or non-body tables | `part_tables(Some(owner))` / `edit_part_tables(owner, &edits)` | `part_tables(owner)` / `edit_part_tables(owner, edits)` | `partTables(owner)` / `editPartTables({ownerPart, tableStructure})` |
 | Edit supported style definitions | `StyleEdit` / `preview_with_styles` | `preview([], style_edits=[edit])` | `preview({styleEdits: [edit]})` |
 | Set/clear title, default alignment or abstract level start | `ResourceEdit` / `preview_with_resources` | `preview([], resources=[edit])` | `preview({resources: [edit]})` |
 | Edit simple text in a physical header/footer, footnote/endnote or comment part | `edit_story_text(owner_part, edits)` | `edit_story_text(owner_part, edits)` | `editStoryText({ownerPart, runText})` |
+| Insert/replace an ordinary note/comment inline or patch run bold | `edit_entry_inlines(owner_part, edits)` | `edit_entry_inlines(owner_part, edits)` | `editEntryInlines({ownerPart, inlineEdits})` |
+| Create, attach, detach, retarget, renumber or delete an ordinary direct-body note reference | `edit_note_reference(owner, &target, NoteReferenceEdit)` | `edit_note_reference(owner, target, kind, **fields)` | `editNoteReference({ownerPart, target, kind, ...fields})` |
+| Edit entry paragraphs, base comment metadata or delete an unused ordinary note | `edit_entry(owner, id, EntryEdit)` | `edit_entry(owner, id, kind, **fields)` | `editEntry({ownerPart, id, kind, ...fields})` |
 | Set a direct body table cell's vertical alignment | `preview_with_cells` / `CellAlignmentEdit` | `preview([], cell_alignments=[edit])` | `preview({cellAlignments: [edit]})` |
 | Replace a [plain paragraph scalar range](docs/EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs) | `preview_with_ranges` / `TextRangeEdit` | `preview([], text_ranges=[edit])` | `preview({textRanges: [edit]})` |
+| Insert text at a plain paragraph scalar position | `EditBatch::text_insertions` / `TextInsertion` | `preview([], text_insertions=[edit])` | `preview({textInsertions: [edit]})` |
 | Replace text in a direct body run | `doc.preview_with_text(&[], &[], &[], &[edit])?` | `doc.preview([], run_text=[edit])` | `doc.preview({runText: [edit]})` |
 | Remove a direct body run | `doc.preview_with_run_removals(&[], &[], &[], &[], &[anchor])?` | `doc.preview([], run_removals=[anchor])` | `doc.preview({runRemovals: [anchor]})` |
 | Inspect removed runs | `preview.run_removals()` | `preview.run_removals` | `preview.runRemovals()` |
@@ -89,3 +102,4 @@ Replacement and removal of the same anchor conflict.
 - Untouched **part payloads** retain their bytes. Edited XML and the ZIP container may be reserialized. Related parts are found by relationship, not filename; invalid internal relationships fail. Path output replaces the destination only after compilation, using a sibling temporary file.
 - Packages declaring a digital-signature origin are rejected, even without edits. Use an unsigned copy; rocx does not strip, verify or renew signatures.
 - On edited parts, unsupported or unbound `mc:MustUnderstand` namespaces on WordprocessingML elements are rejected. The guard recognizes Transitional WordprocessingML, Office relationships and XML. It does not select `AlternateContent` branches or scan foreign subtrees and untouched opaque parts.
+- When opening a Word part, a visible wrapper matched by a local or inherited `mc:ProcessContent` rule is rejected. Otherwise an MCE consumer could expose additional properties, inline nodes or range markers that the editor did not address. Unmatched foreign wrappers remain opaque; unused rules and lazy, unrelated parts do not block editing.

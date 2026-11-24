@@ -18,38 +18,71 @@ use std::sync::{Arc, OnceLock};
 mod batch;
 pub use batch::EditBatch;
 mod blocks;
+mod section_lifecycle;
 pub use blocks::BlockEdit;
+mod property_flags;
+pub use property_flags::{ParagraphFlag, SectionFlag};
 mod controls;
 mod entries;
+mod entry_edits;
+pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
+mod layout;
 pub(crate) use insertion::BoundaryState;
+pub use layout::{LayoutBorder, LayoutEdit, LayoutField, LayoutTab, LayoutValue};
+mod fields;
+mod objects;
+pub use fields::{FieldAction, FieldEdit, FieldPatch, ImportedField};
+mod paired;
+pub use objects::{DrawingOccurrence, DrawingProperty};
+pub use paired::{BodyRangeMarker, PairedRangeEdit};
 mod ranges;
-pub use ranges::TextRangeEdit;
+pub use ranges::{TextInsertion, TextRangeEdit};
+mod numbering;
 mod resource_fields;
+pub use numbering::{ImportedNumberingInstance, NumberingEdit};
 mod resources;
 mod revisions;
-pub use revisions::TrackedText;
+pub use revisions::{TrackedParagraph, TrackedText};
 mod style_edits;
 mod tables;
 mod text;
-pub use controls::{ControlAnchor, ControlContext, ControlEdit, ImportedControl};
+pub use controls::{
+    ControlAnchor, ControlContext, ControlEdit, ControlSite, ImportedControl, WrapperEdit,
+};
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
+    StoryReferenceEdit,
 };
-pub use resource_fields::{AbstractStart, ResourceEdit};
+pub use resource_fields::{
+    AbstractStart, CustomValue, DefaultField, DefaultTab, DefaultValue, MetadataField, ResourceEdit,
+};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
-pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
-pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit};
+pub use tables::{
+    CellAlignmentChange, CellAlignmentEdit, DirectTableProperties, LocatedTable, TableOperation,
+    TableSite, TableStructureEdit,
+};
+pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
+mod format_targets;
+mod run_format;
+pub use run_format::RunFormatField;
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
 pub struct ParagraphAnchor {
     snapshot: Arc<()>,
     body_index: usize,
+}
+
+/// A physical section owner in the issuing document snapshot.
+#[derive(Clone, Debug)]
+pub struct SectionAnchor {
+    snapshot: Arc<()>,
+    index: usize,
 }
 
 /// Direct body children in document order, excluding the final section properties.
@@ -89,18 +122,25 @@ fn read_content_control(node: &Node) -> ImportedContentControl {
     }
 }
 
-/// Snapshot-scoped identity for a direct body table.
+/// Snapshot-scoped table identity. Body-preview and physical-owner anchors
+/// are issued by different inspections and accepted only in their own scope.
 #[derive(Clone, Debug)]
 pub struct TableAnchor {
     _snapshot: Arc<()>,
     _body_index: usize,
+    physical: Option<tables::PhysicalTable>,
 }
 
 /// Physical direct rows and cells; grid spans and merged cells are not expanded.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTable {
+    pub properties: DirectTableProperties,
     pub anchor: TableAnchor,
+    /// Direct recognized layout; no style or default is inferred.
+    pub layout: Option<crate::TableLayout>,
+    /// Direct grid columns in order; absent or nonnumeric widths are unknown.
+    pub grid_widths: Vec<Option<u32>>,
     pub children: Vec<ImportedTableChild>,
 }
 
@@ -114,6 +154,7 @@ pub enum ImportedTableChild {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTableRow {
+    pub properties: DirectTableProperties,
     pub children: Vec<ImportedRowChild>,
 }
 
@@ -127,6 +168,11 @@ pub enum ImportedRowChild {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTableCell {
+    pub properties: DirectTableProperties,
+    /// Direct positive grid span; no implicit one is synthesized.
+    pub grid_span: Option<u32>,
+    /// Source merge marker; an empty marker denotes "continue".
+    pub vertical_merge: Option<String>,
     pub blocks: Vec<ImportedCellBlock>,
     inline_structure: Vec<Option<Vec<ImportedInlineNode>>>,
 }
@@ -152,7 +198,25 @@ pub enum ImportedCellBlock {
 
 fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTable {
     ImportedTable {
+        properties: tables::inspect(node, TableSite::Table),
+        layout: match node
+            .child("w:tblPr")
+            .and_then(|p| p.child("w:tblLayout"))
+            .and_then(|p| p.get("w:type"))
+        {
+            Some("fixed") => Some(crate::TableLayout::Fixed),
+            Some("autofit") => Some(crate::TableLayout::Autofit),
+            _ => None,
+        },
+        grid_widths: node
+            .child("w:tblGrid")
+            .into_iter()
+            .flat_map(Node::elements)
+            .filter(|c| c.name == "w:gridCol")
+            .map(|c| c.get("w:w").and_then(|s| s.parse().ok()))
+            .collect(),
         anchor: TableAnchor {
+            physical: None,
             _snapshot: snapshot.clone(),
             _body_index: body_index,
         },
@@ -165,6 +229,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                     return ImportedTableChild::Opaque(n.name.to_string());
                 }
                 ImportedTableChild::Row(ImportedTableRow {
+                    properties: tables::inspect(n, TableSite::Row(0)),
                     children: n
                         .elements()
                         .filter(|n| n.name != "w:trPr")
@@ -198,6 +263,16 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                                 })
                                 .unzip();
                             ImportedRowChild::Cell(ImportedTableCell {
+                                properties: tables::inspect(n, TableSite::Cell(0, 0)),
+                                grid_span: n
+                                    .child("w:tcPr")
+                                    .and_then(|p| p.child("w:gridSpan"))
+                                    .and_then(|s| s.get("w:val")?.parse().ok())
+                                    .filter(|v| *v > 0),
+                                vertical_merge: n
+                                    .child("w:tcPr")
+                                    .and_then(|p| p.child("w:vMerge"))
+                                    .map(|m| m.get("w:val").unwrap_or("continue").to_owned()),
                                 blocks,
                                 inline_structure,
                             })
@@ -212,6 +287,11 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedParagraph {
+    pub layout: BTreeMap<LayoutField, LayoutValue>,
+    /// First direct insertion/deletion of the paragraph terminator.
+    pub mark_revision: Option<ImportedPropertyRevision>,
+    /// Recognized unambiguous direct flags; no inheritance is applied.
+    pub flags: BTreeMap<ParagraphFlag, bool>,
     pub anchor: ParagraphAnchor,
     /// Text from ordinary runs and hyperlinks; not a rendered-text view.
     pub text: String,
@@ -233,6 +313,11 @@ pub struct ImportedParagraph {
 #[non_exhaustive]
 pub enum ImportedInline {
     Text(String),
+    /// A simple source note reference; preserve lexical ID spelling.
+    NoteReference {
+        kind: crate::NoteKind,
+        id: String,
+    },
     Tab,
     /// `Line` denotes the `w:cr` form; an untyped `w:br` is `TextWrapping`.
     Break(BreakType),
@@ -286,8 +371,14 @@ impl Eq for InlineAnchor {}
 /// One node in a paragraph's structured inline view.
 #[derive(Debug)]
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)] // Keep the public Run variant and avoid allocating each ordinary run.
 pub enum ImportedInlineNode {
     Run(ImportedRun),
+    Fraction {
+        anchor: InlineAnchor,
+        numerator: String,
+        denominator: String,
+    },
     Hyperlink(ImportedHyperlink),
     Revision(ImportedRevision),
     /// Unsupported element, retained in place without inspecting its contents.
@@ -311,8 +402,39 @@ pub struct ImportedRevision {
 #[non_exhaustive]
 pub struct ImportedRun {
     pub anchor: InlineAnchor,
+    pub drawing: Option<Box<DrawingOccurrence>>,
+    /// Direct toggles only. Absent or ambiguous properties are None.
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub strike: Option<bool>,
+    pub hidden: Option<bool>,
+    pub has_opaque_formatting: bool,
+    /// Literal metadata of the first direct rPrChange, even when not editable.
+    pub property_revision: Option<ImportedPropertyRevision>,
+    /// Direct modeled properties, including the unresolved character style ID.
+    pub format: crate::RunFormat,
     /// The run's text, tabs, breaks, and opaque children; excludes run properties.
     pub items: Vec<ImportedInline>,
+}
+
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct ImportedPropertyRevision {
+    pub kind: &'static str,
+    pub id: Option<String>,
+    pub author: Option<String>,
+    pub date: Option<String>,
+}
+
+impl ImportedPropertyRevision {
+    fn read(change: &Node, kind: &'static str) -> Self {
+        Self {
+            kind,
+            id: change.get("w:id").map(str::to_owned),
+            author: change.get("w:author").map(str::to_owned),
+            date: change.get("w:date").map(str::to_owned),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -324,14 +446,20 @@ pub struct ImportedHyperlink {
     pub relationship_id: Option<String>,
     /// Explicit `w:anchor`; the bookmark reference is not resolved.
     pub bookmark: Option<String>,
+    pub tooltip: Option<String>,
+    pub history_xml: Option<String>,
     pub children: Vec<ImportedInlineNode>,
 }
 
 /// A direct body section identified by its half-open range in `body()`.
-/// This is an inspection value, not an edit target.
+/// Its snapshot-bound anchor targets the physical owner, even for an empty range.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedSection {
+    pub anchor: SectionAnchor,
+    pub layout: BTreeMap<LayoutField, LayoutValue>,
+    /// Recognized unambiguous direct flags; no defaults are inferred.
+    pub flags: BTreeMap<SectionFlag, bool>,
     pub body_start: usize,
     pub body_end: usize,
     /// Recognized explicit section type. No default is inferred.
@@ -447,6 +575,7 @@ pub struct ImportedDocument {
     main: String,
     body: Vec<BodyBlock>,
     controls: Vec<ImportedControl>,
+    control_sites: Vec<ControlSite>,
     snapshot: Arc<()>,
     default_header_inspection: OnceLock<header::StoryInspection>,
     story_inspection: OnceLock<header::StoryInspection>,
@@ -491,7 +620,22 @@ impl ImportedDocument {
                         .child("w:pPr")
                         .and_then(|props| props.child("w:jc"))
                         .and_then(|jc| jc.get("w:val"));
+                    let props = node.child("w:pPr").filter(|_| {
+                        node.elements().filter(|c| c.name == "w:pPr").count() == 1
+                            && node.child(ALTERNATE).is_none()
+                    });
                     BodyBlock::Paragraph(ImportedParagraph {
+                        layout: layout::inspect(props, false),
+                        flags: ParagraphFlag::read(props),
+                        mark_revision: node.child("w:pPr").and_then(|p| p.child("w:rPr")).and_then(
+                            |p| {
+                                p.elements().find_map(|c| match c.name.as_str() {
+                                    "w:ins" => Some(ImportedPropertyRevision::read(c, "insertion")),
+                                    "w:del" => Some(ImportedPropertyRevision::read(c, "deletion")),
+                                    _ => None,
+                                })
+                            },
+                        ),
                         anchor,
                         text,
                         alignment: alignment_xml.and_then(read_alignment),
@@ -506,9 +650,11 @@ impl ImportedDocument {
                 name => BodyBlock::Opaque(name.to_owned()),
             })
             .collect();
-        let controls = controls::inspect(root.child("w:body").ok_or_else(missing_body)?, &snapshot);
+        let (controls, control_sites) =
+            controls::inspect(root.child("w:body").ok_or_else(missing_body)?, &snapshot);
         Ok(Self {
             controls,
+            control_sites,
             package,
             main,
             body,
@@ -726,12 +872,28 @@ impl ImportedDocument {
             run_removals,
             ranges,
             blocks,
+            text_insertions,
             inline_edits,
             structural,
             styles,
             resources,
             controls,
+            wrappers,
+            fields,
+            paired_ranges,
         } = batch;
+        if blocks.iter().any(BlockEdit::is_lifecycle)
+            && (!header_images.is_empty()
+                || !controls.is_empty()
+                || !wrappers.is_empty()
+                || !fields.is_empty()
+                || !paired_ranges.is_empty()
+                || !resources.is_empty())
+        {
+            return Err(unsupported(
+                "section boundary edits conflict with story, control, field, range or resource edits",
+            ));
+        }
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -741,14 +903,27 @@ impl ImportedDocument {
             .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
             .chain(ranges.iter().map(|r| &r.target.snapshot))
+            .chain(text_insertions.iter().map(|e| &e.target.snapshot))
             .chain(inline_edits.iter().map(|edit| &edit.target.snapshot))
             .chain(controls.iter().map(|edit| &edit.target.snapshot))
+            .chain(fields.iter().map(|edit| &edit.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
             .chain(structural.iter().map(|edit| &edit.target._snapshot))
         {
             self.validate_snapshot(snapshot)?;
         }
         let mut by_index = BTreeMap::new();
+        if cells
+            .iter()
+            .map(|e| &e.target)
+            .chain(structural.iter().map(|e| &e.target))
+            .any(|a| a.physical.is_some())
+        {
+            return Err(unsupported(
+                "physical table anchor requires edit_part_tables",
+            ));
+        }
+        let number_refs = numbering::paragraph_targets(self, resources)?;
         for edit in edits {
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
@@ -769,6 +944,9 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        // Numbering identities must be visible to both styles and body
+        // payloads. Validate removals only after their final users are staged.
+        let removed_numbers = numbering::stage(&mut package, &self.main, resources)?;
         // Check unused definitions against the original snapshot, and make
         // newly added definitions available to every payload codec.
         self.stage_styles(&mut package, styles)?;
@@ -798,10 +976,13 @@ impl ImportedDocument {
         let mut removed_runs = Vec::new();
         let mut cell_alignment_changes = Vec::new();
         let mut block_changes = Vec::new();
+        let mut wrapper_ids = BTreeSet::new();
         if !by_index.is_empty()
+            || !number_refs.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
+            || !text_insertions.is_empty()
             || !run_text.is_empty()
             || !inline_edits.is_empty()
             || !run_removals.is_empty()
@@ -809,18 +990,60 @@ impl ImportedDocument {
             || !cells.is_empty()
             || !blocks.is_empty()
             || !controls.is_empty()
+            || !wrappers.is_empty()
             || !structural.is_empty()
+            || !fields.is_empty()
+            || !paired_ranges.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
-            let occupied = by_index
+            let mut slots = batch::Slots::new();
+            let mut pairs = BTreeMap::new();
+            let mut names = BTreeSet::new();
+            for e in paired_ranges {
+                if pairs.insert((e.bookmark.is_none(), e.id), e).is_some()
+                    || e.bookmark
+                        .as_ref()
+                        .is_some_and(|s| !names.insert(s.to_ascii_lowercase()))
+                {
+                    return Err(unsupported("duplicate paired range identity"));
+                }
+            }
+            for e in pairs.values() {
+                self.plan_pair(&root, e, &mut slots)?;
+            }
+            if !slots.is_empty() {
+                // Fragment codecs validate typed REF and hyperlink targets
+                // against the eventual bookmark catalog, not obsolete endpoints.
+                let mut catalog = root.clone();
+                text::apply(
+                    catalog.child_mut("w:body").ok_or_else(missing_body)?,
+                    &[],
+                    &[],
+                    Default::default(),
+                    &mut Vec::new(),
+                    slots.clone(),
+                )?;
+                package.put_word(&self.main, catalog)?;
+            }
+            package = fields::prepare(
+                root.child("w:body").ok_or_else(missing_body)?,
+                package,
+                &self.main,
+                fields,
+                &mut slots,
+            )?;
+            let mut occupied: BTreeSet<usize> = by_index
                 .keys()
+                .chain(number_refs.keys())
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
                 .copied()
+                .chain(slots.keys().map(|s| s.0))
                 .chain(cells.iter().map(|e| e.target._body_index))
                 .chain(structural.iter().map(|e| e.target._body_index))
                 .chain(ranges.iter().map(|e| e.target.body_index))
+                .chain(text_insertions.iter().map(|e| e.target.body_index))
                 .chain(
                     run_text
                         .iter()
@@ -833,11 +1056,28 @@ impl ImportedDocument {
                         }),
                 )
                 .collect();
-            let inserted_after = table_targets
+            let inserted_after: BTreeSet<usize> = table_targets
                 .keys()
                 .chain(paragraph_targets.keys())
                 .copied()
                 .collect();
+            for e in paired_ranges {
+                if let Some((first, last)) = &e.endpoints
+                    && let (InlineLocation::Body(a), InlineLocation::Body(b)) =
+                        (&first.location, &last.location)
+                {
+                    if inserted_after.range(*a..*b).next().is_some()
+                        || structural
+                            .iter()
+                            .any(|s| (*a..=*b).contains(&s.target._body_index))
+                    {
+                        return Err(unsupported("block or table splice inside staged range"));
+                    }
+                    if !blocks.is_empty() || !wrappers.is_empty() {
+                        occupied.extend(*a..=*b);
+                    }
+                }
+            }
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             let sites = if table_targets.is_empty() {
                 Vec::new()
@@ -852,16 +1092,11 @@ impl ImportedDocument {
                     &paragraph_targets.keys().copied().collect::<BTreeSet<_>>(),
                 )?
             };
-            let mut expanded = ranges::expand(body, ranges)?;
+            let mut expanded = ranges::expand(body, ranges, text_insertions)?;
             expanded.extend_from_slice(run_text);
             // Plan destructive cross-family overlaps before rendering payloads.
             let mut addressed = BTreeSet::new();
-            for anchor in expanded
-                .iter()
-                .map(|edit| &edit.target)
-                .chain(run_removals)
-                .chain(inline_edits.iter().map(|edit| &edit.target))
-            {
+            for anchor in expanded.iter().map(|edit| &edit.target).chain(run_removals) {
                 if let (InlineLocation::Body(body), [index]) =
                     (&anchor.location, anchor.path.as_slice())
                     && !addressed.insert((*body, *index))
@@ -869,17 +1104,46 @@ impl ImportedDocument {
                     return Err(unsupported("duplicate or conflicting run target"));
                 }
             }
+            for e in inline_edits {
+                if let (InlineLocation::Body(b), [i]) =
+                    (&e.target.location, e.target.path.as_slice())
+                    && addressed.contains(&(*b, *i))
+                {
+                    return Err(unsupported("duplicate or conflicting run target"));
+                }
+            }
             // Control paths include raw XML child slots: resolve them before
             // any property insertion or run, row, cell or block splice.
             let controls_changed = self.apply_controls(body, controls)?;
+            let (staged, mut wrapper_plan) =
+                self.stage_wrappers(package, body, wrappers, controls, &mut occupied, blocks)?;
+            package = staged;
+            wrapper_ids = wrapper_plan.ids;
             let mut block_plan =
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            let (staged, actions) = text::prepare(package, &self.main, inline_edits)?;
-            package = tables::structure(body, staged, &self.main, structural, cells)?;
-            (run_text_changes, removed_runs) =
-                text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
+            let (staged, actions) =
+                text::prepare(package, self, inline_edits, &mut wrapper_plan.images)?;
+            let (staged, structural_changed) = tables::structure(
+                body,
+                staged,
+                &self.main,
+                structural,
+                cells,
+                &mut block_plan.deletes,
+            )?;
+            package = staged;
+            (run_text_changes, removed_runs) = text::apply(
+                body,
+                &expanded,
+                run_removals,
+                actions,
+                &mut inline_changes,
+                slots,
+            )?;
+            inline_changes.dedup();
             cell_alignment_changes = tables::apply(body, cells)?;
+            let numbering_changed = numbering::patch_paragraphs(body, &number_refs)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -903,7 +1167,8 @@ impl ImportedDocument {
                 return Err(unsupported("target paragraph not found"));
             }
             // Header reference edits use original body slots, before splicing tables.
-            let (staged, staged_headers) = headers.stage(package, &self.main, body)?;
+            let (staged, staged_headers) =
+                headers.stage(package, &self.main, body, wrapper_plan.images)?;
             package = staged;
             header_changes = staged_headers;
             let mut pending = Vec::new();
@@ -938,16 +1203,18 @@ impl ImportedDocument {
                 package = staged;
                 pending.extend(slots.into_iter().zip(nodes));
             }
-            package = block_plan.stage(package, &self.main, body, pending)?;
+            package = block_plan.stage(package, &self.main, body, pending, wrapper_plan.splices)?;
             block_changes = block_plan.changes;
             if controls_changed
+                || wrapper_plan.changed
+                || numbering_changed
                 || !changes.is_empty()
                 || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
                 || !inline_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
-                || !structural.is_empty()
+                || structural_changed
                 || !insertions.is_empty()
                 || !paragraph_insertions.is_empty()
                 || header_changes
@@ -956,15 +1223,37 @@ impl ImportedDocument {
             {
                 package.put_word(&self.main, root)?;
             }
-            if destructive_styles {
-                // Revalidate against the staged content, including implicit
-                // style references emitted by payload codecs. The plan always
-                // derives the catalog itself from the immutable source.
-                self.stage_styles(&mut package, styles)?;
-            }
         }
         // A defaults patch shares the styles part. Read the staged version.
         resource_fields::apply(&mut package, &self.main, resources)?;
+        if !wrapper_ids.is_empty() {
+            let mut counts = BTreeMap::new();
+            package.visit_staged_xml(|n| {
+                if n.name == "w:sdtPr" {
+                    for id in n
+                        .elements()
+                        .filter(|c| c.name == "w:id")
+                        .filter_map(|c| c.get("w:val")?.trim().parse::<u32>().ok())
+                    {
+                        if wrapper_ids.contains(&id) {
+                            *counts.entry(id).or_insert(0usize) += 1;
+                        }
+                    }
+                }
+            })?;
+            if wrapper_ids.iter().any(|id| counts.get(id) != Some(&1)) {
+                return Err(unsupported(
+                    "duplicate content control ID in staged package",
+                ));
+            }
+        }
+        paired::recheck_removals(&package, &self.main, paired_ranges)?;
+        if destructive_styles {
+            self.check_final_style_uses(&package, styles)?;
+        }
+        if let Some(removed) = removed_numbers {
+            removed.check(&package)?;
+        }
         Ok(EditPreview {
             block_changes,
             run_text_changes,
@@ -1056,8 +1345,20 @@ fn read_inline_nodes<'a>(
                         matches!(revision, Some("deletion" | "moveSource")),
                     );
                     flat.extend(items.iter().cloned());
+                    let (format, hidden, has_opaque_formatting) = run_format::inspect(node);
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
+                        drawing: objects::drawing(node).map(Box::new),
+                        bold: format.bold,
+                        italic: format.italic,
+                        strike: format.strike,
+                        hidden,
+                        format,
+                        has_opaque_formatting,
+                        property_revision: node
+                            .child("w:rPr")
+                            .and_then(|p| p.child("w:rPrChange"))
+                            .map(|change| ImportedPropertyRevision::read(change, "runProperties")),
                         items,
                     })
                 }
@@ -1065,6 +1366,8 @@ fn read_inline_nodes<'a>(
                     anchor: address.clone(),
                     relationship_id: node.get("r:id").map(str::to_owned),
                     bookmark: node.get("w:anchor").map(str::to_owned),
+                    tooltip: node.get("w:tooltip").map(str::to_owned),
+                    history_xml: node.get("w:history").map(str::to_owned),
                     children: read_inline_nodes(node.elements(), address, flat, revision),
                 }),
                 "w:ins" | "w:del" | "w:moveFrom" | "w:moveTo"
@@ -1095,7 +1398,15 @@ fn read_inline_nodes<'a>(
                 }
                 name => {
                     flat.push(ImportedInline::Opaque(name.to_owned()));
-                    ImportedInlineNode::Opaque(name.to_owned())
+                    if let Some((numerator, denominator)) = objects::fraction(node) {
+                        ImportedInlineNode::Fraction {
+                            anchor: address.clone(),
+                            numerator,
+                            denominator,
+                        }
+                    } else {
+                        ImportedInlineNode::Opaque(name.to_owned())
+                    }
                 }
             };
             address.path.pop();
@@ -1106,6 +1417,22 @@ fn read_inline_nodes<'a>(
 
 fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
     for item in node.elements() {
+        if let Some(kind) = match item.name.as_str() {
+            "w:footnoteReference" => Some(crate::NoteKind::Footnote),
+            "w:endnoteReference" => Some(crate::NoteKind::Endnote),
+            _ => None,
+        } && item.children.is_empty()
+            && !text::has_other_attrs(item, &["w:id"])
+            && let Some(id) = item
+                .get("w:id")
+                .filter(|id| crate::ooxml::decimal_id(id).is_some())
+        {
+            items.push(ImportedInline::NoteReference {
+                kind,
+                id: id.to_owned(),
+            });
+            continue;
+        }
         if deletion && item.name == "w:delText" {
             let text = item
                 .children
@@ -1140,26 +1467,16 @@ fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
 
 /// Outer `None` means no write; inner `None` means no previous value.
 fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Option<String>>> {
-    patch_property(paragraph, "w:jc", after.xml())
-}
-
-fn patch_property(
-    paragraph: &mut Node,
-    property: &str,
-    value: &str,
-) -> Result<Option<Option<String>>> {
+    revisions::guard_paragraph_mark(paragraph)?;
+    let value = after.xml();
     if paragraph.elements().filter(|n| n.name == "w:pPr").count() > 1
         || paragraph.child(ALTERNATE).is_some()
         || paragraph.child("w:pPr").is_some_and(|props| {
-            props.elements().filter(|n| n.name == property).count() > 1
+            props.elements().filter(|n| n.name == "w:jc").count() > 1
                 || props.child(ALTERNATE).is_some()
         })
     {
-        return Err(unsupported(if property == "w:jc" {
-            "paragraph alignment is structurally ambiguous"
-        } else {
-            "paragraph property is structurally ambiguous"
-        }));
+        return Err(unsupported("paragraph alignment is structurally ambiguous"));
     }
 
     if paragraph.child("w:pPr").is_none() {
@@ -1168,16 +1485,7 @@ fn patch_property(
             .insert(0, Content::Element(Node::new("w:pPr")));
     }
     let props = paragraph.child_mut("w:pPr").unwrap();
-    if property == "w:keepNext"
-        && let Some(current) = props.child(property)
-        && matches!(
-            (current.get("w:val"), value),
-            (None | Some("true" | "on" | "1"), "1") | (Some("false" | "off" | "0"), "0")
-        )
-    {
-        return Ok(None);
-    }
-    let jc = props.ensure(property);
+    let jc = props.ensure("w:jc");
     if jc.get("w:val") == Some(value) {
         return Ok(None);
     }

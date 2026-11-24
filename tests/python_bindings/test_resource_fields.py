@@ -113,3 +113,103 @@ def test_reject_ambiguous_or_annotated_property(replacement):
     with pytest.raises(ValueError):
         source.preview([], resources=[ResourceEdit.core_title(None)])
     assert unpack(source.preview([]).to_docx()) == parts
+
+
+def test_metadata_parts_and_types_round_trip_on_independent_document():
+    parts = fixture()
+    src = ImportedDocument.open(pack(parts))
+    md, cp = ResourceEdit.metadata, ResourceEdit.custom_property
+    values = dict(creator="reviewer", description="", keywords="a & b", category="sample",
+                  version="v3", identifier="id-π", language="el", contentStatus="ready",
+                  revision="7", lastModifiedBy="editor",
+                  created="2000-02-29T13:01:12Z", modified="2002-03-01T00:00:00Z",
+                  lastPrinted="2001-11-04T03:02:01Z", company="Acme", manager="Lead")
+    edits = [md(k, v) for k, v in values.items()] + [cp("Reviewed", False), cp("Label", "")]
+    data = src.preview([], resources=edits).to_docx()
+    result = ImportedDocument.open(data)
+    assert {k: result.metadata_field(k) for k in values} == values
+    assert result.custom_property("Reviewed") is False
+    assert result.custom_property("Label") == ""
+    assert src.custom_property("Reviewed") is None
+    document = docx.Document(BytesIO(data))
+    assert document.core_properties.author == "reviewer"
+    assert document.core_properties.created.year == 2000
+    assert document.core_properties.revision == 7
+    output = unpack(data)
+    assert set(output) - set(parts) == {"docProps/custom.xml"}
+    assert {p for p in parts if parts[p] != output[p]} == {
+        "properties/info.xml", "docProps/app.xml", "_rels/.rels", "[Content_Types].xml"}
+    assert b"<!--retain--><?sample opaque?>" in output["properties/info.xml"]
+    assert unpack(result.preview([], resources=edits).to_docx()) == output
+    with pytest.raises(ValueError, match="snapshot"):
+        result.preview([ParagraphAlignmentEdit(src.body[0].anchor, "center")], resources=edits)
+    cleared = ImportedDocument.open(result.preview([], resources=[
+        *(md(k, None) for k in values), cp("Reviewed", None), cp("Label", True)]).to_docx())
+    assert all(cleared.metadata_field(k) is None for k in values)
+    assert cleared.custom_property("Reviewed") is None and cleared.custom_property("Label") is True
+
+    for bad in ([md("created", "2025-02-29T00:00:00Z")], [md("manager", "a")] * 2,
+                [cp("Label", None), cp("Label", False)], [cp("  ", "a")]):
+        with pytest.raises(ValueError):
+            result.preview([], resources=[md("creator", "uncommitted"), *bad])
+    assert result.metadata_field("creator") == "reviewer"
+
+
+def test_custom_guards_relocated_part_and_preserves_opaque_variant():
+    parts = fixture()
+    cp = ResourceEdit.custom_property
+    seeded = ImportedDocument.open(pack(parts)).preview([], resources=[cp("Safe", True), cp("Opaque", "x")])
+    parts = unpack(seeded.to_docx())
+    path = "properties/named.xml"
+    root = etree.fromstring(parts.pop("docProps/custom.xml"))
+    opaque = root.find("{*}property[@name='Opaque']")
+    opaque[0].tag = "{http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes}i4"
+    opaque[0].text = "128"
+    parts[path] = etree.tostring(root)
+    for name in ("_rels/.rels", "[Content_Types].xml"):
+        parts[name] = parts[name].replace(b"docProps/custom.xml", path.encode())
+    src = ImportedDocument.open(pack(parts))
+    with pytest.raises(ValueError, match="unsupported custom property type"):
+        src.custom_property("Opaque")
+    with pytest.raises(ValueError, match="unsupported custom property type"):
+        src.preview([], resources=[cp("Safe", False), cp("Opaque", None)])
+    edited = unpack(src.preview([], resources=[cp("Safe", False)]).to_docx())
+    assert {n for n in edited if edited[n] != parts[n]} == {path}
+    after = etree.fromstring(edited[path]).find("{*}property[@name='Opaque']")
+    assert dict(after.attrib) == dict(opaque.attrib) and (after[0].tag, after[0].text) == (opaque[0].tag, "128")
+    assert src.custom_property("Safe") is True
+
+
+@pytest.mark.parametrize("type_uri,valid", [
+    ("http://purl.org/dc/terms/", True), ("urn:unrelated", False)])
+def test_metadata_date_uses_original_qname_scope(type_uri, valid):
+    parts = fixture()
+    key = "properties/info.xml"
+    parts[key] = parts[key].replace(b'xsi:type="dcterms:W3CDTF"',
+                                    f'xmlns:q="{type_uri}" xsi:type="q:W3CDTF"'.encode())
+    source = ImportedDocument.open(pack(parts))
+    edit = ResourceEdit.metadata("created", "2032-02-29T01:00:02Z")
+    if valid:
+        out = unpack(source.preview([], resources=[edit]).to_docx())
+        assert {p for p in out if out[p] != parts[p]} == {key}
+        node = etree.fromstring(out[key]).find("{http://purl.org/dc/terms/}created")
+        assert node.get("{http://www.w3.org/2001/XMLSchema-instance}type") == "q:W3CDTF"
+        assert node.nsmap["q"] == type_uri and node.text == "2032-02-29T01:00:02Z"
+    else:
+        with pytest.raises(ValueError, match="date type"):
+            source.metadata_field("created")
+        with pytest.raises(ValueError, match="date type"):
+            source.preview([], resources=[edit])
+        assert unpack(source.preview([]).to_docx()) == parts
+
+
+def test_metadata_respects_source_mandatory_namespace():
+    parts = fixture()
+    key = "properties/info.xml"
+    parts[key] = parts[key].replace(b"<cp:coreProperties ", b'<cp:coreProperties '
+        b'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+        b'xmlns:ext="urn:unknown" mc:MustUnderstand="ext" ')
+    src = ImportedDocument.open(pack(parts))
+    with pytest.raises(ValueError, match="mandatory namespace"):
+        src.preview([], resources=[ResourceEdit.metadata("creator", "x")])
+    assert unpack(src.preview([]).to_docx()) == parts

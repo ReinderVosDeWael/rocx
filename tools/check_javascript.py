@@ -23,10 +23,12 @@ PORTABLE_ORACLES = (
     "tables", "tables-auto", "tables-layout",
     "fresh", "override", "edited", "structured",
 )
-EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "shared", "local",
+EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
-                  "blocks", "inline", "tableStructure", "styleEdits", "controlEdits",
-                  "tracked", "reviewed", "moved", "moveAccepted", "combined")
+                  "blocks", "inline", "runFormatting", "formatOwners", "tableStructure", "tableNodes", "physicalTables", "styleEdits", "controlEdits",
+                  "controlWrapped", "controlUnwrapped", "guardedWorkflow", "richControls", "richUnwrapped",
+                  "tracked", "reviewed", "moved", "moveAccepted", "boldChange", "boldAccepted", "boldRejected",
+                  "paraInsert", "paraInsertAccepted", "paraInsertRejected", "paraDelete", "paraDeleteAccepted", "paraDeleteRejected", "combined", "numberingEdits", "fieldsRanges", "fieldBatch", "layout", "sectionSplit", "sectionMerge", "storyShared", "structuralResources")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:
@@ -137,7 +139,8 @@ async def python_table_structure(source: Path, output: Path) -> None:
     nested = await d.Table([d.TableRow([
         d.TableCell([d.Paragraph(text=t)]) for t in ("next A", "next B")
     ])]).resolve()
-    for build in (lambda a: E.insert_row(a, 1), lambda a: E.remove_row(a, 1),
+    for build in (lambda a: E.layout(a, None), lambda a: E.layout(a, "autofit"),
+                  lambda a: E.insert_row(a, 1), lambda a: E.remove_row(a, 1),
                   lambda a: E.insert_column(a, 1), lambda a: E.remove_column(a, 1),
                   lambda a: E.insert_cell(a, 0, 1), lambda a: E.remove_cell(a, 0, 1),
                   lambda a: E.replace_cell(a, 0, 1, [paragraph, nested])):
@@ -147,17 +150,44 @@ async def python_table_structure(source: Path, output: Path) -> None:
     output.write_bytes(data)
 
 
+async def python_table_nodes(source: Path) -> bytes:
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, ParagraphAlignmentEdit, TableStructureEdit as E
+
+    doc = ImportedDocument.open(source.read_bytes())
+    pair = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text=t)]) for t in ("next A","next B")])]).resolve()
+    single = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text="cell")], margins=d.CellMargins(top=4.5))],
+                                       repeat_header=False)], alignment="center").resolve()
+    data = doc.preview([ParagraphAlignmentEdit(doc.body[2].anchor, "right")], table_structure=[
+        E.replace_node(doc.body[0].anchor, pair), E.remove_table(doc.body[1].anchor)]).to_docx()
+    for build in (lambda a: [E.replace_node(a, pair, row=0)],
+                  lambda a: [E.replace_node(a, single, row=0, cell=1)],
+                  lambda a: [E.patch_property(a,"alignment",single), E.patch_property(a,"repeatHeader",single,row=0),
+                             E.patch_property(a,"margin.top",single,row=0,cell=0)]):
+        doc = ImportedDocument.open(data)
+        data = doc.preview([], table_structure=build(doc.body[0].anchor)).to_docx()
+    return data
+
+
 def python_combined(source: Path) -> bytes:
-    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, TextRangeEdit
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, StyleEdit, TextRangeEdit
 
     original = source.read_bytes()
     doc = ImportedDocument.open(original)
     preview = doc.preview(
         [], text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
-        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
-        resources=[ResourceEdit.core_title("Combined editor")],
+        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True),
+                     BlockEdit.paragraph_flag(doc.body[4].anchor, "page_break_before", False),
+                     BlockEdit.section_flag(doc.body[4].anchor, "title_page", True),
+                     BlockEdit.section_type(doc.body[0].anchor, "continuous")],
+        style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Batch List", 702))],
+        resources=[ResourceEdit.document_default("tabStops", [(720, "right", "dot")]),
+                   ResourceEdit.core_title("Combined editor"), ResourceEdit.metadata("subject", "Batch resources"),
+                   ResourceEdit.document_default("bold", False), ResourceEdit.add_instance(702,701),
+                   ResourceEdit.add_abstract(701,[d.NumberingLevel()])],
     )
-    assert preview.block_changes == [4]
+    assert preview.block_changes == [0, 4, 4, 4]
     assert [(c.body_index, c.before, c.after) for c in preview.run_text_changes] == [
         (1, "unset alignment", "Xnset alignment")]
     data = preview.to_docx()
@@ -165,17 +195,35 @@ def python_combined(source: Path) -> bytes:
     assert readback.paragraphs[1].text == "Xnset alignment"
     assert readback.paragraphs[4].text == "next section"
     assert readback.paragraphs[4].paragraph_format.keep_with_next is True
+    assert readback.paragraphs[4].paragraph_format.page_break_before is False
+    assert readback.sections[1].different_first_page_header_footer is True
     assert readback.core_properties.title == "Combined editor"
     with zipfile.ZipFile(io.BytesIO(original)) as before, zipfile.ZipFile(io.BytesIO(data)) as after:
         assert set(before.namelist()) == set(after.namelist())
         assert {p for p in before.namelist() if before.read(p) != after.read(p)} == {
-            "word/document.xml", "docProps/core.xml"}
+            "word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml"}
+    return data
+
+
+async def python_physical_tables(source: Path) -> bytes:
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, TableStructureEdit as E
+    data = source.read_bytes()
+    linked=await d.Paragraph(children=[d.Hyperlink("https://example.invalid/physical-cell",[d.TextRun("Footer link")])]).resolve()
+    for owner, depth, edit in [(None,1,lambda a:E.insert_row(a,1)),
+                               ("word/footer1.xml",1,lambda a:E.layout(a,"fixed")),
+                               ("word/footer1.xml",1,lambda a:E.replace_cell(a,0,0,[linked])),
+                               ("word/comments.xml",0,lambda a:E.patch_property(a,"width",None,column=0))]:
+        doc=ImportedDocument.open(data)
+        t=next(t for t in doc.part_tables(owner) if t.depth==depth)
+        data=doc.edit_part_tables(t.part_name,[edit(t.anchor)])
     return data
 
 
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
-    for name in ("base", "relocated", "range-source", "styles-source", "control-source"):
+    for name in ("base", "relocated", "range-source", "styles-source", "control-source",
+                 "table-layout", "layout-source", "physical-table-source", "format-owners-source", "control-choice-source", "paired-source", "rich-control-source", "field-batch-source"):
         path = reference / f"{name}.docx"
         print(f"editor/{path.name}: {len(validator.validate(path))} schema-covered parts and OPC relationships")
     assert {p.name for p in reference.glob("native-*.docx")} == {f"native-{n}.docx" for n in EDITOR_OUTPUTS}
@@ -187,6 +235,16 @@ def verify_editor(validator: Validator, parity: Path) -> None:
             python = parity / "python" / "editor" / "tableStructure.docx"
             asyncio.run(python_table_structure(reference / "native-body.docx", python))
             verify_file(validator, python, data, language="Python")
+        if name == "tableNodes":
+            python = parity / "python" / "editor" / "tableNodes.docx"
+            python.parent.mkdir(parents=True, exist_ok=True)
+            python.write_bytes(asyncio.run(python_table_nodes(reference / "table-layout.docx")))
+            verify_file(validator, python, data, language="Python")
+        if name == "physicalTables":
+            python=parity/"python"/"editor"/"physicalTables.docx"
+            python.parent.mkdir(parents=True,exist_ok=True)
+            python.write_bytes(asyncio.run(python_physical_tables(reference / "physical-table-source.docx")))
+            verify_file(validator,python,data,language="Python")
         if name == "blocks":
             python = parity / "python" / "editor" / "blocks.docx"
             python.parent.mkdir(parents=True, exist_ok=True)

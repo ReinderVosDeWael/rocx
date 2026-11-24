@@ -1,9 +1,22 @@
 import type { ReadLimits, ResolvedHandle } from "./boundary.js";
+import type { TableLayout } from "./tables.js";
 
 declare const anchor: unique symbol;
+export type MetadataField = "title" | "subject" | "creator" | "description" | "category" | "keywords" | "version"
+  | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
+  | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
 export interface ControlAnchor { readonly [anchor]: "control" }
+export interface ControlSiteAnchor { readonly [anchor]: "controlSite" }
+export interface ControlSite {
+  readonly anchor: ControlSiteAnchor;
+  readonly context: ImportedControl["context"];
+  readonly text: string;
+}
 export interface ImportedControl {
+  readonly ownerPart?: string;
+  readonly entryId?: string;
+  readonly entryIndex?: number;
   readonly anchor: ControlAnchor;
   readonly context: "block" | "inline" | "row" | "cell";
   readonly id?: string;
@@ -11,11 +24,83 @@ export interface ImportedControl {
   readonly alias?: string;
   readonly lock?: string;
   readonly bound: boolean;
+  readonly kind: string;
+  readonly choices: readonly { readonly displayText: string; readonly value: string }[];
+  readonly selected?: string;
+  readonly multiLine?: string;
 }
 
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
-/** Direct body table address for cell alignment edits. */
+export interface SectionAnchor { readonly [anchor]: "section" }
+export interface LayoutTab {
+  readonly position: number;
+  readonly alignment: "left" | "center" | "right" | "decimal" | "bar" | "clear" | "start" | "end";
+  readonly leader?: "none" | "dot" | "hyphen" | "underscore" | "heavy" | "middleDot";
+}
+export interface DirectParagraphLayout {
+  readonly heading?: number;
+  readonly keepWithNext?: boolean;
+  readonly keepTogether?: boolean;
+  readonly pageBreakBefore?: boolean;
+  readonly widowControl?: boolean;
+  readonly suppressLineNumbers?: boolean;
+  readonly paragraphBidi?: boolean;
+  readonly snapToGrid?: boolean;
+  readonly contextualSpacing?: boolean;
+  readonly mirrorIndents?: boolean;
+  readonly styleId?: string;
+  readonly alignment?: "left" | "start" | "center" | "right" | "end" | "both" | "distribute" | "mediumKashida" | "highKashida" | "lowKashida" | "thaiDistribute";
+  readonly outlineLevel?: number;
+  readonly spaceBefore?: number;
+  readonly spaceAfter?: number;
+  readonly lineHeight?: number;
+  readonly lineRule?: "auto" | "exact" | "atLeast";
+  readonly leftIndent?: number;
+  readonly rightIndent?: number;
+  readonly firstLineIndent?: number;
+  readonly tabStops?: readonly LayoutTab[];
+}
+export interface DirectSectionLayout {
+  readonly margins?: true;
+  readonly lineNumbering?: true;
+  readonly borderTop?: LayoutBorder;
+  readonly borderLeft?: LayoutBorder;
+  readonly borderBottom?: LayoutBorder;
+  readonly borderRight?: LayoutBorder;
+  readonly pageWidth?: number;
+  readonly pageHeight?: number;
+  readonly orientation?: "portrait" | "landscape";
+  readonly marginTop?: number;
+  readonly marginBottom?: number;
+  readonly marginLeft?: number;
+  readonly marginRight?: number;
+  readonly marginHeader?: number;
+  readonly marginFooter?: number;
+  readonly marginGutter?: number;
+  readonly columnCount?: number;
+  readonly columnSpace?: number;
+  readonly columnSeparator?: boolean;
+  readonly gridMode?: "default" | "lines" | "linesAndChars" | "snapToChars";
+  readonly gridPitch?: number;
+  readonly gridCharSpace?: number;
+  readonly pageStart?: number;
+  readonly pageFormat?: "decimal" | "upperRoman" | "lowerRoman" | "upperLetter" | "lowerLetter" | "ordinal" | "cardinalText" | "ordinalText" | "decimalZero" | "none";
+  readonly lineStart?: number;
+  readonly lineCountBy?: number;
+  readonly lineDistance?: number;
+  readonly lineRestart?: "newPage" | "newSection" | "continuous";
+  readonly verticalAlign?: "top" | "center" | "bottom" | "both";
+  readonly sectionType?: ImportedSectionType;
+  readonly titlePage?: boolean;
+  readonly bidi?: boolean;
+  readonly rtlGutter?: boolean;
+  readonly borderOffset?: "page" | "text";
+  readonly borderDisplay?: "allPages" | "firstPage" | "notFirstPage";
+  readonly borderZOrder?: "front" | "back";
+}
+export interface LayoutBorder { readonly size?: number; readonly space?: number; readonly color?: string }
+/** Snapshot-scoped address; physical-owner and ordinary body anchors are not interchangeable. */
 export interface TableAnchor { readonly [anchor]: "table" }
 /** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement or removal. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
@@ -28,6 +113,28 @@ export type ImportedAlignment =
 export type ImportedBreakType = "line" | "page" | "column" | "textWrapping";
 export type ImportedSectionType = "nextPage" | "nextColumn" | "continuous" | "evenPage" | "oddPage";
 
+export interface DefaultTab {
+  readonly positionTwips: number;
+  readonly alignment: "left" | "right" | "center" | "decimal" | "bar" | "clear" | "start" | "end" | "num";
+  readonly leader?: "none" | "dot" | "hyphen" | "underscore" | "heavy" | "middleDot";
+}
+type DefaultToggle = "bold" | "italic" | "boldCs" | "italicCs" | "runRtl" | "complexScript"
+  | "caps" | "smallCaps" | "strike" | "runSnapToGrid" | "paragraphBidi" | "keepTogether"
+  | "keepWithNext" | "pageBreakBefore" | "widowControl" | "suppressLineNumbers" | "contextualSpacing"
+  | "mirrorIndents" | "paragraphSnapToGrid" | "mirrorMargins" | "gutterAtTop" | "trackRevisions"
+  | "beforeAutoSpacing" | "afterAutoSpacing";
+type DefaultInteger = "sizeHalfPoints" | "sizeCsHalfPoints" | "beforeTwips" | "afterTwips" | "line"
+  | "leftTwips" | "rightTwips" | "firstLineTwips" | "hangingTwips" | "leftChars" | "rightChars"
+  | "firstLineChars" | "hangingChars" | "footnoteStart" | "endnoteStart" | "startTwips" | "endTwips"
+  | "startChars" | "endChars" | "beforeLines" | "afterLines";
+type DefaultText = "fontAscii" | "fontHAnsi" | "fontEastAsia" | "fontCs" | "fontAsciiTheme"
+  | "fontHAnsiTheme" | "fontEastAsiaTheme" | "fontCsTheme" | "language" | "languageEastAsia"
+  | "languageBidi" | "underline" | "verticalAlign" | "runColor" | "colorTheme" | "colorTint"
+  | "colorShade" | "lineRule" | "footnotePosition" | "endnotePosition" | "footnoteFormat"
+  | "endnoteFormat" | "footnoteRestart" | "endnoteRestart" | "justification";
+export type DefaultValues = Readonly<Record<DefaultToggle, boolean> & Record<DefaultInteger, number>
+  & Record<DefaultText, string> & {tabStops: readonly DefaultTab[]}>;
+
 export interface ImportedOpaque {
   readonly kind: "opaque";
   /** Expanded XML name (usual OOXML names use their canonical prefix). */
@@ -36,11 +143,21 @@ export interface ImportedOpaque {
 
 export type ImportedInline =
   | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "footnoteReference" | "endnoteReference"; readonly id: string }
   | { readonly kind: "tab" }
   | { readonly kind: "break"; readonly breakType: ImportedBreakType }
   | ImportedOpaque;
 
 export interface ImportedRun {
+  readonly drawing?: DrawingOccurrence;
+  readonly format: import("./text-layout.js").ResolvedRunFormat;
+  /** Direct toggle properties; absent when unset or ambiguous. */
+  readonly bold?: boolean;
+  readonly italic?: boolean;
+  readonly strike?: boolean;
+  readonly hidden?: boolean;
+  readonly hasOpaqueFormatting: boolean;
+  readonly propertyRevision?: ImportedPropertyRevision<"runProperties">;
   readonly kind: "run";
   readonly anchor: InlineAnchor;
   readonly items: readonly ImportedInline[];
@@ -52,6 +169,8 @@ export interface ImportedHyperlink {
   /** Source relationship ID local to the owning part, not a URL. */
   readonly relationshipId?: string;
   readonly bookmark?: string;
+  readonly tooltip?: string;
+  readonly historyXml?: string;
   readonly children: readonly ImportedInlineNode[];
 }
 
@@ -65,7 +184,30 @@ export interface ImportedRevision {
   readonly children: readonly ImportedInlineNode[];
 }
 
-export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque;
+export interface DrawingOccurrence {
+  readonly title?: string;
+  readonly name?: string;
+  readonly geometry?: string;
+  readonly shapeText?: string;
+  /** DrawingML units: crop in thousandths of a percent, rotation in 1/60000 degrees. */
+  readonly crop?: readonly [number, number, number, number];
+  readonly rotation?: number;
+  readonly flipHorizontal?: boolean;
+  readonly flipVertical?: boolean;
+  readonly kind: "image" | "shape" | "chart";
+  readonly placement: "inline" | "floating";
+  readonly relationshipId?: string;
+  readonly description?: string;
+  readonly widthEmu?: number;
+  readonly heightEmu?: number;
+}
+export interface ImportedFraction {
+  readonly kind: "fraction";
+  readonly anchor: InlineAnchor;
+  readonly numerator: string;
+  readonly denominator: string;
+}
+export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque | ImportedFraction;
 
 export interface ImportedFlatParagraph {
   readonly kind: "paragraph";
@@ -73,6 +215,9 @@ export interface ImportedFlatParagraph {
 }
 
 export interface ImportedParagraph extends ImportedFlatParagraph {
+  readonly layout: DirectParagraphLayout;
+  readonly markRevision?: ImportedPropertyRevision<"insertion" | "deletion">;
+  readonly flags: Readonly<Partial<Record<ParagraphFlag, boolean>>>;
   readonly anchor: ParagraphAnchor;
   /** Projection of ordinary runs and links, not rendered text. */
   readonly text: string;
@@ -80,6 +225,10 @@ export interface ImportedParagraph extends ImportedFlatParagraph {
   readonly alignmentXml?: string;
   readonly hasOpaqueContent: boolean;
   readonly inlineStructure: readonly ImportedInlineNode[];
+}
+
+export interface ImportedPropertyRevision<K extends "runProperties" | "insertion" | "deletion"> {
+  readonly kind: K; readonly id?: string; readonly author?: string; readonly date?: string;
 }
 
 /** Direct cell paragraph; only runs and hyperlinks have anchors. */
@@ -91,6 +240,9 @@ export interface ImportedCellParagraph extends ImportedFlatParagraph {
 export type ImportedCellBlock = ImportedCellParagraph | ImportedOpaque;
 
 export interface ImportedTableCell {
+  readonly properties: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  readonly gridSpan?: number;
+  readonly verticalMerge?: string;
   readonly kind: "cell";
   readonly blocks: readonly ImportedCellBlock[];
 }
@@ -98,6 +250,7 @@ export interface ImportedTableCell {
 export type ImportedRowChild = ImportedTableCell | ImportedOpaque;
 
 export interface ImportedTableRow {
+  readonly properties: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly kind: "row";
   readonly children: readonly ImportedRowChild[];
 }
@@ -105,10 +258,20 @@ export interface ImportedTableRow {
 export type ImportedTableChild = ImportedTableRow | ImportedOpaque;
 
 export interface ImportedTable {
+  readonly properties: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  readonly layout?: TableLayout;
+  readonly gridWidths: readonly (number | null)[];
   readonly kind: "table";
   readonly anchor: TableAnchor;
   /** Physical rows; merged cells are not expanded. */
   readonly children: readonly ImportedTableChild[];
+}
+export interface LocatedTable {
+  readonly anchor: TableAnchor; readonly partName: string; readonly path: readonly number[];
+  readonly depth: number; readonly entryId?: string;
+  readonly properties: ImportedTable["properties"]; readonly gridWidths: ImportedTable["gridWidths"];
+  readonly rowProperties: readonly ImportedTable["properties"][];
+  readonly cellProperties: readonly (readonly ImportedTable["properties"][])[];
 }
 
 /** Direct body control metadata; its content is opaque and has no edit anchor.
@@ -123,7 +286,12 @@ export interface ImportedContentControl {
 export type BodyBlock = ImportedParagraph | ImportedTable | ImportedContentControl | ImportedOpaque;
 
 /** Half-open body range with explicit section type only. */
+export type ParagraphFlag = "keepWithNext" | "keepTogether" | "pageBreakBefore" | "widowControl" | "suppressLineNumbers" | "bidi" | "snapToGrid" | "contextualSpacing" | "mirrorIndents";
+export type SectionFlag = "titlePage" | "bidi" | "rtlGutter";
 export interface ImportedSection {
+  readonly anchor: SectionAnchor;
+  readonly layout: DirectSectionLayout;
+  readonly flags: Readonly<Partial<Record<SectionFlag, boolean>>>;
   readonly bodyStart: number;
   readonly bodyEnd: number;
   readonly sectionType?: ImportedSectionType;
@@ -190,18 +358,24 @@ export interface ImportedStyle {
   readonly kindXml?: string;
   readonly name?: string;
   readonly basedOn?: string;
+  readonly nextStyle?: string;
+  readonly linkedStyle?: string;
+  readonly propertyXml: readonly string[];
 }
 export interface ImportedStyles {
   readonly partName: string;
   readonly styles: readonly ImportedStyle[];
 }
 export interface ImportedDocument {
+  chartSeries(anchor: InlineAnchor): { readonly categories: readonly string[]; readonly values: readonly number[] };
   controls(): readonly ImportedControl[];
+  storyControls(): readonly ImportedControl[];
+  controlSites(): readonly ControlSite[];
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
   sections(): readonly ImportedSection[];
   /** Rejects anchors issued by any other snapshot, including reopening identical bytes. */
-  inlineAt(anchor: InlineAnchor): ImportedRun | ImportedHyperlink;
+  inlineAt(anchor: InlineAnchor): ImportedRun | ImportedHyperlink | ImportedRevision | ImportedFraction;
   /** Lazily inspect effective default headers; sections without one are omitted. */
   defaultHeaders(): readonly ImportedHeader[];
   /**
@@ -211,18 +385,31 @@ export interface ImportedDocument {
    */
   stories(): readonly ImportedStory[];
   entryStories(): readonly ImportedEntry[];
+  partTables(ownerPart?: string): readonly LocatedTable[];
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;
   coreSubject(): string | undefined;
+  metadataField(field: MetadataField): string | undefined;
+  customProperty(name: string): string | boolean | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
+  documentDefaults(): Partial<DefaultValues>;
   abstractStarts(): readonly AbstractStart[];
+  numberingInstances(): readonly ImportedNumberingInstance[];
+  paragraphNumbering(target: ParagraphAnchor): { readonly id: number; readonly level: number } | undefined;
 }
 
 export interface AbstractStart {
   readonly abstractId: number;
   readonly level: number;
   readonly start?: number;
+}
+
+export interface ImportedNumberingInstance {
+  readonly replacementLevels: readonly number[];
+  readonly numId: number;
+  readonly abstractId: number;
+  readonly startOverrides: readonly { readonly level: number; readonly start: number }[];
 }
 
 export interface OpenDocxOptions {

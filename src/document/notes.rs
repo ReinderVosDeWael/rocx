@@ -135,7 +135,7 @@ impl CommentMetadata {
     }
 }
 
-pub(super) fn validate_utc_date(date: &str, owner: &str) -> Result<(), Diagnostic> {
+pub(crate) fn validate_utc_date(date: &str, owner: &str) -> Result<(), Diagnostic> {
     let invalid = || {
         Diagnostic::new(
             Rule::InvalidContent,

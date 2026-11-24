@@ -10,13 +10,24 @@ and snapshot anchor. The run-text catalog output also patches the caption alias
 using `ControlEdit` with `preview_with_controls`, `preview(..., controls=...)`,
 and `preview({controls: ...})`, respectively.
 
+The `.controls.docx` sample selects **Pending** in Review status, wraps the
+editor-label paragraph, then replaces that wrapper with the plain-text control
+**Imported plain-text sample**. Each catalog also previews unwrapping it.
+Rust uses `control_sites`, `preview_wrap_control`, `preview_replace_control`,
+`preview_control_choice` and `preview_unwrap_control`; Python uses the same
+spellings (`control_sites` is a property); JavaScript uses `controlSites`,
+`previewWrapControl`, `previewReplaceControl`, `previewControlChoice` and
+`previewUnwrapControl`. [Target, choice and lock rules](../docs/EDITOR-PARITY.md).
+
 Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 `ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
 JavaScript. The optional result identifies the source part and lists direct
-style IDs, kinds, names, and `basedOn` references, not effective formatting.
-Missing kinds and unknown kind values are distinct. Inspection does not rewrite
-the source package; style editing and inherited property resolution are not yet
-supported.
+style IDs, kinds, names, base/next/linked references and property-group XML.
+Missing kinds and unknown kind values are distinct. An in-memory sample clears
+a first-row bold toggle, replaces last-row formatting and adds a numbering style
+for the existing list 60. These use Rust `StyleEdit::{Field,Region,Add}`,
+Python `StyleEdit.field/region/add`, and JavaScript `field`/`region`/`add`
+style edits. Inspection reports direct stored markup, not inherited formatting.
 
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:
@@ -33,8 +44,20 @@ a tracked replacement, then independently moves the labeled paragraph's run
 and rejects that move by its two wrapper anchors. These in-memory samples use
 Rust/Python `preview_tracked_text`, `preview_tracked_move`, `preview_revision`;
 JavaScript `previewTrackedText`, `previewTrackedMove`, `previewRevision`.
+The same sample independently proposes bold on a plain body run with
+Rust/Python `preview_tracked_bold` or JavaScript `previewTrackedBold` and
+inspects the reviewer's name on the reopened run.
+Each catalog also proposes a plain paragraph before a labeled paragraph,
+reads the mark and rejects the whole insertion using the paragraph anchor
+(`preview_tracked_paragraph` / `preview_paragraph_revision`, JavaScript
+`previewTrackedParagraph` / `previewParagraphRevision`).
 
 ## Generate and verify
+
+The three catalogs reopen the labeled bookmark range and check that its text
+is not offered for control wrapping or tracked bold. The installed-editor
+oracle also removes a range, proposes bold, refuses a colliding bookmark, then
+accepts the proposal and wraps the reviewed paragraph.
 
 From the repository root, using the provisioned development environment:
 
@@ -43,7 +66,7 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync pyth
 ```
 
 This builds/runs the Rust and Python examples, compares complete DOCX ZIP bytes for the final,
-template, batch-edited and run-text catalogs and the seven story artifacts, verifies
+template, batch-edited, controls and run-text catalogs and the seven story artifacts, verifies
 content and prints SHA-256 hashes for the main catalogs and header-scope artifacts.
 Output:
 
@@ -59,12 +82,27 @@ Output:
   and a default-header image. The `.header-first-shared.docx` and
   `.header-first-local.docx` artifacts separately preview first-page images.
 - `.footer-even.docx` edits text in the shared footer and forks an image into
-  only the second section's even footer. `.entry-text.docx` edits a footnote,
-  an endnote with the same ID in another part, and a comment.
-- `.run-text.docx` combines scalar-range and run text edits, a resolved paragraph
+  only the second section's even footer. `.entry-text.docx` inserts a labeled
+  external hyperlink into a footnote, an endnote with the same ID in another
+  part, and a comment. Each relationship belongs to its respective entry part.
+- `.entry-edits.docx` inserts a reference after “Footnote reference”, creates
+  footnote 47 (“Lifecycle note”), appends “Second note paragraph” and updates
+  the structured reviewer's initials to “ED”. The rest of the package is checked
+  against the original payloads.
+- `.story-blocks.docx` creates, unlinks, and relinks a first-page footer, then
+  adds a fixed-width table and a paragraph with a labeled hyperlink to a
+  section-local header. The second section keeps the original header.
+- `.run-text.docx` combines scalar-range edits, point insertion and run text edits, a resolved paragraph
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared
   abstract numbering level (100, 0) start 7.
+- `.objects.docx` edits a picture description, redirects another picture's
+  asset, resizes a text box, removes an ellipse, replaces a shape/chart and
+  fraction, patches rectangle geometry, grows a forked literal chart series,
+  wraps a sibling paragraph, and inserts a shared picture in a footnote. See the
+  [Rust, Python and JavaScript operation spellings](../docs/EDITOR-PARITY.md#drawing-and-fraction-occurrences).
+- `.controls.docx` demonstrates selection, wrapper insertion and complete
+  replacement with a plain-text definition.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -89,15 +127,17 @@ The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
 `all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
 `all_features-javascript.header-first-local.docx`, `all_features-javascript.run-text.docx`,
-`all_features-javascript.footer-even.docx`, and `all_features-javascript.entry-text.docx`. Repeat `--javascript-dir` to check
-multiple runtime outputs. The checker requires all eleven exact byte matches and
+`all_features-javascript.footer-even.docx`, `all_features-javascript.entry-text.docx`,
+`all_features-javascript.entry-edits.docx`, `all_features-javascript.story-blocks.docx`,
+`all_features-javascript.controls.docx` and `all_features-javascript.objects.docx`. Repeat
+`--javascript-dir` to check multiple runtime outputs. The checker requires fifteen exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
 In Chromium, import `generateCatalog` from `catalog.mjs` with the installed
 package resolved by a bundler or import map. Pass a filename-to-`Uint8Array`
 map of the six image fixtures, or an async function that reads a fixture by
 basename. The function returns `final`, `template`, `edited`, `headerSource`,
-`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal`, `footerEven`, `entryText` and `runText` byte arrays; use the exported `catalogNames`
+`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal`, `footerEven`, `entryText`, `entryEdits`, `storyBlocks` and `runText` byte arrays; use the exported `catalogNames`
 to name output files. The common module never reads DOCX fixtures or performs I/O
 except through the caller's image loader. Node uses `imageFile()` for the
 named-image sample; the browser supplies named bytes.
@@ -113,12 +153,18 @@ checked against the other implementation, not against a permanently fixed hash.
 
 ## Inspection guide and coverage inventory
 
+The editor acceptance tests reopen each generated catalog through its own
+public imported-document binding. They check typed values and story/anchor
+behavior separately from exact byte comparisons, ZIP/relationship checks and
+viewer inspection. See the [editor acceptance map](../docs/EDITOR-ACCEPTANCE.md)
+for the distinction between typed, opaque and untested operation scopes.
+
 The editor reads the labeled footnote, endnote and structured comment back as
 separate entries. The two ordinary notes both use ID `0` in different parts.
 
 The Rust, Python and JavaScript `.run-text.docx` examples replace the labeled direct run before
 the bookmark hyperlink and replace `[0, 8)` of the separate alignment label
-with `Ranged 📝`. The checker compares exact bytes, reopens the paragraph
+with `Ranged 📝`, then insert ` + point` at original position 8. The checker compares exact bytes, reopens the paragraph
 and verifies every untouched package payload against the source catalog.
 
 Each sample names its requested feature in ordinary text before/within it.
@@ -195,6 +241,20 @@ and JavaScript `{target: anchor, kind: "insertRow", index: 1}`. The reopened
 preview has two rows. See [structural table edits](../docs/EDITOR-PARITY.md#structural-edits-to-a-direct-body-table)
 for the physical cell and logical column operations and merge guards.
 
+The layout sample previews `TableOperation::Layout(Some(TableLayout::Autofit))`,
+`TableStructureEdit.layout(anchor, "autofit")`, or
+`{target: anchor, kind: "layout", value: "autofit"}`. Reopening confirms the
+layout changed from fixed to autofit while both grid columns remain 2160 twips.
+The independent property sample then clears only the second original grid
+width with Rust `TableOperation::Property` at `TableSite::Column(1)`, Python
+`TableStructureEdit.patch_property(target, "width", None, column=1)`, or JS
+`{target, kind:"patchProperty", field:"width", column:1, source:null}`. Both
+columns remain, and `properties["layout"]["type"]` still reads `"fixed"`.
+The physical-owner sample finds the nested fixed-width table by depth `1`
+and its single 1440-twip grid column, clears its layout and reopens it by
+path. Rust/Python use `part_tables` and `edit_part_tables`; JavaScript uses
+`partTables` and `editPartTables`. See [physical-story targets](../docs/EDITOR-PARITY.md#nested-and-physical-story-tables).
+
 For the run-text output Rust passes `ParagraphInsertion` to
 `EditBatch.paragraphs` in `preview_edits`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
 to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`
@@ -209,24 +269,74 @@ ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
 `coreTitle`, `coreSubject`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
 for clearing, absence, and shared-numbering semantics.
 
+The same batch reads the 11-point run default, sets default bold to explicit
+false, clears paragraph space-after, and changes the document footnote start
+to 5. Rust uses `document_defaults()` and `ResourceEdit::Default`; Python uses
+`document_defaults` and `ResourceEdit.document_default(field, value)`; JavaScript
+uses `documentDefaults()` and `{kind: "documentDefault", field, value}`.
+
+In the same run-text sample the reviewer and manager are set with Rust
+`ResourceEdit::Metadata`, Python `ResourceEdit.metadata`, or JavaScript
+`{kind: "metadata", field, value}`. `Reviewed` is explicitly false through
+`ResourceEdit::CustomProperty`, `ResourceEdit.custom_property`, or
+`{kind: "customProperty", name, value}`. The parity checker reopens the
+document and verifies each value in its own package part.
+
+In the same sample, the ranged paragraph receives list instance **9049**, linked
+to abstract **9048**, with a Roman label replacement and a separate start of 6.
+The new numbering style `Reviewed List` owns that instance, and the abstract's
+reciprocal `styleLink` identifies `ReviewedList`. The preview sets the core
+subject to `Imported resource edits` alongside the other metadata and defaults edits.
+The Rust `NumberingEdit::{AddAbstract, AddInstance, InstanceLevel, InstanceStart, Paragraph}`,
+Python `ResourceEdit.{add_abstract, add_instance, instance_level, instance_start, paragraph_numbering}`
+and JavaScript `addAbstract`, `addInstance`, `instanceLevel`, `instanceStart`,
+`paragraphNumbering` forms produce the same `.run-text.docx`.
+
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
-The catalogs also stage a direct bold patch and an insertion after a hyperlink:
+The catalogs also inspect direct italic, combine an italic toggle and a size/font
+patch on one run, and stage an insertion after a hyperlink:
 Rust `preview_with_inlines` with `InlineEdit`/`InlineAction`, Python `inline_edits`
-with `InlineEdit.set_bold`/`insert_after`, JavaScript `inlineEdits` with
-`setBold`/`insertAfter`. The installed editor oracle additionally replaces a run
+with `InlineEdit.set_toggle`/`insert_after`, JavaScript `inlineEdits` with
+`setToggle`/`insertAfter`. Rust uses `InlineAction::SetToggle(RunToggle::Italic, Some(true))`.
+The second edit is Rust `InlineAction::PatchFormat`, Python `InlineEdit.patch_format`,
+or JavaScript `kind: "patchFormat"`. It sets 12.5 points and clears the East Asian
+font selection. The installed editor oracle also updates character style, color,
+underline and script properties, clears a language hint and compares the resulting
+DOCX bytes. A separate inline batch clears direct bold and replaces a run
 with an external hyperlink and verifies its relationship and exact package bytes.
 
 Removal rejects opaque or unsafe run markup.
 
-The header-source catalog also previews four block edits independently using
+All three catalogs insert and inspect a labeled PAGE cache, patch the
+neighboring hyperlink's tooltip, and wrap the labeled run and link in bookmark
+`CatalogEditorRange`. See [field and link calls](../docs/FIELDS.md#editing-an-imported-field-or-link)
+and [paired range calls](../docs/RANGES.md#imported-body-ranges) for the three
+spellings. The installed-consumer `fieldsRanges.docx` oracle additionally moves
+a comment pair across paragraphs, crosses it with a bookmark and replaces a
+simple field by a complex one before patching its instruction.
+In the entry-story catalog, the “Review link” child run in each ordinary note
+and comment is formatted at 13.5 points with Rust `edit_run_format`, Python
+`edit_run_format`, or JavaScript `editRunFormat`, naming the entry's part.
+The installed `formatOwners` oracle exercises the same call on a linked run
+containing text, a tab, a drawing and a nonbreaking hyphen in a body cell and
+in shared header/footer parts.
+
+The header-source catalog also previews seven block edits independently using
 the first paragraph of the inherited section. Rust uses `preview_blocks` and
-`BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext}`. Python passes
-`BlockEdit.replace`, `.remove`, `.replace_section` or `.keep_with_next` in
+`BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext, ParagraphFlag, SectionFlag, SectionType}`. Python passes
+`BlockEdit.replace`, `.remove`, `.replace_section`, `.keep_with_next`, `.paragraph_flag`, `.section_flag` or `.section_type` in
 `preview([], block_edits=[...])`. JavaScript uses `preview({blockEdits: [...]})`
-with `kind` equal to `replace`, `remove`, `replaceSection` or `keepWithNext`.
+with `kind` equal to `replace`, `remove`, `replaceSection`, `keepWithNext`, `paragraphFlag`, `sectionFlag` or `sectionType`.
 See [the editor inventory](../docs/EDITOR-PARITY.md#body-block-edits) for target rules.
+
+The same labeled header-source sample independently patches paragraph space
+after to 180 twips and the second section's grid pitch to 360 twips. Rust uses
+`preview_layout` with `LayoutEdit::Paragraph` / `Section`; Python uses
+`preview_layout` with `LayoutEdit.paragraph` / `.section`; JavaScript passes
+`{target, field, value}` records to `previewLayout`. All three reopen the
+output and inspect the section's `layout` map.
 
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle
 rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque

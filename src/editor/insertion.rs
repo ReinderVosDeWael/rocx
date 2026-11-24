@@ -46,6 +46,14 @@ pub(super) fn table_sites(
     body: &Node,
     targets: &BTreeMap<usize, &ResolvedTable>,
 ) -> Result<Vec<(usize, usize, i64)>> {
+    table_positions(body, targets, "w:p")
+}
+
+pub(super) fn table_positions(
+    body: &Node,
+    targets: &BTreeMap<usize, &ResolvedTable>,
+    target_kind: &str,
+) -> Result<Vec<(usize, usize, i64)>> {
     let mut boundaries = BoundaryState::default();
     let mut blocks = Vec::new();
     let mut at_body_end = false;
@@ -62,7 +70,7 @@ pub(super) fn table_sites(
         }
         let index = blocks.len();
         boundaries.advance(node);
-        if targets.contains_key(&index) && (node.name != "w:p" || !boundaries.safe()) {
+        if targets.contains_key(&index) && (node.name != target_kind || !boundaries.safe()) {
             return Err(unsupported(
                 "table insertion point is inside an active or ambiguous range",
             ));
@@ -164,6 +172,15 @@ pub(crate) struct BoundaryState {
 }
 
 impl BoundaryState {
+    pub(super) fn paired_site(&self) -> bool {
+        self.fields == 0
+            && !self.proof_ranges.contains(&true)
+            && !self.uncertain
+            && self
+                .ranges
+                .iter()
+                .all(|(kind, _)| matches!(*kind, "w:bookmark" | "w:commentRange"))
+    }
     pub(crate) fn safe(&self) -> bool {
         self.fields == 0
             && !self.proof_ranges.contains(&true)
@@ -224,8 +241,16 @@ impl BoundaryState {
             self.uncertain |= std::mem::replace(&mut self.proof_ranges[index], open) == open;
         }
         if let Some((range, start)) = range_marker(name) {
-            if let Some(id) = node.get("w:id") {
-                let key = (range, id.to_owned());
+            // Permission IDs are strings; the other marker families use the
+            // arbitrary-precision ST_DecimalNumber value space.
+            if let Some(id) = node.get("w:id").and_then(|id| {
+                if range == "w:perm" {
+                    Some(id.to_owned())
+                } else {
+                    crate::ooxml::decimal_id(id)
+                }
+            }) {
+                let key = (range, id);
                 let matched = if start {
                     self.ranges.insert(key)
                 } else {

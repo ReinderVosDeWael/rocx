@@ -549,6 +549,27 @@ pub async fn generate(output: &Path) -> Result<()> {
                 bold: None,
                 italic: Some(true),
             },
+            editor::StyleEdit::Field {
+                target: imported.style_anchor("Regionfirst_row")?,
+                region: Some("firstRow".into()),
+                field: "b".into(),
+                value: None,
+            },
+            editor::StyleEdit::Region {
+                target: imported.style_anchor("Regionlast_row")?,
+                region: "lastRow".into(),
+                format: Some(Box::new(TableSectionFormat {
+                    italic: Some(true),
+                    ..Default::default()
+                })),
+            },
+            editor::StyleEdit::Add(
+                NumberingStyleDefinition {
+                    name: "Catalog Imported List".into(),
+                    numbering_id: 60,
+                }
+                .into(),
+            ),
         ],
     )?;
     assert!(
@@ -643,15 +664,107 @@ pub async fn generate(output: &Path) -> Result<()> {
                 _ => None,
             })
             .unwrap();
-        entries_output = source.edit_story_text(
+        let label = format!("Edited {} entry", kind.as_str());
+        let text_bytes = source.edit_story_text(
             &e.part_name,
             &[editor::RunTextEdit {
                 target: run.anchor.clone(),
-                text: format!("Edited {} entry", kind.as_str()),
+                text: label.clone(),
+            }],
+        )?;
+        let source = editor::ImportedDocument::open(&text_bytes)?;
+        let e = source
+            .entry_stories()?
+            .iter()
+            .find(|other| other.kind == kind && other.id == e.id)
+            .unwrap();
+        let run = e.inline_structure(0).unwrap().iter().find_map(|node| match node {
+            Run(r) if matches!(r.items.as_slice(), [editor::ImportedInline::Text(text)] if text == &label) => Some(r),
+            _ => None,
+        }).unwrap();
+        let link = Hyperlink::new(
+            HyperlinkTarget::external("https://example.com/entry-review")?,
+            vec![TextRun::new("Review link").into()],
+        );
+        let payload = Document::new(vec![
+            Section::new(vec![Paragraph::from_children(vec![link.into()]).into()]).into(),
+        ])
+        .resolve()
+        .await?;
+        let ResolvedBlock::Paragraph(p) = &payload.sections()[0].blocks()[0] else {
+            unreachable!()
+        };
+        entries_output = source.edit_entry_inlines(
+            &e.part_name,
+            &[editor::InlineEdit {
+                target: run.anchor.clone(),
+                action: editor::InlineAction::InsertAfter(p.runs()[0].clone()),
+            }],
+        )?;
+        let source = editor::ImportedDocument::open(&entries_output)?;
+        let entry = source
+            .entry_stories()?
+            .iter()
+            .find(|n| n.kind == kind && n.id == e.id)
+            .unwrap();
+        let target = entry.inline_structure(0).unwrap().iter().find_map(|node| {
+            if let editor::ImportedInlineNode::Hyperlink(link) = node
+                && let [Run(r)] = link.children.as_slice()
+                && matches!(r.items.as_slice(),[editor::ImportedInline::Text(t)] if t=="Review link")
+            {Some(r.anchor.clone())} else {None}
+        }).unwrap();
+        entries_output = source.edit_run_format(
+            Some(&entry.part_name),
+            &[editor::InlineEdit {
+                target,
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(RunFormat::default().with_size(13.5)),
+                    clear: vec![],
+                },
             }],
         )?;
     }
     std::fs::write(output.with_extension("entry-text.docx"), entries_output)?;
+    let owner = &entries
+        .iter()
+        .find(|e| e.kind == editor::EntryKind::Footnote)
+        .unwrap()
+        .part_name;
+    let target = imported
+        .body()
+        .iter()
+        .find_map(|b| match b {
+            editor::BodyBlock::Paragraph(p)
+                if p.text == "Footnote reference; endnote reference" =>
+            {
+                p.inline_structure.first()
+            }
+            _ => None,
+        })
+        .unwrap();
+    let Run(first) = target else { unreachable!() };
+    let created = imported.edit_note_reference(
+        owner,
+        &first.anchor,
+        editor::NoteReferenceEdit::Create {
+            id: 47,
+            text: "Lifecycle note".into(),
+        },
+    )?;
+    let appended = editor::ImportedDocument::open(&created)?.edit_entry(
+        owner,
+        "47",
+        editor::EntryEdit::InsertParagraph {
+            index: 1,
+            text: "Second note paragraph".into(),
+        },
+    )?;
+    let lifecycle = editor::ImportedDocument::open(&appended)?.edit_entry(
+        &review.part_name,
+        &review.id,
+        editor::EntryEdit::CommentInitials(Some("ED".into())),
+    )?;
+    std::fs::write(output.with_extension("entry-edits.docx"), lifecycle)?;
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
     assert!(imported.body().iter().any(|block| matches!(
         block, editor::BodyBlock::ContentControl(control)
@@ -675,6 +788,66 @@ pub async fn generate(output: &Path) -> Result<()> {
         panic!("expected a standalone run and hyperlink");
     };
     let replacement = "Imported editor: replaced this run by its anchor. ";
+    let field = Component::resolve(Paragraph::from_children(vec![
+        Field::new(
+            FieldInstruction::Page,
+            vec![TextRun::new("sample cache").into()],
+        )
+        .into(),
+    ]))
+    .await?
+    .unwrap();
+    let sample = imported
+        .preview_edits(editor::EditBatch {
+            inline_edits: &[
+                editor::InlineEdit {
+                    target: label.anchor.clone(),
+                    action: editor::InlineAction::InsertAfter(field.runs()[0].clone()),
+                },
+                editor::InlineEdit {
+                    target: link.anchor.clone(),
+                    action: editor::InlineAction::HyperlinkTooltip(Some("Catalog link".into())),
+                },
+            ],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    let sample = editor::ImportedDocument::open(&sample)?;
+    let editor::BodyBlock::Paragraph(sample_para) = &sample.body()[paragraph_index] else {
+        unreachable!()
+    };
+    assert_eq!(
+        sample.field_at(&sample_para.anchor, 1)?.instruction,
+        " PAGE "
+    );
+    let [Run(left), _, Link(right)] = sample_para.inline_structure.as_slice() else {
+        unreachable!()
+    };
+    let marked = sample
+        .preview_edits(editor::EditBatch {
+            fields: &[editor::FieldEdit {
+                target: sample_para.anchor.clone(),
+                inline_index: 1,
+                action: editor::FieldAction::Patch(editor::FieldPatch::Dirty(Some(true))),
+            }],
+            paired_ranges: &[editor::PairedRangeEdit {
+                id: 842901,
+                bookmark: Some("CatalogEditorRange".into()),
+                endpoints: Some((left.anchor.clone(), right.anchor.clone())),
+            }],
+            inline_edits: &[editor::InlineEdit {
+                target: right.anchor.clone(),
+                action: editor::InlineAction::HyperlinkHistory(Some(true)),
+            }],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    assert!(
+        editor::ImportedDocument::open(&marked)?
+            .body_range_markers()?
+            .iter()
+            .any(|m| m.name.as_deref() == Some("CatalogEditorRange"))
+    );
     let paragraph_payload = Document::new(vec![
         Section::new(vec![
             Paragraph::new("Imported editor: inserted paragraph.").into(),
@@ -698,6 +871,200 @@ pub async fn generate(output: &Path) -> Result<()> {
         })
         .collect();
     assert_eq!(targets.len(), 1);
+    {
+        use editor::{ImportedInlineNode as N, InlineAction as A, InlineEdit};
+        let nodes: Vec<_> = imported
+            .body()
+            .iter()
+            .filter_map(|b| match b {
+                editor::BodyBlock::Paragraph(p) => Some(&p.inline_structure),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let drawings = |kind| {
+            nodes.iter().filter_map(move |n| match n {
+                N::Run(r) if r.drawing.as_ref().is_some_and(|d| d.kind == kind) => {
+                    Some(r.anchor.clone())
+                }
+                _ => None,
+            })
+        };
+        let fraction = nodes
+            .iter()
+            .find_map(|n| match n {
+                N::Fraction {
+                    anchor,
+                    numerator,
+                    denominator,
+                } if numerator == "1" && denominator == "2" => Some(anchor.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let ResolvedInline::Image { image: asset, .. } = image("gif", None).await?.unwrap() else {
+            unreachable!()
+        };
+        let edits = [
+            (
+                drawings("shape").nth(2).unwrap(),
+                A::PatchDrawing(
+                    editor::DrawingProperty::Size,
+                    ShapeRun::new(ShapeProperties::default().with_width(75.).with_height(25.))
+                        .await?
+                        .unwrap(),
+                ),
+            ),
+            (drawings("image").nth(1).unwrap(), A::SetImageAsset(asset)),
+            (
+                drawings("image").next().unwrap(),
+                A::SetDrawingDescription(Some("Edited picture".into())),
+            ),
+            (
+                drawings("shape").next().unwrap(),
+                A::Replace(image("png", None).await?.unwrap()),
+            ),
+            (drawings("shape").nth(1).unwrap(), A::RemoveObject),
+            (
+                drawings("chart").next().unwrap(),
+                A::Replace(
+                    ShapeRun::new(
+                        ShapeProperties::default()
+                            .with_width(40.)
+                            .with_height(20.)
+                            .with_text("Edited shape"),
+                    )
+                    .await?
+                    .unwrap(),
+                ),
+            ),
+            (
+                label.anchor.clone(),
+                A::InsertAfter(
+                    ColumnChartRun::new(ColumnChartProperties {
+                        width: 120.,
+                        height: 80.,
+                        categories: vec!["Edited".into()],
+                        values: vec![9.],
+                    })
+                    .await?
+                    .unwrap(),
+                ),
+            ),
+            (
+                fraction,
+                A::Replace(InlineFraction::new("3", "7").await?.unwrap()),
+            ),
+        ]
+        .map(|(target, action)| InlineEdit { target, action });
+        let edited = imported.preview_edits(editor::EditBatch {
+            inline_edits: &edits,
+            ..Default::default()
+        })?;
+        assert_eq!(edited.inline_changes().len(), 8);
+        let next = editor::ImportedDocument::open(&edited.to_docx()?)?;
+        let anchor = next
+            .body()
+            .iter()
+            .find_map(|b| {
+                let editor::BodyBlock::Paragraph(p) = b else {
+                    return None;
+                };
+                p.inline_structure.iter().find_map(|n| match n {
+                    N::Run(r) if r.drawing.as_ref().is_some_and(|d| d.kind == "chart") => {
+                        Some(r.anchor.clone())
+                    }
+                    _ => None,
+                })
+            })
+            .unwrap();
+        assert_eq!(
+            next.chart_series(&anchor)?,
+            (vec!["Edited".into()], vec![9.])
+        );
+        let final_chart = ColumnChartRun::new(ColumnChartProperties {
+            width: 120.,
+            height: 80.,
+            categories: vec!["Final".into(), "Revised".into()],
+            values: vec![12., 8.],
+        })
+        .await?
+        .unwrap();
+        let shape_anchor = next
+            .body()
+            .iter()
+            .find_map(|b| match b {
+                editor::BodyBlock::Paragraph(p) => {
+                    p.inline_structure.iter().find_map(|n| match n {
+                        N::Run(r)
+                            if r.drawing.as_ref().and_then(|d| d.shape_text.as_deref())
+                                == Some("Edited shape") =>
+                        {
+                            Some(r.anchor.clone())
+                        }
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .unwrap();
+        let ellipse = ShapeRun::new(
+            ShapeProperties::default()
+                .with_width(10.)
+                .with_height(10.)
+                .with_geometry(ShapeGeometry::Ellipse),
+        )
+        .await?
+        .unwrap();
+        let edit = [
+            InlineEdit {
+                target: anchor,
+                action: A::PatchDrawing(editor::DrawingProperty::ChartSeries, final_chart),
+            },
+            InlineEdit {
+                target: shape_anchor,
+                action: A::PatchDrawing(editor::DrawingProperty::ShapeGeometry, ellipse),
+            },
+        ];
+        let fork = next.preview_edits(editor::EditBatch {
+            inline_edits: &edit,
+            ..Default::default()
+        })?;
+        let after = editor::ImportedDocument::open(&fork.to_docx()?)?;
+        let site = after
+            .control_sites()
+            .iter()
+            .find(|s| s.context == editor::ControlContext::Block && s.text == EDIT_LABEL)
+            .unwrap();
+        let wrapped = editor::ImportedDocument::open(
+            &after
+                .preview_wrap_control(site, "object-sibling")?
+                .to_docx()?,
+        )?;
+        let note = wrapped
+            .entry_stories()?
+            .iter()
+            .find(|e| e.kind == editor::EntryKind::Footnote && e.id == "0")
+            .unwrap();
+        let run = note
+            .inline_structure(0)
+            .unwrap()
+            .iter()
+            .find_map(|n| match n {
+                N::Run(r) if matches!(r.items.as_slice(), [editor::ImportedInline::Text(_)]) => {
+                    Some(r)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let bytes = wrapped.edit_entry_inlines(
+            &note.part_name,
+            &[InlineEdit {
+                target: run.anchor.clone(),
+                action: A::InsertAfter(image("png", None).await?.unwrap()),
+            }],
+        )?;
+        std::fs::write(output.with_extension("objects.docx"), bytes)?;
+    }
     assert_eq!(
         targets[0].inline_items,
         [editor::ImportedInline::Text(EDIT_LABEL.into())]
@@ -707,6 +1074,10 @@ pub async fn generate(output: &Path) -> Result<()> {
         Some("All features visual inspection")
     );
     assert_eq!(imported.default_alignment()?, None);
+    assert_eq!(
+        imported.document_defaults()?[&editor::DefaultField::SizeHalfPoints],
+        editor::DefaultValue::Integer(22)
+    );
     assert!(
         imported
             .abstract_starts()?
@@ -714,6 +1085,45 @@ pub async fn generate(output: &Path) -> Result<()> {
             .any(|s| (s.abstract_id, s.level, s.start) == (100, 0, Some(1)))
     );
     let controls = imported.controls();
+    let status = controls
+        .iter()
+        .find(|c| c.tag.as_deref() == Some("review-status"))
+        .unwrap();
+    let pending = editor::ImportedDocument::open(
+        &imported
+            .preview_control_choice(&status.anchor, "pending", None)?
+            .to_docx()?,
+    )?;
+    let site = pending
+        .control_sites()
+        .iter()
+        .find(|s| s.context == editor::ControlContext::Block && s.text == EDIT_LABEL)
+        .unwrap();
+    let wrapped = editor::ImportedDocument::open(
+        &pending.preview_wrap_control(site, "workflow")?.to_docx()?,
+    )?;
+    let workflow = wrapped
+        .controls()
+        .iter()
+        .find(|c| c.tag.as_deref() == Some("workflow"))
+        .unwrap();
+    let definition = ContentControlProperties::default()
+        .with_alias("Imported plain-text sample")
+        .with_text(ContentControlText::Plain {
+            multi_line: Some(false),
+        });
+    let qualified = wrapped
+        .preview_replace_control(&workflow.anchor, &definition)?
+        .to_docx()?;
+    let plain = editor::ImportedDocument::open(&qualified)?;
+    let sample = plain
+        .controls()
+        .iter()
+        .find(|c| c.alias.as_deref() == Some("Imported plain-text sample"))
+        .unwrap();
+    assert!(sample.tag.is_none() && sample.kind == "text");
+    plain.preview_unwrap_control(&sample.anchor)?;
+    std::fs::write(output.with_extension("controls.docx"), qualified)?;
     for (context, id) in [
         ("inline", "5001"),
         ("block", "5002"),
@@ -731,6 +1141,13 @@ pub async fn generate(output: &Path) -> Result<()> {
         .find(|c| c.id.as_deref() == Some("5001"))
         .unwrap();
     let preview = imported.preview_edits(editor::EditBatch {
+        styles: &[editor::StyleEdit::Add(
+            rocx::NumberingStyleDefinition {
+                name: "Reviewed List".into(),
+                numbering_id: 9049,
+            }
+            .into(),
+        )],
         run_text: &[editor::RunTextEdit {
             target: label.anchor.clone(),
             text: replacement.into(),
@@ -745,10 +1162,70 @@ pub async fn generate(output: &Path) -> Result<()> {
             end: 8,
             text: "Ranged 📝".into(),
         }],
+        text_insertions: &[editor::TextInsertion {
+            target: targets[0].anchor.clone(),
+            position: 8,
+            text: " + point".into(),
+        }],
         resources: &[
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
+                abstract_id: 9048,
+                levels: vec![rocx::NumberingLevel {
+                    level: 0,
+                    start: 2,
+                    format: "decimal".into(),
+                    text: "%1.".into(),
+                    ..Default::default()
+                }],
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceLevel {
+                num_id: 9049,
+                level: 0,
+                value: Some(Box::new(rocx::NumberingLevel {
+                    level: 0,
+                    start: 1,
+                    format: "lowerRoman".into(),
+                    text: "(%1)".into(),
+                    ..Default::default()
+                })),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
+                num_id: 9049,
+                abstract_id: 9048,
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceStart {
+                num_id: 9049,
+                level: 0,
+                start: Some(6),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::Paragraph {
+                target: targets[0].anchor.clone(),
+                value: Some(rocx::NumberingReference { id: 9049, level: 0 }),
+            }),
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
             editor::ResourceEdit::CoreSubject(Some("Imported resource edits".into())),
+            editor::ResourceEdit::Metadata(
+                editor::MetadataField::Creator,
+                Some("Review team".into()),
+            ),
+            editor::ResourceEdit::Metadata(
+                editor::MetadataField::Manager,
+                Some("Review lead".into()),
+            ),
+            editor::ResourceEdit::CustomProperty(
+                "Reviewed".into(),
+                Some(editor::CustomValue::Boolean(false)),
+            ),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::Bold,
+                Some(editor::DefaultValue::Bool(false)),
+            ),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::FootnoteStart,
+                Some(editor::DefaultValue::Integer(5)),
+            ),
+            editor::ResourceEdit::Default(editor::DefaultField::AfterTwips, None),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {
                 abstract_id: 100,
                 level: 0,
@@ -781,7 +1258,14 @@ pub async fn generate(output: &Path) -> Result<()> {
         &[
             editor::InlineEdit {
                 target: label.anchor.clone(),
-                action: editor::InlineAction::SetBold(false),
+                action: editor::InlineAction::SetToggle(editor::RunToggle::Italic, Some(true)),
+            },
+            editor::InlineEdit {
+                target: label.anchor.clone(),
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(rocx::RunFormat::default().with_size(12.5)),
+                    clear: vec![editor::RunFormatField::FontEastAsia],
+                },
             },
             editor::InlineEdit {
                 target: link.anchor.clone(),
@@ -790,6 +1274,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         ],
     )?;
     assert_eq!(whole.inline_changes().last(), Some(&(paragraph_index, 1)));
+    assert_eq!(label.italic, None);
     let removal = imported.preview_with_run_removals(
         &[],
         &[],
@@ -798,7 +1283,19 @@ pub async fn generate(output: &Path) -> Result<()> {
         std::slice::from_ref(&label.anchor),
     )?;
     assert_eq!(removal.run_removals()[0].before, INLINE_LABEL);
-    std::fs::write(output.with_extension("run-text.docx"), preview.to_docx()?)?;
+    let edited_bytes = preview.to_docx()?;
+    let resource_result = editor::ImportedDocument::open(&edited_bytes)?;
+    assert_eq!(
+        resource_result
+            .metadata_field(editor::MetadataField::Manager)?
+            .as_deref(),
+        Some("Review lead")
+    );
+    assert_eq!(
+        resource_result.custom_property("Reviewed")?,
+        Some(editor::CustomValue::Boolean(false))
+    );
+    std::fs::write(output.with_extension("run-text.docx"), edited_bytes)?;
     assert_eq!(
         label.items,
         [editor::ImportedInline::Text(INLINE_LABEL.into())]
@@ -899,6 +1396,63 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_ne!(first.anchor, prefix.anchor);
     assert!(matches!(reopened.inline_at(&suffix.anchor)?, Run(run) if run.anchor == suffix.anchor));
     assert!(imported.inline_at(&suffix.anchor).is_err());
+    // Layout sample: change the direct layout while preserving grid widths.
+    assert_eq!(table.layout, Some(TableLayout::Fixed));
+    assert_eq!(table.grid_widths, [Some(2160), Some(2160)]);
+    let layout = reopened
+        .preview_with_table_structure(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[editor::TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: editor::TableOperation::Layout(Some(TableLayout::Autofit)),
+            }],
+        )?
+        .to_docx()?;
+    assert!(
+        matches!(&editor::ImportedDocument::open(&layout)?.body()[after], editor::BodyBlock::Table(t) if t.layout == Some(TableLayout::Autofit) && t.grid_widths == table.grid_widths)
+    );
+    // Direct property sample: clear only the second grid width, keeping its column.
+    let cleared = reopened
+        .preview_edits(editor::EditBatch {
+            structural: &[editor::TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: editor::TableOperation::Property {
+                    site: editor::TableSite::Column(1),
+                    field: "width".into(),
+                    source: None,
+                },
+            }],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    assert!(
+        matches!(&editor::ImportedDocument::open(&cleared)?.body()[after], editor::BodyBlock::Table(t) if t.grid_widths == [Some(2160),None] && t.properties["layout"]["type"] == "fixed")
+    );
+    // Physical-owner sample: change only the catalog's nested 1440-twip table.
+    let nested = reopened
+        .part_tables(None)?
+        .into_iter()
+        .find(|t| t.depth == 1 && t.grid_widths == [Some(1440)])
+        .expect("nested fixed table");
+    let bytes = reopened.edit_part_tables(
+        &nested.part_name,
+        &[editor::TableStructureEdit {
+            target: nested.anchor,
+            operation: editor::TableOperation::Layout(None),
+        }],
+    )?;
+    assert!(
+        editor::ImportedDocument::open(&bytes)?
+            .part_tables(None)?
+            .iter()
+            .any(|t| t.path == nested.path && !t.properties.contains_key("layout"))
+    );
     // Structural sample: append an empty row to this original table.
     let appended = reopened
         .preview_with_table_structure(
@@ -990,6 +1544,12 @@ pub async fn generate(output: &Path) -> Result<()> {
         r.anchor.clone()
     };
     let from = run_at(0);
+    let proposal = imported.preview_tracked_bold(&from, true, "Reviewer", Some(STAMP))?;
+    let formatted = editor::ImportedDocument::open(&proposal.to_docx()?)?;
+    assert!(
+        matches!(&formatted.body()[0], editor::BodyBlock::Paragraph(p)
+        if matches!(&p.inline_structure[0], Run(r) if r.property_revision.as_ref().unwrap().author.as_deref() == Some("Reviewer")))
+    );
     let tracked = imported.preview_tracked_text(
         &from,
         editor::TrackedText::Replace("Reviewed label".into()),
@@ -1025,15 +1585,67 @@ pub async fn generate(output: &Path) -> Result<()> {
         unreachable!()
     };
     let target = &last.anchor;
+    // Labeled header-source sample: inspect direct layout in an independent preview.
+    {
+        use editor::{LayoutEdit as E, LayoutField as F, LayoutValue as V};
+        let layout = imported.preview_layout(&[
+            E::Paragraph(target.clone(), F::SpaceAfter, Some(V::Integer(180))),
+            E::Section(
+                imported.sections()?[1].anchor.clone(),
+                F::GridPitch,
+                Some(V::Integer(360)),
+            ),
+        ])?;
+        let edited = editor::ImportedDocument::open(&layout.to_docx()?)?;
+        assert_eq!(edited.sections()?[1].layout[&F::GridPitch], V::Integer(360));
+    }
+    let addition = imported.preview_tracked_paragraph(
+        target,
+        editor::TrackedParagraph::InsertBefore("Review this paragraph.".into()),
+        "Reviewer",
+        Some(STAMP),
+    )?;
+    let pending = editor::ImportedDocument::open(&addition.to_docx()?)?;
+    let editor::BodyBlock::Paragraph(p) = &pending.body()[2] else {
+        unreachable!()
+    };
+    assert_eq!(p.mark_revision.as_ref().unwrap().kind, "insertion");
+    let reviewed = pending.preview_paragraph_revision(&p.anchor, TextRevisionAction::Reject)?;
+    assert_eq!(
+        editor::ImportedDocument::open(&reviewed.to_docx()?)?
+            .body()
+            .len(),
+        imported.body().len()
+    );
     let payload = Component::resolve(Paragraph::new("Block editor: replacement paragraph."))
         .await?
         .unwrap();
     use editor::BlockEdit;
+    let sections = imported.sections()?;
+    let split =
+        imported.preview_blocks(&[BlockEdit::SplitSection(sections[1].anchor.clone(), 1)])?;
+    let reopened = editor::ImportedDocument::open(&split.to_docx()?)?;
+    let sections = reopened.sections()?;
+    assert_eq!(sections.len(), 3);
+    let merged = reopened.preview_blocks(&[BlockEdit::MergeSection(sections[1].anchor.clone())])?;
+    assert_eq!(
+        editor::ImportedDocument::open(&merged.to_docx()?)?
+            .sections()?
+            .len(),
+        2
+    );
     for edit in [
         BlockEdit::Replace(target.clone(), Box::new(payload.clone())),
         BlockEdit::Remove(target.clone()),
         BlockEdit::ReplaceSection(target.clone(), vec![ResolvedBlock::Paragraph(payload)]),
         BlockEdit::KeepWithNext(target.clone(), true),
+        BlockEdit::ParagraphFlag(
+            target.clone(),
+            editor::ParagraphFlag::KeepTogether,
+            Some(true),
+        ),
+        BlockEdit::SectionFlag(target.clone(), editor::SectionFlag::RtlGutter, Some(true)),
+        BlockEdit::SectionType(target.clone(), Some(SectionType::EvenPage)),
     ] {
         assert_eq!(imported.preview_blocks(&[edit])?.block_changes(), &[2]);
     }
@@ -1087,6 +1699,54 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(link.children.len(), HEADER_LINK_RUNS.len());
     let stories = imported.stories()?;
     let (explicit, inherited) = stories.split_at(6);
+    use editor::{SectionStoryKind, StoryReferenceEdit};
+    let footer_slot = (SectionStoryKind::Footer, HeaderFooterType::First);
+    let rich = Component::resolve(Paragraph::from_children(vec![
+        Hyperlink::new(
+            HyperlinkTarget::external("https://example.com/story-block")?,
+            vec![TextRun::new("Story block link").into()],
+        )
+        .into(),
+    ]))
+    .await?
+    .unwrap();
+    let bytes = imported.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Create(vec![ResolvedBlock::Paragraph(rich.clone())]),
+    )?;
+    let created = editor::ImportedDocument::open(&bytes)?;
+    let part = created
+        .stories()?
+        .into_iter()
+        .find(|s| s.section_index == 1 && (s.kind, s.variant) == footer_slot)
+        .unwrap()
+        .part_name;
+    let bytes = created.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Remove,
+    )?;
+    let bytes = editor::ImportedDocument::open(&bytes)?.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Link(part),
+    )?;
+    let linked = editor::ImportedDocument::open(&bytes)?;
+    let bytes = linked.edit_story_blocks(
+        &linked.default_headers()?[0].anchor,
+        editor::HeaderEditMode::SectionLocal,
+        2,
+        0,
+        &[
+            ResolvedBlock::Table(resolved_table.clone()),
+            ResolvedBlock::Paragraph(rich),
+        ],
+    )?;
+    std::fs::write(output.with_extension("story-blocks.docx"), bytes)?;
     assert_eq!(inherited.len(), explicit.len());
     for (first, second) in explicit.iter().zip(inherited) {
         assert_eq!((first.section_index, second.section_index), (0, 1));

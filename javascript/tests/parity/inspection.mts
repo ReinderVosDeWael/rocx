@@ -10,6 +10,7 @@ import type {
 function inline(item: ImportedInline): string {
   switch (item.kind) {
     case "text": return item.text;
+    case "footnoteReference": case "endnoteReference": return `${item.kind}:${item.id}`;
     case "tab": return "\t";
     case "break": return item.breakType;
     case "opaque": return item.name;
@@ -27,6 +28,7 @@ function link(node: ImportedHyperlink): readonly (string | undefined)[] {
 
 function structure(node: ImportedInlineNode): readonly (string | undefined)[] {
   switch (node.kind) {
+    case "fraction": return [node.numerator, node.denominator];
     case "run": return run(node);
     case "hyperlink": return link(node);
     case "revision": return [node.revisionKind, node.id, node.author, node.date, ...node.children.map(structure).flat()];
