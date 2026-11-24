@@ -617,7 +617,8 @@ in Rust) or `None`/`null` to clear the wrapper. Replacement discards **all**
 formatting inside that wrapper; use `Field` to retain its siblings. Duplicate
 wrappers or opaque markup that would be discarded reject the operation.
 
-Adding `NumberingStyleDefinition` requires a nonzero concrete ID (existing or added in the same preview)
+Adding `NumberingStyleDefinition` requires a nonzero concrete ID present
+in the staged numbering part (including an instance added by the same batch)
 whose abstract has local levels and no existing style owner. The edit writes
 the style's `numId` and the abstract's reciprocal `styleLink`. It allocates
 no numbering IDs and leaves levels, overrides and paragraph references intact.

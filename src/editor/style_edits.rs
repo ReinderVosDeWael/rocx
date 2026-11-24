@@ -373,6 +373,31 @@ impl ImportedDocument {
         }
         Ok(())
     }
+
+    pub(super) fn bind_numbering_styles(
+        &self,
+        pkg: &mut Package,
+        styles: &[StyleEdit],
+    ) -> Result<()> {
+        let mut pending = styles
+            .iter()
+            .filter_map(|edit| match edit {
+                StyleEdit::Add(StyleDefinition::Numbering(s)) => Some(s),
+                _ => None,
+            })
+            .peekable();
+        if pending.peek().is_none() {
+            return Ok(());
+        }
+        let (_, path) = pkg
+            .related(&self.main, "styles")?
+            .ok_or_else(|| unsupported("missing staged styles part"))?;
+        let root = pkg.word(&path)?;
+        for style in pending {
+            numbering::bind(self, pkg, &root, &style.name.replace(' ', ""), style)?;
+        }
+        Ok(())
+    }
     /// Resolve an exact ID in the selected catalog; names are not edit addresses.
     pub fn style_anchor(&self, id: &str) -> Result<StyleAnchor> {
         let (_, root) = self
@@ -521,7 +546,7 @@ impl ImportedDocument {
                     if slot.is_some() {
                         return Err(unsupported("cannot replace a linked numbering style"));
                     }
-                    numbering::add(self, package, &mut root, &id, s)?;
+                    numbering::reserve(&mut root, &id, s);
                     added_numbering = true;
                     changed = true;
                 } else {

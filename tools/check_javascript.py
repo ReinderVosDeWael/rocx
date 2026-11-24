@@ -26,7 +26,7 @@ PORTABLE_ORACLES = (
 EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
                   "blocks", "inline", "runFormatting", "tableStructure", "styleEdits", "styleCreate", "styleRetarget", "controlEdits",
-                  "tracked", "reviewed", "moved", "moveAccepted", "combined", "numberingEdits")
+                  "tracked", "reviewed", "moved", "moveAccepted", "combined", "numberingEdits", "styleOwnedList")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:

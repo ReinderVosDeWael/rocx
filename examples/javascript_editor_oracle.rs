@@ -263,6 +263,42 @@ fn main() {
             })
             .unwrap();
         write("native-numberingEdits.docx", numbers.to_docx().unwrap());
+        let owned = catalog
+            .preview_edits(EditBatch {
+                styles: &[StyleEdit::Add(
+                    rocx::NumberingStyleDefinition {
+                        name: "Owned List".into(),
+                        numbering_id: 91,
+                    }
+                    .into(),
+                )],
+                resources: &[
+                    Numbering(N::AddInstance {
+                        num_id: 91,
+                        abstract_id: 90,
+                    }),
+                    Numbering(N::AddAbstract {
+                        abstract_id: 90,
+                        levels: vec![rocx::NumberingLevel {
+                            level: 0,
+                            start: 1,
+                            format: "decimal".into(),
+                            text: "%1.".into(),
+                            ..Default::default()
+                        }],
+                    }),
+                    Numbering(N::InstanceStart {
+                        num_id: 91,
+                        level: 0,
+                        start: Some(6),
+                    }),
+                ],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        write("native-styleOwnedList.docx", owned);
         let style = |name: &str| ParagraphStyleDefinition::default().with_name(name);
         let changes = [
             StyleEdit::Add(style("Memo Added").with_base_style("Memo Active").into()),

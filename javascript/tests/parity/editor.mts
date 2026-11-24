@@ -448,6 +448,12 @@ export async function run(fixtures: Fixtures) {
   ]}).toDocx();
   const numbers = await openDocx(numberingEdits);
   const numbered = paragraph(numbers, 0).anchor;
+  const styleOwnedList = catalog.preview({styleEdits:[{op:"add",definition:{kind:"numbering",name:"Owned List",numberingId:91}}],
+    resources:[{kind:"addInstance",numId:91,abstractId:90}, {kind:"addAbstract",abstractId:90,levels:[{level:0,start:1,format:"decimal",text:"%1."}]},
+      {kind:"instanceStart",numId:91,level:0,value:6}]}).toDocx();
+  const owned = await openDocx(styleOwnedList);
+  check(!owned.paragraphNumbering(paragraph(owned,0).anchor) && owned.styles()?.styles.some(s=>s.id==="OwnedList"),"only style still owns list");
+  rejects(()=>owned.preview({resources:[{kind:"removeInstance",numId:91}]}), /references/);
   rejects(() => numbers.paragraphNumbering(listTarget), /snapshot/);
   rejects(() => numbers.preview({resources: [{kind: "removeInstance", numId: 91}]}), /references/);
   same(numbers.paragraphNumbering(numbered), {id: 91, level: 0}, "direct reference");
@@ -601,7 +607,7 @@ export async function run(fixtures: Fixtures) {
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, styleCreate, styleRetarget,
-    runFormatting, numberingEdits, inline: inline.toDocx(),
+    runFormatting, numberingEdits, styleOwnedList, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

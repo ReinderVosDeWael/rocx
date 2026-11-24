@@ -23,6 +23,9 @@ style edits. Inspection reports direct stored markup, not inherited formatting.
 The [editor oracle](javascript_editor_oracle.rs) and installed Python/JS parity
 samples additionally create a missing catalog and migrate a header, body, and
 derived style using `StyleEdit::Retarget` / `StyleEdit.retarget` / `op: "retarget"`.
+The mixed run-text output creates numbering style `Reviewed List`,
+its instance 9049, abstract 9048, concrete start and replacement level in one
+preview. Readback checks the style binding and the reciprocal `styleLink`.
 
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:

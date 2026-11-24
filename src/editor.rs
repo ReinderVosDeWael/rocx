@@ -843,6 +843,7 @@ impl ImportedDocument {
         // Check unused definitions against the original snapshot, and make
         // newly added definitions available to every payload codec.
         self.stage_styles(&mut package, styles)?;
+        self.bind_numbering_styles(&mut package, styles)?;
         let destructive_styles = styles
             .iter()
             .any(|s| matches!(s, StyleEdit::Replace { .. } | StyleEdit::Remove(_)));
@@ -1038,6 +1039,8 @@ impl ImportedDocument {
         self.stage_story_numbering(&mut package, resources)?;
         // A defaults patch shares the styles part. Read the staged version.
         resource_fields::apply(&mut package, &self.main, resources)?;
+        // Style numId uses are visible to removal guards; link to the final
+        // abstract only after all new instances and overrides exist.
         if let [
             StyleEdit::Retarget {
                 target,
