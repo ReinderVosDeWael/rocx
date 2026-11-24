@@ -214,6 +214,7 @@ export interface ImportedDocument {
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;
+  coreSubject(): string | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
   abstractStarts(): readonly AbstractStart[];
 }

@@ -194,6 +194,7 @@ export async function generateCatalog(fixtures, options) {
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
+      {kind: "coreSubject", value: "Imported resource edits"},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
@@ -213,12 +214,14 @@ export async function generateCatalog(fixtures, options) {
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
   const editedResources = await openDocx(runText);
-  assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample",
+  assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample" &&
+    editedResources.coreSubject() === "Imported resource edits",
     "missing resource edits");
   const cleared = await openDocx(editedResources.preview({resources: [
     {kind: "coreTitle", value: null}, {kind: "defaultAlignment", value: null},
+    {kind: "coreSubject", value: null},
     {kind: "abstractStart", abstractId: 100, level: 0, value: null}]}).toDocx());
-  assert(cleared.coreTitle() === undefined && cleared.defaultAlignment() === undefined &&
+  assert(cleared.coreSubject() === undefined && cleared.coreTitle() === undefined && cleared.defaultAlignment() === undefined &&
     cleared.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === undefined),
     "clearing direct properties should return absence");
   assertThrows(() => imported.preview({resources: [{kind: "coreTitle", value: "uncommitted"},

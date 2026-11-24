@@ -19,6 +19,7 @@ pub struct AbstractStart {
 #[derive(Clone, Debug)]
 pub enum ResourceEdit {
     CoreTitle(Option<String>),
+    CoreSubject(Option<String>),
     DefaultAlignment(Option<Alignment>),
     AbstractStart(AbstractStart),
 }
@@ -95,7 +96,7 @@ fn scalar(node: &Node, attr: bool) -> Result<String> {
         let mut value = String::new();
         for child in &node.children {
             let Content::Text(t) = child else {
-                return Err(unsupported("non-text title"));
+                return Err(unsupported("non-text core property"));
             };
             value.push_str(t);
         }
@@ -187,10 +188,16 @@ fn visit_levels(
 
 impl ImportedDocument {
     pub fn core_title(&self) -> Result<Option<String>> {
+        self.core_text("dc:title")
+    }
+    pub fn core_subject(&self) -> Result<Option<String>> {
+        self.core_text("dc:subject")
+    }
+    fn core_text(&self, name: &str) -> Result<Option<String>> {
         let Some((_, root)) = Part::Core.load(&self.package, &self.main)? else {
             return Ok(None);
         };
-        property(&root, &["dc:title"], false)
+        property(&root, &[name], false)
     }
     pub fn default_alignment(&self) -> Result<Option<Alignment>> {
         let Some((_, root)) = Part::Defaults.load(&self.package, &self.main)? else {
@@ -220,10 +227,11 @@ impl ImportedDocument {
 }
 
 pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Result<()> {
-    let (mut title, mut alignment, mut starts) = (None, None, BTreeMap::new());
+    let (mut title, mut subject, mut alignment, mut starts) = (None, None, None, BTreeMap::new());
     for edit in edits {
         let duplicate = match edit {
             ResourceEdit::CoreTitle(v) => title.replace(v).is_some(),
+            ResourceEdit::CoreSubject(v) => subject.replace(v).is_some(),
             ResourceEdit::DefaultAlignment(v) => alignment.replace(v).is_some(),
             ResourceEdit::AbstractStart(v) => {
                 starts.insert((v.abstract_id, v.level), v.start).is_some()
@@ -235,6 +243,7 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
     }
     for (part, path, attr, value) in [
         (Part::Core, &["dc:title"][..], false, title.cloned()),
+        (Part::Core, &["dc:subject"][..], false, subject.cloned()),
         (
             Part::Defaults,
             DEFAULT_PATH,
@@ -246,7 +255,7 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
         if !attr && let Some(s) = &value {
             crate::xml::validate_text(s)?;
             if s.chars().count() > 255 {
-                return Err(unsupported("title exceeds 255 characters"));
+                return Err(unsupported(&format!("{} exceeds 255 characters", path[0])));
             }
         }
         let Some((part_name, mut root)) = part.load(pkg, main)? else {
