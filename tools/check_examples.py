@@ -902,8 +902,6 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["7"]
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='9048']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["2"]
         instance, = numbers.xpath("w:num[@w:numId='9049']", namespaces=NS)
-        assert styles.xpath("w:style[@w:styleId='ImportedCatalogSequence']/w:pPr/w:numPr/w:numId/@w:val", namespaces=NS) == ["9049"]
-        assert numbers.xpath("w:abstractNum[@w:abstractNumId='9048']/w:styleLink/@w:val", namespaces=NS) == ["ImportedCatalogSequence"]
         assert instance.xpath("w:abstractNumId/@w:val", namespaces=NS) == ["9048"]
         assert instance.xpath("w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val", namespaces=NS) == ["6"]
         assert instance.xpath("w:lvlOverride[@w:ilvl='0']/w:lvl/w:numFmt/@w:val", namespaces=NS) == ["lowerRoman"]

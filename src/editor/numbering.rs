@@ -251,7 +251,7 @@ pub(super) fn paragraph_targets<'a>(
             };
             if !ids.is_empty()
                 && n.get("w:val")
-                    .and_then(|v| v.trim().parse::<u32>().ok())
+                    .and_then(unsigned_decimal)
                     .is_none_or(|v| ids.contains(&v))
             {
                 claimed = true;
@@ -632,7 +632,35 @@ fn discardable(n: &Node) -> bool {
         }
         _ => return false,
     };
-    simple(n, attrs, children) && n.elements().all(discardable)
+    let mut singleton = BTreeSet::new();
+    simple(n, attrs, children)
+        && n.elements().all(|c| {
+            matches!(c.name.as_str(), "w:lvl" | "w:lvlOverride" | "w:tab")
+                || singleton.insert(c.name.as_str())
+        })
+        && n.elements().all(discardable)
+}
+
+// Compare the modeled infoset, not serializer state, surrounding indentation
+// or namespace declaration spelling. The caller has already rejected opaque
+// content, so this never makes a destructive unknown edit into a no-op.
+fn same_level(a: &Node, b: &Node) -> bool {
+    let attrs = |n: &Node| {
+        n.attrs
+            .iter()
+            .filter(|(k, _)| k.declaration().is_none())
+            .count()
+    };
+    a.name == b.name
+        && attrs(a) == attrs(b)
+        && a.attrs
+            .iter()
+            .filter(|(k, _)| k.declaration().is_none())
+            .all(|(k, v)| b.attrs.iter().any(|(key, value)| k == key && v == value))
+        && a.elements().count() == b.elements().count()
+        && a.elements()
+            .zip(b.elements())
+            .all(|(a, b)| same_level(a, b))
 }
 
 fn prune_empty_override(num: &mut Node, level: u8) {
@@ -760,9 +788,13 @@ fn edit_identities(
                         && n.name == "w:lvl"
                     {
                         if let Some(v) = new.remove(&id(n, "w:ilvl").unwrap()) {
-                            *n = v;
+                            if !same_level(n, &v) {
+                                *n = v;
+                                changed = true;
+                            }
                             true
                         } else {
+                            changed = true;
                             false
                         }
                     } else {
@@ -770,9 +802,9 @@ fn edit_identities(
                     }
                 });
                 for n in new.into_values() {
-                    def.push(n)
+                    def.push(n);
+                    changed = true;
                 }
-                changed = true;
             }
             AbstractLevel {
                 abstract_id: a,
@@ -794,12 +826,15 @@ fn edit_identities(
                     }
                     let new = encode_level(l)?;
                     if let Some(old) = old {
-                        *old = new;
+                        if !same_level(old, &new) {
+                            *old = new;
+                            changed = true;
+                        }
                     } else {
                         def.push(new);
+                        changed = true;
                     }
                     indices.insert((*level).into());
-                    changed = true;
                 } else if old.is_some() {
                     remove(def, "w:lvl", "w:ilvl", (*level).into())?;
                     indices.remove(&u32::from(*level));
@@ -1131,6 +1166,9 @@ pub(super) fn stage(
                             return Err(unsupported(
                                 "cannot discard rich or mismatched replacement level",
                             ));
+                        }
+                        if new.as_ref().is_some_and(|n| same_level(existing, n)) {
+                            continue;
                         }
                     } else if new.is_none() {
                         continue;

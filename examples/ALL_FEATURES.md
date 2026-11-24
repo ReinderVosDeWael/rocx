@@ -250,6 +250,13 @@ The Rust `NumberingEdit::{AddAbstract, AddInstance, InstanceLevel, InstanceStart
 Python `ResourceEdit.{add_abstract, add_instance, instance_level, instance_start, paragraph_numbering}`
 and JavaScript `addAbstract`, `addInstance`, `instanceLevel`, `instanceStart`,
 `paragraphNumbering` forms produce the same `.run-text.docx`.
+The same artifact replaces the levels in abstract 0, updates level 0 in
+abstract 1, relinks instance 8, and replaces instance 9 and its overrides.
+It also assigns the list to a direct comment paragraph. The spellings are
+Rust `ReplaceAbstract`, `AbstractLevel`, `RelinkInstance`, `ReplaceInstance`,
+`StoryParagraph`; Python `replace_abstract`, `abstract_level`, `relink_instance`,
+`replace_instance`, `story_paragraph_numbering`; and JavaScript `replaceAbstract`,
+`abstractLevel`, `relinkInstance`, `replaceInstance`, `storyParagraphNumbering`.
 
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python

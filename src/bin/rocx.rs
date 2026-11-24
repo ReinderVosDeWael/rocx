@@ -20,6 +20,8 @@ enum Request {
         custom_properties: Vec<String>,
         #[serde(default)]
         numbering_targets: Vec<usize>,
+        #[serde(default)]
+        numbering_story_targets: Vec<rocx_protocol::NumberingSite>,
     },
     Preview {
         source: String,
@@ -48,6 +50,7 @@ fn execute(request: Request) -> Result<Value, String> {
             metadata_fields,
             custom_properties,
             numbering_targets,
+            numbering_story_targets,
             ..
         } => {
             return rocx_protocol::inspect(
@@ -56,6 +59,7 @@ fn execute(request: Request) -> Result<Value, String> {
                 metadata_fields,
                 custom_properties,
                 numbering_targets,
+                numbering_story_targets,
             );
         }
         Request::Preview {

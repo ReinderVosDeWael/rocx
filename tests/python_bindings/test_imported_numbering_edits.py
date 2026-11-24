@@ -131,6 +131,8 @@ def test_create_numbering_part_next_to_relocated_main_without_claiming_orphan():
     num_rel, = [n for n in root if n.get("Type").endswith("/numbering")]
     root.remove(num_rel)
     parts[rels] = etree.tostring(root)
+    # Also reserve a matching stem with different case; it must not be adopted.
+    parts["custom/ROCX-Numbering1.xml"] = parts["custom/numbering.xml"]
     doc = ImportedDocument.open(pack(parts))
     assert doc.numbering_instances == []
     with pytest.raises(ValueError, match="referenced"):
@@ -138,10 +140,10 @@ def test_create_numbering_part_next_to_relocated_main_without_claiming_orphan():
     result = doc.preview([], resources=[R.add_instance(91, 90), R.add_abstract(90, [NumberingLevel()]),
                                         R.paragraph_numbering(doc.body[0].anchor, (91, 0))]).to_docx()
     after = unpack(result)
-    assert after.keys() - parts.keys() == {"custom/numbering1.xml"}
+    assert after.keys() - parts.keys() == {"custom/rocx-numbering2.xml"}
     assert {n for n in parts if after[n] != parts[n]} == {"custom/document.xml", rels, "[Content_Types].xml"}
     word = docx.Document(BytesIO(result))
-    assert str(word.part.numbering_part.partname) == "/custom/numbering1.xml"
+    assert str(word.part.numbering_part.partname) == "/custom/rocx-numbering2.xml"
     assert word.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
 
 
@@ -158,6 +160,12 @@ def test_replace_rich_levels_relink_and_preserve_local_metadata():
     definition.insert(0, etree.Comment("kept with abstract"))
     parts[NUMBERS] = etree.tostring(root)
     src = ImportedDocument.open(pack(parts))
+    equivalent = src.preview([], resources=[
+        R.replace_abstract(80, [rich, NumberingLevel(level=1)]),
+        R.instance_level(90, 1, NumberingLevel(level=1, label_format=RunDefaults(italic=True))),
+        R.relink_instance(90, 80),
+    ]).to_docx()
+    assert unpack(equivalent) == parts
     for invalid in [
         [R.abstract_level(80, 1, None)], [R.replace_abstract(80, [NumberingLevel()])],
         [R.add_abstract(81, [NumberingLevel()]), R.relink_instance(90, 81)],

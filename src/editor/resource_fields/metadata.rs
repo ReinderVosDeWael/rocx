@@ -98,18 +98,13 @@ impl Part {
         let (rel, mime, root_name, stem) = self.descriptor();
         let loaded = self.load(pkg)?;
         let new = loaded.is_none();
-        let (path, mut root) = loaded.unwrap_or_else(|| {
-            let path = format!("{stem}.xml");
-            let collision = pkg.parts.keys().any(|p| p.eq_ignore_ascii_case(&path));
-            (
-                if collision {
-                    pkg.unique(stem, "xml")
-                } else {
-                    path
-                },
+        let (path, mut root) = match loaded {
+            Some(part) => part,
+            None => (
+                super::free_resource_path(pkg, stem, true)?,
                 Node::new(root_name),
-            )
-        });
+            ),
+        };
         if edit(&mut root)? {
             if new {
                 pkg.content_type(&path, mime)?;
@@ -149,7 +144,8 @@ impl MetadataField {
         // xsi:type is a QName resolved in the leaf's namespace scope.
         let typ = node
             .get("xsi:type")
-            .ok_or_else(|| unsupported("missing core date type"))?;
+            .ok_or_else(|| unsupported("missing core date type"))?
+            .trim_matches([' ', '\t', '\r', '\n']);
         let (prefix, local) = typ.split_once(':').unwrap_or(("", typ));
         let decl = if prefix.is_empty() {
             "xmlns".into()

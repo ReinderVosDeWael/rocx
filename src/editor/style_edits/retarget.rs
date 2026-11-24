@@ -24,6 +24,7 @@ fn rewrite(
     };
     let mut changed = false;
     if n.get("w:val") == Some(old) && expected == Some(kind) {
+        crate::editor::resource_fields::scalar(n, true)?;
         n.set("w:val", new);
         changed = true;
     }
@@ -163,7 +164,10 @@ impl ImportedDocument {
             if part == path {
                 continue;
             }
-            let mime = pkg.content_type_for(&part)?.unwrap_or_default();
+            let mime = pkg
+                .content_type_for(&part)?
+                .unwrap_or_default()
+                .to_ascii_lowercase();
             if !mime.starts_with("application/vnd.openxmlformats-officedocument.wordprocessingml.")
                 || !mime.ends_with("+xml")
             {

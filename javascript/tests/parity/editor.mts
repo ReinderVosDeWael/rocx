@@ -457,6 +457,19 @@ export async function run(fixtures: Fixtures) {
   rejects(() => numbers.paragraphNumbering(listTarget), /snapshot/);
   rejects(() => numbers.preview({resources: [{kind: "removeInstance", numId: 91}]}), /references/);
   same(numbers.paragraphNumbering(numbered), {id: 91, level: 0}, "direct reference");
+  const decimal = {level: 0, start: 1, format: "decimal", text: "%1."};
+  bytesEqual(numbers.preview({resources: [
+    {kind:"replaceAbstract", abstractId:90, levels:[decimal]},
+    {kind:"replaceInstance", definition:{id:91, abstractId:90}},
+    {kind:"paragraphNumbering", target:numbered, value:{id:91,level:0}},
+  ]}).toDocx(), numbers.preview({}).toDocx(), "equivalent modeled numbering leaves all bytes alone");
+  rejects(() => numbers.preview({resources: [
+    {kind:"replaceAbstract", abstractId:90, levels:[decimal]},
+    {kind:"abstractLevel", abstractId:90, level:0, value:decimal},
+  ]}), /conflicting/);
+  rejects(() => numbers.preview({resources: [
+    {kind:"abstractLevel", abstractId:2, level:0, value:decimal},
+  ]}), /unmodeled|style-linked/);
   const removed = await openDocx(numbers.preview({resources: [
     {kind: "removeAbstract", abstractId: 90}, {kind: "removeInstance", numId: 91},
     {kind: "paragraphNumbering", target: numbered, value: null},

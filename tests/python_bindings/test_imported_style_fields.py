@@ -74,7 +74,7 @@ def test_create_new_catalog_beside_relocated_main_without_adopting_orphan():
     output = source.preview([],style_edits=[S.add(d.ParagraphStyleDefinition(name="Child",base_style="Root")),
                                             S.add(d.ParagraphStyleDefinition(name="Root"))]).to_docx()
     catalog = ImportedDocument.open(output).styles
-    assert catalog.part_name == "reports/styles1.xml"
+    assert catalog.part_name == "reports/rocx-styles1.xml"
     assert Document(io.BytesIO(output)).styles["Child"].base_style.name == "Root"
     after = parts(output)
     assert {k for k in after.keys()|before.keys() if after.get(k)!=before.get(k)} == {rels,"[Content_Types].xml",catalog.part_name}

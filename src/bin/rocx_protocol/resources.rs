@@ -85,6 +85,92 @@ pub(crate) struct ListRef {
     pub level: u8,
 }
 
+impl From<ListRef> for rocx::NumberingReference {
+    fn from(value: ListRef) -> Self {
+        Self {
+            id: value.id,
+            level: value.level,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum NumberingSite {
+    Story {
+        part: String,
+        block_index: usize,
+        entry_id: Option<String>,
+    },
+    Cell {
+        target: usize,
+        row_index: usize,
+        cell_index: usize,
+        block_index: usize,
+    },
+}
+
+impl NumberingSite {
+    pub(super) fn resolve(&self, doc: &ImportedDocument) -> Result<StoryParagraphAnchor, String> {
+        match self {
+            Self::Story {
+                part,
+                block_index,
+                entry_id,
+            } => doc.story_paragraph_anchor(part, *block_index, entry_id.as_deref()),
+            Self::Cell {
+                target,
+                row_index,
+                cell_index,
+                block_index,
+            } => {
+                let Some(BodyBlock::Table(table)) = doc.body().get(*target) else {
+                    return Err("numbering cell target is not a direct body table".into());
+                };
+                doc.cell_paragraph_anchor(&table.anchor, *row_index, *cell_index, *block_index)
+            }
+        }
+        .map_err(|error| error.to_string())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Concrete {
+    id: u32,
+    abstract_id: u32,
+    #[serde(default)]
+    start_overrides: Vec<Start>,
+    #[serde(default)]
+    level_overrides: Vec<Level>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Start {
+    level: u8,
+    start: u32,
+}
+
+impl From<Concrete> for rocx::NumberingDefinition {
+    fn from(value: Concrete) -> Self {
+        Self {
+            id: value.id,
+            abstract_id: Some(value.abstract_id),
+            start_overrides: value
+                .start_overrides
+                .into_iter()
+                .map(|o| rocx::NumberingStartOverride {
+                    level: o.level,
+                    start: o.start,
+                })
+                .collect(),
+            level_overrides: value.level_overrides.into_iter().map(Into::into).collect(),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Region {
