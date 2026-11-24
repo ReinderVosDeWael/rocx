@@ -65,7 +65,10 @@ impl Part {
         let Some((_, path)) = pkg.related(owner, rel)? else {
             return Ok(None);
         };
-        if pkg.content_type_for(&path)?.as_deref() != Some(mime) {
+        if !pkg
+            .content_type_for(&path)?
+            .is_some_and(|ty| ty.eq_ignore_ascii_case(mime))
+        {
             return Err(unsupported(&format!("invalid {rel} content type")));
         }
         let node = pkg.word(&path)?;
@@ -181,8 +184,10 @@ fn patch(root: &mut Node, path: &[&str], attr: bool, value: Option<String>) -> R
 }
 
 fn parse_start(s: &str) -> Result<u32> {
-    s.parse()
-        .map_err(|_| unsupported("invalid numbering start"))
+    unsigned_decimal(s).ok_or_else(|| unsupported("invalid numbering start"))
+}
+fn unsigned_decimal(s: &str) -> Option<u32> {
+    crate::ooxml::decimal_id(s)?.parse().ok()
 }
 fn parse_alignment(s: &str) -> Result<Alignment> {
     read_alignment(s).ok_or_else(|| unsupported("unsupported default alignment"))
@@ -190,7 +195,7 @@ fn parse_alignment(s: &str) -> Result<Alignment> {
 
 pub(super) fn id(n: &Node, key: &str) -> Result<u32> {
     n.get(key)
-        .and_then(|s| s.parse().ok())
+        .and_then(unsigned_decimal)
         .ok_or_else(|| unsupported(&format!("invalid {key}")))
 }
 

@@ -4,10 +4,19 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
-Primary integration: combine the `a30c516` point, section, formatting, story
-and lifecycle work with `ea1c023`, preserve the union of catalog/editor
-artifacts, and qualify the resource/style CLI transport with the native,
-installed Python and packed JavaScript gates.
+Primary integration ([#65](https://github.com/ReinderVosDeWael/rocx/pull/65)):
+the point, section, formatting, story and lifecycle work from `a30c516` is
+combined with `ea1c023` and the preservation guards from `ee4f8f5`. Qualify the
+union of catalog/editor artifacts and the resource/style CLI transport with the
+native, installed Python and packed JavaScript gates.
+
+**#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
+`ProcessContent` wrappers before treating a property as absent or a bookmark
+as closed. Regression fixtures cover body and entry stories, table layout,
+numbering, decimal bookmark identity, XML integer lexical forms, mixed-case
+resource media types, and byte preservation for no-op layout edits. Thirteen
+cases failed on `fe5e5df`; all 16 pass with the fixes, including controls for
+unrelated opaque nodes and string-valued permission IDs.
 
 **#47/#48 integration:** defaults, metadata, numbering and style editing share
 one transaction. Allocate absent resource parts without adopting orphan parts,
