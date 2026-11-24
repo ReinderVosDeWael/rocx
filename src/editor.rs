@@ -19,6 +19,7 @@ mod entries;
 mod header;
 mod insertion;
 mod resources;
+mod style_edits;
 mod tables;
 mod text;
 pub use entries::{EntryKind, ImportedEntry};
@@ -27,6 +28,7 @@ pub use header::{
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
+pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit};
 pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
 
@@ -647,6 +649,31 @@ impl ImportedDocument {
         cells: &[CellAlignmentEdit],
         run_removals: &[InlineAnchor],
     ) -> Result<EditPreview> {
+        self.preview_with_styles(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            &[],
+        )
+    }
+
+    /// Stage style edits together with content changes. Insertions may refer to newly added styles.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_with_styles(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+        styles: &[StyleEdit],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -680,6 +707,7 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        self.stage_styles(&mut package, styles)?;
         let mut paragraph_targets = BTreeMap::new();
         for insertion in paragraphs {
             if paragraph_targets

@@ -20,6 +20,7 @@ use wasm_bindgen::JsValue;
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedPreview", (preview, Paths::Package)),
+        ("importedStyleAnchor", (style_anchor, Paths::Package)),
         (
             "importedPreviewHeaderImage",
             (preview_header, Paths::Package),
@@ -167,9 +168,10 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
+            "styleEdits",
         ],
     )?;
-    let preview = source.document().preview_mixed(
+    let preview = source.document().preview_with_styles(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -186,6 +188,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
         &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
+        &edits(&batch, "styleEdits", style_edit)?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",
@@ -202,6 +205,67 @@ fn preview(input: &Wire) -> Result<JsValue> {
             ("toDocx", "editPreviewToDocx"),
         ],
     ))
+}
+
+fn style_anchor(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = borrow_target::<ImportedSource>(&call, "document")?;
+    let id = b::string(&argument(&call, "id")?, "id")?;
+    Ok(b::handle(
+        "styleAnchor",
+        doc.document().style_anchor(&id)?,
+        JsValue::UNDEFINED,
+    ))
+}
+
+fn style_edit(input: &Wire, path: &str) -> Result<rocx::editor::StyleEdit> {
+    use rocx::editor::{StyleAnchor, StyleEdit};
+    let op = b::string(
+        &b::member(&input.js(), "op", path)?,
+        &b::child_path(path, "op"),
+    )?;
+    let fields: &[&str] = match op.as_str() {
+        "add" => &["op", "definition"],
+        "patch" => &["op", "target", "bold", "italic"],
+        "replace" => &["op", "target", "definition"],
+        "remove" => &["op", "target"],
+        _ => return Err(Failure::invalid(path, "unknown style edit")),
+    };
+    let record = Record::new(input, path, fields)?;
+    let target = || -> Result<_> {
+        Ok((*borrow_target::<StyleAnchor>(&record, &record.path("target"))?).clone())
+    };
+    let definition = || {
+        crate::styles::style_definition(
+            &record.get("definition")?,
+            &b::Operation::new().pass(),
+            &record.path("definition"),
+        )
+    };
+    let flag = |key| -> Result<_> {
+        let value = record.get(key)?.js();
+        if value.is_undefined() {
+            Ok(None)
+        } else {
+            value
+                .as_bool()
+                .map(Some)
+                .ok_or_else(|| Failure::invalid(&record.path(key), "expected a boolean"))
+        }
+    };
+    Ok(match op.as_str() {
+        "add" => StyleEdit::Add(definition()?),
+        "replace" => StyleEdit::Replace {
+            target: target()?,
+            definition: definition()?,
+        },
+        "patch" => StyleEdit::Patch {
+            target: target()?,
+            bold: flag("bold")?,
+            italic: flag("italic")?,
+        },
+        _ => StyleEdit::Remove(target()?),
+    })
 }
 
 fn run_removals(input: &Wire) -> Result<JsValue> {

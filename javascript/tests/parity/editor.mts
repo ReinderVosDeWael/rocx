@@ -13,6 +13,7 @@ export interface Fixtures {
   drawing: Uint8Array;
   relocated: Uint8Array;
   "styles-edge": Uint8Array;
+  "styles-source": Uint8Array;
   "styles-missing": Uint8Array;
   "styles-invalid": Uint8Array;
   image: Uint8Array;
@@ -377,6 +378,20 @@ export async function mixedTransactionAtomicityAndRepeatPreview(
 }
 
 export async function run(fixtures: Fixtures) {
+  const catalog = await openDocx(fixtures["styles-source"]);
+  const active = catalog.styleAnchor("MemoActive");
+  const batch: EditBatch = { styleEdits: [
+    { op: "add", definition: { kind: "paragraph", name: "Memo Added", baseStyle: "Memo Active" } },
+    { op: "replace", target: catalog.styleAnchor("MemoReplace"), definition: {kind: "paragraph", name: "Memo Replace", bold: true} },
+    { op: "remove", target: catalog.styleAnchor("MemoDrop") },
+    { op: "patch", target: active, italic: true },
+  ] };
+  rejects(() => catalog.preview({styleEdits: [...batch.styleEdits!, {op: "remove", target: active}]}), /duplicate/);
+  rejects(() => catalog.preview({styleEdits: [{op: "remove", target: active}]}), /references/);
+  const styleEdits = catalog.preview(batch).toDocx();
+  const reopened = await openDocx(styleEdits);
+  rejects(() => reopened.preview({styleEdits: [{op: "patch", target: active, bold: true}]}), /different document snapshot/);
+  check(reopened.styles()?.styles.find(s => s.id === "MemoAdded")?.basedOn === "MemoActive", "new style inheritance");
   const resolved = await payloads(fixtures.image);
   const doc = await openDocx(fixtures.base);
   const first = paragraph(doc, 0).inlineStructure[0];
@@ -389,6 +404,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
   check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
   return {
+    styleEdits,
     removal: removal.toDocx(),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),

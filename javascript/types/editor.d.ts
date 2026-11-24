@@ -1,4 +1,5 @@
 import type { ResolvedImage } from "./drawings.js";
+import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
 import type { HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment, ResolvedParagraph } from "./text-layout.js";
@@ -44,6 +45,7 @@ export interface HeaderImageEdit {
 }
 
 export interface EditBatch {
+  readonly styleEdits?: readonly StyleEdit[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
@@ -52,6 +54,15 @@ export interface EditBatch {
   readonly headerImages?: readonly HeaderImageEdit[];
   readonly cellAlignments?: readonly CellAlignmentEdit[];
 }
+
+declare const styleAnchor: unique symbol;
+export interface StyleAnchor { readonly [styleAnchor]: true }
+type EditableDefinition = Exclude<StyleDefinition, NumberingStyleDefinition>;
+export type StyleEdit =
+  | { readonly op: "add"; readonly definition: EditableDefinition }
+  | { readonly op: "patch"; readonly target: StyleAnchor; readonly bold?: boolean; readonly italic?: boolean }
+  | { readonly op: "replace"; readonly target: StyleAnchor; readonly definition: EditableDefinition }
+  | { readonly op: "remove"; readonly target: StyleAnchor };
 
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
 export interface RunRemovalChange {
@@ -113,6 +124,7 @@ export interface HeaderImagePreview {
 
 declare module "./inspection.js" {
   interface ImportedDocument {
+    styleAnchor(id: string): StyleAnchor;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to the shared header or a section-local fork. */

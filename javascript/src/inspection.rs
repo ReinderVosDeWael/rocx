@@ -39,6 +39,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("stories", "importedStories"),
     ("entryStories", "importedEntryStories"),
     ("styles", "importedStyles"),
+    ("styleAnchor", "importedStyleAnchor"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("preview", "importedPreview"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),

@@ -143,6 +143,12 @@ export async function generateCatalog(fixtures, options) {
   ], { columnWidths: [2160, 2160], layout: "fixed" }));
 
   const imported = await openDocx(final);
+  const styled = imported.preview({ styleEdits: [
+    { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
+    { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
+  ] });
+  assert((await openDocx(styled.toDocx())).styles().styles.some(s =>
+    s.id === "CatalogImportedChild" && s.basedOn === "CatalogBase"), "imported style edit readback");
   assert(imported.styles()?.styles.some((style) => style.name === "Catalog Bullets"
     && style.kind === "numbering" && style.id), "expected imported numbering style");
   const body = imported.body();

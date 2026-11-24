@@ -7,8 +7,12 @@ also be used for text replacement or whole-run removal.
 
 ``ImportedDocument.preview`` stages paragraph alignments together with any of
 ``table_insertions=``, ``paragraph_insertions=``, ``cell_alignments=``,
-``header_images=``, ``run_text=``, and ``run_removals=`` in one transaction.
+``header_images=``, ``run_text=``, ``run_removals=`` and ``style_edits=`` in one transaction.
 All targets refer to the original snapshot.
+
+Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
+accepts paragraph, character and table declarations. ``StyleEdit.patch`` sets
+direct bold/italic flags; ``replace`` and ``remove`` require unused, simple custom styles.
 
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Default and first-page
@@ -33,6 +37,8 @@ from ._native import (
     ImportedEntry,
     ImportedStyle,
     ImportedStyles,
+    StyleAnchor,
+    StyleEdit,
     RunTextEdit,
     RunRemovalChange,
     RunTextChange,
@@ -76,6 +82,8 @@ __all__ = [
     "ImportedEntry",
     "ImportedStyle",
     "ImportedStyles",
+    "StyleAnchor",
+    "StyleEdit",
     "RunTextEdit",
     "RunRemovalChange",
     "RunTextChange",

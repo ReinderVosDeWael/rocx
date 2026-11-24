@@ -122,7 +122,8 @@ wrong content type or missing entry ID fails without changing the snapshot.
 
 [Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
 part identity and direct style ID, kind, name, and base reference in all three
-bindings. Other style properties and resource editing remain outstanding.
+bindings. See [imported style edits](#imported-style-edits) for definition
+and property edits. Effective formatting and arbitrary resource editing remain outstanding.
 
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
@@ -182,3 +183,29 @@ Conditions, components, property references, lazy/async/deferred values, reuse a
 ## Acceptance cross-check
 
 Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python/JavaScript DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the [active plan](PLAN.md) for verification status.
+
+## Imported style edits
+
+| Operation | Rust | Python (`rocx.editor`) | JavaScript |
+| --- | --- | --- | --- |
+| Address an exact style ID | `doc.style_anchor(id)?` | `doc.style_anchor(id)` | `doc.styleAnchor(id)` |
+| Add a declaration | `StyleEdit::Add(definition)` | `StyleEdit.add(definition)` | `{op: "add", definition}` |
+| Patch just bold / italic | `StyleEdit::Patch {target, bold, italic}` | `StyleEdit.patch(target, italic=True)` | `{op: "patch", target, italic: true}` |
+| Replace an unused definition | `StyleEdit::Replace {target, definition}` | `StyleEdit.replace(target, definition)` | `{op: "replace", target, definition}` |
+| Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
+| Stage with content edits | `doc.preview_with_styles(alignments, tables, headers, run_text, paragraphs, cells, removals, styles)?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
+
+Add paragraph, character or table declarations to an existing relationship-selected
+styles part. Names and generated IDs must be unambiguous. The authoring codec
+resolves forward references and checks their types and inheritance cycles.
+Patches address direct paragraph/character run properties, including explicit
+false; omitted properties, unknown siblings and attributes are preserved.
+Reopen the output and reacquire anchors for another transaction.
+
+Replace and remove require a nondefault custom style with a simple definition
+(name, base, empty paragraph properties and/or bold/italic). Replacement retains
+its type, ID, display name and source slot. Both operations reject potential
+references elsewhere in the package, including other styles, settings, stories,
+numbering and fields, and reject unsupported markup or parts when usage cannot
+be established. There is no automatic retargeting, numbering-style creation or
+synthesis of a missing styles part.

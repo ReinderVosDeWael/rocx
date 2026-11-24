@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion, StyleEdit,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -456,6 +456,12 @@ async def generate(output: pathlib.Path) -> bytes:
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)
     imported = ImportedDocument.open(data)
+    styled = imported.preview([], style_edits=[
+        StyleEdit.add(d.ParagraphStyleDefinition(name="Catalog Imported Child", base_style="Catalog Base")),
+        StyleEdit.patch(imported.style_anchor("CatalogBase"), italic=True),
+    ])
+    assert any(s.id == "CatalogImportedChild" and s.based_on == "CatalogBase"
+               for s in ImportedDocument.open(styled.to_docx()).styles.styles)
     assert any(s.name == "Catalog Bullets" and s.kind == "numbering" and s.id
                for s in imported.styles.styles)
     revisions = [node for block in imported.body for node in getattr(block, "inline_structure", [])

@@ -1,7 +1,8 @@
-//! Read-only projections of relationship-selected document resources.
+//! Inspection of relationship-selected document resources.
 use super::{ImportedDocument, unsupported};
 use crate::Result;
 use crate::ooxml::WordParts;
+use crate::xml::Node;
 
 /// The source style kind. Unknown values are retained rather than inferred.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +48,16 @@ impl ImportedDocument {
     /// Inspect the styles relationship. `None` means no styles relationship;
     /// malformed or unsupported parts are errors, not an empty styles list.
     pub fn styles(&self) -> Result<Option<ImportedStyles>> {
+        let Some((path, root)) = self.style_part()? else {
+            return Ok(None);
+        };
+        Ok(Some(ImportedStyles {
+            part_name: path,
+            styles: inspect(&root),
+        }))
+    }
+
+    pub(super) fn style_part(&self) -> Result<Option<(String, Node)>> {
         let links = self.package.relationships(&self.main, "styles")?;
         if links.is_empty() {
             return Ok(None);
@@ -67,35 +78,34 @@ impl ImportedDocument {
         if root.name != "w:styles" {
             return Err(unsupported("invalid styles root"));
         }
-        let styles = root
-            .elements()
-            .filter(|n| n.name == "w:style")
-            .map(|node| {
-                let kind = match node.get("w:type") {
-                    None => StyleKind::Missing,
-                    Some("paragraph") => StyleKind::Paragraph,
-                    Some("character") => StyleKind::Character,
-                    Some("table") => StyleKind::Table,
-                    Some("numbering") => StyleKind::Numbering,
-                    Some(other) => StyleKind::Unsupported(other.to_owned()),
-                };
-                ImportedStyle {
-                    id: node.get("w:styleId").map(str::to_owned),
-                    kind,
-                    name: node
-                        .child("w:name")
-                        .and_then(|n| n.get("w:val"))
-                        .map(str::to_owned),
-                    based_on: node
-                        .child("w:basedOn")
-                        .and_then(|n| n.get("w:val"))
-                        .map(str::to_owned),
-                }
-            })
-            .collect();
-        Ok(Some(ImportedStyles {
-            part_name: path,
-            styles,
-        }))
+        Ok(Some((path, root)))
     }
+}
+
+fn inspect(root: &Node) -> Vec<ImportedStyle> {
+    root.elements()
+        .filter(|n| n.name == "w:style")
+        .map(|node| {
+            let kind = match node.get("w:type") {
+                None => StyleKind::Missing,
+                Some("paragraph") => StyleKind::Paragraph,
+                Some("character") => StyleKind::Character,
+                Some("table") => StyleKind::Table,
+                Some("numbering") => StyleKind::Numbering,
+                Some(other) => StyleKind::Unsupported(other.to_owned()),
+            };
+            ImportedStyle {
+                id: node.get("w:styleId").map(str::to_owned),
+                kind,
+                name: node
+                    .child("w:name")
+                    .and_then(|n| n.get("w:val"))
+                    .map(str::to_owned),
+                based_on: node
+                    .child("w:basedOn")
+                    .and_then(|n| n.get("w:val"))
+                    .map(str::to_owned),
+            }
+        })
+        .collect()
 }

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.section import WD_HEADER_FOOTER
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml import OxmlElement
@@ -71,6 +72,12 @@ def png(rgb):
 
 
 def generate(directory):
+    catalog = Document()
+    catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
+        catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
+    catalog.sections[0].header.paragraphs[0].style = "Memo Active"
+    catalog.save(directory / "styles-source.docx")
     doc = Document()
     # python-docx's bundled template omits this required Transitional attribute.
     doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
@@ -237,6 +244,29 @@ def inspect_header(before, after, change, image):
 
 
 def verify(directory):
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, StyleEdit
+    source_path = directory / "styles-source.docx"
+    style_path = directory / "styleEdits.docx"
+    styles_source = ImportedDocument.open(source_path.read_bytes())
+    edit = styles_source.preview([], style_edits=[
+        StyleEdit.add(d.ParagraphStyleDefinition(name="Memo Added", base_style="Memo Active")),
+        StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
+                          d.ParagraphStyleDefinition(name="Memo Replace", bold=True)),
+        StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
+        StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
+    ])
+    assert edit.to_docx() == style_path.read_bytes()
+    before, after = parts(source_path), parts(style_path)
+    assert before.keys() == after.keys()
+    untouched(before, after, ("word/styles.xml",))
+    readback = Document(style_path)
+    assert "Memo Drop" not in readback.styles
+    assert readback.styles["Memo Added"].base_style.name == "Memo Active"
+    assert readback.styles["Memo Replace"].font.bold and readback.styles["Memo Replace"].font.italic is None
+    assert readback.sections[0].header.paragraphs[0].style.font.italic
+    original_ids = [s.style_id for s in Document(source_path).styles if s.name != "Memo Drop"]
+    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded"]
     source = parts(directory / "base.docx")
     image = (directory / "image.png").read_bytes()
     reports = json.loads((directory / "reports.json").read_text(encoding="utf8"))
@@ -246,7 +276,6 @@ def verify(directory):
     assert Document(directory / "removal.docx").paragraphs[0].text == ""
     root = etree.fromstring(removal[MAIN])
     assert root.find(".//" + qn("w:fldSimple")) is not None
-    from rocx.editor import ImportedDocument
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
     python_preview = imported.preview([], run_removals=[anchor])

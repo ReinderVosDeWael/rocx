@@ -529,6 +529,37 @@ pub async fn generate(output: &Path) -> Result<()> {
     snapshot.save_with_template_and_options(output, &template, &options)?;
     let imported = editor::ImportedDocument::open(&bytes)?;
     let styles = imported.styles()?.expect("catalog styles part");
+    let styled = imported.preview_with_styles(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[
+            editor::StyleEdit::Add(
+                ParagraphStyleDefinition::default()
+                    .with_name("Catalog Imported Child")
+                    .with_base_style("Catalog Base")
+                    .into(),
+            ),
+            editor::StyleEdit::Patch {
+                target: imported.style_anchor("CatalogBase")?,
+                bold: None,
+                italic: Some(true),
+            },
+        ],
+    )?;
+    assert!(
+        editor::ImportedDocument::open(&styled.to_docx()?)?
+            .styles()?
+            .unwrap()
+            .styles
+            .iter()
+            .any(|s| s.id.as_deref() == Some("CatalogImportedChild")
+                && s.based_on.as_deref() == Some("CatalogBase"))
+    );
     assert!(
         styles
             .styles

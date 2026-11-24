@@ -112,6 +112,34 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    {
+        use rocx::{ParagraphStyleDefinition, editor::StyleEdit};
+        let catalog =
+            ImportedDocument::open(&fs::read(directory.join("styles-source.docx")).unwrap())
+                .unwrap();
+        let style = |name: &str| ParagraphStyleDefinition::default().with_name(name);
+        let changes = [
+            StyleEdit::Add(style("Memo Added").with_base_style("Memo Active").into()),
+            StyleEdit::Replace {
+                target: catalog.style_anchor("MemoReplace").unwrap(),
+                definition: style("Memo Replace").with_bold(true).into(),
+            },
+            StyleEdit::Remove(catalog.style_anchor("MemoDrop").unwrap()),
+            StyleEdit::Patch {
+                target: catalog.style_anchor("MemoActive").unwrap(),
+                bold: None,
+                italic: Some(true),
+            },
+        ];
+        write(
+            "native-styleEdits.docx",
+            catalog
+                .preview_with_styles(&[], &[], &[], &[], &[], &[], &[], &changes)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
     let BodyBlock::Paragraph(first) = &doc.body()[0] else {
         panic!("paragraph")
     };

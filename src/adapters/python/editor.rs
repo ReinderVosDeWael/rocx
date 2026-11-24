@@ -820,6 +820,52 @@ struct PyImportedDocument {
     inner: Mutex<editor::ImportedDocument>,
 }
 
+#[pyclass(name = "StyleAnchor", frozen, module = "rocx.editor")]
+struct PyStyleAnchor {
+    inner: editor::StyleAnchor,
+}
+
+#[pyclass(name = "StyleEdit", frozen, module = "rocx.editor")]
+struct PyStyleEdit {
+    inner: editor::StyleEdit,
+}
+
+#[pymethods]
+impl PyStyleEdit {
+    #[staticmethod]
+    fn add(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Add(super::style_definition(definition)?),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target, *, bold=None, italic=None))]
+    fn patch(target: PyRef<'_, PyStyleAnchor>, bold: Option<bool>, italic: Option<bool>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Patch {
+                target: target.inner.clone(),
+                bold,
+                italic,
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace(target: PyRef<'_, PyStyleAnchor>, definition: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Replace {
+                target: target.inner.clone(),
+                definition: super::style_definition(definition)?,
+            },
+        })
+    }
+    #[staticmethod]
+    fn remove(target: PyRef<'_, PyStyleAnchor>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Remove(target.inner.clone()),
+        }
+    }
+}
+
 #[pyclass(name = "ImportedStyle", module = "rocx.editor", get_all)]
 struct PyImportedStyle {
     id: Option<String>,
@@ -837,6 +883,15 @@ struct PyImportedStyles {
 
 #[pymethods]
 impl PyImportedDocument {
+    fn style_anchor(&self, id: &str) -> PyResult<PyStyleAnchor> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyStyleAnchor {
+            inner: doc.style_anchor(id).map_err(rust_error)?,
+        })
+    }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
         let doc = self
@@ -1057,7 +1112,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, style_edits=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1067,6 +1122,7 @@ impl PyImportedDocument {
         run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
+        style_edits: Option<Vec<PyRef<'_, PyStyleEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1094,7 +1150,7 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_mixed(
+                doc.preview_with_styles(
                     &edits,
                     &insertions,
                     &header_images,
@@ -1121,6 +1177,11 @@ impl PyImportedDocument {
                         .iter()
                         .map(|anchor| anchor.inner.clone())
                         .collect::<Vec<_>>(),
+                    &style_edits
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| e.inner.clone())
+                        .collect::<Vec<_>>(),
                 )
                 .map_err(rust_error)?,
             ),
@@ -1129,6 +1190,8 @@ impl PyImportedDocument {
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyStyleAnchor>()?;
+    module.add_class::<PyStyleEdit>()?;
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;
