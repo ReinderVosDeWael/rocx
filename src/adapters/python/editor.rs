@@ -646,22 +646,88 @@ impl PyParagraphInsertion {
         target: PyRef<'_, PyParagraphAnchor>,
         resolved_paragraph: &Bound<'_, PyAny>,
     ) -> PyResult<Self> {
-        let node_type = resolved_paragraph
-            .py()
-            .import("rocx.resolution.snapshot")?
-            .getattr("ResolvedNode")?;
-        if !resolved_paragraph.is_instance(&node_type)?
-            || resolved_paragraph
-                .getattr("_native_kind")?
-                .extract::<String>()?
-                != "Paragraph"
-        {
-            return Err(PyTypeError::new_err("expected a resolved Paragraph"));
-        }
         Ok(Self {
             target: target.inner.clone(),
-            paragraph: super::content::paragraph(resolved_paragraph)?,
+            paragraph: resolved_block_paragraph(resolved_paragraph)?,
         })
+    }
+}
+
+fn resolved_block_paragraph(
+    resolved_paragraph: &Bound<'_, PyAny>,
+) -> PyResult<crate::ResolvedParagraph> {
+    let node_type = resolved_paragraph
+        .py()
+        .import("rocx.resolution.snapshot")?
+        .getattr("ResolvedNode")?;
+    if !resolved_paragraph.is_instance(&node_type)?
+        || resolved_paragraph
+            .getattr("_native_kind")?
+            .extract::<String>()?
+            != "Paragraph"
+    {
+        return Err(PyTypeError::new_err("expected a resolved Paragraph"));
+    }
+    super::content::paragraph(resolved_paragraph)
+}
+
+#[pyclass(name = "BlockEdit", frozen, module = "rocx.editor")]
+struct PyBlockEdit {
+    inner: editor::BlockEdit,
+}
+
+#[pymethods]
+impl PyBlockEdit {
+    #[staticmethod]
+    fn replace(
+        target: PyRef<'_, PyParagraphAnchor>,
+        paragraph: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::BlockEdit::Replace(
+                target.inner.clone(),
+                Box::new(resolved_block_paragraph(paragraph)?),
+            ),
+        })
+    }
+    #[staticmethod]
+    fn remove(target: PyRef<'_, PyParagraphAnchor>) -> Self {
+        Self {
+            inner: editor::BlockEdit::Remove(target.inner.clone()),
+        }
+    }
+    #[staticmethod]
+    fn replace_section(
+        target: PyRef<'_, PyParagraphAnchor>,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::BlockEdit::ReplaceSection(
+                target.inner.clone(),
+                blocks
+                    .iter()
+                    .map(|block| {
+                        if matches!(
+                            block
+                                .getattr("_native_kind")
+                                .and_then(|v| v.extract::<String>())
+                                .as_deref(),
+                            Ok("Table")
+                        ) {
+                            resolved_block_table(block).map(crate::ResolvedBlock::Table)
+                        } else {
+                            resolved_block_paragraph(block).map(crate::ResolvedBlock::Paragraph)
+                        }
+                    })
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn keep_with_next(target: PyRef<'_, PyParagraphAnchor>, value: bool) -> Self {
+        Self {
+            inner: editor::BlockEdit::KeepWithNext(target.inner.clone(), value),
+        }
     }
 }
 
@@ -672,28 +738,32 @@ impl PyTableInsertion {
         target: PyRef<'_, PyParagraphAnchor>,
         resolved_table: &Bound<'_, PyAny>,
     ) -> PyResult<Self> {
-        let node_type = resolved_table
-            .py()
-            .import("rocx.resolution.snapshot")?
-            .getattr("ResolvedNode")?;
-        if !resolved_table.is_instance(&node_type)?
-            || resolved_table
-                .getattr("_native_kind")?
-                .extract::<String>()?
-                != "Table"
-        {
-            return Err(PyTypeError::new_err("expected a resolved Table"));
-        }
-        let table = super::tables::table(resolved_table)?
-            .ok_or_else(|| PyValueError::new_err("table must not be empty"))?;
-        if table.rows().iter().all(|row| row.cells().is_empty()) {
-            return Err(PyValueError::new_err("table must not be empty"));
-        }
         Ok(Self {
             target: target.inner.clone(),
-            table,
+            table: resolved_block_table(resolved_table)?,
         })
     }
+}
+
+fn resolved_block_table(resolved_table: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedTable> {
+    let node_type = resolved_table
+        .py()
+        .import("rocx.resolution.snapshot")?
+        .getattr("ResolvedNode")?;
+    if !resolved_table.is_instance(&node_type)?
+        || resolved_table
+            .getattr("_native_kind")?
+            .extract::<String>()?
+            != "Table"
+    {
+        return Err(PyTypeError::new_err("expected a resolved Table"));
+    }
+    let table = super::tables::table(resolved_table)?
+        .ok_or_else(|| PyValueError::new_err("table must not be empty"))?;
+    if table.rows().iter().all(|row| row.cells().is_empty()) {
+        return Err(PyValueError::new_err("table must not be empty"));
+    }
+    Ok(table)
 }
 
 #[pyclass(name = "AlignmentChange", frozen, module = "rocx.editor")]
@@ -723,6 +793,15 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    #[getter]
+    fn block_changes(&self) -> PyResult<Vec<usize>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .block_changes()
+            .to_vec())
+    }
     #[getter]
     fn paragraph_insertions(&self) -> PyResult<Vec<usize>> {
         Ok(self
@@ -1155,6 +1234,7 @@ impl PyImportedDocument {
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyBlockEdit>()?;
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;

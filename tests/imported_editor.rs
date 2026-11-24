@@ -257,6 +257,76 @@ fn fixture_with_body(xml: &str) -> Vec<u8> {
     package_bytes(entries)
 }
 
+#[test]
+fn block_edit_guards_validate_discarded_markup_and_section_ownership() {
+    use rocx::editor::BlockEdit;
+    let outer = |middle: &str| {
+        fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}"><w:body><w:p/>{middle}<w:p/><w:sectPr/></w:body></w:document>"#
+        ))
+    };
+    for middle in [
+        r#"<w:p><w:bookmarkStart w:id="1" w:name="target"/><w:bookmarkEnd w:id="1"/></w:p>"#,
+        "<w:p><w:r><w:footnoteReference/></w:r></w:p>",
+        "<w:p><w:hyperlink/></w:p>",
+        "<w:p><w:pPr/><w:pPr/></w:p>",
+        "<w:p><w:pPr><w:sectPr/></w:pPr></w:p>",
+        r#"<w:p customId="x"/>"#,
+        "<w:p><w:r><w:t>visible<!--opaque--></w:t></w:r></w:p>",
+    ] {
+        let source = outer(middle);
+        let doc = ImportedDocument::open(&source).unwrap();
+        let keep = BlockEdit::KeepWithNext(paragraph(&doc, 0).anchor.clone(), true);
+        let remove = BlockEdit::Remove(paragraph(&doc, 1).anchor.clone());
+        assert!(
+            doc.preview_blocks(&[keep.clone(), remove]).is_err(),
+            "{middle}"
+        );
+        assert_eq!(doc.preview_blocks(&[keep]).unwrap().block_changes(), &[0]);
+        assert_eq!(
+            parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+            parts(&source)
+        );
+    }
+    for middle in [
+        "<w:tbl/>",
+        "<w:p><w:pPr><w:sectPr><w:headerReference w:type=\"default\"/></w:sectPr></w:pPr></w:p>",
+        "<w:sdt><w:sdtContent><w:p><w:pPr><w:sectPr/></w:pPr></w:p></w:sdtContent></w:sdt>",
+        "<!--opaque body content-->",
+        "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r></w:p>",
+    ] {
+        let doc = ImportedDocument::open(&outer(middle)).unwrap();
+        assert!(
+            doc.preview_blocks(&[BlockEdit::ReplaceSection(
+                paragraph(&doc, 0).anchor.clone(),
+                vec![]
+            )])
+            .is_err(),
+            "{middle}"
+        );
+    }
+    for markers in [
+        (
+            "<w:proofErr w:type=\"gramStart\"/>",
+            "<w:proofErr w:type=\"gramEnd\"/>",
+        ),
+        (
+            "<x:customXmlConflictInsRangeStart xmlns:x=\"urn:future\"/>",
+            "<x:customXmlConflictInsRangeEnd xmlns:x=\"urn:future\"/>",
+        ),
+    ] {
+        let doc = ImportedDocument::open(&outer(&format!(
+            "<w:p>{}</w:p><w:p/><w:p>{}</w:p>",
+            markers.0, markers.1
+        )))
+        .unwrap();
+        assert!(
+            doc.preview_blocks(&[BlockEdit::Remove(paragraph(&doc, 2).anchor.clone())])
+                .is_err()
+        );
+    }
+}
+
 fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (name, bytes) in entries {

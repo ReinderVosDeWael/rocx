@@ -15,6 +15,8 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
+mod blocks;
+pub use blocks::BlockEdit;
 mod entries;
 mod header;
 mod insertion;
@@ -369,6 +371,7 @@ pub struct AlignmentChange {
 /// A validated edit batch and its independently writable output.
 #[derive(Debug)]
 pub struct EditPreview {
+    block_changes: Vec<usize>,
     run_text_changes: Vec<RunTextChange>,
     run_removals: Vec<RunRemovalChange>,
     cell_alignment_changes: Vec<CellAlignmentChange>,
@@ -380,6 +383,10 @@ pub struct EditPreview {
 }
 
 impl EditPreview {
+    /// Start indices of applied block operations in original body order.
+    pub fn block_changes(&self) -> &[usize] {
+        &self.block_changes
+    }
     /// Changed physical cells in original document order.
     pub fn cell_alignment_changes(&self) -> &[CellAlignmentChange] {
         &self.cell_alignment_changes
@@ -729,6 +736,7 @@ impl ImportedDocument {
         let mut run_text_changes = Vec::new();
         let mut removed_runs = Vec::new();
         let mut cell_alignment_changes = Vec::new();
+        let mut block_changes = Vec::new();
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
@@ -737,9 +745,34 @@ impl ImportedDocument {
             || !run_removals.is_empty()
             || !paragraph_targets.is_empty()
             || !cells.is_empty()
+            || !blocks.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
+            let occupied = by_index
+                .keys()
+                .chain(table_targets.keys())
+                .chain(paragraph_targets.keys())
+                .copied()
+                .chain(cells.iter().map(|e| e.target._body_index))
+                .chain(
+                    run_text
+                        .iter()
+                        .map(|e| &e.target)
+                        .chain(run_removals)
+                        .filter_map(|a| match a.location {
+                            InlineLocation::Body(i) => Some(i),
+                            _ => None,
+                        }),
+                )
+                .collect();
+            let inserted_after = table_targets
+                .keys()
+                .chain(paragraph_targets.keys())
+                .copied()
+                .collect();
+            let mut block_plan =
+                blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             let mut expanded = ranges::expand(body, ranges)?;
             expanded.extend_from_slice(run_text);
@@ -816,19 +849,10 @@ impl ImportedDocument {
                 package = staged;
                 pending.extend(slots.into_iter().zip(nodes));
             }
-            if !pending.is_empty() {
-                pending.sort_by_key(|(slot, _)| *slot);
-                let original = std::mem::take(&mut body.children);
-                let mut original = original.into_iter();
-                let mut offset = 0;
-                for (slot, node) in pending {
-                    body.children.extend(original.by_ref().take(slot - offset));
-                    body.children.push(Content::Element(node));
-                    offset = slot;
-                }
-                body.children.extend(original);
-            }
+            package = block_plan.stage(package, &self.main, body, pending)?;
+            block_changes = block_plan.changes;
             if !changes.is_empty()
+                || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
@@ -842,6 +866,7 @@ impl ImportedDocument {
             }
         }
         Ok(EditPreview {
+            block_changes,
             run_text_changes,
             run_removals: removed_runs,
             cell_alignment_changes,
@@ -1005,14 +1030,26 @@ fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
 
 /// Outer `None` means no write; inner `None` means no previous value.
 fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Option<String>>> {
+    patch_property(paragraph, "w:jc", after.xml())
+}
+
+fn patch_property(
+    paragraph: &mut Node,
+    property: &str,
+    value: &str,
+) -> Result<Option<Option<String>>> {
     if paragraph.elements().filter(|n| n.name == "w:pPr").count() > 1
         || paragraph.child(ALTERNATE).is_some()
         || paragraph.child("w:pPr").is_some_and(|props| {
-            props.elements().filter(|n| n.name == "w:jc").count() > 1
+            props.elements().filter(|n| n.name == property).count() > 1
                 || props.child(ALTERNATE).is_some()
         })
     {
-        return Err(unsupported("paragraph alignment is structurally ambiguous"));
+        return Err(unsupported(if property == "w:jc" {
+            "paragraph alignment is structurally ambiguous"
+        } else {
+            "paragraph property is structurally ambiguous"
+        }));
     }
 
     if paragraph.child("w:pPr").is_none() {
@@ -1021,8 +1058,16 @@ fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Opti
             .insert(0, Content::Element(Node::new("w:pPr")));
     }
     let props = paragraph.child_mut("w:pPr").unwrap();
-    let jc = props.ensure("w:jc");
-    let value = after.xml();
+    if property == "w:keepNext"
+        && let Some(current) = props.child(property)
+        && matches!(
+            (current.get("w:val"), value),
+            (None | Some("true" | "on" | "1"), "1") | (Some("false" | "off" | "0"), "0")
+        )
+    {
+        return Ok(None);
+    }
+    let jc = props.ensure(property);
     if jc.get("w:val") == Some(value) {
         return Ok(None);
     }

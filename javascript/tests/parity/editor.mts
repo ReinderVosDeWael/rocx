@@ -219,7 +219,19 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   rejects(() => unsafe.preview({ tableInsertions: [{ ...insert, target: paragraph(unsafe, 0).anchor }] }), /range/);
   const ambiguous = await openDocx(input.ambiguous);
   rejects(() => ambiguous.preview({ alignments: [{ ...align, target: paragraph(ambiguous, 0).anchor }] }), /ambiguous/);
-  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes };
+  const blocks = doc.preview({ blockEdits: [
+    { kind: "keepWithNext", target: start, value: false },
+    { kind: "replace", target: unset, paragraph: insertedParagraph },
+    { kind: "replaceSection", target: paragraph(doc, 4).anchor, blocks: [insertedParagraph, insertedParagraph, auto] },
+  ] });
+  same(blocks.blockChanges(), [0, 1, 4], "block edit report");
+  const intermediate = await openDocx(blocks.toDocx());
+  const remove = { kind: "remove", target: paragraph(intermediate, 5).anchor } as const;
+  rejects(() => doc.preview({ blockEdits: [remove] }), /different document snapshot/);
+  rejects(() => intermediate.preview({ blockEdits: [remove, remove] }), /conflicting/);
+  const final = intermediate.preview({ blockEdits: [remove] });
+  same(final.blockChanges(), [5], "retry after rejected batch");
+  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes, blocks: final.toDocx() };
 }
 
 export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {

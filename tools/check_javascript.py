@@ -112,6 +112,23 @@ async def python_mixed_body(source: Path, output: Path) -> None:
     output.write_bytes(preview.to_docx())
 
 
+async def python_blocks(source: Path) -> bytes:
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit, ImportedDocument
+
+    doc = ImportedDocument.open(source.read_bytes())
+    p = await d.Paragraph(text="inserted paragraph").resolve()
+    table = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text=t)]) for t in ("next A", "next B")])]).resolve()
+    batch = doc.preview([], block_edits=[
+        BlockEdit.keep_with_next(doc.body[0].anchor, False),
+        BlockEdit.replace(doc.body[1].anchor, p),
+        BlockEdit.replace_section(doc.body[4].anchor, [p, p, table]),
+    ])
+    assert batch.block_changes == [0, 1, 4]
+    intermediate = ImportedDocument.open(batch.to_docx())
+    return intermediate.preview([], block_edits=[BlockEdit.remove(intermediate.body[5].anchor)]).to_docx()
+
+
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
     for name in ("base", "relocated"):
@@ -121,6 +138,8 @@ def verify_editor(validator: Validator, parity: Path) -> None:
         path = reference / f"native-{name}.docx"
         data = path.read_bytes()
         verify_file(validator, path, data, language="Rust")
+        if name == "blocks":
+            assert asyncio.run(python_blocks(reference / "base.docx")) == data
         if name == "mixedBody":
             python = parity / "python" / "editor" / "mixedBody.docx"
             asyncio.run(python_mixed_body(reference / "native-body.docx", python))

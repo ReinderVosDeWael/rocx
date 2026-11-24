@@ -37,6 +37,12 @@ export interface ParagraphInsertion {
 
 export type HeaderEditMode = "shared" | "sectionLocal";
 
+export type BlockEdit =
+  | { readonly kind: "replace"; readonly target: ParagraphAnchor; readonly paragraph: ResolvedParagraph }
+  | { readonly kind: "remove"; readonly target: ParagraphAnchor }
+  | { readonly kind: "replaceSection"; readonly target: ParagraphAnchor; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[] }
+  | { readonly kind: "keepWithNext"; readonly target: ParagraphAnchor; readonly value: boolean };
+
 export interface HeaderImageEdit {
   readonly target: HeaderAnchor;
   readonly mode: HeaderEditMode;
@@ -91,6 +97,7 @@ export interface HeaderImageChange {
 
 declare const preview: unique symbol;
 export interface EditPreview {
+  blockChanges(): readonly number[];
   readonly [preview]: "edit";
   /** Changes in original body order, excluding unchanged alignments. */
   changes(): readonly AlignmentChange[];

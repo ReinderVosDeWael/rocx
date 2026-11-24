@@ -831,6 +831,23 @@ pub async fn generate(output: &Path) -> Result<()> {
     let source = source.resolve().await?.to_docx()?;
     std::fs::write(output.with_extension("header-source.docx"), &source)?;
     let imported = editor::ImportedDocument::open(&source)?;
+    // Independent block previews use the first paragraph of the inherited section.
+    let editor::BodyBlock::Paragraph(last) = &imported.body()[2] else {
+        unreachable!()
+    };
+    let target = &last.anchor;
+    let payload = Component::resolve(Paragraph::new("Block editor: replacement paragraph."))
+        .await?
+        .unwrap();
+    use editor::BlockEdit;
+    for edit in [
+        BlockEdit::Replace(target.clone(), Box::new(payload.clone())),
+        BlockEdit::Remove(target.clone()),
+        BlockEdit::ReplaceSection(target.clone(), vec![ResolvedBlock::Paragraph(payload)]),
+        BlockEdit::KeepWithNext(target.clone(), true),
+    ] {
+        assert_eq!(imported.preview_blocks(&[edit])?.block_changes(), &[2]);
+    }
     assert_eq!(
         imported
             .sections()?

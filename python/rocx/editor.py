@@ -17,6 +17,7 @@ also exposes the default-header targets.
 """
 
 from ._native import (
+    BlockEdit,
     AlignmentChange,
     BodyOpaque,
     BodyContentControl,
@@ -61,6 +62,7 @@ from ._native import (
 ImportedStoryParagraph = ImportedHeaderParagraph
 
 __all__ = [
+    "BlockEdit",
     "AlignmentChange",
     "BodyOpaque",
     "BodyContentControl",

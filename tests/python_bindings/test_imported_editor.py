@@ -12,6 +12,7 @@ from docx.shared import Pt
 
 from rocx import declarative as d
 from rocx.editor import (
+    BlockEdit,
     BodyOpaque,
     BodyContentControl,
     BodyParagraph,
@@ -41,6 +42,55 @@ from rocx.editor import (
 )
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
+
+
+async def test_block_edits_protect_ranges_conflicts_and_original_addresses():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    source = docx.Document()
+    first = source.add_paragraph("kept")
+    marker = OxmlElement("w:bookmarkStart")
+    marker.set(qn("w:id"), "1")
+    marker.set(qn("w:name"), "range")
+    first._p.append(marker)
+    source.add_paragraph("protected")
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), "1")
+    source.add_paragraph()._p.append(end)
+    source.add_section()
+    source.add_paragraph("fresh")
+    stream = io.BytesIO()
+    source.save(stream)
+    doc = ImportedDocument.open(stream.getvalue())
+    replacement = await d.Paragraph(text="updated").resolve()
+    safe = doc.body[-1].anchor
+    changed = BlockEdit.replace(safe, replacement)
+    for conflict in [
+        BlockEdit.remove(doc.body[1].anchor),
+        BlockEdit.replace_section(doc.body[1].anchor, []),
+        BlockEdit.replace_section(safe, []),
+    ]:
+        with pytest.raises(ValueError):
+            doc.preview([], block_edits=[changed, conflict])
+    with pytest.raises(ValueError, match="conflicting"):
+        doc.preview([], block_edits=[changed], run_removals=[doc.body[-1].inline_structure[0].anchor])
+    with pytest.raises(ValueError, match="conflicts"):
+        doc.preview([], block_edits=[BlockEdit.replace_section(safe, [])],
+                    paragraph_insertions=[ParagraphInsertion(doc.body[-2].anchor, replacement)])
+    combined = doc.preview([ParagraphAlignmentEdit(safe, "right")],
+                           block_edits=[BlockEdit.keep_with_next(safe, True)])
+    last = docx.Document(io.BytesIO(combined.to_docx())).paragraphs[-1]
+    assert last.paragraph_format.keep_with_next and last.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    preview = doc.preview([], block_edits=[changed])
+    assert preview.block_changes == [4]
+    assert docx.Document(io.BytesIO(preview.to_docx())).paragraphs[-1].text == "updated"
+    assert doc.body[-1].text == "fresh"
+    with pytest.raises(ValueError, match="different document snapshot"):
+        ImportedDocument.open(preview.to_docx()).preview([], block_edits=[changed])
+    cleared = doc.preview([], block_edits=[BlockEdit.replace_section(safe, [])])
+    readback = docx.Document(io.BytesIO(cleared.to_docx()))
+    assert len(readback.sections) == 2 and len(readback.paragraphs) == 4
 
 
 def test_inline_revision_inspection_preserves_opaque_boundaries():

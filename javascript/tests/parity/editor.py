@@ -289,6 +289,22 @@ def verify(directory):
     assert cell_readback.tables[1].cell(0, 0).text == "next A"
 
     mixed_body = directory / "mixedBody.docx"
+    blocks = parts(directory / "blocks.docx")
+    untouched(source, blocks, (MAIN,))
+    assert blocks.keys() == source.keys()
+    before = Document(directory / "base.docx")
+    after = Document(directory / "blocks.docx")
+    assert after.paragraphs[0].paragraph_format.keep_with_next is False
+    assert after.paragraphs[1].text == after.paragraphs[4].text == "inserted paragraph"
+    assert [c.text for c in after.tables[0].rows[0].cells] == ["next A", "next B"]
+    assert xp(etree.fromstring(blocks[MAIN]), ".//w:tblGrid/w:gridCol/@w:w") == ["5000", "5000"]
+    assert len(before.paragraphs) == len(after.paragraphs)
+    old, new = etree.fromstring(source[MAIN]), etree.fromstring(blocks[MAIN])
+    assert [tree(n) for n in xp(old, ".//w:sectPr")] == [tree(n) for n in xp(new, ".//w:sectPr")]
+    assert [tree(n) for n in xp(old, ".//w:fldSimple | .//w:drawing")] == [
+        tree(n) for n in xp(new, ".//w:fldSimple | .//w:drawing")]
+    assert [s.header.is_linked_to_previous for s in before.sections] == [
+        s.header.is_linked_to_previous for s in after.sections]
     untouched(body, parts(mixed_body), (MAIN,))
     combined = Document(mixed_body)
     assert [p.text for p in combined.paragraphs[:3]] == [readback.paragraphs[0].text, "inserted paragraph", ""]

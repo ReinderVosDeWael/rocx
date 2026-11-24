@@ -25,6 +25,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
             (preview_header, Paths::Package),
         ),
         ("editPreviewChanges", (changes, Paths::Package)),
+        ("editPreviewBlockChanges", (block_changes, Paths::Package)),
         (
             "editPreviewCellAlignmentChanges",
             (cell_alignment_changes, Paths::Package),
@@ -88,6 +89,59 @@ fn table_insertion(input: &Wire, path: &str) -> Result<TableInsertion> {
     Ok(TableInsertion {
         target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
         table: (*b::borrow::<ResolvedTable>(&edit.get("table")?, &edit.path("table"))?).clone(),
+    })
+}
+
+fn block_edit(input: &Wire, path: &str) -> Result<rocx::editor::BlockEdit> {
+    use rocx::editor::BlockEdit;
+    let kind = b::string(
+        &b::member(&input.js(), "kind", path)?,
+        &b::child_path(path, "kind"),
+    )?;
+    let fields: &[&str] = match kind.as_str() {
+        "replace" => &["kind", "target", "paragraph"],
+        "remove" => &["kind", "target"],
+        "replaceSection" => &["kind", "target", "blocks"],
+        "keepWithNext" => &["kind", "target", "value"],
+        _ => return Err(Failure::invalid(path, "unknown block edit")),
+    };
+    let edit = Record::new(input, path, fields)?;
+    let target = (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone();
+    let paragraph = |wire: &Wire, p: &str| -> Result<_> {
+        Ok((*b::borrow::<ResolvedParagraph>(wire, p)?).clone())
+    };
+    Ok(match kind.as_str() {
+        "replace" => BlockEdit::Replace(
+            target,
+            Box::new(paragraph(&edit.get("paragraph")?, &edit.path("paragraph"))?),
+        ),
+        "remove" => BlockEdit::Remove(target),
+        "replaceSection" => {
+            let p = edit.path("blocks");
+            BlockEdit::ReplaceSection(
+                target,
+                b::list(&edit.get("blocks")?, &p)?
+                    .iter()
+                    .enumerate()
+                    .map(|(i, w)| {
+                        let path = format!("{p}[{i}]");
+                        paragraph(w, &path)
+                            .map(rocx::ResolvedBlock::Paragraph)
+                            .or_else(|_| {
+                                b::borrow::<ResolvedTable>(w, &path)
+                                    .map(|t| rocx::ResolvedBlock::Table((*t).clone()))
+                            })
+                    })
+                    .collect::<Result<_>>()?,
+            )
+        }
+        _ => BlockEdit::KeepWithNext(
+            target,
+            edit.get("value")?
+                .js()
+                .as_bool()
+                .ok_or_else(|| Failure::invalid(&edit.path("value"), "expected boolean"))?,
+        ),
     })
 }
 
@@ -168,6 +222,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
+            "blockEdits",
         ],
     )?;
     let preview = source.document().preview_with_ranges(
@@ -207,6 +262,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         JsValue::UNDEFINED,
         &[
             ("changes", "editPreviewChanges"),
+            ("blockChanges", "editPreviewBlockChanges"),
             ("cellAlignmentChanges", "editPreviewCellAlignmentChanges"),
             ("runTextChanges", "editPreviewRunTextChanges"),
             ("runRemovals", "editPreviewRunRemovals"),
@@ -306,6 +362,13 @@ fn paragraph_insertions(input: &Wire) -> Result<JsValue> {
             .iter()
             .copied()
             .map(JsValue::from),
+    ))
+}
+
+fn block_changes(input: &Wire) -> Result<JsValue> {
+    let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
+    Ok(array(
+        preview.block_changes().iter().copied().map(JsValue::from),
     ))
 }
 

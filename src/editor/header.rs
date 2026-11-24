@@ -563,6 +563,42 @@ struct SectionStoryRefs {
     effective: [Option<StoryRef>; 3],
 }
 
+/// A section rewrite must not reinterpret hidden boundaries or dangling
+/// header/footer aliases. Check original references, including inherited ones.
+pub(super) fn rewrite_section_ranges<'a>(
+    root: &'a Node,
+    package: &Package,
+    main: &str,
+) -> Result<Vec<(std::ops::Range<usize>, Option<&'a Node>)>> {
+    let slots = section_slots(root)?;
+    for (_, _, owner) in &slots {
+        if let Some(owner) = owner {
+            only_child(owner, "w:type")?;
+        }
+    }
+    let body = root.child("w:body").ok_or_else(missing_body)?;
+    for p in body.elements().filter(|n| n.name == "w:p") {
+        if p.elements().any(|n| {
+            if n.name == "w:pPr" {
+                n.elements()
+                    .any(|prop| prop.name != "w:sectPr" && contains_section(prop))
+            } else {
+                contains_section(n)
+            }
+        }) {
+            return Err(unsupported("non-direct section boundary"));
+        }
+    }
+    for kind in [SectionStoryKind::Header, SectionStoryKind::Footer] {
+        story_sections(package, main, &slots, kind)?;
+    }
+    let mut start = 0;
+    Ok(slots
+        .into_iter()
+        .map(|(_, end, owner)| (std::mem::replace(&mut start, end)..end, owner))
+        .collect())
+}
+
 fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
     let body = only_child(root, "w:body")?.ok_or_else(missing_body)?;
     let mut slots = Vec::new();
