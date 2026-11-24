@@ -15,6 +15,20 @@ use std::collections::{BTreeMap, BTreeSet};
 /// the supplied index (the count appends). Column operations edit every row.
 #[derive(Clone, Debug)]
 pub enum TableOperation {
+    /// Copy the named direct property from a resolved table (first row/cell
+    /// for those sites), or clear it. Unrelated properties are not copied.
+    Property {
+        site: super::TableSite,
+        field: String,
+        source: Option<Box<crate::ResolvedTable>>,
+    },
+    /// Replace a table, physical row, or physical cell from a resolved table.
+    /// Row and cell replacements require a one-row or one-cell payload.
+    ReplaceNode {
+        site: super::TableSite,
+        source: Box<crate::ResolvedTable>,
+    },
+    RemoveTable,
     /// Set or clear direct table layout without recalculating widths.
     Layout(Option<crate::TableLayout>),
     InsertRow(usize),
@@ -101,6 +115,59 @@ fn guard_delete(n: &Node) -> Result<()> {
     }
 }
 
+// Additional modeled elements a whole-node replacement may deliberately
+// discard. Never discard arbitrary attributes, descendants or raw content.
+fn discard_node(n: &Node) -> bool {
+    if n.name == "w:p" {
+        return crate::editor::blocks::local(n, "body");
+    }
+    if disposable(n) {
+        return true;
+    }
+    let attrs: &[&str] = match n.name.as_str() {
+        "w:tbl" | "w:tblGrid" | "w:tblPr" | "w:tr" | "w:trPr" | "w:tc" | "w:tcPr"
+        | "w:tblBorders" | "w:tcBorders" | "w:tcMar" => &[],
+        "w:tblLook" => &[
+            "w:firstRow",
+            "w:lastRow",
+            "w:firstColumn",
+            "w:lastColumn",
+            "w:noHBand",
+            "w:noVBand",
+            "w:val",
+        ],
+        "w:tblW" | "w:tcW" => &["w:w", "w:type"],
+        "w:tblLayout" => &["w:type"],
+        "w:shd" => &["w:val", "w:fill", "w:color"],
+        "w:tblStyle" | "w:jc" | "w:gridSpan" | "w:vMerge" | "w:textDirection" | "w:cantSplit"
+        | "w:tblHeader" => &["w:val"],
+        "w:trHeight" => &["w:val", "w:hRule"],
+        "w:top" | "w:bottom" | "w:left" | "w:right" | "w:start" | "w:end" | "w:insideH"
+        | "w:insideV" => &["w:w", "w:type", "w:val", "w:sz", "w:color"],
+        _ => return false,
+    };
+    n.attrs
+        .iter()
+        .all(|(k, _)| k.declaration().is_some() || attrs.contains(&k.as_str()))
+        && n.children.iter().all(|c| match c {
+            Content::Element(e) => e.name != "w:tbl" && discard_node(e),
+            Content::Text(s) => s.trim().is_empty(),
+            Content::Raw(_) => false,
+        })
+}
+
+fn has(n: &Node, name: &str) -> bool {
+    n.name == name || n.elements().any(|e| has(e, name))
+}
+fn guard_remove_node(n: &Node) -> Result<()> {
+    if !discard_node(n) || has(n, "w:vMerge") {
+        return Err(unsupported(
+            "table edit would discard unsupported markup or merge",
+        ));
+    }
+    Ok(())
+}
+
 // A short physical row accounts for omitted *logical* columns in trPr/gridAfter.
 fn set_trailing(row: &mut Node, value: usize) -> Result<()> {
     if row
@@ -127,7 +194,10 @@ fn geometry(table: &mut Node, op: &TableOperation) -> Result<()> {
         return Err(unsupported("empty source table"));
     }
     match *op {
-        TableOperation::Layout(_) => unreachable!(),
+        TableOperation::Layout(_)
+        | TableOperation::Property { .. }
+        | TableOperation::ReplaceNode { .. }
+        | TableOperation::RemoveTable => unreachable!(),
         TableOperation::InsertCell { row: r, cell: i }
         | TableOperation::RemoveCell { row: r, cell: i } => {
             let insert = matches!(op, TableOperation::InsertCell { .. });
@@ -168,7 +238,7 @@ fn geometry(table: &mut Node, op: &TableOperation) -> Result<()> {
                 if prop(c, "w:gridSpan").is_some() {
                     return Err(collision());
                 }
-                guard_delete(c)?;
+                guard_remove_node(c)?;
                 row.children.remove(slot);
                 set_trailing(row, after + 1)?;
             }
@@ -215,7 +285,7 @@ fn geometry(table: &mut Node, op: &TableOperation) -> Result<()> {
             if rows.len() == 1 {
                 return Err(unsupported("cannot remove final table row"));
             }
-            guard_delete(element(&mut table.children[slot]))?;
+            guard_remove_node(element(&mut table.children[slot]))?;
             table.children.remove(slot);
         }
         TableOperation::InsertColumn(i) | TableOperation::RemoveColumn(i) => {
@@ -251,7 +321,7 @@ fn geometry(table: &mut Node, op: &TableOperation) -> Result<()> {
                 if insert {
                     row.children.insert(slot, Content::Element(blank()))
                 } else {
-                    guard_delete(element(&mut row.children[slot]))?;
+                    guard_remove_node(element(&mut row.children[slot]))?;
                     row.children.remove(slot);
                 }
             }
@@ -313,12 +383,100 @@ fn layout(table: &mut Node, value: Option<crate::TableLayout>) -> Result<bool> {
     Ok(true)
 }
 
+fn validate_rendered(node: &Node) -> Result<()> {
+    if node.name == "w:tbl" {
+        validate(node, true)?;
+    }
+    for child in node.elements() {
+        validate_rendered(child)?;
+    }
+    Ok(())
+}
+
+fn replace_node(
+    package: Package,
+    main: &str,
+    table: &mut Node,
+    site: super::TableSite,
+    source: &crate::ResolvedTable,
+    section_width: Option<i64>,
+) -> Result<Package> {
+    use super::TableSite;
+    let cell_widths = table
+        .child("w:tblGrid")
+        .unwrap()
+        .elements()
+        .map(|c| {
+            c.get("w:w")
+                .and_then(|v| v.parse::<u32>().ok())
+                .map(i64::from)
+        })
+        .collect::<Vec<_>>();
+    let target = super::properties::site_node(table, site)?;
+    if !discard_node(target) || (site != TableSite::Table && has(target, "w:vMerge")) {
+        return Err(unsupported(
+            "replacement would discard unsupported or merged content",
+        ));
+    }
+    let (donor, width) = match site {
+        TableSite::Table => (TableSite::Table, section_width.unwrap_or(0)),
+        TableSite::Row(_) if source.rows().len() == 1 && source.columns() == cell_widths.len() => (
+            TableSite::Row(0),
+            cell_widths
+                .iter()
+                .copied()
+                .sum::<Option<i64>>()
+                .unwrap_or(0),
+        ),
+        TableSite::Cell(..)
+            if source.rows().len() == 1
+                && source.rows()[0].cells().len() == 1
+                && source.columns() == span(target) =>
+        {
+            (
+                TableSite::Cell(0, 0),
+                prop(target, "w:tcW")
+                    .filter(|p| p.get("w:type") == Some("dxa"))
+                    .and_then(|p| p.get("w:w")?.parse::<u32>().ok())
+                    .map(i64::from)
+                    .unwrap_or(0),
+            )
+        }
+        _ => {
+            return Err(unsupported(
+                "replacement payload does not match target grid",
+            ));
+        }
+    };
+    let width = if let Some(w) = source
+        .column_widths()
+        .filter(|_| source.layout() != Some(crate::TableLayout::Autofit))
+    {
+        w.iter().copied().map(i64::from).sum()
+    } else {
+        width
+    };
+    if width <= 0 {
+        return Err(unsupported("replacement needs explicit positive widths"));
+    }
+    let (next, mut nodes) =
+        crate::ooxml::encode_editor_tables(package, main, vec![(source.clone(), width)])?;
+    validate_rendered(&nodes[0])?;
+    let replacement = super::properties::site_node(&mut nodes[0], donor)?;
+    if site != TableSite::Table && has(replacement, "w:vMerge") {
+        return Err(collision());
+    }
+    *target = replacement.clone();
+    Ok(next)
+}
+
 pub(in crate::editor) fn apply(
     body: &mut Node,
     mut package: Package,
     main: &str,
     edits: &[TableStructureEdit],
     alignments: &[CellAlignmentEdit],
+    deletes: &mut BTreeSet<usize>,
 ) -> Result<(Package, bool)> {
     if edits.is_empty() {
         return Ok((package, false));
@@ -332,6 +490,25 @@ pub(in crate::editor) fn apply(
     }
     let mut replacements = BTreeMap::new();
     let mut changed = false;
+    use super::TableSite;
+    let whole = edits
+        .iter()
+        .filter_map(|e| match &e.operation {
+            TableOperation::ReplaceNode {
+                site: TableSite::Table,
+                source,
+            } => Some((e.target._body_index, source.as_ref())),
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let widths: BTreeMap<_, _> = if whole.is_empty() {
+        BTreeMap::new()
+    } else {
+        crate::editor::insertion::table_positions(body, &whole, "w:tbl")?
+            .into_iter()
+            .map(|(i, _, w)| (i, w))
+            .collect()
+    };
     let body_slots: Vec<_> = body
         .children
         .iter()
@@ -346,7 +523,7 @@ pub(in crate::editor) fn apply(
     {
         let safe = ranges.safe();
         ranges.advance(table);
-        let Some(ops) = grouped.remove(&i) else {
+        let Some(mut ops) = grouped.remove(&i) else {
             continue;
         };
         if !safe || !ranges.safe() || contains_range(table) {
@@ -355,8 +532,61 @@ pub(in crate::editor) fn apply(
         validate(table, true)?;
         let mut seen = BTreeSet::new();
         let exclusive = ops.len() != 1 || alignments.iter().any(|e| e.target._body_index == i);
+        let properties_only = ops
+            .iter()
+            .all(|op| matches!(op, TableOperation::Property { .. }));
+        if properties_only {
+            ops.sort_by_key(|op| match op {
+                TableOperation::Property { site, field, .. } => (*site, field),
+                _ => unreachable!(),
+            });
+        }
+        let mut patched = BTreeSet::new();
         for op in ops {
             match op {
+                TableOperation::Property {
+                    site,
+                    field,
+                    source,
+                } => {
+                    if !properties_only
+                        || !patched.insert((*site, field))
+                        || alignments.iter().any(|e| {
+                            e.target._body_index == i
+                                && *site == TableSite::Cell(e.row_index, e.cell_index)
+                                && field == "verticalAlignment"
+                        })
+                    {
+                        return Err(unsupported("duplicate or conflicting table property edit"));
+                    }
+                    super::properties::patch(
+                        table,
+                        *site,
+                        field,
+                        source.as_deref(),
+                        &package,
+                        main,
+                    )?;
+                    changed = true;
+                }
+                TableOperation::ReplaceNode { site, source } => {
+                    if exclusive {
+                        return Err(unsupported("replacement requires exclusive table target"));
+                    }
+                    package =
+                        replace_node(package, main, table, *site, source, widths.get(&i).copied())?;
+                    changed = true;
+                }
+                TableOperation::RemoveTable => {
+                    if exclusive {
+                        return Err(unsupported("removal requires exclusive table target"));
+                    }
+                    if !discard_node(table) {
+                        return Err(unsupported("removal would discard unsupported content"));
+                    }
+                    deletes.insert(body_slots[i]);
+                    changed = true;
+                }
                 TableOperation::Layout(value) => {
                     if exclusive {
                         return Err(unsupported("layout edit requires exclusive table target"));
@@ -394,6 +624,7 @@ pub(in crate::editor) fn apply(
                 }
             }
         }
+        validate(table, true)?;
     }
     if !grouped.is_empty() {
         return Err(absent());
@@ -415,6 +646,7 @@ pub(in crate::editor) fn apply(
         cell.remove("w:p");
         let needs_paragraph = nodes.last().is_none_or(|n| n.name != "w:p");
         for n in nodes {
+            validate_rendered(&n)?;
             cell.push(n)
         }
         if needs_paragraph {

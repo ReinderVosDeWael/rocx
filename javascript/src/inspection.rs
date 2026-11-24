@@ -75,6 +75,8 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("paragraphNumbering", "importedParagraphNumbering"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
+    ("editStoryReference", "importedEditStoryReference"),
+    ("editStoryBlocks", "importedEditStoryBlocks"),
     ("editEntryInlines", "importedEditEntryInlines"),
     ("editNoteReference", "importedEditNoteReference"),
     ("editEntry", "importedEditEntry"),
@@ -82,11 +84,13 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("previewTrackedMove", "importedPreviewTrackedMove"),
     ("previewRevision", "importedPreviewRevision"),
     ("preview", "importedPreview"),
+    ("previewLayout", "importedPreviewLayout"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
 ];
 
 #[derive(Default)]
 struct Anchors {
+    sections: RefCell<HashMap<usize, JsValue>>,
     styles: RefCell<HashMap<String, JsValue>>,
     controls: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
@@ -430,7 +434,12 @@ fn body(input: &Wire) -> Result<JsValue> {
 fn sections(input: &Wire) -> Result<JsValue> {
     let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(view::array(
-        source.document().sections()?.iter().map(view::section),
+        source
+            .document()
+            .sections()?
+            .iter()
+            .enumerate()
+            .map(|(i, s)| view::section(s, i, &source.anchors)),
     ))
 }
 

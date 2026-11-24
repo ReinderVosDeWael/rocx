@@ -72,6 +72,51 @@ def test_direct_flags_and_section_type_round_trip_with_snapshot_checks():
     assert docx.Document(io.BytesIO(output)).paragraphs[0].paragraph_format.widow_control is None
 
 
+def test_layout_sets_and_clears_groups_on_an_empty_section():
+    from rocx.editor import LayoutEdit as L
+    source = docx.Document()
+    data = io.BytesIO()
+    source.save(data)
+    doc = ImportedDocument.open(data.getvalue())
+    section, = doc.sections
+    assert section.body_start == section.body_end == 0
+    edits = [L.section(section.anchor, "line_start", 3), L.section(section.anchor, "margin_gutter", 420)]
+    for bad in [L.section(section.anchor, "margins", None), L.section(section.anchor, "grid_mode", "invalid"),
+                L.section(section.anchor, "page_width", -5), L.section(section.anchor, "column_count", True)]:
+        with pytest.raises(ValueError):
+            doc.preview_layout([*edits, bad])
+    edited = ImportedDocument.open(doc.preview_layout(edits).to_docx())
+    a = edited.sections[0]
+    assert a.layout["line_start"] == 3 and a.layout["margin_gutter"] == 420
+    with pytest.raises(ValueError, match="snapshot"):
+        edited.preview_layout(edits)
+    removed = ImportedDocument.open(edited.preview_layout([L.section(a.anchor, "margins", None),
+                                                          L.section(a.anchor, "line_numbering", None)]).to_docx())
+    assert "margins" not in removed.sections[0].layout and "line_start" not in removed.sections[0].layout
+
+
+def test_layout_heading_alias_checks_existing_style_and_keeps_independent_outline():
+    from rocx.editor import LayoutEdit as L
+    source = docx.Document()
+    source.add_paragraph("heading")
+    data = io.BytesIO()
+    source.save(data)
+    doc = ImportedDocument.open(data.getvalue())
+    p = doc.body[0].anchor
+    edits = [L.paragraph(p, "heading", 2), L.paragraph(p, "outline_level", 3),
+             L.paragraph(p, "widow_control", False), L.paragraph(p, "line_height", 360),
+             L.paragraph(p, "line_rule", "auto")]
+    with pytest.raises(ValueError, match="duplicate"):
+        doc.preview_layout([*edits, L.paragraph(p, "style_id", "Normal")])
+    result = doc.preview_layout(edits).to_docx()
+    read = docx.Document(io.BytesIO(result)).paragraphs[0]
+    assert read.style.style_id == "Heading2" and read.paragraph_format.line_spacing == 1.5
+    assert ImportedDocument.open(result).body[0].layout == {
+        "heading": 2, "style_id": "Heading2", "outline_level": 3, "widow_control": False,
+        "line_height": 360, "line_rule": "auto",
+    }
+
+
 async def test_block_edits_protect_ranges_conflicts_and_original_addresses():
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn

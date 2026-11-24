@@ -222,12 +222,30 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   four direct values, a `format` view and `hasOpaqueFormatting`. Use `patchFormat`
   with a `RunFormat` value under `format` and optional field names under `clear`.
   Multiple format edits can share a run when their properties are disjoint.
+- `blockEdits` also accepts `splitSection` (`target: section.anchor`, `offset`
+  in original blocks) and `mergeSection` (`target: section.anchor` for a
+  nonfinal section). Merging retains the following section's layout.
+- `previewLayout([{target, field, value}])` patches direct paragraph or section
+  layout. For example, `{target: doc.sections()[0].anchor, field: "marginLeft",
+  value: 1440}` sets a one-inch margin even if that section starts with a table.
+  Use `null` to clear a field (clear `"margins"` as a group). Reopen the preview
+  and inspect `paragraph.layout` or `section.layout`. See `DirectParagraphLayout`,
+  `DirectSectionLayout` and `LayoutEdit` in the package declarations.
+- `editStoryReference` creates, links, or removes an explicit header/footer
+  reference by section index, story kind, and variant. `editStoryBlocks`
+  splices physical blocks in `shared` or `sectionLocal` mode at a story anchor.
 - `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
   `insertColumn`, `removeColumn`, `replaceCell` and `layout`. Row/cell positions
   are physical; column positions count logical grid columns. Pass `{target,
   kind: "layout", value: "fixed" | "autofit" | null}` to set or clear direct
   layout. Inspect a table's `layout`, `gridWidths` (twips), and each physical
   cell's `gridSpan` and `verticalMerge`.
+- `patchProperty` copies one direct field from a resolved table, or clears it
+  with `source: null`. For example, `{target, kind:"patchProperty", row:0,
+  cell:1, field:"margin.end", source:table}` sets only that side. Table, row
+  and cell `properties` expose field-to-attribute maps; `gridWidths` exposes
+  columns. `replaceNode` replaces the addressed table, row or cell from a
+  resolved table; `removeTable` removes an eligible direct body table.
 - `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
   Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
   without discarding other properties; replace/remove only safe unused custom styles.

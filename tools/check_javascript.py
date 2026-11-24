@@ -25,8 +25,9 @@ PORTABLE_ORACLES = (
 )
 EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
-                  "blocks", "inline", "runFormatting", "tableStructure", "styleEdits", "controlEdits",
-                  "tracked", "reviewed", "moved", "moveAccepted", "combined", "numberingEdits")
+                  "blocks", "inline", "runFormatting", "tableStructure", "tableNodes", "styleEdits", "controlEdits",
+                  "tracked", "reviewed", "moved", "moveAccepted", "combined", "numberingEdits", "layout",
+                  "sectionSplit", "sectionMerge", "storyShared", "structuralResources")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:
@@ -148,6 +149,25 @@ async def python_table_structure(source: Path, output: Path) -> None:
     output.write_bytes(data)
 
 
+async def python_table_nodes(source: Path) -> bytes:
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, ParagraphAlignmentEdit, TableStructureEdit as E
+
+    doc = ImportedDocument.open(source.read_bytes())
+    pair = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text=t)]) for t in ("next A","next B")])]).resolve()
+    single = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text="cell")], margins=d.CellMargins(top=4.5))],
+                                       repeat_header=False)], alignment="center").resolve()
+    data = doc.preview([ParagraphAlignmentEdit(doc.body[2].anchor, "right")], table_structure=[
+        E.replace_node(doc.body[0].anchor, pair), E.remove_table(doc.body[1].anchor)]).to_docx()
+    for build in (lambda a: [E.replace_node(a, pair, row=0)],
+                  lambda a: [E.replace_node(a, single, row=0, cell=1)],
+                  lambda a: [E.patch_property(a,"alignment",single), E.patch_property(a,"repeatHeader",single,row=0),
+                             E.patch_property(a,"margin.top",single,row=0,cell=0)]):
+        doc = ImportedDocument.open(data)
+        data = doc.preview([], table_structure=build(doc.body[0].anchor)).to_docx()
+    return data
+
+
 def python_combined(source: Path) -> bytes:
     from rocx import declarative as d
     from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, StyleEdit, TextRangeEdit
@@ -186,7 +206,7 @@ def python_combined(source: Path) -> bytes:
 
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
-    for name in ("base", "relocated", "range-source", "styles-source", "control-source", "table-layout"):
+    for name in ("base", "relocated", "range-source", "styles-source", "control-source", "table-layout", "layout-source"):
         path = reference / f"{name}.docx"
         print(f"editor/{path.name}: {len(validator.validate(path))} schema-covered parts and OPC relationships")
     assert {p.name for p in reference.glob("native-*.docx")} == {f"native-{n}.docx" for n in EDITOR_OUTPUTS}
@@ -197,6 +217,11 @@ def verify_editor(validator: Validator, parity: Path) -> None:
         if name == "tableStructure":
             python = parity / "python" / "editor" / "tableStructure.docx"
             asyncio.run(python_table_structure(reference / "native-body.docx", python))
+            verify_file(validator, python, data, language="Python")
+        if name == "tableNodes":
+            python = parity / "python" / "editor" / "tableNodes.docx"
+            python.parent.mkdir(parents=True, exist_ok=True)
+            python.write_bytes(asyncio.run(python_table_nodes(reference / "table-layout.docx")))
             verify_file(validator, python, data, language="Python")
         if name == "blocks":
             python = parity / "python" / "editor" / "blocks.docx"

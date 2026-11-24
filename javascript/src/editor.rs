@@ -20,6 +20,11 @@ use wasm_bindgen::JsValue;
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
+        (
+            "importedEditStoryReference",
+            (story_reference, Paths::Package),
+        ),
+        ("importedEditStoryBlocks", (story_blocks, Paths::Package)),
         ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
         (
             "importedEditNoteReference",
@@ -30,6 +35,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
+        ("importedPreviewLayout", (preview_layout, Paths::Package)),
         (
             "importedPreviewHeaderImage",
             (preview_header, Paths::Package),
@@ -111,13 +117,23 @@ fn block_edit(input: &Wire, path: &str) -> Result<rocx::editor::BlockEdit> {
     )?;
     let fields: &[&str] = match kind.as_str() {
         "replace" => &["kind", "target", "paragraph"],
-        "remove" => &["kind", "target"],
+        "remove" | "mergeSection" => &["kind", "target"],
+        "splitSection" => &["kind", "target", "offset"],
         "replaceSection" => &["kind", "target", "blocks"],
         "keepWithNext" | "sectionType" => &["kind", "target", "value"],
         "paragraphFlag" | "sectionFlag" => &["kind", "target", "flag", "value"],
         _ => return Err(Failure::invalid(path, "unknown block edit")),
     };
     let edit = Record::new(input, path, fields)?;
+    if matches!(kind.as_str(), "splitSection" | "mergeSection") {
+        let target =
+            (*borrow_target::<rocx::editor::SectionAnchor>(&edit, &edit.path("target"))?).clone();
+        return Ok(if kind == "splitSection" {
+            BlockEdit::SplitSection(target, index_field(&edit, "offset")?)
+        } else {
+            BlockEdit::MergeSection(target)
+        });
+    }
     let target = (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone();
     let paragraph = |wire: &Wire, p: &str| -> Result<_> {
         Ok((*b::borrow::<ResolvedParagraph>(wire, p)?).clone())
@@ -316,11 +332,20 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
     let edit = Record::new(
         input,
         path,
-        &["target", "kind", "index", "row", "cell", "blocks", "value"],
+        &[
+            "target", "kind", "index", "row", "cell", "blocks", "value", "column", "field",
+            "source",
+        ],
     )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
     let fields: &[&str] = if kind == "replaceCell" {
         &["target", "kind", "row", "cell", "blocks"]
+    } else if kind == "patchProperty" {
+        &["target", "kind", "row", "cell", "column", "field", "source"]
+    } else if kind == "replaceNode" {
+        &["target", "kind", "row", "cell", "source"]
+    } else if kind == "removeTable" {
+        &["target", "kind"]
     } else if kind == "layout" {
         &["target", "kind", "value"]
     } else if matches!(kind.as_str(), "insertCell" | "removeCell") {
@@ -334,6 +359,46 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
             .map_err(|_| Failure::invalid(&edit.path(name), "index is too large"))
     };
     let operation = match kind.as_str() {
+        "removeTable" => RemoveTable,
+        "patchProperty" | "replaceNode" => {
+            use rocx::editor::TableSite;
+            let idx = |k| -> Result<Option<usize>> {
+                if edit.get(k)?.js().is_undefined() {
+                    Ok(None)
+                } else {
+                    index(k).map(Some)
+                }
+            };
+            let site = match (idx("row")?, idx("cell")?, idx("column")?) {
+                (None, None, None) => TableSite::Table,
+                (Some(r), None, None) => TableSite::Row(r),
+                (Some(r), Some(c), None) => TableSite::Cell(r, c),
+                (None, None, Some(c)) => TableSite::Column(c),
+                _ => return Err(Failure::invalid(path, "invalid table site coordinates")),
+            };
+            let wire = edit.get("source")?;
+            let source = || -> Result<_> {
+                Ok(Box::new(
+                    (*b::borrow::<ResolvedTable>(&wire, &edit.path("source"))?).clone(),
+                ))
+            };
+            if kind == "patchProperty" {
+                Property {
+                    site,
+                    field: b::string(&edit.get("field")?, &edit.path("field"))?,
+                    source: if wire.js().is_null() {
+                        None
+                    } else {
+                        Some(source()?)
+                    },
+                }
+            } else {
+                ReplaceNode {
+                    site,
+                    source: source()?,
+                }
+            }
+        }
         "layout" => {
             let v = edit.get("value")?;
             Layout(if v.js().is_null() {
@@ -494,6 +559,102 @@ fn entry_edit(input: &Wire) -> Result<JsValue> {
         source
             .document()
             .edit_entry(&string("ownerPart")?, &string("id")?, edit)?
+            .as_slice(),
+    )
+    .into())
+}
+
+fn story_payload(r: &Record) -> Result<Vec<rocx::ResolvedBlock>> {
+    b::list(&r.get("blocks")?, &r.path("blocks"))?
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let path = format!("{}[{i}]", r.path("blocks"));
+            b::borrow::<ResolvedParagraph>(w, &path)
+                .map(|p| rocx::ResolvedBlock::Paragraph((*p).clone()))
+                .or_else(|_| {
+                    b::borrow::<ResolvedTable>(w, &path)
+                        .map(|t| rocx::ResolvedBlock::Table((*t).clone()))
+                })
+        })
+        .collect()
+}
+
+fn index_field(r: &Record, key: &str) -> Result<usize> {
+    usize::try_from(b::u64_number(&r.get(key)?, &r.path(key))?)
+        .map_err(|_| Failure::invalid(&r.path(key), "index out of bounds"))
+}
+
+fn story_reference(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::{SectionStoryKind, StoryReferenceEdit::*};
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let w = argument(&call, "edit")?;
+    let action = b::string(&b::member(&w.js(), "action", "edit")?, "edit.action")?;
+    let fields: &[&str] = match action.as_str() {
+        "create" => &["sectionIndex", "storyKind", "variant", "action", "blocks"],
+        "link" => &["sectionIndex", "storyKind", "variant", "action", "partName"],
+        "remove" => &["sectionIndex", "storyKind", "variant", "action"],
+        _ => {
+            return Err(Failure::invalid(
+                "edit.action",
+                "unknown story reference edit",
+            ));
+        }
+    };
+    let r = Record::new(&w, "edit", fields)?;
+    let string = |key: &str| b::string(&r.get(key)?, &r.path(key));
+    let kind = match string("storyKind")?.as_str() {
+        "header" => SectionStoryKind::Header,
+        "footer" => SectionStoryKind::Footer,
+        _ => {
+            return Err(Failure::invalid(
+                "edit.storyKind",
+                "expected header or footer",
+            ));
+        }
+    };
+    let variant = match string("variant")?.as_str() {
+        "default" => rocx::HeaderFooterType::Default,
+        "first" => rocx::HeaderFooterType::First,
+        "even" => rocx::HeaderFooterType::Even,
+        _ => return Err(Failure::invalid("edit.variant", "unknown story variant")),
+    };
+    let edit = match action.as_str() {
+        "create" => Create(story_payload(&r)?),
+        "link" => Link(string("partName")?),
+        _ => Remove,
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_story_reference(index_field(&r, "sectionIndex")?, kind, variant, edit)?
+            .as_slice(),
+    )
+    .into())
+}
+
+fn story_blocks(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let w = argument(&call, "edit")?;
+    let r = Record::new(&w, "edit", &["target", "mode", "index", "remove", "blocks"])?;
+    let target = borrow_target::<HeaderAnchor>(&r, "edit.target")?;
+    let mode = match b::string(&r.get("mode")?, "edit.mode")?.as_str() {
+        "shared" => HeaderEditMode::Shared,
+        "sectionLocal" => HeaderEditMode::SectionLocal,
+        _ => return Err(Failure::invalid("edit.mode", "unknown story edit mode")),
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_story_blocks(
+                &target,
+                mode,
+                index_field(&r, "index")?,
+                index_field(&r, "remove")?,
+                &story_payload(&r)?,
+            )?
             .as_slice(),
     )
     .into())
@@ -845,6 +1006,110 @@ fn revision(input: &Wire) -> Result<JsValue> {
         action,
         paired.as_ref(),
     )?)
+}
+
+fn preview_layout(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::{LayoutEdit, LayoutField, LayoutTab, LayoutValue, SectionAnchor};
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edits")?;
+    let integer = |v: &Wire, p: &str| -> Result<i32> {
+        b::i64_number(v, p)?
+            .try_into()
+            .map_err(|_| Failure::invalid(p, "expected signed 32-bit integer"))
+    };
+    let edits = b::list(&arg, "edits")?
+        .iter()
+        .enumerate()
+        .map(|(i, wire)| {
+            let path = format!("edits[{i}]");
+            let edit = Record::new(wire, &path, &["target", "field", "value"])?;
+            let name = b::string(&edit.get("field")?, &edit.path("field"))?;
+            let f = LayoutField::ALL
+                .iter()
+                .copied()
+                .find(|f| f.name() == name)
+                .ok_or_else(|| Failure::invalid(&edit.path("field"), "unknown layout field"))?;
+            let wire = edit.get("value")?;
+            let v = wire.js();
+            let vp = edit.path("value");
+            let val = if v.is_null() {
+                None
+            } else {
+                Some(if f == LayoutField::TabStops {
+                    LayoutValue::Tabs(
+                        b::list(&wire, &vp)?
+                            .iter()
+                            .enumerate()
+                            .map(|(j, t)| {
+                                let p = format!("{vp}[{j}]");
+                                let d = Record::new(t, &p, &["position", "alignment", "leader"])?;
+                                let l = d.get("leader")?;
+                                Ok(LayoutTab {
+                                    position: integer(&d.get("position")?, &d.path("position"))?,
+                                    alignment: b::string(
+                                        &d.get("alignment")?,
+                                        &d.path("alignment"),
+                                    )?,
+                                    leader: if l.js().is_undefined() {
+                                        None
+                                    } else {
+                                        Some(b::string(&l, &d.path("leader"))?)
+                                    },
+                                })
+                            })
+                            .collect::<Result<_>>()?,
+                    )
+                } else if matches!(
+                    f,
+                    LayoutField::BorderTop
+                        | LayoutField::BorderLeft
+                        | LayoutField::BorderBottom
+                        | LayoutField::BorderRight
+                ) {
+                    let d = Record::new(&wire, &vp, &["size", "space", "color"])?;
+                    let num = |k: &str| -> Result<Option<i32>> {
+                        let w = d.get(k)?;
+                        if w.js().is_undefined() {
+                            Ok(None)
+                        } else {
+                            integer(&w, &d.path(k)).map(Some)
+                        }
+                    };
+                    let rgb = d.get("color")?;
+                    LayoutValue::Border(rocx::editor::LayoutBorder {
+                        size: num("size")?,
+                        space: num("space")?,
+                        color: if rgb.js().is_undefined() {
+                            None
+                        } else {
+                            Some(b::string(&rgb, &d.path("color"))?)
+                        },
+                    })
+                } else if let Some(b) = v.as_bool() {
+                    LayoutValue::Boolean(b)
+                } else if v.is_string() {
+                    LayoutValue::Token(b::string(&wire, &vp)?)
+                } else {
+                    LayoutValue::Integer(integer(&wire, &vp)?)
+                })
+            };
+            Ok(if f.is_section() {
+                LayoutEdit::Section(
+                    (*borrow_target::<SectionAnchor>(&edit, &edit.path("target"))?).clone(),
+                    f,
+                    val,
+                )
+            } else {
+                LayoutEdit::Paragraph(
+                    (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+                    f,
+                    val,
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    preview_handle(source.document().preview_layout(&edits)?)
 }
 
 fn preview(input: &Wire) -> Result<JsValue> {

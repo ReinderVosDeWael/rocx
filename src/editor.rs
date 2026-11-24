@@ -18,6 +18,7 @@ use std::sync::{Arc, OnceLock};
 mod batch;
 pub use batch::EditBatch;
 mod blocks;
+mod section_lifecycle;
 pub use blocks::BlockEdit;
 mod property_flags;
 pub use property_flags::{ParagraphFlag, SectionFlag};
@@ -27,7 +28,9 @@ mod entry_edits;
 pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
+mod layout;
 pub(crate) use insertion::BoundaryState;
+pub use layout::{LayoutBorder, LayoutEdit, LayoutField, LayoutTab, LayoutValue};
 mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
 mod numbering;
@@ -44,13 +47,17 @@ pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
+    StoryReferenceEdit,
 };
 pub use resource_fields::{
     AbstractStart, CustomValue, DefaultField, DefaultTab, DefaultValue, MetadataField, ResourceEdit,
 };
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
-pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
+pub use tables::{
+    CellAlignmentChange, CellAlignmentEdit, DirectTableProperties, TableOperation, TableSite,
+    TableStructureEdit,
+};
 pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
 mod run_format;
 pub use run_format::RunFormatField;
@@ -60,6 +67,13 @@ pub use run_format::RunFormatField;
 pub struct ParagraphAnchor {
     snapshot: Arc<()>,
     body_index: usize,
+}
+
+/// A physical section owner in the issuing document snapshot.
+#[derive(Clone, Debug)]
+pub struct SectionAnchor {
+    snapshot: Arc<()>,
+    index: usize,
 }
 
 /// Direct body children in document order, excluding the final section properties.
@@ -110,6 +124,7 @@ pub struct TableAnchor {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTable {
+    pub properties: DirectTableProperties,
     pub anchor: TableAnchor,
     /// Direct recognized layout; no style or default is inferred.
     pub layout: Option<crate::TableLayout>,
@@ -128,6 +143,7 @@ pub enum ImportedTableChild {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTableRow {
+    pub properties: DirectTableProperties,
     pub children: Vec<ImportedRowChild>,
 }
 
@@ -141,6 +157,7 @@ pub enum ImportedRowChild {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTableCell {
+    pub properties: DirectTableProperties,
     /// Direct positive grid span; no implicit one is synthesized.
     pub grid_span: Option<u32>,
     /// Source merge marker; an empty marker denotes "continue".
@@ -170,6 +187,7 @@ pub enum ImportedCellBlock {
 
 fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTable {
     ImportedTable {
+        properties: tables::inspect(node, TableSite::Table),
         layout: match node
             .child("w:tblPr")
             .and_then(|p| p.child("w:tblLayout"))
@@ -199,6 +217,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                     return ImportedTableChild::Opaque(n.name.to_string());
                 }
                 ImportedTableChild::Row(ImportedTableRow {
+                    properties: tables::inspect(n, TableSite::Row(0)),
                     children: n
                         .elements()
                         .filter(|n| n.name != "w:trPr")
@@ -232,6 +251,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                                 })
                                 .unzip();
                             ImportedRowChild::Cell(ImportedTableCell {
+                                properties: tables::inspect(n, TableSite::Cell(0, 0)),
                                 grid_span: n
                                     .child("w:tcPr")
                                     .and_then(|p| p.child("w:gridSpan"))
@@ -255,6 +275,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedParagraph {
+    pub layout: BTreeMap<LayoutField, LayoutValue>,
     /// Recognized unambiguous direct flags; no inheritance is applied.
     pub flags: BTreeMap<ParagraphFlag, bool>,
     pub anchor: ParagraphAnchor,
@@ -386,10 +407,12 @@ pub struct ImportedHyperlink {
 }
 
 /// A direct body section identified by its half-open range in `body()`.
-/// This is an inspection value, not an edit target.
+/// Its snapshot-bound anchor targets the physical owner, even for an empty range.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedSection {
+    pub anchor: SectionAnchor,
+    pub layout: BTreeMap<LayoutField, LayoutValue>,
     /// Recognized unambiguous direct flags; no defaults are inferred.
     pub flags: BTreeMap<SectionFlag, bool>,
     pub body_start: usize,
@@ -551,11 +574,13 @@ impl ImportedDocument {
                         .child("w:pPr")
                         .and_then(|props| props.child("w:jc"))
                         .and_then(|jc| jc.get("w:val"));
+                    let props = node.child("w:pPr").filter(|_| {
+                        node.elements().filter(|c| c.name == "w:pPr").count() == 1
+                            && node.child(ALTERNATE).is_none()
+                    });
                     BodyBlock::Paragraph(ImportedParagraph {
-                        flags: ParagraphFlag::read(node.child("w:pPr").filter(|_| {
-                            node.elements().filter(|c| c.name == "w:pPr").count() == 1
-                                && node.child(ALTERNATE).is_none()
-                        })),
+                        layout: layout::inspect(props, false),
+                        flags: ParagraphFlag::read(props),
                         anchor,
                         text,
                         alignment: alignment_xml.and_then(read_alignment),
@@ -797,6 +822,13 @@ impl ImportedDocument {
             resources,
             controls,
         } = batch;
+        if blocks.iter().any(BlockEdit::is_lifecycle)
+            && (!header_images.is_empty() || !controls.is_empty() || !resources.is_empty())
+        {
+            return Err(unsupported(
+                "section boundary edits conflict with story, control or resource edits",
+            ));
+        }
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -945,8 +977,14 @@ impl ImportedDocument {
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             let (staged, actions) = text::prepare(package, &self.main, inline_edits)?;
-            let (staged, structural_changed) =
-                tables::structure(body, staged, &self.main, structural, cells)?;
+            let (staged, structural_changed) = tables::structure(
+                body,
+                staged,
+                &self.main,
+                structural,
+                cells,
+                &mut block_plan.deletes,
+            )?;
             package = staged;
             (run_text_changes, removed_runs) =
                 text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;

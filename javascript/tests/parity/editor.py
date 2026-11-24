@@ -150,7 +150,22 @@ def generate(directory):
     table = merged.add_table(rows=2, cols=3)
     table.autofit = False
     table.cell(0, 0).merge(table.cell(1, 1)).text = "origin"
+    merged.add_table(rows=1, cols=1).cell(0, 0).text = "remove me"
+    merged.add_paragraph("after both tables")
     merged.save(directory / "table-layout.docx")
+    layout = Document()
+    layout.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    layout.add_table(rows=1, cols=1).cell(0, 0).text = "table-first section"
+    p = layout.add_paragraph("direct layout")
+    p.paragraph_format.space_before = Twips(123)
+    p.paragraph_format.first_line_indent = Twips(72)
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p._p.pPr.spacing.set(qn("w14:probe"), "retained")
+    layout.sections[0].header.paragraphs[0].text = "retained header"
+    layout.add_section()
+    # Empty implicit final section; neither section starts with a paragraph.
+    layout._element.body.remove(layout.sections[-1]._sectPr)
+    layout.save(directory / "layout-source.docx")
     generate_controls(directory)
     catalog = Document()
     catalog.add_paragraph("Numbering target")
@@ -384,7 +399,98 @@ def verify_ordinary(directory):
         assert tree(old) == tree(new)
 
 
+async def structural_resources(path):
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, ResourceEdit as R, StyleEdit, TableStructureEdit as T
+
+    source = ImportedDocument.open(path.read_bytes())
+    first, second, paragraph = source.body
+    table = await d.Table([d.TableRow([d.TableCell([d.Paragraph(children=[
+        d.Hyperlink("https://example.invalid/staged-table", [d.TextRun("staged link")])
+    ])])])], style="Staged Table").resolve()
+    batch = dict(table_structure=[T.replace_node(first.anchor, table), T.remove_table(second.anchor)],
+                 style_edits=[StyleEdit.add(d.TableStyleDefinition("Staged Table"))])
+    resources = [R.add_abstract(90, [d.NumberingLevel()]), R.add_instance(91, 90),
+                 R.paragraph_numbering(paragraph.anchor, (91, 0)), R.custom_property("Staged", True)]
+    try:
+        source.preview([], **batch, resources=[*resources, R.remove_instance(1)])
+    except ValueError as exc:
+        assert "references" in str(exc), exc
+    else:
+        raise AssertionError("removed live numbering")
+    result = source.preview([], **batch, resources=resources).to_docx()
+    assert source.preview([], **batch, resources=resources).to_docx() == result
+    assert source.paragraph_numbering(paragraph.anchor) is None
+    reopened = ImportedDocument.open(result)
+    assert len(reopened.body) == 2 and reopened.custom_property("Staged") is True
+    assert reopened.paragraph_numbering(reopened.body[1].anchor) == (91, 0)
+    try:
+        reopened.paragraph_numbering(paragraph.anchor)
+    except ValueError as exc:
+        assert "snapshot" in str(exc), exc
+    else:
+        raise AssertionError("accepted stale anchor")
+    return result
+
+
 def verify(directory):
+    from rocx.editor import LayoutEdit as L, ImportedDocument
+    path = directory / "layout-source.docx"
+    doc = ImportedDocument.open(path.read_bytes())
+    a, b = (s.anchor for s in doc.sections)
+    p = doc.body[1].anchor
+    edits = [L.paragraph(p, "space_after", 180), L.paragraph(p, "alignment", None),
+             L.paragraph(p, "heading", 2), L.paragraph(p, "widow_control", False),
+             L.paragraph(p, "first_line_indent", -240),
+             L.paragraph(p, "tab_stops", [{"position": 720, "alignment": "right", "leader": "dot"}]),
+             L.section(a, "page_width", 16000), L.section(a, "margin_top", -220),
+             L.section(a, "column_count", 2), L.section(a, "border_top", {"color": "223344", "size": 8}),
+             L.section(b, "grid_pitch", 360), L.section(b, "title_page", False)]
+    out = directory / "layout.docx"
+    assert doc.preview_layout(edits).to_docx() == out.read_bytes()
+    old, new = parts(path), parts(out)
+    untouched(old, new, (MAIN,))
+    assert old.keys() == new.keys()
+    read = Document(out)
+    p = read.paragraphs[0]
+    assert p.style.style_id == "Heading2" and p.paragraph_format.widow_control is False
+    assert p.paragraph_format.space_before.twips == 123 and p.paragraph_format.space_after.twips == 180
+    assert p._p.pPr.spacing.get(qn("w14:probe")) == "retained" and p.alignment is None
+    assert p.paragraph_format.first_line_indent.twips == -240
+    assert p.paragraph_format.tab_stops[0].position.twips == 720
+    assert read.sections[0].page_width.twips == 16000 and read.sections[0].top_margin.twips == -220
+    assert read.sections[0].header.paragraphs[0].text == "retained header"
+    assert read.sections[1]._sectPr.find(qn("w:docGrid")).get(qn("w:linePitch")) == "360"
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit
+
+    for name, snapshot, edit in [
+        ("sectionSplit", doc, BlockEdit.split_section(a, 1)),
+        ("sectionMerge", None, None),
+    ]:
+        edited_path = directory / f"{name}.docx"
+        if snapshot is None:
+            snapshot = ImportedDocument.open((directory / "sectionSplit.docx").read_bytes())
+            edit = BlockEdit.merge_section(snapshot.sections[0].anchor)
+        preview = snapshot.preview([], block_edits=[edit])
+        assert preview.block_changes == [1] and preview.to_docx() == edited_path.read_bytes()
+        untouched(old, parts(edited_path), (MAIN,))
+        readback = Document(edited_path)
+        assert [p.text for p in readback.paragraphs if p.text] == ["direct layout"]
+        assert readback.tables[0].cell(0, 0).text == "table-first section"
+        # python-docx lists only explicit section properties; rocx also
+        # reports the empty implied final section.
+        assert len(readback.sections) == (2 if name == "sectionSplit" else 1)
+        assert len(ImportedDocument.open(edited_path.read_bytes()).sections) == len(readback.sections) + 1
+        assert all(s.header.paragraphs[0].text == "retained header" for s in readback.sections)
+
+    story_path = directory / "storyShared.docx"
+    original_header = doc.default_headers[1]
+    replacement = asyncio.run(d.Paragraph("Shared story replacement").resolve())
+    assert doc.edit_story_blocks(original_header.anchor, "shared", 0, 1, [replacement]) == story_path.read_bytes()
+    untouched(old, parts(story_path), (original_header.part_name,))
+    assert all(s.header.paragraphs[0].text == "Shared story replacement" for s in Document(story_path).sections)
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d
@@ -557,6 +663,27 @@ def verify(directory):
     assert cell_readback.tables[1].cell(0, 0).text == "next A"
 
     structure = directory / "tableStructure.docx"
+    nodes = directory / "tableNodes.docx"
+    untouched(parts(directory / "table-layout.docx"), parts(nodes), (MAIN,))
+    edited = Document(nodes)
+    assert len(edited.tables) == 1 and [c.text for c in edited.tables[0].rows[0].cells] == ["next A","cell"]
+    assert edited.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    assert edited.tables[0]._tbl.xpath("w:tblPr/w:jc/@w:val") == ["center"]
+    assert edited.tables[0]._tbl.xpath("w:tr/w:trPr/w:tblHeader/@w:val") == ["0"]
+    assert edited.tables[0].cell(0,0)._tc.xpath("w:tcPr/w:tcMar/w:top/@w:w") == ["90"]
+    staged_source = directory / "table-layout.docx"
+    staged_output = directory / "structuralResources.docx"
+    assert asyncio.run(structural_resources(staged_source)) == staged_output.read_bytes()
+    before, after = parts(staged_source), parts(staged_output)
+    assert after.keys() - before.keys() == {"docProps/custom.xml"}
+    untouched(before, after, (MAIN, MAIN_RELS, "word/numbering.xml", "word/styles.xml",
+                              TYPES, "_rels/.rels"))
+    staged = Document(staged_output)
+    assert len(staged.tables) == 1 and staged.tables[0].style.name == "Staged Table"
+    hyperlink, = staged.tables[0].cell(0, 0).paragraphs[0].hyperlinks
+    assert (hyperlink.text, hyperlink.url) == ("staged link", "https://example.invalid/staged-table")
+    assert staged.paragraphs[0].text == "after both tables"
+    assert staged.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
     untouched(body, parts(structure), (MAIN,))
     assert Document(structure).tables[1].autofit
     assert xp(etree.fromstring(parts(structure)[MAIN]), "w:body/w:tbl[2]/w:tblPr/w:tblLayout/@w:type") == ["autofit"]
