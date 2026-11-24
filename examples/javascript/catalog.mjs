@@ -141,6 +141,8 @@ export async function generateCatalog(fixtures, options) {
   ], { columnWidths: [2160, 2160], layout: "fixed" }));
 
   const imported = await openDocx(final);
+  assert(imported.styles()?.styles.some((style) => style.name === "Catalog Bullets"
+    && style.kind === "numbering" && style.id), "expected imported numbering style");
   const body = imported.body();
   const inline = body.find((node) => node.kind === "paragraph" && node.text === INLINE_LABEL + INLINE_LINK_RUNS.join(""));
   assert(inline, "expected labeled body inline structure");

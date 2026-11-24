@@ -114,6 +114,22 @@ def generate(directory):
     assert base["word/media/image1.png"] == original_image
     assert HEADER in base and HEADER_RELS in base
 
+    edge = base.copy()
+    edge["word/styles.xml"] = (
+        b'<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:style w:type="future" w:styleId="X"/><w:style/></w:styles>')
+    save_parts(directory / "styles-edge.docx", edge)
+    missing = base.copy()
+    rels = etree.fromstring(missing[MAIN_RELS])
+    for rel in list(rels):
+        if rel.get("Type").endswith("/styles"):
+            rels.remove(rel)
+    missing[MAIN_RELS] = etree.tostring(rels)
+    save_parts(directory / "styles-missing.docx", missing)
+    invalid = base.copy()
+    invalid["word/styles.xml"] = b'<w:invalid xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'
+    save_parts(directory / "styles-invalid.docx", invalid)
+
     def body_variant(name, mutate):
         main = etree.fromstring(base[MAIN])
         mutate(xp(main, "./w:body/w:p"))

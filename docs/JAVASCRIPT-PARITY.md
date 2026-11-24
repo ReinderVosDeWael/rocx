@@ -1,5 +1,11 @@
 # JavaScript parity contract
 
+Imported style resource inspection is exposed as Rust `styles()`, Python
+`styles`, and JavaScript `styles()`. The JavaScript editor parity fixture
+checks typed style metadata, missing relationships, unsupported kinds, and
+invalid parts. Packed Node 22/24 and Chromium development and production
+consumers passed with clean offline Wasm replay. See [resource scope](EDITOR-RESOURCES.md).
+
 Current comparison baseline: `c1c730b` (including `1c17f03` table-cell inline
 readback and `5f103c5` header/footer stories), plus the integrated Rust
 changes in this worktree, including B1's `ImageData::NamedBytes`.

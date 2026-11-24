@@ -204,6 +204,13 @@ until the hosted preflight succeeds and registry setup is confirmed.
 
 ## Editor goal: declarative parity
 
+The resource inspection slice adds relationship-selected style identities,
+kinds, names and base references in Rust, Python and JavaScript. It does not
+resolve inherited formatting or implement resource editing. The Rust all-target
+suite and 814 Python tests passed. Packed Node 22/24 consumers and Chromium
+development and production passed inspection, preservation, schema/OPC and
+exact catalog-byte checks, with clean offline Wasm replay.
+
 Complete #3 before releasing 0.4.0. Continue the serial checkpoint with
 relationship-based inspection of footnote, endnote and comment entries.
 Re-run release preflight on the integrated candidate, not the earlier docs commit.

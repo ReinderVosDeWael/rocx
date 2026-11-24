@@ -95,6 +95,59 @@ def _parts(data):
         return {name: package.read(name) for name in package.namelist()}
 
 
+def test_style_inspection_matches_python_docx_and_preserves_part():
+    from docx.enum.style import WD_STYLE_TYPE
+    source = docx.Document()
+    base = source.styles.add_style("Source Base", WD_STYLE_TYPE.PARAGRAPH)
+    child = source.styles.add_style("Source Child", WD_STYLE_TYPE.PARAGRAPH)
+    child.base_style = base
+    source.add_paragraph("text", style=child)
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    styles = imported.styles
+    assert styles.part_name == "word/styles.xml"
+    style = next(item for item in styles.styles if item.id == child.style_id)
+    assert (style.kind, style.kind_xml, style.name, style.based_on) == (
+        "paragraph", "paragraph", child.name, base.style_id)
+    assert _parts(imported.preview([]).to_docx())["word/styles.xml"] == _parts(data)["word/styles.xml"]
+
+
+def test_style_inspection_missing_and_unrecognized_kinds():
+    stream = io.BytesIO()
+    docx.Document().save(stream)
+    contents = _parts(stream.getvalue())
+    contents["word/styles.xml"] = (
+        b'<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:style w:type="future" w:styleId="A"/><w:style/></w:styles>'
+    )
+    rewritten = io.BytesIO()
+    with ZipFile(rewritten, "w") as archive:
+        for name, data in contents.items():
+            archive.writestr(name, data)
+    styles = ImportedDocument.open(rewritten.getvalue()).styles.styles
+    assert [(s.id, s.kind, s.kind_xml, s.name, s.based_on) for s in styles] == [
+        ("A", "unsupported", "future", None, None), (None, "missing", None, None, None)]
+
+    def package(parts):
+        output = io.BytesIO()
+        with ZipFile(output, "w") as archive:
+            for name, data in parts.items():
+                archive.writestr(name, data)
+        return output.getvalue()
+
+    rels = ElementTree.fromstring(contents["word/_rels/document.xml.rels"])
+    for rel in list(rels):
+        if rel.get("Type", "").endswith("/styles"):
+            rels.remove(rel)
+    missing = {**contents, "word/_rels/document.xml.rels": ElementTree.tostring(rels)}
+    assert ImportedDocument.open(package(missing)).styles is None
+    invalid = {**contents, "word/styles.xml": b'<w:invalid xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'}
+    with pytest.raises(ValueError, match="invalid styles root"):
+        ImportedDocument.open(package(invalid)).styles
+
+
 def test_python_docx_table_cell_inline_anchors():
     source = (FIXTURES / "imported-table-cells.docx").read_bytes()
     independent = docx.Document(io.BytesIO(source))

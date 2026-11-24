@@ -12,6 +12,9 @@ export interface Fixtures {
   ambiguous: Uint8Array;
   drawing: Uint8Array;
   relocated: Uint8Array;
+  "styles-edge": Uint8Array;
+  "styles-missing": Uint8Array;
+  "styles-invalid": Uint8Array;
   image: Uint8Array;
 }
 
@@ -98,6 +101,17 @@ type Payloads = Awaited<ReturnType<typeof payloads>>;
 
 export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, { rich, auto }: Payloads) {
   const doc = await openDocx(input.base);
+  const styles = doc.styles();
+  check(styles?.partName === "word/styles.xml", "relationship-selected styles part");
+  const normal = styles.styles.find((style) => style.id === "Normal");
+  check(normal?.kind === "paragraph" && normal.kindXml === "paragraph"
+    && normal.name === "Normal", "typed Normal style metadata");
+  const edge = (await openDocx(input["styles-edge"])).styles();
+  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future" },
+    { kind: "missing" }], "unknown and missing style kinds");
+  check((await openDocx(input["styles-missing"])).styles() === undefined, "missing styles relationship");
+  const invalidStyles = await openDocx(input["styles-invalid"]);
+  rejects(() => invalidStyles.styles(), /invalid styles root/);
   const start = paragraph(doc, 0).anchor;
   const unset = paragraph(doc, 1).anchor;
   const sectionEnd = paragraph(doc, 3).anchor;

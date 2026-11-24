@@ -151,6 +151,18 @@ export interface ImportedEntry {
   }))[];
 }
 
+/** Source metadata only; absent fields were not present in the source. */
+export interface ImportedStyle {
+  readonly id?: string;
+  readonly kind: "paragraph" | "character" | "table" | "numbering" | "missing" | "unsupported";
+  readonly kindXml?: string;
+  readonly name?: string;
+  readonly basedOn?: string;
+}
+export interface ImportedStyles {
+  readonly partName: string;
+  readonly styles: readonly ImportedStyle[];
+}
 export interface ImportedDocument {
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
@@ -166,6 +178,8 @@ export interface ImportedDocument {
    */
   stories(): readonly ImportedStory[];
   entryStories(): readonly ImportedEntry[];
+  /** Undefined when the document has no styles relationship. */
+  styles(): ImportedStyles | undefined;
 }
 
 export interface OpenDocxOptions {

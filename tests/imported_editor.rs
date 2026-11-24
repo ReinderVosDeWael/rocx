@@ -59,6 +59,113 @@ fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     writer.finish().unwrap().into_inner()
 }
 
+#[test]
+fn inspect_style_metadata_and_preserve_source_part() {
+    use rocx::editor::StyleKind;
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let xml = format!(
+        r#"<w:styles xmlns:w="{W}"><w:style w:type="paragraph" w:styleId="Custom"><w:name w:val="Custom Name"/><w:basedOn w:val="Normal"/><w:rPr><w:b/></w:rPr></w:style><w:style w:type="future" w:styleId="Unknown"/><w:style/><w:style w:type="character"/><w:style w:type="table"/><w:style w:type="numbering"/></w:styles>"#
+    );
+    entries.insert("word/styles.xml".into(), xml.as_bytes().to_vec());
+    let bytes = package_bytes(entries);
+    let doc = ImportedDocument::open(&bytes).unwrap();
+    let styles = doc.styles().unwrap().unwrap();
+    assert_eq!(styles.part_name, "word/styles.xml");
+    assert_eq!(styles.styles.len(), 6);
+    let style = &styles.styles[0];
+    assert_eq!(style.id.as_deref(), Some("Custom"));
+    assert_eq!(style.kind, StyleKind::Paragraph);
+    assert_eq!(style.name.as_deref(), Some("Custom Name"));
+    assert_eq!(style.based_on.as_deref(), Some("Normal"));
+    assert_eq!(
+        styles.styles[1].kind,
+        StyleKind::Unsupported("future".into())
+    );
+    assert_eq!(styles.styles[2].kind, StyleKind::Missing);
+    assert_eq!(styles.styles[2].id, None);
+    assert_eq!(styles.styles[3].kind, StyleKind::Character);
+    assert_eq!(styles.styles[4].kind, StyleKind::Table);
+    assert_eq!(styles.styles[5].kind, StyleKind::Numbering);
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap())["word/styles.xml"],
+        xml.as_bytes()
+    );
+}
+
+#[test]
+fn styles_absence_and_invalid_part_are_distinct() {
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let rels = String::from_utf8(entries["word/_rels/document.xml.rels"].clone()).unwrap();
+    let start = rels[..rels.find("/styles\"").unwrap()]
+        .rfind("<Relationship ")
+        .unwrap();
+    let end = start + rels[start..].find("/>").unwrap() + 2;
+    let mut without = rels.clone();
+    without.replace_range(start..end, "");
+    entries.insert("word/_rels/document.xml.rels".into(), without.into_bytes());
+    let missing = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    assert!(missing.styles().unwrap().is_none());
+    entries.insert("word/_rels/document.xml.rels".into(), rels.into_bytes());
+    entries.insert(
+        "word/styles.xml".into(),
+        format!(r#"<w:notStyles xmlns:w="{W}"/>"#).into_bytes(),
+    );
+    let invalid = ImportedDocument::open(&package_bytes(entries)).unwrap();
+    assert!(invalid.styles().is_err());
+
+    let mut wrong_type = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let types = String::from_utf8(wrong_type["[Content_Types].xml"].clone()).unwrap();
+    wrong_type.insert(
+        "[Content_Types].xml".into(),
+        types
+            .replace(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+                "application/xml",
+            )
+            .into_bytes(),
+    );
+    let invalid = ImportedDocument::open(&package_bytes(wrong_type)).unwrap();
+    assert!(invalid.styles().is_err());
+}
+
+#[test]
+fn styles_follow_relocated_relationship_and_reject_ambiguity() {
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let rels = String::from_utf8(entries["word/_rels/document.xml.rels"].clone()).unwrap();
+    let relocated = rels.replace("Target=\"styles.xml\"", "Target=\"resources/custom.xml\"");
+    entries.insert(
+        "word/_rels/document.xml.rels".into(),
+        relocated.clone().into_bytes(),
+    );
+    let content_types = String::from_utf8(entries["[Content_Types].xml"].clone()).unwrap();
+    entries.insert(
+        "[Content_Types].xml".into(),
+        content_types
+            .replace("/word/styles.xml", "/word/resources/custom.xml")
+            .into_bytes(),
+    );
+    let style_xml = entries.remove("word/styles.xml").unwrap();
+    entries.insert("word/resources/custom.xml".into(), style_xml.clone());
+    let doc = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    assert_eq!(
+        doc.styles().unwrap().unwrap().part_name,
+        "word/resources/custom.xml"
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap())["word/resources/custom.xml"],
+        style_xml
+    );
+    let duplicate = r#"<Relationship Id="rStyleExtra" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="resources/custom.xml"/>"#;
+    entries.insert(
+        "word/_rels/document.xml.rels".into(),
+        relocated
+            .replace("</Relationships>", &format!("{duplicate}</Relationships>"))
+            .into_bytes(),
+    );
+    let doc = ImportedDocument::open(&package_bytes(entries)).unwrap();
+    assert!(doc.styles().is_err());
+}
+
 fn paragraph(doc: &ImportedDocument, index: usize) -> &rocx::editor::ImportedParagraph {
     match &doc.body()[index] {
         BodyBlock::Paragraph(p) => p,

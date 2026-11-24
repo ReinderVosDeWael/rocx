@@ -3,6 +3,14 @@
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:
 
+Imported style metadata is available as `ImportedDocument::styles()` in Rust,
+`ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
+JavaScript. The optional result identifies the source part and lists direct
+style IDs, kinds, names, and `basedOn` references, not effective formatting.
+Missing kinds and unknown kind values are distinct. Inspection does not rewrite
+the source package; style editing and inherited property resolution are not yet
+supported.
+
 - [Rust entrypoint](all_features.rs), with [support modules](showcase/).
 - [Python program](all_features.py).
 - [JavaScript program](javascript/catalog.mjs) using named `declarative` factories,
