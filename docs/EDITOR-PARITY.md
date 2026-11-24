@@ -1,5 +1,31 @@
 # Editor declarative parity inventory
 
+## Existing imported addresses
+
+Anchors belong to one open snapshot, not the DOCX file: opening identical bytes
+or reopening a preview issues a new snapshot. Obtain new anchors after reopening;
+the original snapshot and its anchors remain usable after preview. Rust
+`inline_at`, Python `inline_at`, and JavaScript `inlineAt` reject foreign inline
+anchors. They are not persistent IDs and must not be serialized for later use.
+
+Inline anchors distinguish runs and hyperlinks by physical location, not text,
+relationship ID, or entry ID. Aliased section stories for the same physical part
+share inline identities; different physical parts do not. Default-header image
+targets instead select a section, even when sections share a header. Duplicate
+edits to one target and conflicting shared-header edits are rejected atomically.
+This is not a general contract for resolving duplicate source IDs.
+Rust and Python compare inline anchors by identity; JavaScript reuses the same
+opaque handle for an inline identity in a snapshot. Other anchor types do not
+promise cross-binding value equality.
+
+Section body ranges are zero-based, half-open block indices, not editable text
+ranges. There are no text-offset or arbitrary range anchors. Opaque nodes, run
+items, rows, cells and nested tables lack independent addresses. Table insertion
+uses a direct-body paragraph and inserts after it; active or ambiguous supported
+fields and ranges prevent insertion there. Single-text direct-body run replacement
+also rejects targets inside active or ambiguous supported ranges. These guards
+do not imply all OOXML range types are inspected or editable.
+
 This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Default, first, and even headers and footers expose section references, inherited status, physical part names, and ordered direct paragraphs; other direct children are opaque. The broader story view is read-only. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical

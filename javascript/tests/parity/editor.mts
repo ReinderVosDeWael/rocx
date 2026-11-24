@@ -99,6 +99,14 @@ type Payloads = Awaited<ReturnType<typeof payloads>>;
 export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, { rich, auto }: Payloads) {
   const doc = await openDocx(input.base);
   const start = paragraph(doc, 0).anchor;
+  const firstRun = paragraph(doc, 0).inlineStructure[0];
+  check(firstRun?.kind === "run", "first body inline is a run");
+  const firstAnchor = firstRun.anchor;
+  check(paragraph(doc, 0).inlineStructure[0]?.kind === "run", "repeated inspection");
+  const repeated = paragraph(doc, 0).inlineStructure[0];
+  check(repeated.kind === "run" && repeated.anchor === firstAnchor, "same inline has same handle");
+  const otherRun = paragraph(doc, 1).inlineStructure[0];
+  check(otherRun?.kind === "run" && otherRun.anchor !== firstAnchor, "different runs have different handles");
   const unset = paragraph(doc, 1).anchor;
   const sectionEnd = paragraph(doc, 3).anchor;
   const align = { target: start, alignment: "center" } as const;
@@ -118,6 +126,10 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   same(preview.headerChanges(), [], "no header changes");
   const bytes = preview.toDocx();
   const reopened = await openDocx(bytes);
+  rejects(() => reopened.inlineAt(firstAnchor), /different document snapshot/);
+  check(doc.inlineAt(firstAnchor).kind === "run", "preview and reopen leave original anchor valid");
+  const fresh = paragraph(reopened, 0).inlineStructure[0];
+  check(fresh?.kind === "run" && fresh.anchor !== firstAnchor, "reopen issues fresh handles");
   same(reopened.body().map((block) => block.kind), [
     "paragraph", "table", "paragraph", "paragraph", "paragraph", "table", "paragraph", "paragraph", "paragraph",
   ], "table placement including immediately after section terminator");
@@ -129,6 +141,7 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   bytesEqual(noop.toDocx(), doc.preview({}).toDocx(), "unchanged and empty batches encode identically");
 
   const other = await openDocx(input.base);
+  rejects(() => other.inlineAt(firstAnchor), /different document snapshot/);
   rejects(() => doc.preview({ alignments: [{ ...align, target: paragraph(other, 0).anchor }] }), /different document snapshot/);
   rejects(() => doc.preview({ alignments: [align, align] }), /multiple alignment/);
   rejects(() => doc.preview({ tableInsertions: [insert, insert] }), /multiple table/);
@@ -143,7 +156,19 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
 
 export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {
   const doc = await openDocx(input.base);
-  const [first, inherited, later, distinct] = doc.defaultHeaders().map((header) => header.view);
+  const headers = doc.defaultHeaders();
+  const [first, inherited, later, distinct] = headers.map((header) => header.view);
+  const firstInline = headers[0].inlineStructure(0)?.[0];
+  const inheritedInline = headers[1].inlineStructure(0)?.[0];
+  check(firstInline?.kind === "run" && inheritedInline?.kind === "run", "header runs");
+  check(firstInline.anchor === inheritedInline.anchor, "header aliases share inline handle");
+  const story = doc.stories().find((s) => s.view.partName === first.partName);
+  const storyInline = story?.inlineStructure(0)?.[0];
+  check(storyInline?.kind === "run" && storyInline.anchor === firstInline.anchor,
+    "header and story views share inline handle");
+  const distinctInline = headers[3].inlineStructure(0)?.[0];
+  check(distinctInline?.kind === "run" && distinctInline.anchor !== firstInline.anchor,
+    "distinct physical headers have distinct handles");
   check(first.anchor !== inherited.anchor && first.partName === inherited.partName, "aliases have section-scoped targets");
   const sharedEdit: HeaderImageEdit = { target: inherited.anchor, mode: "shared", image };
   const shared: HeaderImagePreview = doc.previewHeaderImage(sharedEdit);
