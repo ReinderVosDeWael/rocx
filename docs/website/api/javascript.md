@@ -212,8 +212,11 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   A `null` value clears a flag or break type. `inlineEdits` accepts
   `insertAfter`, `replace` and `setBold` at eligible direct inline anchors.
 - `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
-  `insertColumn`, `removeColumn` and `replaceCell`. Row/cell positions are
-  physical; column positions count logical grid columns.
+  `insertColumn`, `removeColumn`, `replaceCell` and `layout`. Row/cell positions
+  are physical; column positions count logical grid columns. Pass `{target,
+  kind: "layout", value: "fixed" | "autofit" | null}` to set or clear direct
+  layout. Inspect a table's `layout`, `gridWidths` (twips), and each physical
+  cell's `gridSpan` and `verticalMerge`.
 - `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
   Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
   without discarding other properties; replace/remove only safe unused custom styles.

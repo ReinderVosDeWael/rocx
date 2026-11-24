@@ -15,6 +15,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// the supplied index (the count appends). Column operations edit every row.
 #[derive(Clone, Debug)]
 pub enum TableOperation {
+    /// Set or clear direct table layout without recalculating widths.
+    Layout(Option<crate::TableLayout>),
     InsertRow(usize),
     RemoveRow(usize),
     InsertCell {
@@ -125,6 +127,7 @@ fn geometry(table: &mut Node, op: &TableOperation) -> Result<()> {
         return Err(unsupported("empty source table"));
     }
     match *op {
+        TableOperation::Layout(_) => unreachable!(),
         TableOperation::InsertCell { row: r, cell: i }
         | TableOperation::RemoveCell { row: r, cell: i } => {
             let insert = matches!(op, TableOperation::InsertCell { .. });
@@ -270,6 +273,41 @@ fn geometry(table: &mut Node, op: &TableOperation) -> Result<()> {
     validate(table, true)
 }
 
+fn layout(table: &mut Node, value: Option<crate::TableLayout>) -> Result<()> {
+    if table.child("w:tblPr").is_none() {
+        if value.is_none() {
+            return Ok(());
+        }
+        table
+            .children
+            .insert(0, Content::Element(Node::new("w:tblPr")));
+    }
+    let pr = table.child_mut("w:tblPr").unwrap();
+    if pr.child("w:tblPrChange").is_some() {
+        return Err(unsupported("tracked table properties"));
+    }
+    let existing = super::unique(pr, "w:tblLayout")?;
+    if let Some(layout) = value {
+        pr.ensure("w:tblLayout").set("w:type", layout.xml());
+    } else if let Some(existing) = existing {
+        if existing
+            .attrs
+            .iter()
+            .any(|(k, _)| k.declaration().is_none() && k != "w:type")
+            || existing
+                .children
+                .iter()
+                .any(|c| !matches!(c, Content::Text(t) if t.trim().is_empty()))
+        {
+            return Err(unsupported(
+                "clearing layout would discard unsupported markup",
+            ));
+        }
+        pr.remove("w:tblLayout");
+    }
+    Ok(())
+}
+
 pub(in crate::editor) fn apply(
     body: &mut Node,
     mut package: Package,
@@ -313,6 +351,12 @@ pub(in crate::editor) fn apply(
         let exclusive = ops.len() != 1 || alignments.iter().any(|e| e.target._body_index == i);
         for op in ops {
             match op {
+                TableOperation::Layout(value) => {
+                    if exclusive {
+                        return Err(unsupported("layout edit requires exclusive table target"));
+                    }
+                    layout(table, *value)?;
+                }
                 TableOperation::ReplaceCell { row, cell, blocks } => {
                     if !seen.insert((*row, *cell)) {
                         return Err(unsupported("duplicate cell replacement"));

@@ -3160,6 +3160,35 @@ fn first_header_image_local_preserves_aliases_and_inheritance() {
 }
 
 #[test]
+fn layout_rejects_duplicate_or_tracked_properties() {
+    use rocx::editor::{EditBatch, TableOperation, TableStructureEdit};
+    for (props, message) in [
+        ("<w:tblLayout/><w:tblLayout/>", "ambiguous table properties"),
+        ("<w:tblPrChange/>", "tracked table properties"),
+    ] {
+        let xml = format!(
+            r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblPr>{props}</w:tblPr><w:tblGrid><w:gridCol w:w="2400"/><w:gridCol/></w:tblGrid><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl></w:body></w:document>"#
+        );
+        let bytes = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let BodyBlock::Table(t) = &doc.body()[0] else {
+            panic!("table")
+        };
+        assert_eq!(t.grid_widths, [Some(2400), None]);
+        let err = doc
+            .preview_edits(EditBatch {
+                structural: &[TableStructureEdit {
+                    target: t.anchor.clone(),
+                    operation: TableOperation::Layout(Some(rocx::TableLayout::Fixed)),
+                }],
+                ..Default::default()
+            })
+            .expect_err("ambiguous properties must reject layout change");
+        assert!(err.to_string().contains(message), "{err}");
+    }
+}
+
+#[test]
 fn table_structure_rejects_invalid_chains_ranges_and_foreign_anchors_atomically() {
     use rocx::editor::{TableOperation::InsertRow, TableStructureEdit};
     let base = format!(

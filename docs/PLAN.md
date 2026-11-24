@@ -23,6 +23,15 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 
+**#3 table follow-up:** direct-body table layout can be inspected, set or
+cleared; grid column widths, physical cell spans and vertical merge markers
+are inspectable in all three bindings. Remaining table goals include full
+table/row/cell replacement, general nested-table editing, and independent
+inspection/patch/clear of the other table, row, cell and border properties.
+The table-structure output matched across Rust, installed Python 3.12 and
+packed Node 26 and passed schema/OPC checks. All 11 catalog files matched
+across the three bindings; all 23 Node editor outputs matched Rust.
+
 **Combined qualification on `6f11a6a`:** Rust all-features/all-targets and
 doctests, native/Wasm Clippy, Rust 1.88, 894 schema-required Python tests and
 the 592-page strict docs build passed locally. Packed Node 22/24 and Chromium

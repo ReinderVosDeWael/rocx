@@ -558,6 +558,11 @@ async def generate(output: pathlib.Path) -> bytes:
     reopened_again = ImportedDocument.open(edited)
     other_cell = reopened_again.body[table_index].children[0].children[1]
     assert other_cell.blocks[0].inline_structure[1].anchor != suffix.anchor
+    # Layout sample: change the direct layout while preserving grid widths.
+    assert inserted.layout == "fixed" and inserted.grid_widths == [2160, 2160]
+    layout = reopened.preview([], table_structure=[TableStructureEdit.layout(inserted.anchor, "autofit")])
+    adjusted = ImportedDocument.open(layout.to_docx()).body[table_index]
+    assert adjusted.layout == "autofit" and adjusted.grid_widths == inserted.grid_widths
     # Structural sample: append an empty row to this original table.
     appended = reopened.preview([], table_structure=[TableStructureEdit.insert_row(inserted.anchor, 1)])
     assert len(ImportedDocument.open(appended.to_docx()).body[table_index].children) == 2

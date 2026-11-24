@@ -1,4 +1,5 @@
 import type { ReadLimits, ResolvedHandle } from "./boundary.js";
+import type { TableLayout } from "./tables.js";
 
 declare const anchor: unique symbol;
 
@@ -92,6 +93,8 @@ export interface ImportedCellParagraph extends ImportedFlatParagraph {
 export type ImportedCellBlock = ImportedCellParagraph | ImportedOpaque;
 
 export interface ImportedTableCell {
+  readonly gridSpan?: number;
+  readonly verticalMerge?: string;
   readonly kind: "cell";
   readonly blocks: readonly ImportedCellBlock[];
 }
@@ -106,6 +109,8 @@ export interface ImportedTableRow {
 export type ImportedTableChild = ImportedTableRow | ImportedOpaque;
 
 export interface ImportedTable {
+  readonly layout?: TableLayout;
+  readonly gridWidths: readonly (number | null)[];
   readonly kind: "table";
   readonly anchor: TableAnchor;
   /** Physical rows; merged cells are not expanded. */
