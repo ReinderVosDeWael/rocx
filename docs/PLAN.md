@@ -2,6 +2,9 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+Release target: 0.4.0 for Rust and Python. Prepare and validate the untagged
+candidate; the #3 scope and #4 registry gates below still apply before tagging.
+
 The initial editor checkpoint shipped in 0.3.0. The inline inspection slice
 below is unreleased; the unrelated backlog remains deferred.
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 ### Authoring
 
@@ -13,17 +13,17 @@
 
 ### Existing documents
 
-- Inspect run and hyperlink boundaries in direct body and default-header
-  paragraphs with snapshot-scoped read-only addresses in Rust and Python.
-  Inherited aliases of one physical header share addresses.
+- Inspect run and hyperlink boundaries in direct body and table-cell paragraphs
+  and in default, first-page and even-page headers and footers. Inherited
+  references to one physical story share snapshot-scoped inline addresses.
 - Combine body alignment, table insertion, and default-header image edits in
   one atomic preview. Retained previews share unchanged package payloads.
 
 ### JavaScript
 
-- Add an npm-installable Rust/Wasm tarball for Node and Chromium with a typed,
-  byte-oriented API for formatted paragraphs, simple tables, and inline images.
-  The tarball is separate from the Rust/Python distributions.
+- The separate Node/Chromium development tarball supports named authoring
+  factories, reusable snapshots, templates, inspection and edit previews.
+  This Rust/Python release does not publish an npm package.
 
 ### Template fixes
 
