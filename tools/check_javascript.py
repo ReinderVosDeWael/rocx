@@ -23,7 +23,7 @@ PORTABLE_ORACLES = (
     "tables", "tables-auto", "tables-layout",
     "fresh", "override", "edited", "structured",
 )
-EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "shared", "local",
+EDITOR_OUTPUTS = ("body", "cell", "tableStructure", "mixedBody", "noop", "removal", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared")
 
 
@@ -112,6 +112,25 @@ async def python_mixed_body(source: Path, output: Path) -> None:
     output.write_bytes(preview.to_docx())
 
 
+async def python_table_structure(source: Path, output: Path) -> None:
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, TableStructureEdit as E
+
+    data = source.read_bytes()
+    paragraph = await d.Paragraph(text="inserted paragraph").resolve()
+    nested = await d.Table([d.TableRow([
+        d.TableCell([d.Paragraph(text=t)]) for t in ("next A", "next B")
+    ])]).resolve()
+    for build in (lambda a: E.insert_row(a, 1), lambda a: E.remove_row(a, 1),
+                  lambda a: E.insert_column(a, 1), lambda a: E.remove_column(a, 1),
+                  lambda a: E.insert_cell(a, 0, 1), lambda a: E.remove_cell(a, 0, 1),
+                  lambda a: E.replace_cell(a, 0, 1, [paragraph, nested])):
+        doc = ImportedDocument.open(data)
+        data = doc.preview([], table_structure=[build(doc.body[5].anchor)]).to_docx()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(data)
+
+
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
     for name in ("base", "relocated"):
@@ -121,6 +140,10 @@ def verify_editor(validator: Validator, parity: Path) -> None:
         path = reference / f"native-{name}.docx"
         data = path.read_bytes()
         verify_file(validator, path, data, language="Rust")
+        if name == "tableStructure":
+            python = parity / "python" / "editor" / "tableStructure.docx"
+            asyncio.run(python_table_structure(reference / "native-body.docx", python))
+            verify_file(validator, python, data, language="Python")
         if name == "mixedBody":
             python = parity / "python" / "editor" / "mixedBody.docx"
             asyncio.run(python_mixed_body(reference / "native-body.docx", python))

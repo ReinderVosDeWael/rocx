@@ -186,6 +186,47 @@ fn main() {
             .unwrap()
             .unwrap(),
     };
+    use rocx::editor::{TableOperation::*, TableStructureEdit};
+    let mut structure = body.clone();
+    for operation in [
+        InsertRow(1),
+        RemoveRow(1),
+        InsertColumn(1),
+        RemoveColumn(1),
+        InsertCell { row: 0, cell: 1 },
+        RemoveCell { row: 0, cell: 1 },
+        ReplaceCell {
+            row: 0,
+            cell: 1,
+            blocks: vec![
+                rocx::ResolvedBlock::Paragraph(insertion.paragraph.clone()),
+                rocx::ResolvedBlock::Table(insertions[1].table.clone()),
+            ],
+        },
+    ] {
+        let source = ImportedDocument::open(&structure).unwrap();
+        let BodyBlock::Table(table) = &source.body()[5] else {
+            unreachable!()
+        };
+        structure = source
+            .preview_with_table_structure(
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[TableStructureEdit {
+                    target: table.anchor.clone(),
+                    operation,
+                }],
+            )
+            .unwrap()
+            .to_docx()
+            .unwrap();
+    }
+    write("native-tableStructure.docx", structure);
     write(
         "native-mixedBody.docx",
         reopened

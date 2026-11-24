@@ -14,6 +14,7 @@ use rocx::{
     Result, Value,
 };
 
+pub(crate) use operations::block_value;
 pub(crate) use values::{content_control_properties, text_revision};
 pub(crate) use views::{content_control_properties_view, plain_comment_view, text_revision_view};
 

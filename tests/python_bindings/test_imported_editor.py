@@ -956,3 +956,71 @@ async def test_header_image_edit_rejects_invalid_inputs_and_foreign_anchor():
         HeaderImageEdit(anchor, d.ImageRun(data=b""), mode="shared")
     with pytest.raises(ValueError):
         second.preview_header_image(HeaderImageEdit(anchor, image, mode="shared"))
+
+
+async def test_table_structure_merged_fixture_and_atomic_rejection():
+    from rocx.editor import TableStructureEdit as E
+
+    source = docx.Document()
+    source.add_paragraph("before")
+    table = source.add_table(rows=2, cols=3)
+    table.cell(0, 0).merge(table.cell(1, 1)).text = "merged"
+    table.cell(0, 2).text = "content"
+    # An unmodeled nested block must survive work elsewhere in this table.
+    nested = table.cell(1, 2).add_table(rows=1, cols=1)
+    nested.cell(0, 0).text = "opaque table"
+    source.add_paragraph("after")
+    stream = io.BytesIO()
+    source.save(stream)
+    original = stream.getvalue()
+    imported = ImportedDocument.open(original)
+    before, target, after = imported.body
+    a = target.anchor
+    insertion = ParagraphInsertion(before.anchor, await d.Paragraph(text="new body block").resolve())
+    replacement = await d.Paragraph(children=[d.Hyperlink("https://example.org/cell", [d.TextRun("link")])]).resolve()
+
+    def stage(*edits):
+        return imported.preview([], paragraph_insertions=[insertion], table_structure=list(edits)).to_docx()
+
+    def read(data):
+        result = docx.Document(io.BytesIO(data))
+        assert [p.text for p in result.paragraphs] == ["before", "new body block", "after"]
+        return result.tables[0]
+
+    added = stage(E.insert_row(a, 1))
+    rows = read(added).rows
+    assert [[c.text for c in r.cells[:2]] for r in rows] == [["merged", "merged"]] * 3
+    assert len(rows[1]._tr.tc_lst) == 2
+    assert rows[1].cells[2].text == ""
+    assert rows[2].cells[2].tables[0].cell(0, 0).text == "opaque table"
+    before_parts, after_parts = _parts(original), _parts(added)
+    assert before_parts.keys() == after_parts.keys()
+    assert all(v == after_parts[k] for k, v in before_parts.items() if k != "word/document.xml")
+
+    # Physical cell 1 begins at logical column 2. Local changes must not
+    # shift the vertical chain in columns [0,2), even in the shorter row.
+    local = read(stage(E.insert_cell(a, 0, 1)))
+    assert [c.text for c in local.rows[0].cells] == ["merged", "merged", "", "content"]
+    assert local.rows[1].grid_cols_after == 1
+    shifted = read(stage(E.insert_column(a, 0)))
+    assert [c.text for c in shifted.rows[0].cells] == ["", "merged", "merged", "content"]
+    assert [c.text for c in shifted.rows[1].cells[:3]] == ["", "merged", "merged"]
+
+    change = E.replace_cell(a, 0, 1, [replacement, await d.Paragraph(text="last").resolve()])
+    replaced = stage(change)
+    paragraphs = read(replaced).rows[0].cells[2].paragraphs
+    assert [p.text for p in paragraphs] == ["link", "last"]
+    assert paragraphs[0].hyperlinks[0].url == "https://example.org/cell"
+    assert read(stage(E.replace_cell(a, 0, 1, []))).rows[0].cells[2].text == ""
+
+    for edits in ([E.remove_row(a, 0)], [E.insert_column(a, 1)], [E.remove_column(a, 0)],
+                  [E.insert_cell(a, 0, 0)], [E.remove_cell(a, 1, 0)],
+                  [E.replace_cell(a, 1, 0, [])], [E.remove_cell(a, 1, 1)],
+                  [change, E.replace_cell(a, 1, 1, [])], [change, change],
+                  [E.insert_row(a, 3)], [E.insert_row(a, 1), change]):
+        with pytest.raises(ValueError):
+            stage(*edits)
+    with pytest.raises(ValueError, match="different document snapshot"):
+        ImportedDocument.open(original).preview([], table_structure=[change])
+    assert stage(change) == replaced
+    assert _parts(imported.preview([]).to_docx()) == before_parts

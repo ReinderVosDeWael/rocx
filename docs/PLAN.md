@@ -2,6 +2,13 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+Table follow-up for #3: qualify structural edits of direct body tables against
+independent merged-grid fixtures and packed consumer byte oracles. The topic
+adds physical row/cell and logical column operations and declaration-based
+cell replacement. The seven-operation fixture matched complete Rust, installed
+Python and packed Node DOCX bytes; independent readback and OPC/XSD validation
+passed. The combined integration gate remains separate.
+
 ## Current milestone: qualify the combined #3 editor
 
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).

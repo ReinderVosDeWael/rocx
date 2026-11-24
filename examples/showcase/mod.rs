@@ -756,6 +756,24 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_ne!(first.anchor, prefix.anchor);
     assert!(matches!(reopened.inline_at(&suffix.anchor)?, Run(run) if run.anchor == suffix.anchor));
     assert!(imported.inline_at(&suffix.anchor).is_err());
+    // Structural sample: append an empty row to this original table.
+    let appended = reopened
+        .preview_with_table_structure(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[editor::TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: editor::TableOperation::InsertRow(1),
+            }],
+        )?
+        .to_docx()?;
+    let appended = editor::ImportedDocument::open(&appended)?;
+    assert!(matches!(&appended.body()[after],editor::BodyBlock::Table(t) if t.children.len()==2));
     let cell_preview = reopened.preview_with_cells(
         &[],
         &[],

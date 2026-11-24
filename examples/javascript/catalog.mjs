@@ -193,6 +193,10 @@ export async function generateCatalog(fixtures, options) {
   const reopenedForCell = await openDocx(edited);
   const insertedTable = reopenedForCell.body()[bodyIndex + 1];
   assert(insertedTable.kind === "table", "expected inserted table");
+  // Structural sample: append an empty row to this original table.
+  const appended = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "insertRow", index: 1 }] });
+  const larger = (await openDocx(appended.toDocx())).body()[bodyIndex + 1];
+  assert(larger.kind === "table" && larger.children.length === 2, "expected appended row");
   const cellPreview = reopenedForCell.preview({ cellAlignments: [
     { target: insertedTable.anchor, rowIndex: 0, cellIndex: 0, alignment: "center" },
   ] });

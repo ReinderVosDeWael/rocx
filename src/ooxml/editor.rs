@@ -17,16 +17,25 @@ pub(crate) fn encode_editor_paragraphs(
     main: &str,
     paragraphs: Vec<ResolvedParagraph>,
 ) -> Result<(Package, Vec<Node>)> {
+    let blocks = paragraphs
+        .into_iter()
+        .map(ResolvedBlock::Paragraph)
+        .collect::<Vec<_>>();
+    encode_editor_blocks(package, main, &blocks, None, "editor.paragraph")
+}
+
+/// Render supported declaration blocks for body paragraphs and existing cells.
+/// Only a nested auto-width table needs an unambiguous parent cell width.
+pub(crate) fn encode_editor_blocks(
+    package: Package,
+    main: &str,
+    blocks: &[ResolvedBlock],
+    cell_width: Option<i64>,
+    scope: &'static str,
+) -> Result<(Package, Vec<Node>)> {
     let mut style_refs = BTreeSet::new();
     let path = DeclarationPath::root("sections").index(0).field("children");
-    for (index, paragraph) in paragraphs.iter().enumerate() {
-        check_blocks(
-            &[ResolvedBlock::Paragraph(paragraph.clone())],
-            &path.index(index),
-            &mut style_refs,
-            "editor.paragraph",
-        )?;
-    }
+    check_blocks(blocks, &path, &mut style_refs, scope)?;
     let style_part = if style_refs.is_empty() {
         None
     } else {
@@ -48,10 +57,28 @@ pub(crate) fn encode_editor_paragraphs(
         renderer
             .stories
             .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
-    let mut output = Vec::with_capacity(paragraphs.len());
-    for paragraph in paragraphs {
-        let context = renderer.context(story, 8640);
-        output.push(renderer.paragraph(&paragraph, &context)?);
+    let mut output = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let node = match block {
+            ResolvedBlock::Paragraph(p) => renderer.paragraph(p, &renderer.context(story, 8640))?,
+            ResolvedBlock::Table(t) => {
+                if t.columns() == 0 {
+                    return Err(unsupported("empty replacement table").into());
+                }
+                let width = if let Some(widths) = t.column_widths()
+                    && t.layout() != Some(crate::TableLayout::Autofit)
+                {
+                    widths.iter().copied().map(i64::from).sum()
+                } else {
+                    cell_width.ok_or_else(|| unsupported(
+                        "nested table requires a positive absolute cell width or explicit table widths",
+                    ))?
+                };
+                renderer.table(t, &renderer.context(story, width))?
+            }
+            ResolvedBlock::ContentControl(_) => unreachable!("validated above"),
+        };
+        output.push(node);
     }
     Ok((renderer.package, output))
 }

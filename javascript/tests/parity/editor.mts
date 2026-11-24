@@ -3,7 +3,7 @@ import {
   type AlignmentChange, type EditBatch, type EditPreview, type HeaderImageChange,
   type HeaderImageEdit, type HeaderImagePreview, type ImportedDocument, type ImportedParagraph,
   type ResolvedImage, type ResolvedTable, type TableCellDeclaration, type TableDeclaration,
-  type TableInsertionChange,
+  type TableInsertionChange, type TableStructureEdit, type TableAnchor,
 } from "rocx-docx";
 
 export interface Fixtures {
@@ -218,7 +218,22 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   rejects(() => unsafe.preview({ tableInsertions: [{ ...insert, target: paragraph(unsafe, 0).anchor }] }), /range/);
   const ambiguous = await openDocx(input.ambiguous);
   rejects(() => ambiguous.preview({ alignments: [{ ...align, target: paragraph(ambiguous, 0).anchor }] }), /ambiguous/);
-  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes };
+  let tableStructure = bytes;
+  const steps: ((target: TableAnchor) => TableStructureEdit)[] = [
+    target => ({target, kind: "insertRow", index: 1}), target => ({target, kind: "removeRow", index: 1}),
+    target => ({target, kind: "insertColumn", index: 1}), target => ({target, kind: "removeColumn", index: 1}),
+    target => ({target, kind: "insertCell", row: 0, cell: 1}), target => ({target, kind: "removeCell", row: 0, cell: 1}),
+    target => ({target, kind: "replaceCell", row: 0, cell: 1, blocks: [insertedParagraph, auto]}),
+  ];
+  for (const step of steps) {
+    const source = await openDocx(tableStructure);
+    const table = source.body()[5]; check(table?.kind === "table", "structure target");
+    const edit = step(table.anchor);
+    rejects(() => reopened.preview({tableStructure: [edit]}), /different document snapshot/);
+    rejects(() => source.preview({tableStructure: [edit, edit]}), /exclusive|duplicate/);
+    tableStructure = source.preview({tableStructure: [edit]}).toDocx();
+  }
+  return { tableStructure, body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes };
 }
 
 export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {

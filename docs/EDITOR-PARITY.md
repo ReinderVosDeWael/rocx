@@ -70,6 +70,44 @@ use `preview({ cellAlignments: [...] })`. Indices refer to the original
 snapshot's inspected children, including opaque entries. Duplicate, missing,
 foreign-snapshot and structurally ambiguous targets reject the entire batch.
 
+### Structural edits to a direct body table
+
+Use the original table anchor with Rust `TableStructureEdit { target, operation }`
+(the last slice of `preview_with_table_structure`), Python
+`preview([], table_structure=[TableStructureEdit.insert_row(target, index)])`, or
+JavaScript `preview({tableStructure: [{target, kind: "insertRow", index}]})`.
+
+| Rust `TableOperation` | Python `TableStructureEdit` factory | JavaScript `kind` | Coordinate |
+| --- | --- | --- | --- |
+| `InsertRow` / `RemoveRow` | `insert_row` / `remove_row` | `insertRow` / `removeRow` | `index`: physical row |
+| `InsertCell` / `RemoveCell` | `insert_cell` / `remove_cell` | `insertCell` / `removeCell` | `row`, `cell`: physical row and cell |
+| `InsertColumn` / `RemoveColumn` | `insert_column` / `remove_column` | `insertColumn` / `removeColumn` | `index`: logical grid column, across all rows |
+| `ReplaceCell` | `replace_cell` | `replaceCell` | `row`, `cell`, `blocks`: physical target and ordered resolved paragraphs/tables |
+
+Indices are zero-based; insert before an index or append at the count. A cell
+spanning three grid columns still counts as **one physical cell**. A new row
+contains blank cells except where it must continue an existing vertical merge;
+those continuations inherit the exact logical interval, including horizontal span.
+A row-local cell insertion shifts the row's suffix right, consuming one unused
+trailing grid slot or appending a grid column and increasing `gridAfter` on
+other rows. Row-local deletion shifts the suffix left and adds a trailing gap;
+it does not delete a grid column. Whole-column edits require full rows and a
+common cell boundary. They change `tblGrid` and all physical rows together.
+
+Content replacement keeps `tcPr` and accepts resolved paragraphs and nested tables
+using the existing insertion guards, including external hyperlink support. Supply
+explicit nested table widths if the parent cell has no absolute `dxa` width.
+A trailing table gets a required empty paragraph after it. An empty list clears
+the contents to a required empty paragraph. Replace the origin of a merged cell,
+not its continuation. Destructive edits only discard plain paragraphs/runs and
+basic geometry; foreign markup, formatting outside the whitelist, revisions,
+fields, protected ranges, and merges that would be split or vertically misaligned cause
+rejection. Nested tables are preserved outside a destructive target. Removing
+the final row or final physical cell of a row is unsupported. A geometry edit
+needs exclusive access to its table for the batch; distinct content replacements
+can be batched on the same table. Other original body targets can be edited in
+the same transaction. Reopen the result for coordinates in the new geometry.
+
 Direct body, header, and footer paragraphs retain run and hyperlink boundaries through
 `inline_structure`. Hyperlinks expose their explicit owner-local relationship
 ID and bookmark reference, without resolving either. Runs expose ordered text,

@@ -27,7 +27,7 @@ pub use header::{
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
-pub use tables::{CellAlignmentChange, CellAlignmentEdit};
+pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
 pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.
@@ -647,6 +647,31 @@ impl ImportedDocument {
         cells: &[CellAlignmentEdit],
         run_removals: &[InlineAnchor],
     ) -> Result<EditPreview> {
+        self.preview_with_table_structure(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            &[],
+        )
+    }
+
+    /// Stage structural edits to original body tables together with other edit kinds.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_with_table_structure(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+        structural: &[TableStructureEdit],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -656,6 +681,7 @@ impl ImportedDocument {
             .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
+            .chain(structural.iter().map(|edit| &edit.target._snapshot))
         {
             self.validate_snapshot(snapshot)?;
         }
@@ -708,10 +734,12 @@ impl ImportedDocument {
             || !run_removals.is_empty()
             || !paragraph_targets.is_empty()
             || !cells.is_empty()
+            || !structural.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
+            package = tables::structure(body, package, &self.main, structural, cells)?;
             (run_text_changes, removed_runs) = text::apply(body, run_text, run_removals)?;
             cell_alignment_changes = tables::apply(body, cells)?;
             for (body_index, paragraph) in body
@@ -801,6 +829,7 @@ impl ImportedDocument {
                 || !run_text_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
+                || !structural.is_empty()
                 || !insertions.is_empty()
                 || !paragraph_insertions.is_empty()
                 || header_changes
