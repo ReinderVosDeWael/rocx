@@ -253,6 +253,11 @@ export async function generateCatalog(fixtures, options) {
   const reopenedForCell = await openDocx(edited);
   const insertedTable = reopenedForCell.body()[bodyIndex + 1];
   assert(insertedTable.kind === "table", "expected inserted table");
+  // Layout sample: change the direct layout while preserving grid widths.
+  assert(insertedTable.layout === "fixed" && insertedTable.gridWidths.join() === "2160,2160", "expected direct layout and widths");
+  const layout = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "layout", value: "autofit" }] });
+  const adjusted = (await openDocx(layout.toDocx())).body()[bodyIndex + 1];
+  assert(adjusted.layout === "autofit" && adjusted.gridWidths.join() === "2160,2160", "layout patch preserved grid");
   // Structural sample: append an empty row to this original table.
   const appended = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "insertRow", index: 1 }] });
   const larger = (await openDocx(appended.toDocx())).body()[bodyIndex + 1];

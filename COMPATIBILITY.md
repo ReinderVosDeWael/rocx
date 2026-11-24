@@ -59,6 +59,7 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Replace/remove a paragraph, replace section content or patch keep-with-next | `BlockEdit` / `preview_blocks` | `preview([], block_edits=[edit])` | `preview({blockEdits: [edit]})` |
 | Insert/replace a direct inline or patch direct run toggles | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
 | Insert/remove rows, cells or columns; replace cell contents | `TableStructureEdit` / `preview_with_table_structure` | `preview([], table_structure=[edit])` | `preview({tableStructure: [edit]})` |
+| Set/clear direct table layout (same batch field) | `TableOperation::Layout(Some(TableLayout::Fixed))` / `Layout(None)` | `TableStructureEdit.layout(target, "fixed")` / `layout(target, None)` | `{target, kind: "layout", value: "fixed"}` / `value: null` |
 | Edit supported style definitions | `StyleEdit` / `preview_with_styles` | `preview([], style_edits=[edit])` | `preview({styleEdits: [edit]})` |
 | Set/clear title, default alignment or abstract level start | `ResourceEdit` / `preview_with_resources` | `preview([], resources=[edit])` | `preview({resources: [edit]})` |
 | Edit simple text in a physical header/footer, footnote/endnote or comment part | `edit_story_text(owner_part, edits)` | `edit_story_text(owner_part, edits)` | `editStoryText({ownerPart, runText})` |

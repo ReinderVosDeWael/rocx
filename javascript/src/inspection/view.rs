@@ -82,19 +82,38 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
             optional(&result, "alignmentXml", p.alignment_xml.as_deref());
             result
         }
-        BodyBlock::Table(t) => record(
-            "table",
-            &[
-                (
-                    "anchor",
-                    cached(&anchors.tables, index, "tableAnchor", &t.anchor),
-                ),
-                (
-                    "children",
-                    try_array(t.children.iter().map(|child| table_child(child, anchors)))?,
-                ),
-            ],
-        ),
+        BodyBlock::Table(t) => {
+            let result = record(
+                "table",
+                &[
+                    (
+                        "anchor",
+                        cached(&anchors.tables, index, "tableAnchor", &t.anchor),
+                    ),
+                    (
+                        "gridWidths",
+                        array(
+                            t.grid_widths
+                                .iter()
+                                .map(|w| w.map_or(JsValue::NULL, JsValue::from)),
+                        ),
+                    ),
+                    (
+                        "children",
+                        try_array(t.children.iter().map(|child| table_child(child, anchors)))?,
+                    ),
+                ],
+            );
+            optional(
+                &result,
+                "layout",
+                t.layout.map(|v| match v {
+                    rocx::TableLayout::Fixed => "fixed",
+                    rocx::TableLayout::Autofit => "autofit",
+                }),
+            );
+            result
+        }
         BodyBlock::ContentControl(control) => {
             let result = record("contentControl", &[]);
             optional(&result, "tag", control.tag.as_deref());
@@ -123,36 +142,46 @@ fn table_child(child: &ImportedTableChild, anchors: &Anchors) -> Result<JsValue>
 
 fn row_child(child: &ImportedRowChild, anchors: &Anchors) -> Result<JsValue> {
     Ok(match child {
-        ImportedRowChild::Cell(cell) => record(
-            "cell",
-            &[(
-                "blocks",
-                try_array(
-                    cell.blocks
-                        .iter()
-                        .enumerate()
-                        .map(|(i, block)| match block {
-                            ImportedCellBlock::Paragraph(values) => {
-                                let nodes = cell.inline_structure(i).ok_or_else(|| {
-                                    Failure::invalid(
-                                        "",
-                                        "missing Rust cell paragraph inline structure",
-                                    )
-                                })?;
-                                Ok(record(
-                                    "paragraph",
-                                    &[
-                                        ("inlineItems", items(values)?),
-                                        ("inlineStructure", inline_nodes(nodes, anchors, None)?),
-                                    ],
-                                ))
-                            }
-                            ImportedCellBlock::Opaque(name) => Ok(opaque(name)),
-                            _ => Err(unmodeled("cell block")),
-                        }),
-                )?,
-            )],
-        ),
+        ImportedRowChild::Cell(cell) => {
+            let result = record(
+                "cell",
+                &[(
+                    "blocks",
+                    try_array(
+                        cell.blocks
+                            .iter()
+                            .enumerate()
+                            .map(|(i, block)| match block {
+                                ImportedCellBlock::Paragraph(values) => {
+                                    let nodes = cell.inline_structure(i).ok_or_else(|| {
+                                        Failure::invalid(
+                                            "",
+                                            "missing Rust cell paragraph inline structure",
+                                        )
+                                    })?;
+                                    Ok(record(
+                                        "paragraph",
+                                        &[
+                                            ("inlineItems", items(values)?),
+                                            (
+                                                "inlineStructure",
+                                                inline_nodes(nodes, anchors, None)?,
+                                            ),
+                                        ],
+                                    ))
+                                }
+                                ImportedCellBlock::Opaque(name) => Ok(opaque(name)),
+                                _ => Err(unmodeled("cell block")),
+                            }),
+                    )?,
+                )],
+            );
+            if let Some(span) = cell.grid_span {
+                b::set(&result, "gridSpan", &span.into());
+            }
+            optional(&result, "verticalMerge", cell.vertical_merge.as_deref());
+            result
+        }
         ImportedRowChild::Opaque(name) => opaque(name),
         _ => return Err(unmodeled("row child")),
     })

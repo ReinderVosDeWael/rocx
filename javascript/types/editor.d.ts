@@ -1,7 +1,7 @@
 import type { ResolvedImage } from "./drawings.js";
 import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
 import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
-import type { ResolvedTable } from "./tables.js";
+import type { ResolvedTable, TableLayout } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
 
 export interface ParagraphAlignmentEdit {
@@ -77,6 +77,7 @@ export interface EditBatch {
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
 export interface TextInsertion { readonly target: ParagraphAnchor; readonly position: number; readonly text: string }
 export type TableStructureEdit =
+  | { readonly target: TableAnchor; readonly kind: "layout"; readonly value: TableLayout | null }
   | { readonly target: TableAnchor; readonly kind: "insertRow" | "removeRow" | "insertColumn" | "removeColumn"; readonly index: number }
   | { readonly target: TableAnchor; readonly kind: "insertCell" | "removeCell"; readonly row: number; readonly cell: number }
   | { readonly target: TableAnchor; readonly kind: "replaceCell"; readonly row: number; readonly cell: number; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[] };

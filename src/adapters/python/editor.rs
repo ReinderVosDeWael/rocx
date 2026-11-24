@@ -516,6 +516,10 @@ impl From<&editor::ImportedInline> for PyImportedInline {
 #[pyclass(name = "BodyTable", frozen, module = "rocx.editor")]
 struct PyBodyTable {
     #[pyo3(get)]
+    layout: Option<String>,
+    #[pyo3(get)]
+    grid_widths: Vec<Option<u32>>,
+    #[pyo3(get)]
     anchor: Py<PyTableAnchor>,
     #[pyo3(get)]
     children: Vec<Py<PyAny>>,
@@ -534,6 +538,10 @@ struct PyImportedTableRow {
 
 #[pyclass(name = "ImportedTableCell", frozen, module = "rocx.editor")]
 struct PyImportedTableCell {
+    #[pyo3(get)]
+    grid_span: Option<u32>,
+    #[pyo3(get)]
+    vertical_merge: Option<String>,
     #[pyo3(get)]
     blocks: Vec<Py<PyAny>>,
 }
@@ -593,7 +601,15 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                                     .into_any()),
                                 })
                                 .collect::<PyResult<_>>()?;
-                            Ok(Py::new(py, PyImportedTableCell { blocks })?.into_any())
+                            Ok(Py::new(
+                                py,
+                                PyImportedTableCell {
+                                    blocks,
+                                    grid_span: cell.grid_span,
+                                    vertical_merge: cell.vertical_merge.clone(),
+                                },
+                            )?
+                            .into_any())
                         }
                     })
                     .collect::<PyResult<_>>()?;
@@ -604,6 +620,8 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
     Ok(Py::new(
         py,
         PyBodyTable {
+            layout: table.layout.map(|v| v.xml().to_owned()),
+            grid_widths: table.grid_widths.clone(),
             anchor: Py::new(
                 py,
                 PyTableAnchor {
@@ -644,6 +662,21 @@ struct PyTableStructureEdit {
 }
 #[pymethods]
 impl PyTableStructureEdit {
+    #[staticmethod]
+    #[pyo3(signature = (target, value))]
+    fn layout(
+        target: PyRef<'_, PyTableAnchor>,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::Layout(
+                    value.map(super::values::tablelayout).transpose()?,
+                ),
+            },
+        })
+    }
     #[staticmethod]
     fn insert_row(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
         Self {

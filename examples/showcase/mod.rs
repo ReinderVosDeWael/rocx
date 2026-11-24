@@ -935,6 +935,27 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_ne!(first.anchor, prefix.anchor);
     assert!(matches!(reopened.inline_at(&suffix.anchor)?, Run(run) if run.anchor == suffix.anchor));
     assert!(imported.inline_at(&suffix.anchor).is_err());
+    // Layout sample: change the direct layout while preserving grid widths.
+    assert_eq!(table.layout, Some(TableLayout::Fixed));
+    assert_eq!(table.grid_widths, [Some(2160), Some(2160)]);
+    let layout = reopened
+        .preview_with_table_structure(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[editor::TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: editor::TableOperation::Layout(Some(TableLayout::Autofit)),
+            }],
+        )?
+        .to_docx()?;
+    assert!(
+        matches!(&editor::ImportedDocument::open(&layout)?.body()[after], editor::BodyBlock::Table(t) if t.layout == Some(TableLayout::Autofit) && t.grid_widths == table.grid_widths)
+    );
     // Structural sample: append an empty row to this original table.
     let appended = reopened
         .preview_with_table_structure(

@@ -137,7 +137,8 @@ async def python_table_structure(source: Path, output: Path) -> None:
     nested = await d.Table([d.TableRow([
         d.TableCell([d.Paragraph(text=t)]) for t in ("next A", "next B")
     ])]).resolve()
-    for build in (lambda a: E.insert_row(a, 1), lambda a: E.remove_row(a, 1),
+    for build in (lambda a: E.layout(a, None), lambda a: E.layout(a, "autofit"),
+                  lambda a: E.insert_row(a, 1), lambda a: E.remove_row(a, 1),
                   lambda a: E.insert_column(a, 1), lambda a: E.remove_column(a, 1),
                   lambda a: E.insert_cell(a, 0, 1), lambda a: E.remove_cell(a, 0, 1),
                   lambda a: E.replace_cell(a, 0, 1, [paragraph, nested])):
@@ -175,7 +176,7 @@ def python_combined(source: Path) -> bytes:
 
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
-    for name in ("base", "relocated", "range-source", "styles-source", "control-source"):
+    for name in ("base", "relocated", "range-source", "styles-source", "control-source", "table-layout"):
         path = reference / f"{name}.docx"
         print(f"editor/{path.name}: {len(validator.validate(path))} schema-covered parts and OPC relationships")
     assert {p.name for p in reference.glob("native-*.docx")} == {f"native-{n}.docx" for n in EDITOR_OUTPUTS}

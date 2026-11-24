@@ -196,6 +196,11 @@ and JavaScript `{target: anchor, kind: "insertRow", index: 1}`. The reopened
 preview has two rows. See [structural table edits](../docs/EDITOR-PARITY.md#structural-edits-to-a-direct-body-table)
 for the physical cell and logical column operations and merge guards.
 
+The layout sample previews `TableOperation::Layout(Some(TableLayout::Autofit))`,
+`TableStructureEdit.layout(anchor, "autofit")`, or
+`{target: anchor, kind: "layout", value: "autofit"}`. Reopening confirms the
+layout changed from fixed to autofit while both grid columns remain 2160 twips.
+
 For the run-text output Rust passes `ParagraphInsertion` to
 `EditBatch.paragraphs` in `preview_edits`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
 to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`
