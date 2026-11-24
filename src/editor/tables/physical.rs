@@ -63,9 +63,8 @@ impl Walker<'_> {
     ) {
         let safe = safe
             && validate(n, true).is_ok()
-            && !n
-                .child("w:tblPr")
-                .is_some_and(|p| p.child("w:tblPrChange").is_some());
+            && n.child("w:tblPr")
+                .is_none_or(|p| p.child("w:tblPrChange").is_none());
         self.tables.push(LocatedTable {
             anchor: TableAnchor {
                 _snapshot: self.snapshot.clone(),

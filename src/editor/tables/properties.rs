@@ -272,10 +272,10 @@ pub(super) fn patch(
         && value
             .as_ref()
             .is_some_and(|n| n.get("w:val") == Some("continue"))
-        && !node
+        && node
             .child(properties)
             .and_then(|p| p.child("w:vMerge"))
-            .is_some_and(|m| m.get("w:val") != Some("restart"))
+            .is_none_or(|m| m.get("w:val") == Some("restart"))
         && node.elements().filter(|n| n.name != "w:tcPr").any(|n| {
             n.name != "w:p"
                 || !n.attrs.is_empty()
