@@ -9,6 +9,8 @@ export async function editorFixtures(read) {
     noop: result.noop,
     shared: result.shared,
     local: result.local,
+    firstShared: result.firstShared,
+    firstLocal: result.firstLocal,
     "relocated-out": result.relocated,
     mixed: result.mixed,
     mixedShared: result.mixedShared,

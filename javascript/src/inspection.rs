@@ -46,7 +46,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
 struct Anchors {
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
-    headers: RefCell<HashMap<usize, JsValue>>,
+    headers: RefCell<HashMap<(usize, usize), JsValue>>,
     inlines: RefCell<HashMap<InlineKey, JsValue>>,
 }
 
@@ -119,7 +119,7 @@ impl StorySource {
             StorySlot::Story(story) => (
                 "importedStory",
                 story.part_name.as_str(),
-                view::story(story)?,
+                view::story(story, anchors)?,
             ),
         };
         let part = Rc::from(part);

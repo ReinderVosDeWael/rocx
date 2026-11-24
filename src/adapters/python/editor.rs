@@ -61,6 +61,8 @@ struct PyImportedHeaderParagraph {
 #[pyclass(name = "ImportedStory", frozen, module = "rocx.editor")]
 struct PyImportedStory {
     #[pyo3(get)]
+    anchor: Option<Py<PyHeaderAnchor>>,
+    #[pyo3(get)]
     section_index: usize,
     #[pyo3(get)]
     kind: &'static str,
@@ -710,6 +712,11 @@ impl PyImportedDocument {
             .into_iter()
             .map(|story| {
                 Ok(PyImportedStory {
+                    anchor: story
+                        .anchor
+                        .clone()
+                        .map(|inner| Py::new(py, PyHeaderAnchor { inner }))
+                        .transpose()?,
                     section_index: story.section_index,
                     kind: story.kind.as_str(),
                     variant: story.variant.xml(),

@@ -59,6 +59,9 @@ Aliases of the same part produce equal inline anchors even across the two views,
 but distinct parts do not, even when their contents and relationship IDs match.
 `default_headers` retains its existing inspection scope and section-scoped
 `HeaderAnchor` for image edits; unrelated footer failures don't affect it.
+The broader story view also supplies an image-edit anchor for default and
+first-page headers. Other story slots have no such anchor. Local edits restore
+inheritance only for the selected variant; shared edits include all aliases.
 
 Rust's `preview_transaction` and Python's `preview(..., header_images=...)`
 can stage body alignment, table insertion, and header image edits against the

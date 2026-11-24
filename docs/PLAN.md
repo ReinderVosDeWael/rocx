@@ -204,6 +204,11 @@ until the hosted preflight succeeds and registry setup is confirmed.
 
 ## Editor goal: declarative parity
 
+The current story slice extends header image previews to first-page header
+slots as well as default slots. Shared edits affect physical aliases; local
+forks restore the next inherited first-page slot independently. Even-page
+headers and footer image edits remain future work.
+
 Complete #3 before releasing 0.4.0. Continue the serial checkpoint with
 relationship-based inspection of footnote, endnote and comment entries.
 Re-run release preflight on the integrated candidate, not the earlier docs commit.

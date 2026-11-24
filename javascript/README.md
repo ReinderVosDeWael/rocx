@@ -84,7 +84,7 @@ const bytes = report.toDocx(); // synchronous; snapshot can be rendered again
 | Replace a direct body run's text | `doc.preview({ runText: [{ target: run.anchor, text: "New text" }] })`; inspect `runTextChanges()` before `toDocx()`. |
 | Render against an unsigned Transitional DOCX or DOTX | `report.toDocxWithTemplate({ bytes, edits })`; `compileTemplate` returns an inspectable package plan. |
 | Inspect an unsigned DOCX | `await openDocx(bytes)`, then `body()`, `sections()`, `stories()` or `defaultHeaders()`. Unsupported children may be opaque. |
-| Edit a copy | `imported.preview(batch)` stages body alignment, table insertion and default-header images together. Inspect `changes()`, `insertions()`, `headerChanges()`, then `toDocx()`. |
+| Edit a copy | `imported.preview(batch)` stages body alignment, table insertion and default- or first-page-header images together. Inspect `changes()`, `insertions()`, `headerChanges()`, then `toDocx()`. |
 | Read/write in Node | `templateFile` reads on each render; `imageFile` captures bytes and basename at resolution. `saveDocx` encodes before replacing the destination. |
 
 Use anchors from the same snapshot. Untouched parts retain their payload bytes; edited XML and ZIP bytes may change. See [preview examples and shared-header modes](https://reindervosdewael.github.io/rocx/api/javascript/#preview-anchored-edits).

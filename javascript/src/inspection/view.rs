@@ -289,7 +289,7 @@ pub(super) fn header(header: &ImportedHeader, anchors: &Anchors) -> Result<JsVal
             "anchor",
             cached(
                 &anchors.headers,
-                header.section_index,
+                (header.section_index, 0),
                 "headerAnchor",
                 &header.anchor,
             ),
@@ -301,8 +301,8 @@ pub(super) fn header(header: &ImportedHeader, anchors: &Anchors) -> Result<JsVal
     ]))
 }
 
-pub(super) fn story(story: &ImportedStory) -> Result<JsValue> {
-    Ok(b::record(&[
+pub(super) fn story(story: &ImportedStory, anchors: &Anchors) -> Result<JsValue> {
+    let result = b::record(&[
         ("sectionIndex", story.section_index.into()),
         ("kind", story.kind.as_str().into()),
         (
@@ -317,7 +317,20 @@ pub(super) fn story(story: &ImportedStory) -> Result<JsValue> {
         ("partName", story.part_name.as_str().into()),
         ("inherited", story.inherited.into()),
         ("blocks", story_blocks(&story.blocks)?),
-    ]))
+    ]);
+    if let Some(anchor) = &story.anchor {
+        b::set(
+            &result,
+            "anchor",
+            &cached(
+                &anchors.headers,
+                (story.section_index, story.variant as usize),
+                "headerAnchor",
+                anchor,
+            ),
+        );
+    }
+    Ok(result)
 }
 
 fn story_blocks(blocks: &[ImportedHeaderBlock]) -> Result<JsValue> {

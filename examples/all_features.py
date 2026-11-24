@@ -562,6 +562,12 @@ async def generate(output: pathlib.Path) -> bytes:
         assert first_run.anchor == second_run.anchor == header_doc.inline_at(second_run.anchor).anchor
     assert stories[0].blocks[1].inline_structure[0].anchor == label.anchor
     resolved_image = await image("png").resolve()
+    first_page = next(s for s in stories if (s.section_index, s.kind, s.variant) == (1, "header", "first"))
+    for mode, suffix in (("shared", ".header-first-shared.docx"),
+                         ("section_local", ".header-first-local.docx")):
+        first_preview = header_doc.preview_header_image(HeaderImageEdit(first_page.anchor, resolved_image, mode=mode))
+        assert first_preview.change.affected_sections == ([0, 1] if mode == "shared" else [1])
+        output.with_suffix(suffix).write_bytes(first_preview.to_docx())
     body_target = header_doc.body[0]
     assert body_target.text == HEADER_BATCH_LABEL
     for mode, suffix in [("shared", ".header-shared.docx"),

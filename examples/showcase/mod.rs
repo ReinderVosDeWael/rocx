@@ -808,6 +808,36 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(body_target.text, HEADER_BATCH_LABEL);
     let target = &headers[1];
     let resolved = image("png", None).await?.expect("showcase image");
+    let first_page = stories
+        .iter()
+        .find(|story| {
+            story.section_index == 1
+                && story.kind == editor::SectionStoryKind::Header
+                && story.variant == HeaderFooterType::First
+        })
+        .expect("first-page header");
+    for (mode, suffix) in [
+        (editor::HeaderEditMode::Shared, "header-first-shared.docx"),
+        (
+            editor::HeaderEditMode::SectionLocal,
+            "header-first-local.docx",
+        ),
+    ] {
+        let preview = imported.preview_header_image(&editor::HeaderImageEdit {
+            target: first_page.anchor.clone().expect("first-page edit anchor"),
+            mode,
+            image: resolved.image().expect("resolved image").clone(),
+        })?;
+        assert_eq!(
+            preview.change().affected_sections,
+            if mode == editor::HeaderEditMode::Shared {
+                &[0, 1][..]
+            } else {
+                &[1][..]
+            }
+        );
+        std::fs::write(output.with_extension(suffix), preview.to_docx()?)?;
+    }
     for (mode, suffix) in [
         (editor::HeaderEditMode::Shared, "header-shared.docx"),
         (editor::HeaderEditMode::SectionLocal, "header-local.docx"),

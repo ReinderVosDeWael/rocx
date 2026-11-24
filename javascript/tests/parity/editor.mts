@@ -187,8 +187,19 @@ export async function headerImageScopesAndEffects(input: Fixtures, { image, floa
     /cannot be safely copied/);
   rejects(() => doc.previewHeaderImage({ ...sharedEdit, image: floating }), /requires an inline image/);
   rejects(() => relocated.previewHeaderImage(sharedEdit), /different document snapshot/);
+  const firstPage = doc.stories().find(({ view }) => view.sectionIndex === 3 && view.kind === "header" && view.variant === "first")?.view;
+  check(firstPage?.anchor, "first-page header exposes an edit anchor");
+  const firstShared = doc.previewHeaderImage({target: firstPage.anchor, mode: "shared", image});
+  const firstLocal = doc.previewHeaderImage({target: firstPage.anchor, mode: "sectionLocal", image});
+  same(firstShared.change().affectedSections, [0, 1, 2, 3], "first-page shared aliases");
+  same(firstLocal.change().affectedSections, [3], "first-page local scope");
+  rejects(() => relocated.previewHeaderImage({target: firstPage.anchor!, mode: "shared", image}), /different document snapshot/);
+  const reopenedFirst = (await openDocx(firstLocal.toDocx())).stories().find(
+    ({view}) => view.sectionIndex === 3 && view.kind === "header" && view.variant === "first")?.view;
+  same(reopenedFirst?.partName, firstLocal.change().outputPart, "first-page fork reopened");
   return {
     shared: shared.toDocx(), local: local.toDocx(), relocated: relocatedPreview.toDocx(),
+    firstShared: firstShared.toDocx(), firstLocal: firstLocal.toDocx(),
     reports: { shared: change, local: local.change(), relocated: relocatedPreview.change() },
   };
 }
