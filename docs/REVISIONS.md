@@ -106,6 +106,8 @@ properties, complex markup or a protected boundary. An insertion may precede
 the final paragraph, but the final paragraph cannot itself be marked for deletion.
 Table boundaries, opaque blocks and changes crossing sections are excluded.
 Inspection reads mark metadata even in shapes that cannot be reviewed.
+Review a pending mark before editing that paragraph's alignment, flags, or
+numbering reference. Adding those properties would make the proposal unreviewable.
 The paired review rejects mismatches, missing/ambiguous IDs, extra content,
 and unsupported formatting. If a caller reviews the inline wrapper separately,
 the remaining paragraph mark no longer qualifies for whole-paragraph review.

@@ -9,10 +9,20 @@ integration. The mixed CLI/installed-Python fixture uses a staged character
 style and numbering definition, a picture, a field cache referring to a
 same-batch bookmark, and a rich wrapper. It checks wrapper/numbering collisions
 and retains a pending revision when a disjoint drawing and metadata change
-are applied. Revision proposals and reviews remain separate requests. Final
+are applied. A wrapper conflicts with same-block paragraph property edits;
+an ordinary property patch cannot make a pending paragraph mark unreviewable.
+Revision proposals and reviews remain separate requests. Final
 style/numbering checks reject new live or opaque references. `ProcessContent`
 guards now cover DrawingML properties and relationship-selected chart content.
 See [the CLI contract](CLI.md) for the body rich-edit transport.
+
+The combined source at `06ffc46` passed 344 Rust tests, three doctests,
+Rust 1.88, native/Wasm Clippy, and 984 schema-required installed Python tests,
+including 33 focused Python/CLI cases. Packed Node 22 and Chromium
+development/production matched all 43 editor files and 14 catalogs against
+Rust, with strict TypeScript, schema/OPC validation and offline archive
+replay. Installed Python also matched all 14 catalogs. The same tarball in
+Node 24 reproduced all 72 Node DOCX files and the editor reports.
 
 The isolated inline integration starts at `ae0cefd` and merges `ec54da1`,
 `f4c9ac6` and snapshots of the outstanding controls, fields and drawings work.
