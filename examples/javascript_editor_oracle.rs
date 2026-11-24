@@ -405,8 +405,8 @@ fn main() {
     }
     {
         use rocx::editor::{
-            EditBatch, FieldAction, FieldEdit, FieldPatch, PairedRangeEdit, ParagraphInsertion,
-            WrapperEdit as W,
+            EditBatch, FieldAction, FieldEdit, FieldPatch, ImportedInlineNode, InlineAction,
+            InlineEdit, PairedRangeEdit, ParagraphInsertion, WrapperEdit as W,
         };
         let source =
             ImportedDocument::open(&fs::read(directory.join("rich-control-source.docx")).unwrap())

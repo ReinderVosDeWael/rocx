@@ -1146,7 +1146,7 @@ impl ImportedDocument {
         resource_fields::apply(&mut package, &self.main, resources)?;
         if !wrapper_ids.is_empty() {
             let mut counts = BTreeMap::new();
-            package.visit_source_xml(|n| {
+            package.visit_staged_xml(|n| {
                 if n.name == "w:sdtPr" {
                     for id in n
                         .elements()

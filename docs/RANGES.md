@@ -53,3 +53,10 @@ opaque marker payloads are rejected. Bookmark removal is conservative in the
 presence of field instructions or a hyperlink to the bookmark.
 Creating a pair also guards numeric IDs of supported revisions and move-range
 names across the package, so adding a range cannot invalidate later review.
+
+To compose changes on the same original snapshot, use Rust `PairedRangeEdit`
+in `EditBatch::paired_ranges`, Python `PairedRangeEdit` in `preview([],
+paired_ranges=[...])`, or JavaScript `preview({pairedRanges: [...]})`.
+Structural operations cannot splice blocks or wrap content across a staged
+range. Non-destructive text, format and hyperlink-property edits can share a
+compatible endpoint; a destructive inline edit at the endpoint is rejected.

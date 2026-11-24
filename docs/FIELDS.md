@@ -41,17 +41,25 @@ dirty/lock attributes. Cached text is never calculated.
 | Replace instruction; keep cached display | `patch_field(&p.anchor, i, FieldPatch::Instruction(s))` | `patch_field(p.anchor, i, "instruction", s)` | `patchField({target, inlineIndex: i, property: "instruction", value: s})` |
 | Set/clear a flag | `FieldPatch::Dirty(Some(true))`, `FieldPatch::Locked(None)` | `"dirty", True` or `"locked", None` | `property: "dirty", value: true` or `property: "locked"` |
 | Replace the whole field and cache, or remove it | `replace_field(&p.anchor, i, Some(&resolved_inline))`; `None` removes | `replace_field(p.anchor, i, resolved_field)`; omit the field to remove | `replaceField({target, inlineIndex: i, field})`; omit `field` to remove |
+| Replace just the cached children | `FieldAction::Cache(inlines)` in `FieldEdit` | `FieldEdit.cache(p.anchor, i, inlines)` | `{target, inlineIndex: i, op: "cache", children: inlines}` |
 | Insert a resolved field or hyperlink | `InlineAction::InsertAfter` | `InlineEdit.insert_after` | `inlineEdits` kind `insertAfter` |
 | Set/clear a direct hyperlink property | `InlineAction::HyperlinkTooltip`, `HyperlinkHistory` | `InlineEdit.hyperlink_tooltip`, `.hyperlink_history` | `hyperlinkTooltip`, `hyperlinkHistory` with optional `value` |
 | Remove link and display children | `InlineAction::RemoveHyperlink` | `InlineEdit.remove_hyperlink` | `removeHyperlink` |
 
-Field methods return new DOCX bytes; reopen before obtaining another anchor.
-The supported source is a balanced paragraph-local field with ordinary text,
-break/tab, hyperlink or nested supported field results. Cross-paragraph fields,
-form data, opaque caches, formatted complex-field delimiters, and targets
-inside a surrounding field or range are rejected. `replace_field` can switch
-forms. A typed REF or internal hyperlink in an inserted inline must resolve to
-one directly paired body bookmark. A raw instruction is not parsed.
+Standalone field methods return new DOCX bytes. To compose field changes with
+other edits on the original anchors, use Rust `preview_edits(EditBatch { fields,
+..Default::default() })`, Python `preview([], fields=[...])`, or JavaScript
+`preview({fields: [...]})`. Disjoint property and cache changes on one field
+can share a batch; a whole-field edit cannot share that field with other edits.
+Reopen the result before obtaining new anchors.
+
+A balanced complex field can continue across direct body paragraphs. Its cache
+may contain ordinary formatted text, tabs, breaks, hyperlinks or supported
+nested fields. Form data, opaque caches, formatted complex-field delimiters and
+targets inside a surrounding field or protected range are rejected.
+`replace_field` can switch forms. A typed REF or internal hyperlink must target
+one directly paired body bookmark, including one staged in the same batch.
+A raw instruction is not parsed.
 `InlineAction::Replace` / `InlineEdit.replace` / `replace` can replace a whole
 supported hyperlink's children and target. New external relationships belong
 to the main document; old relationships are retained for other consumers.

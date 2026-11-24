@@ -98,7 +98,8 @@ both. Use the separate operations below for wrapper and choice edits.
 
 | Operation | Rust | Python | JavaScript |
 | --- | --- | --- | --- |
-| Inspect eligible single-text wrapper sites | `doc.control_sites()` | `doc.control_sites` | `doc.controlSites()` |
+| Inspect eligible wrapper sites | `doc.control_sites()` | `doc.control_sites` | `doc.controlSites()` |
+| Inspect controls by physical story part | `doc.story_controls()` | `doc.story_controls` | `doc.storyControls()` |
 | Wrap the original payload in a tagged rich-text control | `doc.preview_wrap_control(site, tag)` | `doc.preview_wrap_control(site, tag)` | `doc.previewWrapControl({target: site.anchor, tag})` |
 | Replace the complete wrapper definition | `doc.preview_replace_control(anchor, &properties)` | `doc.preview_replace_control(anchor, properties)` | `doc.previewReplaceControl({target, properties})` |
 | Select a drop-down value; optionally replace the ordered choices | `doc.preview_control_choice(anchor, value, items)` | `doc.preview_control_choice(anchor, value, choices=items)` | `doc.previewControlChoice({target, selected, choices})` |
@@ -124,8 +125,15 @@ prevents replacing the choice list. A wrapper-only lock still allows selection,
 and a content-only lock permits removing an understood wrapper without
 changing its payload. Imported opaque properties, ambiguous layouts,
 protected ranges, nested controls and custom XML bindings are refused.
-Rich multi-run/structural payloads, other specialized types and stories
-outside the main document remain outside these wrapper operations.
+Compatible siblings, including paragraphs and tables, can be wrapped together
+without re-encoding their contents. Rich block and inline controls can receive
+new supported payloads. Use `WrapperEdit` in Rust `EditBatch::wrappers`,
+Python `preview([], wrappers=[...])`, or JavaScript `preview({wrappers: [...]})`.
+Payload replacement uses `ReplaceBlocks` / `ReplaceInlines`,
+`replace_blocks` / `replace_inlines`, or `replaceBlocks` / `replaceInlines`.
+Wrapped or unwrapped blocks cannot share a target with another structural edit
+or cross a staged range. Controls in headers, footers, notes and comments are
+inspectable by physical owner but read-only.
 
 Paragraph insertion adds a resolved paragraph immediately after a direct body paragraph.
 Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
