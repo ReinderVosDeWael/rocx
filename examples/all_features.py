@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    TableInsertion, TextRangeEdit, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -477,13 +477,19 @@ async def generate(output: pathlib.Path) -> bytes:
     label, inline_link = inline_block.inline_structure
     replacement = "Imported editor: replaced this run by its anchor. "
     inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
-    preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)],
+    targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]
+    assert len(targets) == 1
+    assert [(item.kind, item.value) for item in targets[0].inline_items] == [
+        ("text", EDIT_LABEL),
+    ]
+    preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
+                               run_text=[RunTextEdit(label.anchor, replacement)],
                                paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
     assert preview.paragraph_insertions == [
         next(i for i, block in enumerate(imported.body)
              if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     ]
-    assert preview.run_text_changes[0].before == INLINE_LABEL
+    assert any(c.before == INLINE_LABEL for c in preview.run_text_changes)
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
     output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
@@ -495,11 +501,6 @@ async def generate(output: pathlib.Path) -> bytes:
         assert isinstance(child, ImportedRun)
         assert [(item.kind, item.value) for item in child.items] == [("text", text)]
         assert imported.inline_at(child.anchor).anchor == child.anchor
-    targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]
-    assert len(targets) == 1
-    assert [(item.kind, item.value) for item in targets[0].inline_items] == [
-        ("text", EDIT_LABEL),
-    ]
     table = d.Table([d.TableRow([
         d.TableCell([run("Imported editor table: bold label", bold=True)]),
         d.TableCell([d.Paragraph(children=[d.TextRun("Fixed-width "), d.TextRun("second column")])]),

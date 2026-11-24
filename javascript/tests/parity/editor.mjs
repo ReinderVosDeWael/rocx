@@ -61,7 +61,7 @@ async function installedChromium(fixtures, expected, reports) {
 try {
   command(python, [script, "generate", directory]);
   const fixtures = Object.fromEntries(await Promise.all(
-    ["base", "unsafe", "ambiguous", "drawing", "relocated", "styles-edge", "styles-missing", "styles-invalid", "image"].map(async (n) =>
+    ["range-source", "base", "unsafe", "ambiguous", "drawing", "relocated", "styles-edge", "styles-missing", "styles-invalid", "image"].map(async (n) =>
       [n, await readFile(join(directory, n + (n === "image" ? ".png" : ".docx")))]),
   ));
   const { reports, mixedReports, ...outputs } = await run(fixtures);

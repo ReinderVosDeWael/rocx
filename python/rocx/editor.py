@@ -7,7 +7,7 @@ also be used for text replacement or whole-run removal.
 
 ``ImportedDocument.preview`` stages paragraph alignments together with any of
 ``table_insertions=``, ``paragraph_insertions=``, ``cell_alignments=``,
-``header_images=``, ``run_text=``, and ``run_removals=`` in one transaction.
+``header_images=``, ``text_ranges=``, ``run_text=``, and ``run_removals=`` in one transaction.
 All targets refer to the original snapshot.
 
 ``ImportedDocument.stories`` inspects effective default, first, and even header
@@ -33,6 +33,7 @@ from ._native import (
     ImportedEntry,
     ImportedStyle,
     ImportedStyles,
+    TextRangeEdit,
     RunTextEdit,
     RunRemovalChange,
     RunTextChange,
@@ -76,6 +77,7 @@ __all__ = [
     "ImportedEntry",
     "ImportedStyle",
     "ImportedStyles",
+    "TextRangeEdit",
     "RunTextEdit",
     "RunRemovalChange",
     "RunTextChange",

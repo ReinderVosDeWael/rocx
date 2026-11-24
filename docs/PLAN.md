@@ -2,6 +2,13 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+The ranges topic implements [snapshot-bound scalar ranges](EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs)
+within direct-body plain paragraphs. Focused qualification: 43 Rust editor tests,
+43 Python tests, and an installed Node 26 consumer passed. The three bindings
+produced identical multi-run Unicode replacements and all nine catalog artifacts;
+python-docx/XML/ZIP readback checked formatting and untouched payloads. The
+combined Node 22/24 and Chromium gate remains with integration.
+
 ## Current milestone: qualify the combined #3 editor
 
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).

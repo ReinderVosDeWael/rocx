@@ -44,6 +44,7 @@ export interface HeaderImageEdit {
 }
 
 export interface EditBatch {
+  readonly textRanges?: readonly TextRangeEdit[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
@@ -53,6 +54,7 @@ export interface EditBatch {
   readonly cellAlignments?: readonly CellAlignmentEdit[];
 }
 
+export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
 export interface RunRemovalChange {
   readonly bodyIndex: number;

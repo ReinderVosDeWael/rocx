@@ -110,6 +110,13 @@ def generate(directory):
 
     doc.save(directory / "base.docx")
     (directory / "image.png").write_bytes(png((100, 20, 30)))
+    ranged = Document(directory / "base.docx")
+    p = ranged.paragraphs[1]
+    p.clear()
+    p.add_run("a😀b").bold = True
+    p.add_run("e\u0301").underline = True
+    p.add_run("cd").italic = True
+    ranged.save(directory / "range-source.docx")
     base = parts(directory / "base.docx")
     assert base["word/media/image1.png"] == original_image
     assert HEADER in base and HEADER_RELS in base
@@ -246,7 +253,19 @@ def verify(directory):
     assert Document(directory / "removal.docx").paragraphs[0].text == ""
     root = etree.fromstring(removal[MAIN])
     assert root.find(".//" + qn("w:fldSimple")) is not None
-    from rocx.editor import ImportedDocument
+    from rocx.editor import ImportedDocument, TextRangeEdit
+    range_source = parts(directory / "range-source.docx")
+    result = parts(directory / "range.docx")
+    assert result.keys() == range_source.keys()
+    untouched(range_source, result, (MAIN,))
+    # Preserve the opaque simple field in the neighboring paragraph.
+    assert tree(xp(etree.fromstring(range_source[MAIN]), "//w:fldSimple")[0]) == tree(xp(etree.fromstring(result[MAIN]), "//w:fldSimple")[0])
+    runs = Document(directory / "range.docx").paragraphs[1].runs
+    assert [r.text for r in runs] == ["a 🐈 ", "", "d"]
+    assert runs[0].bold and runs[1].underline and runs[2].italic
+    ranged = ImportedDocument.open((directory / "range-source.docx").read_bytes())
+    selection = TextRangeEdit(ranged.body[1].anchor, 1, 6, " 🐈 ")
+    assert ranged.preview([], text_ranges=[selection]).to_docx() == (directory / "range.docx").read_bytes()
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
     python_preview = imported.preview([], run_removals=[anchor])

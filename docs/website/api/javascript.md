@@ -163,7 +163,7 @@ round-trip authoring declaration.
 
 | Synchronous API | Behavior |
 | --- | --- |
-| `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `runText` and `runRemovals` in one transaction against the original snapshot. |
+| `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `textRanges`, `runText` and `runRemovals` in one transaction against the original snapshot. |
 | `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one default- or first-page-header image append. Obtain the latter target from `stories()`; `change()` reports the effect. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
@@ -254,3 +254,5 @@ The equivalent single-section record form remains supported:
 ```javascript
 {{snippet:examples/javascript/legacy-author.mjs:declaration}}
 ```
+
+Use `textRanges: [{target: paragraph.anchor, start, end, text}]` for a nonempty half-open range of Unicode scalar positions in a plain direct-body paragraph. Replacement keeps the first selected character’s run formatting. `runTextChanges()` reports changed runs.

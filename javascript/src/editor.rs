@@ -164,12 +164,13 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "tableInsertions",
             "headerImages",
             "runText",
+            "textRanges",
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
         ],
     )?;
-    let preview = source.document().preview_mixed(
+    let preview = source.document().preview_with_ranges(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -186,6 +187,19 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
         &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
+        &edits(&batch, "textRanges", |input, path| {
+            let edit = Record::new(input, path, &["target", "start", "end", "text"])?;
+            let offset = |name: &str| -> Result<usize> {
+                usize::try_from(b::u64_number(&edit.get(name)?, &edit.path(name))?)
+                    .map_err(|_| Failure::invalid(&edit.path(name), "offset is too large"))
+            };
+            Ok(rocx::editor::TextRangeEdit {
+                target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+                start: offset("start")?,
+                end: offset("end")?,
+                text: b::string(&edit.get("text")?, &edit.path("text"))?,
+            })
+        })?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",

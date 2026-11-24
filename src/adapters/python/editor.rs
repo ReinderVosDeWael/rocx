@@ -119,6 +119,26 @@ fn story_blocks<'a>(
         .collect()
 }
 
+#[pyclass(name = "TextRangeEdit", frozen, module = "rocx.editor")]
+struct PyTextRangeEdit {
+    inner: editor::TextRangeEdit,
+}
+
+#[pymethods]
+impl PyTextRangeEdit {
+    #[new]
+    fn new(target: PyRef<'_, PyParagraphAnchor>, start: usize, end: usize, text: String) -> Self {
+        Self {
+            inner: editor::TextRangeEdit {
+                target: target.inner.clone(),
+                start,
+                end,
+                text,
+            },
+        }
+    }
+}
+
 #[pyclass(name = "RunTextEdit", frozen, module = "rocx.editor")]
 struct PyRunTextEdit {
     inner: editor::RunTextEdit,
@@ -1057,7 +1077,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1067,6 +1087,7 @@ impl PyImportedDocument {
         run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
+        text_ranges: Option<Vec<PyRef<'_, PyTextRangeEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1094,7 +1115,7 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_mixed(
+                doc.preview_with_ranges(
                     &edits,
                     &insertions,
                     &header_images,
@@ -1121,6 +1142,11 @@ impl PyImportedDocument {
                         .iter()
                         .map(|anchor| anchor.inner.clone())
                         .collect::<Vec<_>>(),
+                    &text_ranges
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|r| r.inner.clone())
+                        .collect::<Vec<_>>(),
                 )
                 .map_err(rust_error)?,
             ),
@@ -1136,6 +1162,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedEntry>()?;
     module.add_class::<PyImportedStyle>()?;
     module.add_class::<PyImportedStyles>()?;
+    module.add_class::<PyTextRangeEdit>()?;
     module.add_class::<PyRunTextEdit>()?;
     module.add_class::<PyRunTextChange>()?;
     module.add_class::<PyRunRemovalChange>()?;

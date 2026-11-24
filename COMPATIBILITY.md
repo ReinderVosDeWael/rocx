@@ -53,6 +53,7 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
 | Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
 | Set a direct body table cell's vertical alignment | `preview_with_cells` / `CellAlignmentEdit` | `preview([], cell_alignments=[edit])` | `preview({cellAlignments: [edit]})` |
+| Replace a [plain paragraph scalar range](docs/EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs) | `preview_with_ranges` / `TextRangeEdit` | `preview([], text_ranges=[edit])` | `preview({textRanges: [edit]})` |
 | Replace text in a direct body run | `doc.preview_with_text(&[], &[], &[], &[edit])?` | `doc.preview([], run_text=[edit])` | `doc.preview({runText: [edit]})` |
 | Remove a direct body run | `doc.preview_with_run_removals(&[], &[], &[], &[], &[anchor])?` | `doc.preview([], run_removals=[anchor])` | `doc.preview({runRemovals: [anchor]})` |
 | Inspect removed runs | `preview.run_removals()` | `preview.run_removals` | `preview.runRemovals()` |

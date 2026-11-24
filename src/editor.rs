@@ -18,6 +18,8 @@ use std::sync::{Arc, OnceLock};
 mod entries;
 mod header;
 mod insertion;
+mod ranges;
+pub use ranges::TextRangeEdit;
 mod resources;
 mod tables;
 mod text;
@@ -647,6 +649,31 @@ impl ImportedDocument {
         cells: &[CellAlignmentEdit],
         run_removals: &[InlineAnchor],
     ) -> Result<EditPreview> {
+        self.preview_with_ranges(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            &[],
+        )
+    }
+
+    /// Stage a mixed transaction, including scalar ranges in plain body paragraphs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_with_ranges(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+        ranges: &[TextRangeEdit],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -655,6 +682,7 @@ impl ImportedDocument {
             .chain(run_text.iter().map(|edit| &edit.target.snapshot))
             .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
+            .chain(ranges.iter().map(|r| &r.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
         {
             self.validate_snapshot(snapshot)?;
@@ -704,6 +732,7 @@ impl ImportedDocument {
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
+            || !ranges.is_empty()
             || !run_text.is_empty()
             || !run_removals.is_empty()
             || !paragraph_targets.is_empty()
@@ -712,7 +741,9 @@ impl ImportedDocument {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            (run_text_changes, removed_runs) = text::apply(body, run_text, run_removals)?;
+            let mut expanded = ranges::expand(body, ranges)?;
+            expanded.extend_from_slice(run_text);
+            (run_text_changes, removed_runs) = text::apply(body, &expanded, run_removals)?;
             cell_alignment_changes = tables::apply(body, cells)?;
             for (body_index, paragraph) in body
                 .elements_mut()

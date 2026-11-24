@@ -34,6 +34,38 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn text_ranges_use_snapshot_coordinates_at_run_boundaries() {
+    use rocx::editor::TextRangeEdit;
+    let source = fixture_with_body(&BODY.replace(
+        "<w:t>Second</w:t>",
+        "<w:t>😀</w:t></w:r><w:r><w:t/></w:r><w:r><w:t>é</w:t>",
+    ));
+    let doc = ImportedDocument::open(&source).unwrap();
+    let BodyBlock::Paragraph(p) = &doc.body()[3] else {
+        panic!("paragraph")
+    };
+    let edit = |start, end, text: &str| TextRangeEdit {
+        target: p.anchor.clone(),
+        start,
+        end,
+        text: text.into(),
+    };
+    let preview = |ranges: &[TextRangeEdit]| {
+        doc.preview_with_ranges(&[], &[], &[], &[], &[], &[], &[], ranges)
+    };
+    assert!(preview(&[edit(1, usize::MAX, "out of bounds")]).is_err());
+    let changes = preview(&[edit(1, 2, "new"), edit(0, 1, "first")]).unwrap();
+    assert_eq!(
+        changes
+            .run_text_changes()
+            .iter()
+            .map(|c| (c.inline_index, c.after.as_str()))
+            .collect::<Vec<_>>(),
+        [(0, "first"), (2, "neẃ")]
+    );
+}
+
+#[test]
 fn cell_alignment_patch_validates_grid_and_preserves_other_content() {
     use rocx::{VerticalAlignment, editor::CellAlignmentEdit};
     let xml = format!(
