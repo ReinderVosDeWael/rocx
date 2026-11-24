@@ -20,8 +20,8 @@ pub(crate) use notes::{decimal_id, note_mark};
 mod ranges;
 pub(crate) mod revisions;
 pub(crate) use editor::{
-    editor_table_style, encode_editor_blocks, encode_editor_inlines, encode_editor_paragraphs,
-    encode_editor_tables, encode_header_image, encode_story_blocks,
+    editor_table_style, encode_editor_blocks, encode_editor_inlines, encode_editor_owner_blocks,
+    encode_editor_paragraphs, encode_editor_tables, encode_header_image,
 };
 pub(crate) struct Compiler<'a> {
     package: Package,

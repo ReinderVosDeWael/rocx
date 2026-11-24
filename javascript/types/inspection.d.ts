@@ -87,7 +87,7 @@ export interface DirectSectionLayout {
   readonly borderZOrder?: "front" | "back";
 }
 export interface LayoutBorder { readonly size?: number; readonly space?: number; readonly color?: string }
-/** Direct body table address for cell alignment edits. */
+/** Snapshot-scoped address; physical-owner and ordinary body anchors are not interchangeable. */
 export interface TableAnchor { readonly [anchor]: "table" }
 /** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement or removal. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
@@ -199,6 +199,13 @@ export interface ImportedTable {
   /** Physical rows; merged cells are not expanded. */
   readonly children: readonly ImportedTableChild[];
 }
+export interface LocatedTable {
+  readonly anchor: TableAnchor; readonly partName: string; readonly path: readonly number[];
+  readonly depth: number; readonly entryId?: string;
+  readonly properties: ImportedTable["properties"]; readonly gridWidths: ImportedTable["gridWidths"];
+  readonly rowProperties: readonly ImportedTable["properties"][];
+  readonly cellProperties: readonly (readonly ImportedTable["properties"][])[];
+}
 
 /** Direct body control metadata; its content is opaque and has no edit anchor.
  * Values are source XML strings, including unrecognized lock values. */
@@ -305,6 +312,7 @@ export interface ImportedDocument {
    */
   stories(): readonly ImportedStory[];
   entryStories(): readonly ImportedEntry[];
+  partTables(ownerPart?: string): readonly LocatedTable[];
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;

@@ -33,20 +33,22 @@ pub(crate) fn encode_editor_blocks(
     cell_width: Option<i64>,
     scope: &'static str,
 ) -> Result<(Package, Vec<Node>)> {
-    encode_story_blocks(
+    encode_editor_owner_blocks(
         package,
         main,
-        (main, StoryKind::Body),
+        (StoryKind::Body, main),
         blocks,
         cell_width,
         scope,
     )
 }
 
-pub(crate) fn encode_story_blocks(
+/// Style resolution belongs to the main document; fragment relationships
+/// belong to the physical story that contains the edited cell.
+pub(crate) fn encode_editor_owner_blocks(
     package: Package,
     main: &str,
-    (owner, kind): (&str, StoryKind),
+    owner: (StoryKind, &str),
     blocks: &[ResolvedBlock],
     cell_width: Option<i64>,
     scope: &'static str,
@@ -56,9 +58,10 @@ pub(crate) fn encode_story_blocks(
     check_blocks(blocks, &path, &mut style_refs, scope)?;
     let styles = editor_styles(&package, main, style_refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
-    let story = renderer
-        .stories
-        .register(kind, PartName::new(owner)?, StoryContent::Blocks)?;
+    let story =
+        renderer
+            .stories
+            .register(owner.0, PartName::new(owner.1)?, StoryContent::Blocks)?;
     let mut output = Vec::with_capacity(blocks.len());
     for block in blocks {
         let node = match block {

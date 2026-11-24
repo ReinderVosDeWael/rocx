@@ -3420,6 +3420,47 @@ fn unknown_look_bits_and_duplicate_leafs_fail_atomically_with_table_removal() {
 }
 
 #[test]
+fn physical_nested_tables_reject_hidden_merge_continuations_without_invalidating_peers() {
+    use rocx::editor::{TableOperation, TableStructureEdit};
+    let inner = r#"<w:tbl><w:tblGrid><w:gridCol w:w="1200"/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#;
+    let main = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblGrid><w:gridCol w:w="1200"/></w:tblGrid>
+      <w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr>{inner}<w:p/></w:tc></w:tr>
+      <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr>{inner}<w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let source = ImportedDocument::open(&fixture_with_body(&main)).unwrap();
+    let tables = source.part_tables(None).unwrap();
+    assert_eq!(
+        tables.iter().map(|t| t.depth).collect::<Vec<_>>(),
+        [0, 1, 1]
+    );
+    let edit = |i: usize| TableStructureEdit {
+        target: tables[i].anchor.clone(),
+        operation: TableOperation::InsertRow(1),
+    };
+    let owner = &tables[0].part_name;
+    assert!(
+        source
+            .edit_part_tables(owner, &[edit(1), edit(2)])
+            .unwrap_err()
+            .to_string()
+            .contains("protected")
+    );
+    let out = source.edit_part_tables(owner, &[edit(1)]).unwrap();
+    let readback = ImportedDocument::open(&out)
+        .unwrap()
+        .part_tables(None)
+        .unwrap();
+    assert_eq!(
+        readback
+            .iter()
+            .map(|t| t.row_properties.len())
+            .collect::<Vec<_>>(),
+        [2, 2, 1]
+    );
+}
+
+#[test]
 fn layout_rejects_duplicate_or_tracked_properties() {
     use rocx::editor::{EditBatch, TableOperation, TableStructureEdit};
     for (props, message) in [

@@ -25,7 +25,7 @@ PORTABLE_ORACLES = (
 )
 EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
-                  "blocks", "inline", "runFormatting", "tableStructure", "tableNodes", "styleEdits", "controlEdits",
+                  "blocks", "inline", "runFormatting", "tableStructure", "tableNodes", "physicalTables", "styleEdits", "controlEdits",
                   "tracked", "reviewed", "moved", "moveAccepted", "combined", "layout",
                   "sectionSplit", "sectionMerge", "storyShared")
 
@@ -199,9 +199,24 @@ def python_combined(source: Path) -> bytes:
     return data
 
 
+async def python_physical_tables(source: Path) -> bytes:
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, TableStructureEdit as E
+    data = source.read_bytes()
+    linked=await d.Paragraph(children=[d.Hyperlink("https://example.invalid/physical-cell",[d.TextRun("Footer link")])]).resolve()
+    for owner, depth, edit in [(None,1,lambda a:E.insert_row(a,1)),
+                               ("word/footer1.xml",1,lambda a:E.layout(a,"fixed")),
+                               ("word/footer1.xml",1,lambda a:E.replace_cell(a,0,0,[linked])),
+                               ("word/comments.xml",0,lambda a:E.patch_property(a,"width",None,column=0))]:
+        doc=ImportedDocument.open(data)
+        t=next(t for t in doc.part_tables(owner) if t.depth==depth)
+        data=doc.edit_part_tables(t.part_name,[edit(t.anchor)])
+    return data
+
+
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
-    for name in ("base", "relocated", "range-source", "styles-source", "control-source", "table-layout", "layout-source"):
+    for name in ("base", "relocated", "range-source", "styles-source", "control-source", "table-layout", "layout-source", "physical-table-source"):
         path = reference / f"{name}.docx"
         print(f"editor/{path.name}: {len(validator.validate(path))} schema-covered parts and OPC relationships")
     assert {p.name for p in reference.glob("native-*.docx")} == {f"native-{n}.docx" for n in EDITOR_OUTPUTS}
@@ -218,6 +233,11 @@ def verify_editor(validator: Validator, parity: Path) -> None:
             python.parent.mkdir(parents=True, exist_ok=True)
             python.write_bytes(asyncio.run(python_table_nodes(reference / "table-layout.docx")))
             verify_file(validator, python, data, language="Python")
+        if name == "physicalTables":
+            python=parity/"python"/"editor"/"physicalTables.docx"
+            python.parent.mkdir(parents=True,exist_ok=True)
+            python.write_bytes(asyncio.run(python_physical_tables(reference / "physical-table-source.docx")))
+            verify_file(validator,python,data,language="Python")
         if name == "blocks":
             python = parity / "python" / "editor" / "blocks.docx"
             python.parent.mkdir(parents=True, exist_ok=True)

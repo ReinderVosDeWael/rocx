@@ -246,6 +246,12 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   and cell `properties` expose field-to-attribute maps; `gridWidths` exposes
   columns. `replaceNode` replaces the addressed table, row or cell from a
   resolved table; `removeTable` removes an eligible direct body table.
+- `partTables(ownerPart?)` lists physical tables, including tables nested in
+  ordinary cells. Omit the part name for the main body, or use a physical
+  header/footer or note/comment part. Pass the returned anchor to
+  `editPartTables({ownerPart, tableStructure})` for geometry, property or
+  cell-content edits; it returns new DOCX bytes. Shared aliases see the same
+  edit. Hyperlinks inserted in a story cell belong to that part.
 - `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
   Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
   without discarding other properties; replace/remove only safe unused custom styles.

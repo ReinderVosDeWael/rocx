@@ -1044,6 +1044,25 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert!(
         matches!(&editor::ImportedDocument::open(&cleared)?.body()[after], editor::BodyBlock::Table(t) if t.grid_widths == [Some(2160),None] && t.properties["layout"]["type"] == "fixed")
     );
+    // Physical-owner sample: change only the catalog's nested 1440-twip table.
+    let nested = reopened
+        .part_tables(None)?
+        .into_iter()
+        .find(|t| t.depth == 1 && t.grid_widths == [Some(1440)])
+        .expect("nested fixed table");
+    let bytes = reopened.edit_part_tables(
+        &nested.part_name,
+        &[editor::TableStructureEdit {
+            target: nested.anchor,
+            operation: editor::TableOperation::Layout(None),
+        }],
+    )?;
+    assert!(
+        editor::ImportedDocument::open(&bytes)?
+            .part_tables(None)?
+            .iter()
+            .any(|t| t.path == nested.path && !t.properties.contains_key("layout"))
+    );
     // Structural sample: append an empty row to this original table.
     let appended = reopened
         .preview_with_table_structure(

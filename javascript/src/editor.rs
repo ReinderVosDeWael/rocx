@@ -31,6 +31,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
             (note_reference, Paths::Package),
         ),
         ("importedEditEntry", (entry_edit, Paths::Package)),
+        ("importedEditPartTables", (part_tables, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
@@ -673,6 +674,24 @@ fn entry_inlines(input: &Wire) -> Result<JsValue> {
         source
             .document()
             .edit_entry_inlines(&owner, &edits(&batch, "inlineEdits", inline_edit)?)?
+            .as_slice(),
+    )
+    .into())
+}
+
+fn part_tables(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["ownerPart", "tableStructure"],
+    )?;
+    let owner = b::string(&batch.get("ownerPart")?, "batch.ownerPart")?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_part_tables(&owner, &edits(&batch, "tableStructure", structure_edit)?)?
             .as_slice(),
     )
     .into())

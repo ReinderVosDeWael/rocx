@@ -156,6 +156,8 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             assert view.properties["layout"] == {"type": "fixed"}
             assert view.children[0].children[0].properties["verticalAlignment"] == {"val": "center"}
             assert "verticalAlignment" not in view.children[0].children[1].properties
+            nested = [t for t in ImportedDocument.open(edited).part_tables() if t.depth == 1 and t.grid_widths == [1440]]
+            assert len(nested) == 1 and nested[0].properties["layout"]["type"] == "fixed"
             assert cells[0].xpath(".//w:t/text()", namespaces=NS) == [EDIT_TABLE_LABEL]
             assert cells[0].xpath(".//w:r[w:t=$label]/w:rPr/w:b/@w:val",
                                   namespaces=NS, label=EDIT_TABLE_LABEL) == ["1"]

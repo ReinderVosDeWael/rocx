@@ -45,7 +45,7 @@ fn optional(result: &JsValue, key: &str, value: Option<&str>) {
         b::set(result, key, &value.into());
     }
 }
-fn table_properties(properties: &rocx::editor::DirectTableProperties) -> JsValue {
+pub(super) fn table_properties(properties: &rocx::editor::DirectTableProperties) -> JsValue {
     let record = b::record(&[]);
     for (key, attrs) in properties {
         let attr = b::record(&[]);

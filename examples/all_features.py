@@ -589,6 +589,10 @@ async def generate(output: pathlib.Path) -> bytes:
     cleared = reopened.preview([], table_structure=[TableStructureEdit.patch_property(inserted.anchor, "width", None, column=1)])
     partial = ImportedDocument.open(cleared.to_docx()).body[table_index]
     assert partial.grid_widths == [2160, None] and partial.properties["layout"] == {"type": "fixed"}
+    # Physical-owner sample: clear the nested 1440-twip table's direct layout.
+    nested = next(t for t in reopened.part_tables() if t.depth == 1 and t.grid_widths == [1440])
+    nested_copy = reopened.edit_part_tables(nested.part_name, [TableStructureEdit.layout(nested.anchor, None)])
+    assert "layout" not in next(t for t in ImportedDocument.open(nested_copy).part_tables() if t.path == nested.path).properties
     # Structural sample: append an empty row to this original table.
     appended = reopened.preview([], table_structure=[TableStructureEdit.insert_row(inserted.anchor, 1)])
     assert len(ImportedDocument.open(appended.to_docx()).body[table_index].children) == 2

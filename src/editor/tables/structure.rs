@@ -601,17 +601,7 @@ pub(in crate::editor) fn apply(
                     let r = element(&mut table.children[r_slot]);
                     let c_slot = *slots(r, "w:tc").get(*cell).ok_or_else(absent)?;
                     let c = element(&mut r.children[c_slot]);
-                    if prop(c, "w:vMerge").is_some_and(|m| m.get("w:val") != Some("restart")) {
-                        return Err(collision());
-                    }
-                    for b in &c.children {
-                        match b {
-                            Content::Element(p) if p.name == "w:tcPr" => (),
-                            Content::Element(p) if p.name == "w:p" => guard_delete(p)?,
-                            Content::Text(s) if s.trim().is_empty() => (),
-                            _ => return Err(unsupported("unsupported existing cell content")),
-                        }
-                    }
+                    guard_cell_content(c)?;
                     replacements.insert((body_slots[i], r_slot, c_slot), blocks);
                     changed = true;
                 }
@@ -635,27 +625,58 @@ pub(in crate::editor) fn apply(
         let table = element(&mut body.children[t]);
         let row = element(&mut table.children[r]);
         let cell = element(&mut row.children[c]);
-        let width = prop(cell, "w:tcW")
-            .filter(|n| n.get("w:type") == Some("dxa"))
-            .and_then(|n| n.get("w:w")?.parse::<u32>().ok())
-            .filter(|w| *w > 0)
-            .map(i64::from);
-        let (next, nodes) =
-            crate::ooxml::encode_editor_blocks(package, main, blocks, width, "editor.table")?;
-        package = next;
-        cell.remove("w:p");
-        let needs_paragraph = nodes.last().is_none_or(|n| n.name != "w:p");
-        for n in nodes {
-            validate_rendered(&n)?;
-            cell.push(n)
-        }
-        if needs_paragraph {
-            cell.push(Node::new("w:p"))
-        }
+        package = write_cell(package, main, (crate::StoryKind::Body, main), cell, blocks)?;
     }
     Ok((package, changed))
 }
-fn contains_range(n: &Node) -> bool {
+
+fn guard_cell_content(c: &Node) -> Result<()> {
+    if prop(c, "w:vMerge").is_some_and(|m| m.get("w:val") != Some("restart")) {
+        return Err(collision());
+    }
+    for b in &c.children {
+        match b {
+            Content::Element(p) if p.name == "w:tcPr" => (),
+            Content::Element(p) if p.name == "w:p" => guard_delete(p)?,
+            Content::Text(s) if s.trim().is_empty() => (),
+            _ => return Err(unsupported("unsupported existing cell content")),
+        }
+    }
+    Ok(())
+}
+
+fn write_cell(
+    package: Package,
+    main: &str,
+    owner: (crate::StoryKind, &str),
+    cell: &mut Node,
+    blocks: &[crate::ResolvedBlock],
+) -> Result<Package> {
+    let width = prop(cell, "w:tcW")
+        .filter(|n| n.get("w:type") == Some("dxa"))
+        .and_then(|n| n.get("w:w")?.parse::<u32>().ok())
+        .filter(|w| *w > 0)
+        .map(i64::from);
+    let (next, nodes) = crate::ooxml::encode_editor_owner_blocks(
+        package,
+        main,
+        owner,
+        blocks,
+        width,
+        "editor.table",
+    )?;
+    cell.remove("w:p");
+    let needs_paragraph = nodes.last().is_none_or(|n| n.name != "w:p");
+    for n in nodes {
+        validate_rendered(&n)?;
+        cell.push(n)
+    }
+    if needs_paragraph {
+        cell.push(Node::new("w:p"))
+    }
+    Ok(next)
+}
+pub(super) fn contains_range(n: &Node) -> bool {
     let s = n.name.as_str();
     s == "w:fldChar"
         // A proof range can open and close in different cells while leaving
@@ -665,4 +686,70 @@ fn contains_range(n: &Node) -> bool {
         || s.ends_with("Start")
         || s.ends_with("End")
         || n.elements().any(contains_range)
+}
+
+/// Physical table geometry, properties and cell content all keep the
+/// addressed table in place, so non-overlapping paths remain stable.
+pub(super) fn physical(
+    table: &mut Node,
+    ops: &[&TableOperation],
+    mut package: Package,
+    main: &str,
+    owner: (crate::StoryKind, &str),
+) -> Result<(Package, bool)> {
+    validate(table, true)?;
+    let mut fields = BTreeMap::new();
+    let mut replacements = BTreeMap::new();
+    for op in ops {
+        match op {
+            TableOperation::Property {
+                site,
+                field,
+                source,
+            } => {
+                if fields.insert((*site, field), source.as_deref()).is_some() {
+                    return Err(unsupported("duplicate physical table property"));
+                }
+            }
+            TableOperation::ReplaceCell { row, cell, blocks } => {
+                if replacements.insert((*row, *cell), blocks).is_some() {
+                    return Err(unsupported("duplicate physical cell replacement"));
+                }
+            }
+            TableOperation::Layout(v) if ops.len() == 1 => {
+                return Ok((package, layout(table, *v)?));
+            }
+            TableOperation::InsertRow(_)
+            | TableOperation::RemoveRow(_)
+            | TableOperation::InsertColumn(_)
+            | TableOperation::RemoveColumn(_)
+            | TableOperation::InsertCell { .. }
+            | TableOperation::RemoveCell { .. }
+                if ops.len() == 1 =>
+            {
+                geometry(table, op)?;
+                return Ok((package, true));
+            }
+            _ => {
+                return Err(unsupported(
+                    "unsupported or conflicting physical table operations",
+                ));
+            }
+        }
+    }
+    if !fields.is_empty() && !replacements.is_empty() {
+        return Err(unsupported(
+            "physical cell replacements conflict with property edits",
+        ));
+    }
+    for ((site, field), source) in fields {
+        super::properties::patch(table, site, field, source, &package, main)?;
+    }
+    validate(table, true)?;
+    for ((r, c), blocks) in replacements {
+        let cell = super::properties::site_node(table, super::TableSite::Cell(r, c))?;
+        guard_cell_content(cell)?;
+        package = write_cell(package, main, owner, cell, blocks)?;
+    }
+    Ok((package, true))
 }

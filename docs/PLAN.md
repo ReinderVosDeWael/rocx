@@ -67,13 +67,19 @@ are inspectable in all three bindings. The next increment covers independent
 direct style, alignment, look flags, border sides, grid widths, row flags and
 height, cell margins, direction, shading and merge fields. Table/row/cell
 replacement and whole-table removal refuse destructive edits over opaque
-markup. Editing inside existing nested tables, addressing controlled rows or
-cells, and editing tables in other stories remain open.
+markup. The physical-owner follow-up discovers nested body/header/footer and
+ordinary note/comment tables; edit properties, rows/cells/columns and guarded
+cell contents with owner-local relationship allocation. Whole physical table
+replacement/deletion outside direct body scope, controlled rows/cells and
+local story forks remain open.
 Both structural edit artifacts and all eleven catalogs matched across Rust,
 installed Python 3.12 and packed Node 26. All 24 Node editor outputs matched
 the native reference; the table fixture and both outputs passed schema/OPC
 validation. Tests cover physical-coordinate conflicts, merged intervals,
 unsupported clears, preserved extension attributes and untouched part payloads.
+The complete isolated `check-packed.sh` on `c54e6dd` passed with Node 22.23.5
+and Chromium 159 dev/production, including the independent 2880-twip, span-2
+inspection fixture and exact offline replay ([#3 evidence](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7145848269)).
 
 **Combined qualification on `6f11a6a`:** Rust all-features/all-targets and
 doctests, native/Wasm Clippy, Rust 1.88, 894 schema-required Python tests and

@@ -37,6 +37,8 @@ replacement, or direct run bold in ordinary note/comment definitions.
 detaches, retargets, renumbers or deletes direct-body note references.
 ``edit_entry(owner_part, id, kind, ...)`` updates simple paragraphs, base
 comment metadata or removes an unused ordinary note.
+``part_tables(owner_part=None)`` discovers nested tables. Pass its anchors to
+``edit_part_tables(owner_part, edits)`` for edits in that physical owner.
 """
 
 from ._native import (
@@ -55,6 +57,7 @@ from ._native import (
     BodyContentControl,
     BodyParagraph,
     BodyTable,
+    LocatedTable,
     TableStructureEdit,
     CellAlignmentEdit,
     CellAlignmentChange,
@@ -112,6 +115,7 @@ __all__ = [
     "BodyContentControl",
     "BodyParagraph",
     "BodyTable",
+    "LocatedTable",
     "TableStructureEdit",
     "CellAlignmentEdit",
     "CellAlignmentChange",
