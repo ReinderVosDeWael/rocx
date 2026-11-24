@@ -214,9 +214,9 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
 - `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
   Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
   without discarding other properties; replace/remove only safe unused custom styles.
-- `resources` accepts `kind: "coreTitle"`, `"defaultAlignment"` or `"abstractStart"`
+- `resources` accepts `kind: "coreTitle"`, `"coreSubject"`, `"defaultAlignment"` or `"abstractStart"`
   with `value` (`null` clears). Abstract starts also require `abstractId` and
-  `level`. Inspect direct values with `coreTitle()`, `defaultAlignment()` and
+  `level`. Inspect direct values with `coreTitle()`, `coreSubject()`, `defaultAlignment()` and
   `abstractStarts()`.
 
 ```javascript

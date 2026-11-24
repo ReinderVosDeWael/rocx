@@ -747,6 +747,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         }],
         resources: &[
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
+            editor::ResourceEdit::CoreSubject(Some("Imported resource edits".into())),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {
                 abstract_id: 100,

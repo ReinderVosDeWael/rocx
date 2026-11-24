@@ -26,6 +26,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedStyles", (styles, Paths::Package)),
         ("importedStyleAnchor", (style_anchor, Paths::Package)),
         ("importedCoreTitle", (core_title, Paths::Package)),
+        ("importedCoreSubject", (core_subject, Paths::Package)),
         (
             "importedDefaultAlignment",
             (default_alignment, Paths::Package),
@@ -50,6 +51,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("styles", "importedStyles"),
     ("styleAnchor", "importedStyleAnchor"),
     ("coreTitle", "importedCoreTitle"),
+    ("coreSubject", "importedCoreSubject"),
     ("defaultAlignment", "importedDefaultAlignment"),
     ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
@@ -185,6 +187,13 @@ fn core_title(input: &Wire) -> Result<JsValue> {
     Ok(doc
         .document()
         .core_title()?
+        .map_or(JsValue::UNDEFINED, Into::into))
+}
+fn core_subject(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(doc
+        .document()
+        .core_subject()?
         .map_or(JsValue::UNDEFINED, Into::into))
 }
 fn default_alignment(input: &Wire) -> Result<JsValue> {

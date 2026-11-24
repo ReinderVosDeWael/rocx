@@ -89,6 +89,7 @@ export type StyleEdit =
 
 export type ResourceEdit =
   | { readonly kind: "coreTitle"; readonly value: string | null }
+  | { readonly kind: "coreSubject"; readonly value: string | null }
   | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
   | { readonly kind: "abstractStart"; readonly abstractId: number; readonly level: number; readonly value: number | null };
 

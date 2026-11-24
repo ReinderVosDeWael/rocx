@@ -34,6 +34,11 @@ aliases, protected move and bound-control template edits, proofing ranges
 across cells, and sharing a staged style catalog across operations.
 Keep #48 open for the remaining resource inventory; #52 is separate.
 
+The follow-up to #48 adds independent set/clear/readback of the package core
+subject. Numbering, document defaults and remaining metadata are being worked
+on in parallel; #3 closure requires reconciling the individual slices against
+the editor inventory and qualifying their combined behavior.
+
 ## Selected standalone topic results (before ten-way integration)
 
 For the individual verification records, read `docs/PLAN.md` at the topic

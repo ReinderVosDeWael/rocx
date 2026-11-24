@@ -75,6 +75,29 @@ def test_resource_edits_roundtrip_without_rewriting_numbering_references():
     assert source.core_title == "original" and unpack(preview(source)) == parts
 
 
+def test_subject_can_be_set_and_cleared_independently_of_title():
+    parts = fixture()
+    source = ImportedDocument.open(pack(parts))
+    value = "Subject & " + "📄" * 245
+    data = source.preview([], resources=[ResourceEdit.core_subject(value),
+                                         ResourceEdit.core_title("new title")]).to_docx()
+    after = unpack(data)
+    assert {n for n in after if parts[n] != after[n]} == {"properties/info.xml"}
+    assert b"<!--retain--><?sample opaque?>" in after["properties/info.xml"]
+    assert docx.Document(BytesIO(data)).core_properties.subject == value
+    edited = ImportedDocument.open(data)
+    assert (edited.core_title, edited.core_subject) == ("new title", value)
+    for subject in ("", None):
+        edited = ImportedDocument.open(edited.preview([], resources=[
+            ResourceEdit.core_subject(subject)]).to_docx())
+        assert (edited.core_title, edited.core_subject) == ("new title", subject)
+    for edits in ([ResourceEdit.core_subject("x" * 256)],
+                  [ResourceEdit.core_subject(None), ResourceEdit.core_subject("again")]):
+        with pytest.raises(ValueError):
+            source.preview([], resources=edits)
+    assert unpack(source.preview([]).to_docx()) == parts
+
+
 @pytest.mark.parametrize("replacement", [
     b"<dc:title>one</dc:title><dc:title>two</dc:title>",
     b'<dc:title xml:lang="de">original</dc:title>',

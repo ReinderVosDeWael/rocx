@@ -1197,6 +1197,13 @@ impl PyResourceEdit {
     }
     #[staticmethod]
     #[pyo3(signature=(value))]
+    fn core_subject(value: Option<String>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::CoreSubject(value),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(value))]
     fn default_alignment(value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
         Ok(Self {
             inner: editor::ResourceEdit::DefaultAlignment(value.map(super::alignment).transpose()?),
@@ -1232,6 +1239,14 @@ impl PyImportedDocument {
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
             .core_title()
+            .map_err(rust_error)
+    }
+    #[getter]
+    fn core_subject(&self) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .core_subject()
             .map_err(rust_error)
     }
     #[getter]

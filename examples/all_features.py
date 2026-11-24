@@ -505,6 +505,7 @@ async def generate(output: pathlib.Path) -> bytes:
     caption, = (c for c in imported.controls if c.id == "5001")
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
+                                          ResourceEdit.core_subject("Imported resource edits"),
                                           ResourceEdit.default_alignment("center"),
                                           ResourceEdit.abstract_start(100, 0, 7)],
                                controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],

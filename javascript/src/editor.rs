@@ -379,11 +379,18 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
             .map_err(|_| Failure::invalid(p, "expected u32"))
     };
     Ok(match kind.as_str() {
-        "coreTitle" => ResourceEdit::CoreTitle(if clear {
-            None
-        } else {
-            Some(b::string(&v, &vp)?)
-        }),
+        "coreTitle" | "coreSubject" => {
+            let value = if clear {
+                None
+            } else {
+                Some(b::string(&v, &vp)?)
+            };
+            if kind == "coreTitle" {
+                ResourceEdit::CoreTitle(value)
+            } else {
+                ResourceEdit::CoreSubject(value)
+            }
+        }
         "defaultAlignment" => ResourceEdit::DefaultAlignment(if clear {
             None
         } else {
