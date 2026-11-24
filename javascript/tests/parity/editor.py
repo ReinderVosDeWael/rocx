@@ -781,8 +781,6 @@ def verify(directory):
     backlink = xp(num,f'w:abstractNum[@w:abstractNumId="{aid}"]/w:styleLink')[0]
     assert backlink.get(qn("w:val")) == "MemoList"
     backlink.getparent().remove(backlink)
-    def tree(node):
-        return (node.tag, dict(node.attrib), node.text, [tree(n) for n in node])
     assert tree(num) == tree(etree.fromstring(before["word/numbering.xml"]))
     source = parts(directory / "base.docx")
     image = (directory / "image.png").read_bytes()
