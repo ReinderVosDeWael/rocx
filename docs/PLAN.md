@@ -11,14 +11,21 @@ a field flag, a paired bookmark, a run-format patch and paragraph insertion.
 It rejects a wrapper crossing a staged bookmark and tracked formatting in that
 bookmark after reopen. `fieldBatch` covers a cache spanning body paragraphs;
 `formatOwners` covers linked runs in cells and physical header/footer parts.
+Standalone gates passed: 342 Rust tests, three doctests, Rust 1.88, native/Wasm
+Clippy and 928 schema-required tests from the installed Python 3.12 wheel.
+Packed Node 22 and 24 and Chromium 159 development and production matched
+all 42 editor packages and 13 catalogs byte for byte against Rust. Installed
+Python also matched all 13 catalogs and regenerated the mixed control, field,
+revision and rich-inline oracles. Separate checks passed for strict TypeScript,
+schema/OPC, relationship ownership and untouched part payloads.
 
-Integrate fields and paired ranges with the inline, control and revision
-workstreams. The combined `guardedWorkflow` oracle covers bookmark boundaries,
-unique revision IDs, control-site eligibility before and after review, and
-retrying a review after rejecting a colliding range. Separate guards exercise
-move names and field caches containing controls or revisions.
+The preceding `ae0cefd` integration combined fields and paired ranges with
+inlines, controls and revisions. Its `guardedWorkflow` oracle covers bookmark
+boundaries, unique revision IDs, control-site eligibility before and after
+review, and retrying a review after rejecting a colliding range. Separate guards
+exercise move names and field caches containing controls or revisions.
 
-**Combined qualification:** 342 Rust all-target/all-feature tests, three
+**Qualification of `ae0cefd`:** 342 Rust all-target/all-feature tests, three
 doctests, native and Wasm Clippy, Rust 1.88 and all 915 schema-required
 installed Python tests passed. All 38 editor and 12 catalog packages
 matched complete Rust ZIPs in packed Node 26 and Chromium. All 50 passed
