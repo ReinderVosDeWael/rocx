@@ -469,7 +469,13 @@ async def generate(output: pathlib.Path) -> bytes:
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
     replacement = "Imported editor: replaced this run by its anchor. "
-    preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)])
+    inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
+    preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)],
+                               paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
+    assert preview.paragraph_insertions == [
+        next(i for i, block in enumerate(imported.body)
+             if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
+    ]
     assert preview.run_text_changes[0].before == INLINE_LABEL
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL

@@ -838,8 +838,9 @@ def main() -> None:
     edited_digest = exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
     replaced = rust.with_suffix(".run-text.docx").read_bytes()
     exact_bytes(replaced, python.with_suffix(".run-text.docx").read_bytes())
-    assert any(p.text == "Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS)
-               for p in docx.Document(io.BytesIO(replaced)).paragraphs)
+    paragraphs = [p.text for p in docx.Document(io.BytesIO(replaced)).paragraphs]
+    anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
+    assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
     with zipfile.ZipFile(rust) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
         assert set(source.namelist()) == set(changed.namelist())
         assert all(source.read(n) == changed.read(n) for n in source.namelist() if n != "word/document.xml")

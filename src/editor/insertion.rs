@@ -3,6 +3,43 @@ use crate::xml::{Content, Node, W};
 use crate::{ResolvedTable, Result, TableLayout};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Validate body insertion points without imposing table geometry constraints.
+pub(super) fn paragraph_sites(
+    body: &Node,
+    targets: &BTreeSet<usize>,
+) -> Result<Vec<(usize, usize)>> {
+    let mut boundaries = BoundaryState::default();
+    let mut sites = Vec::new();
+    let mut index = 0;
+    let mut at_body_end = false;
+    for (slot, child) in body.children.iter().enumerate() {
+        let Content::Element(node) = child else {
+            continue;
+        };
+        if at_body_end {
+            return Err(unsupported("body section properties are not terminal"));
+        }
+        if node.name == "w:sectPr" {
+            at_body_end = true;
+            continue;
+        }
+        boundaries.advance(node);
+        if targets.contains(&index) {
+            if node.name != "w:p" || !boundaries.safe() {
+                return Err(unsupported(
+                    "paragraph insertion point is inside an active or ambiguous range",
+                ));
+            }
+            sites.push((index, slot + 1));
+        }
+        index += 1;
+    }
+    if sites.len() != targets.len() {
+        return Err(unsupported("paragraph target not found"));
+    }
+    Ok(sites)
+}
+
 /// Use the same element order as the body view. The direct section terminator
 /// after an insertion slot governs the slot.
 pub(super) fn table_sites(

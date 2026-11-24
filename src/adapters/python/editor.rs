@@ -613,6 +613,38 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "ParagraphInsertion", frozen, module = "rocx.editor")]
+struct PyParagraphInsertion {
+    target: editor::ParagraphAnchor,
+    paragraph: crate::ResolvedParagraph,
+}
+
+#[pymethods]
+impl PyParagraphInsertion {
+    #[new]
+    fn new(
+        target: PyRef<'_, PyParagraphAnchor>,
+        resolved_paragraph: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let node_type = resolved_paragraph
+            .py()
+            .import("rocx.resolution.snapshot")?
+            .getattr("ResolvedNode")?;
+        if !resolved_paragraph.is_instance(&node_type)?
+            || resolved_paragraph
+                .getattr("_native_kind")?
+                .extract::<String>()?
+                != "Paragraph"
+        {
+            return Err(PyTypeError::new_err("expected a resolved Paragraph"));
+        }
+        Ok(Self {
+            target: target.inner.clone(),
+            paragraph: super::content::paragraph(resolved_paragraph)?,
+        })
+    }
+}
+
 #[pymethods]
 impl PyTableInsertion {
     #[new]
@@ -1086,6 +1118,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBodyContentControl>()?;
     module.add_class::<PyParagraphAlignmentEdit>()?;
     module.add_class::<PyTableInsertion>()?;
+    module.add_class::<PyParagraphInsertion>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;

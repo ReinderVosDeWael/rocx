@@ -1027,6 +1027,99 @@ fn resolve_insertion_table(table: rocx::Table) -> rocx::ResolvedTable {
 }
 
 #[test]
+fn paragraph_insertions_are_atomic_and_preserve_other_parts() {
+    use rocx::{
+        ResolvedBlock,
+        editor::{ParagraphInsertion, TableInsertion},
+    };
+    let resolved = block_on(
+        Document::new(vec![
+            Section::new(vec![Paragraph::new("new paragraph").into()]).into(),
+        ])
+        .resolve(),
+    )
+    .unwrap();
+    let ResolvedBlock::Paragraph(content) = &resolved.sections()[0].blocks()[0] else {
+        panic!("expected paragraph");
+    };
+    let source = fixture();
+    let doc = ImportedDocument::open(&source).unwrap();
+    let insertion = ParagraphInsertion {
+        target: paragraph(&doc, 0).anchor.clone(),
+        paragraph: content.clone(),
+    };
+    let preview = doc
+        .preview_with_paragraphs(
+            &[ParagraphAlignmentEdit {
+                target: paragraph(&doc, 3).anchor.clone(),
+                alignment: Alignment::Center,
+            }],
+            &[TableInsertion {
+                target: paragraph(&doc, 3).anchor.clone(),
+                table: insertion_table(),
+            }],
+            &[],
+            &[],
+            std::slice::from_ref(&insertion),
+        )
+        .unwrap();
+    assert_eq!(preview.paragraph_insertions(), &[0]);
+    let output = preview.to_docx().unwrap();
+    let reopened = ImportedDocument::open(&output).unwrap();
+    assert_eq!(paragraph(&reopened, 1).text, "new paragraph");
+    assert_eq!(paragraph(&reopened, 4).alignment, Some(Alignment::Center));
+    assert!(matches!(&reopened.body()[5], BodyBlock::Table(_)));
+    for (name, original) in parts(&source) {
+        if name != "word/document.xml" {
+            assert_eq!(parts(&output)[&name], original, "{name}");
+        }
+    }
+    assert!(
+        doc.preview_with_paragraphs(&[], &[], &[], &[], &[insertion.clone(), insertion])
+            .is_err()
+    );
+    let other = ImportedDocument::open(&source).unwrap();
+    let stale = ParagraphInsertion {
+        target: paragraph(&other, 0).anchor.clone(),
+        paragraph: content.clone(),
+    };
+    assert!(
+        doc.preview_with_paragraphs(&[], &[], &[], &[], &[stale])
+            .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&source)
+    );
+}
+
+#[test]
+fn paragraph_insertion_rejects_active_ranges() {
+    use rocx::{ResolvedBlock, editor::ParagraphInsertion};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p><w:bookmarkStart w:id="1" w:name="open"/></w:p><w:p><w:bookmarkEnd w:id="1"/></w:p><w:sectPr/></w:body></w:document>"#
+    );
+    let doc = ImportedDocument::open(&fixture_with_body(&xml)).unwrap();
+    let resolved = block_on(
+        Document::new(vec![Section::new(vec![Paragraph::new("x").into()]).into()]).resolve(),
+    )
+    .unwrap();
+    let ResolvedBlock::Paragraph(content) = &resolved.sections()[0].blocks()[0] else {
+        panic!()
+    };
+    let insertion = ParagraphInsertion {
+        target: paragraph(&doc, 0).anchor.clone(),
+        paragraph: content.clone(),
+    };
+    assert!(
+        doc.preview_with_paragraphs(&[], &[], &[], &[], &[insertion])
+            .unwrap_err()
+            .to_string()
+            .contains("range")
+    );
+}
+
+#[test]
 fn inserts_formatted_content_nested_table_and_fraction() {
     use rocx::editor::TableInsertion;
     use rocx::{InlineFraction, RunFormat, Table, TableCell, TableProperties, TableRow, TextRun};

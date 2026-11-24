@@ -8,8 +8,11 @@ use crate::ooxml::wordprocessing::run_child::RunChild;
 use crate::ooxml::{WordParts, open_word_source};
 use crate::opc::{Package, PackagePlan, ReadLimits};
 use crate::xml::{Content, Node};
-use crate::{Alignment, BreakType, Diagnostic, Error, ResolvedTable, Result, Rule, SectionType};
-use std::collections::BTreeMap;
+use crate::{
+    Alignment, BreakType, Diagnostic, Error, ResolvedParagraph, ResolvedTable, Result, Rule,
+    SectionType,
+};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
 mod entries;
@@ -333,6 +336,13 @@ pub struct TableInsertion {
     pub table: ResolvedTable,
 }
 
+/// Insert a resolved declarative paragraph immediately after a direct body paragraph.
+#[derive(Clone, Debug)]
+pub struct ParagraphInsertion {
+    pub target: ParagraphAnchor,
+    pub paragraph: ResolvedParagraph,
+}
+
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct TableInsertionChange {
@@ -359,6 +369,7 @@ pub struct EditPreview {
     run_removals: Vec<RunRemovalChange>,
     changes: Vec<AlignmentChange>,
     insertions: Vec<TableInsertionChange>,
+    paragraph_insertions: Vec<usize>,
     header_changes: Vec<HeaderImageChange>,
     output: PackagePlan,
 }
@@ -380,6 +391,11 @@ impl EditPreview {
     /// Table insertions in source document order.
     pub fn insertions(&self) -> &[TableInsertionChange] {
         &self.insertions
+    }
+
+    /// Original body indices after which paragraphs were inserted.
+    pub fn paragraph_insertions(&self) -> &[usize] {
+        &self.paragraph_insertions
     }
 
     /// Header image changes in target section order.
@@ -608,6 +624,21 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        let mut paragraph_targets = BTreeMap::new();
+        for insertion in paragraphs {
+            if paragraph_targets
+                .insert(insertion.target.body_index, &insertion.paragraph)
+                .is_some()
+            {
+                return Err(unsupported(
+                    "multiple paragraph insertions target one paragraph",
+                ));
+            }
+            if table_targets.contains_key(&insertion.target.body_index) {
+                return Err(unsupported("multiple insertions target one paragraph"));
+            }
+        }
+        let mut paragraph_insertions = Vec::new();
         let mut changes = Vec::new();
         let mut insertions = Vec::new();
         let mut header_changes = Vec::new();
@@ -650,10 +681,19 @@ impl ImportedDocument {
             } else {
                 insertion::table_sites(body, &table_targets)?
             };
+            let paragraph_sites = if paragraph_targets.is_empty() {
+                Vec::new()
+            } else {
+                insertion::paragraph_sites(
+                    body,
+                    &paragraph_targets.keys().copied().collect::<BTreeSet<_>>(),
+                )?
+            };
             // Header reference edits use original body slots, before splicing tables.
             let (staged, staged_headers) = headers.stage(package, &self.main, body)?;
             package = staged;
             header_changes = staged_headers;
+            let mut pending = Vec::new();
             if !sites.is_empty() {
                 let mut payloads = Vec::with_capacity(sites.len());
                 let mut slots = Vec::with_capacity(sites.len());
@@ -670,11 +710,27 @@ impl ImportedDocument {
                 let (staged, nodes) =
                     crate::ooxml::encode_editor_tables(package, &self.main, payloads)?;
                 package = staged;
+                pending.extend(slots.into_iter().zip(nodes));
+            }
+            if !paragraph_sites.is_empty() {
+                let mut payloads = Vec::new();
+                let mut slots = Vec::new();
+                for (index, slot) in paragraph_sites {
+                    paragraph_insertions.push(index);
+                    slots.push(slot);
+                    payloads.push(paragraph_targets[&index].clone());
+                }
+                let (staged, nodes) =
+                    crate::ooxml::encode_editor_paragraphs(package, &self.main, payloads)?;
+                package = staged;
+                pending.extend(slots.into_iter().zip(nodes));
+            }
+            if !pending.is_empty() {
+                pending.sort_by_key(|(slot, _)| *slot);
                 let original = std::mem::take(&mut body.children);
-                body.children.reserve(original.len() + slots.len());
                 let mut original = original.into_iter();
                 let mut offset = 0;
-                for (slot, node) in slots.into_iter().zip(nodes) {
+                for (slot, node) in pending {
                     body.children.extend(original.by_ref().take(slot - offset));
                     body.children.push(Content::Element(node));
                     offset = slot;
@@ -685,6 +741,7 @@ impl ImportedDocument {
                 || !run_text_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !insertions.is_empty()
+                || !paragraph_insertions.is_empty()
                 || header_changes
                     .iter()
                     .any(|change| change.mode == HeaderEditMode::SectionLocal)
@@ -697,6 +754,7 @@ impl ImportedDocument {
             run_removals: removed_runs,
             changes,
             insertions,
+            paragraph_insertions,
             header_changes,
             output: PackagePlan::new(package)?,
         })

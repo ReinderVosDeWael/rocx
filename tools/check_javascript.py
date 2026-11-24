@@ -1,10 +1,15 @@
 """Check packed consumer output: exact Rust ZIP bytes, readback, and OPC/schema."""
 
 import argparse
+import io
+import zipfile
 from pathlib import Path
+
+import docx
 
 from check_examples import (
     CATALOG_SUFFIXES,
+    INLINE_LINK_RUNS,
     exact_bytes,
     verify_content,
     verify_edited,

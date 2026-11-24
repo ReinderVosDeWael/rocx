@@ -8,7 +8,7 @@ use crate::{
 };
 use js_sys::{Array, Uint8Array};
 use rocx::{
-    ResolvedImage, ResolvedTable, Result,
+    ResolvedImage, ResolvedParagraph, ResolvedTable, Result,
     editor::{
         EditPreview, HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit,
         HeaderImagePreview, ParagraphAlignmentEdit, ParagraphAnchor, TableAnchor, TableInsertion,
@@ -34,6 +34,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ),
         ("editPreviewRunRemovals", (run_removals, Paths::Package)),
         ("editPreviewInsertions", (insertions, Paths::Package)),
+        (
+            "editPreviewParagraphInsertions",
+            (paragraph_insertions, Paths::Package),
+        ),
         ("editPreviewHeaderChanges", (header_changes, Paths::Package)),
         ("editPreviewToDocx", (edit_docx, Paths::Package)),
         ("headerImagePreviewChange", (header_change, Paths::Package)),
@@ -176,6 +180,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
             ("runTextChanges", "editPreviewRunTextChanges"),
             ("runRemovals", "editPreviewRunRemovals"),
             ("insertions", "editPreviewInsertions"),
+            ("paragraphInsertions", "editPreviewParagraphInsertions"),
             ("headerChanges", "editPreviewHeaderChanges"),
             ("toDocx", "editPreviewToDocx"),
         ],
@@ -260,6 +265,17 @@ fn insertions(input: &Wire) -> Result<JsValue> {
             ("columns", change.columns.into()),
         ])
     })))
+}
+
+fn paragraph_insertions(input: &Wire) -> Result<JsValue> {
+    let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
+    Ok(array(
+        preview
+            .paragraph_insertions()
+            .iter()
+            .copied()
+            .map(JsValue::from),
+    ))
 }
 
 fn run_text_changes(input: &Wire) -> Result<JsValue> {

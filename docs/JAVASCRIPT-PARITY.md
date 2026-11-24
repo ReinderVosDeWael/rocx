@@ -25,6 +25,12 @@ can contain nested blocks. This is distinct from the declarative
 `DocumentProgram` overload. B1 added authoring, resolution, composition,
 and imported inspection. B2 adds anchored edit previews in the worktree,
 not in a published release.
+The current paragraph-insertion slice adds `paragraphInsertions` to
+`ImportedDocument.preview`, with reports from `paragraphInsertions()`. Its
+typed installed-consumer fixture is in `javascript/tests/parity/editor.mts`.
+The same packed artifact passed focused Node 22, 24 and 26 and Chromium
+development/production cases. Full packed Node 22 and 24 gates passed with
+schema/OPC validation and checkout provenance checks.
 Use the installed [`index.d.ts`](../javascript/index.d.ts) barrel and
 [`types/`](../javascript/types/) modules for actual signatures. The tables
 below retain Rust requirements and test case names; those are acceptance
