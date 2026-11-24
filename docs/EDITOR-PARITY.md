@@ -590,6 +590,9 @@ Conditions, components, property references, lazy/async/deferred values, reuse a
 
 Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python/JavaScript DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the [active plan](PLAN.md) for verification status.
 
+The [#3 acceptance map](EDITOR-ACCEPTANCE.md) links those gates and the
+individual operation groups to their evidence and records uncovered contexts.
+
 ## Body block edits
 
 Use an original direct body paragraph anchor for these operations:

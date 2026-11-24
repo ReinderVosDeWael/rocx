@@ -124,6 +124,12 @@ checked against the other implementation, not against a permanently fixed hash.
 
 ## Inspection guide and coverage inventory
 
+The editor acceptance tests reopen each generated catalog through its own
+public imported-document binding. They check typed values and story/anchor
+behavior separately from exact byte comparisons, ZIP/relationship checks and
+viewer inspection. See the [editor acceptance map](../docs/EDITOR-ACCEPTANCE.md)
+for the distinction between typed, opaque and untested operation scopes.
+
 The editor reads the labeled footnote, endnote and structured comment back as
 separate entries. The two ordinary notes both use ID `0` in different parts.
 

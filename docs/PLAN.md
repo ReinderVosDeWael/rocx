@@ -22,6 +22,19 @@ and 13 catalogs, including schema/OPC and independent readback. The 32
 previous editor outputs and all 13 catalogs remain byte-identical to
 `c1b6627`; the physical-table fixture is the 33rd editor output.
 
+The [#3 acceptance map](EDITOR-ACCEPTANCE.md) reconciles the original issue and
+the operation contract against the `c1b6627` structural baseline. The Rust
+showcase test, installed Python catalog tests and packed JavaScript consumers
+now check typed values on every structural catalog artifact, independently of
+schema/OPC, package preservation and exact ZIP parity. The divergent inline
+cluster (`981d798`) is recorded separately; integrate and extend the typed
+checks for the combined artifact set before claiming qualification. Remaining
+operation and transport gaps are closure decisions, not implied passes.
+On `c1b6627`, the Rust showcase and its Clippy check passed, as did 35
+catalog tests against the installed Python 3.12 wheel. Packed Node 22/24
+and Chromium 159 development/production passed typed readback; all 13
+catalogs in each consumer matched the generated Rust catalog bytes.
+
 The merge of `30ac174` into the qualified `7d5d08b` keeps the #48 resource
 guards and the recovered layout, section, story and table APIs. Table removal
 is deferred until original body coordinates have been used, while a no-op
