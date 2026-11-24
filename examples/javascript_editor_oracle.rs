@@ -462,6 +462,8 @@ fn main() {
     use rocx::editor::{TableOperation::*, TableStructureEdit};
     let mut structure = body.clone();
     for operation in [
+        Layout(None),
+        Layout(Some(rocx::TableLayout::Autofit)),
         InsertRow(1),
         RemoveRow(1),
         InsertColumn(1),

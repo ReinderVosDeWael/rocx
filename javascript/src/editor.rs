@@ -232,11 +232,13 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
     let edit = Record::new(
         input,
         path,
-        &["target", "kind", "index", "row", "cell", "blocks"],
+        &["target", "kind", "index", "row", "cell", "blocks", "value"],
     )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
     let fields: &[&str] = if kind == "replaceCell" {
         &["target", "kind", "row", "cell", "blocks"]
+    } else if kind == "layout" {
+        &["target", "kind", "value"]
     } else if matches!(kind.as_str(), "insertCell" | "removeCell") {
         &["target", "kind", "row", "cell"]
     } else {
@@ -248,6 +250,23 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
             .map_err(|_| Failure::invalid(&edit.path(name), "index is too large"))
     };
     let operation = match kind.as_str() {
+        "layout" => {
+            let v = edit.get("value")?;
+            Layout(if v.js().is_null() {
+                None
+            } else {
+                Some(match b::string(&v, &edit.path("value"))?.as_str() {
+                    "fixed" => rocx::TableLayout::Fixed,
+                    "autofit" => rocx::TableLayout::Autofit,
+                    _ => {
+                        return Err(Failure::invalid(
+                            &edit.path("value"),
+                            "unknown table layout",
+                        ));
+                    }
+                })
+            })
+        }
         "insertRow" => InsertRow(index("index")?),
         "removeRow" => RemoveRow(index("index")?),
         "insertColumn" => InsertColumn(index("index")?),

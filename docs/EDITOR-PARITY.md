@@ -128,6 +128,15 @@ children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
 
+Read `layout` in all three APIs for the recognized direct `fixed` or `autofit`
+setting (a `TableLayout` in Rust). `grid_widths` (Rust/Python) or `gridWidths`
+(JavaScript) lists direct grid columns in source order, in twips; a missing
+or unparseable unsigned width gives `None`/`null` at that position. On each
+physical cell, `grid_span`/`gridSpan` exposes a direct positive span, and
+`vertical_merge`/`verticalMerge` exposes the marker value (`continue` for an
+empty `w:vMerge`). Absent properties stay absent. These are source properties,
+not effective formatting or a computed viewer grid.
+
 In Rust use `CellAlignmentEdit` with `preview_with_cells`; in Python use
 `CellAlignmentEdit` with `preview(..., cell_alignments=[...])`; in JavaScript
 use `preview({ cellAlignments: [...] })`. Indices refer to the original
@@ -147,6 +156,13 @@ JavaScript `preview({tableStructure: [{target, kind: "insertRow", index}]})`.
 | `InsertCell` / `RemoveCell` | `insert_cell` / `remove_cell` | `insertCell` / `removeCell` | `row`, `cell`: physical row and cell |
 | `InsertColumn` / `RemoveColumn` | `insert_column` / `remove_column` | `insertColumn` / `removeColumn` | `index`: logical grid column, across all rows |
 | `ReplaceCell` | `replace_cell` | `replaceCell` | `row`, `cell`, `blocks`: physical target and ordered resolved paragraphs/tables |
+| `Layout(Some(TableLayout::Autofit))` | `layout(target, "autofit")` | `layout` | Whole table; JS `value: "autofit"`. Also accepts `fixed`; pass `None`/`None`/`null` to clear. |
+
+The layout patch only changes `w:tblLayout`; existing cell and grid widths
+are retained. It uses the same range and grid guards as structural edits and
+requires exclusive use of the table within the table edit batch. Duplicate
+layout elements, tracked table properties, and clears that would discard
+extension attributes or children on the property are rejected.
 
 Indices are zero-based; insert before an index or append at the count. A cell
 spanning three grid columns still counts as **one physical cell**. A new row

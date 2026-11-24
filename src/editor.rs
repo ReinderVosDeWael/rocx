@@ -101,6 +101,10 @@ pub struct TableAnchor {
 #[non_exhaustive]
 pub struct ImportedTable {
     pub anchor: TableAnchor,
+    /// Direct recognized layout; no style or default is inferred.
+    pub layout: Option<crate::TableLayout>,
+    /// Direct grid columns in order; absent or nonnumeric widths are unknown.
+    pub grid_widths: Vec<Option<u32>>,
     pub children: Vec<ImportedTableChild>,
 }
 
@@ -127,6 +131,10 @@ pub enum ImportedRowChild {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTableCell {
+    /// Direct positive grid span; no implicit one is synthesized.
+    pub grid_span: Option<u32>,
+    /// Source merge marker; an empty marker denotes "continue".
+    pub vertical_merge: Option<String>,
     pub blocks: Vec<ImportedCellBlock>,
     inline_structure: Vec<Option<Vec<ImportedInlineNode>>>,
 }
@@ -152,6 +160,22 @@ pub enum ImportedCellBlock {
 
 fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTable {
     ImportedTable {
+        layout: match node
+            .child("w:tblPr")
+            .and_then(|p| p.child("w:tblLayout"))
+            .and_then(|p| p.get("w:type"))
+        {
+            Some("fixed") => Some(crate::TableLayout::Fixed),
+            Some("autofit") => Some(crate::TableLayout::Autofit),
+            _ => None,
+        },
+        grid_widths: node
+            .child("w:tblGrid")
+            .into_iter()
+            .flat_map(Node::elements)
+            .filter(|c| c.name == "w:gridCol")
+            .map(|c| c.get("w:w").and_then(|s| s.parse().ok()))
+            .collect(),
         anchor: TableAnchor {
             _snapshot: snapshot.clone(),
             _body_index: body_index,
@@ -198,6 +222,15 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                                 })
                                 .unzip();
                             ImportedRowChild::Cell(ImportedTableCell {
+                                grid_span: n
+                                    .child("w:tcPr")
+                                    .and_then(|p| p.child("w:gridSpan"))
+                                    .and_then(|s| s.get("w:val")?.parse().ok())
+                                    .filter(|v| *v > 0),
+                                vertical_merge: n
+                                    .child("w:tcPr")
+                                    .and_then(|p| p.child("w:vMerge"))
+                                    .map(|m| m.get("w:val").unwrap_or("continue").to_owned()),
                                 blocks,
                                 inline_structure,
                             })

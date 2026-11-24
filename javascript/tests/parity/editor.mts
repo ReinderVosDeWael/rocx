@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -226,6 +226,7 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   same(final.blockChanges(), [5], "retry after rejected batch");
   let tableStructure = bytes;
   const steps: ((target: TableAnchor) => TableStructureEdit)[] = [
+    target => ({target, kind: "layout", value: null}), target => ({target, kind: "layout", value: "autofit"}),
     target => ({target, kind: "insertRow", index: 1}), target => ({target, kind: "removeRow", index: 1}),
     target => ({target, kind: "insertColumn", index: 1}), target => ({target, kind: "removeColumn", index: 1}),
     target => ({target, kind: "insertCell", row: 0, cell: 1}), target => ({target, kind: "removeCell", row: 0, cell: 1}),
@@ -238,6 +239,11 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
     rejects(() => reopened.preview({tableStructure: [edit]}), /different document snapshot/);
     rejects(() => source.preview({tableStructure: [edit, edit]}), /exclusive|duplicate/);
     tableStructure = source.preview({tableStructure: [edit]}).toDocx();
+    if (edit.kind === "layout") {
+      const adjusted = (await openDocx(tableStructure)).body()[5];
+      check(adjusted.kind === "table" && adjusted.layout === (edit.value ?? undefined), "direct layout");
+      same(adjusted.gridWidths, table.gridWidths, "preserved widths");
+    }
   }
   return { tableStructure, body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes, blocks: final.toDocx() };
 }
@@ -416,6 +422,17 @@ async function editControls(fixtures: Fixtures) {
 }
 
 export async function run(fixtures: Fixtures) {
+  const merged = await openDocx(fixtures["table-layout"]);
+  const physical = merged.body()[0];
+  check(physical.kind === "table" && physical.layout === "fixed", "merged table layout");
+  same(physical.gridWidths, [2880, 2880, 2880], "explicit grid widths in twips");
+  for (const [index, row] of physical.children.entries()) {
+    check(row.kind === "row" && row.children.length === 2, "physical merged row");
+    const [wide, plain] = row.children;
+    check(wide.kind === "cell" && plain.kind === "cell", "physical cells");
+    same([wide.gridSpan, wide.verticalMerge], [2, index ? "continue" : "restart"], "merged interval");
+    check(plain.gridSpan === undefined && plain.verticalMerge === undefined, "unset direct properties");
+  }
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [

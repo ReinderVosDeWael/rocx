@@ -145,6 +145,12 @@ def verify_controls(directory):
 
 
 def generate(directory):
+    merged = Document()
+    merged.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    table = merged.add_table(rows=2, cols=3)
+    table.autofit = False
+    table.cell(0, 0).merge(table.cell(1, 1)).text = "origin"
+    merged.save(directory / "table-layout.docx")
     generate_controls(directory)
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
@@ -455,6 +461,8 @@ def verify(directory):
 
     structure = directory / "tableStructure.docx"
     untouched(body, parts(structure), (MAIN,))
+    assert Document(structure).tables[1].autofit
+    assert xp(etree.fromstring(parts(structure)[MAIN]), "w:body/w:tbl[2]/w:tblPr/w:tblLayout/@w:type") == ["autofit"]
     row = Document(structure).tables[1].rows[0]
     assert [cell.text for cell in row.cells] == ["next A", "inserted paragraph\n"]
     assert [c.text for c in row.cells[1].tables[0].rows[0].cells] == ["next A", "next B"]
