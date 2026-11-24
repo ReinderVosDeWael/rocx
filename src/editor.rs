@@ -1038,6 +1038,15 @@ impl ImportedDocument {
         self.stage_story_numbering(&mut package, resources)?;
         // A defaults patch shares the styles part. Read the staged version.
         resource_fields::apply(&mut package, &self.main, resources)?;
+        if let [
+            StyleEdit::Retarget {
+                target,
+                replacement,
+            },
+        ] = styles
+        {
+            self.retarget_style(&mut package, target, replacement)?;
+        }
         if destructive_styles {
             self.check_final_style_uses(&package, styles)?;
         }

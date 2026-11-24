@@ -78,6 +78,13 @@ Next numbering increment: allocate a missing numbering part beside the main
 document, replace supported abstract levels and relink existing instances
 without breaking consumer level addresses, and edit direct story paragraphs
 through their original physical owner.
+ The standalone #3 style increment adds attribute-level formatting and tab edits,
+collision-safe creation of an absent styles relationship, and explicit guarded
+style-reference migration. The three style oracles matched complete Rust,
+installed Python, packed Node 26 and Chromium 159 output and passed schema/OPC
+validation. All eleven catalog files matched Rust/Python/Node. The installed
+consumer suite compared 25 editor outputs. Exercise style ownership with the
+#48 instance/override editor (`c1a8fac`) in a combined checkout.
 
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
@@ -91,8 +98,8 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six header/footer slots; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Custom note marks, shared or nested reference edits, destructive rich block edits, modern comment metadata, reserved entries and local text forks. |
-| #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits and retargeting live users. |
-| #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
+| #47 Styles | Inspect direct properties and regions; add all four kinds and create an absent catalog; patch direct formatting attributes and tabs, set/clear conditional wrappers, and migrate provable typed ID references. | Rewriting field instructions or opaque users, arbitrary unmodeled XML edits, and migrating linked numbering styles. |
+| #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering replacement and overrides, and direct body/cell/story paragraph numbering. | Rich destructive edits, nested/control targets, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
 | #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, all story image slots, physical story text, tracked text/moves and revision review. New transport covers point insertions, block flags and section type, table layout, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; newer rich run formatting and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |

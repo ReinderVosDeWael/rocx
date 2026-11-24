@@ -151,6 +151,7 @@ export async function generateCatalog(fixtures, options) {
     { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
     { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
     { op: "field", target: imported.styleAnchor("Regionfirst_row"), region: "firstRow", field: "b", value: null },
+    { op: "field", target: imported.styleAnchor("Regionfirst_row"), region: "firstRow", field: "lang.eastAsia", value: "ko-KR" },
     { op: "region", target: imported.styleAnchor("Regionlast_row"), region: "lastRow", format: { italic: true } },
     { op: "add", definition: { kind: "numbering", name: "Catalog Imported List", numberingId: 60 } },
   ] });

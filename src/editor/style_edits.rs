@@ -15,6 +15,7 @@ use std::{
 };
 mod fields;
 mod numbering;
+mod retarget;
 
 #[derive(Clone, Debug)]
 /// Exact style identity issued by one imported document snapshot.
@@ -50,6 +51,11 @@ pub enum StyleEdit {
         definition: StyleDefinition,
     },
     Remove(StyleAnchor),
+    /// Move all provable stored uses to a same-kind definition, then remove the source.
+    Retarget {
+        target: StyleAnchor,
+        replacement: StyleAnchor,
+    },
 }
 
 fn identity(def: &StyleDefinition) -> (&str, &str) {
@@ -390,6 +396,15 @@ impl ImportedDocument {
         if edits.is_empty() {
             return Ok(());
         }
+        if edits
+            .iter()
+            .any(|e| matches!(e, StyleEdit::Retarget { .. }))
+        {
+            if edits.len() != 1 {
+                return Err(unsupported("retarget requires a single style operation"));
+            }
+            return Ok(());
+        }
         let (path, mut root) = match self.style_part()? {
             Some(part) => part,
             None if edits.iter().all(|e| matches!(e, StyleEdit::Add(_))) => {
@@ -434,6 +449,8 @@ impl ImportedDocument {
             }
         }
         let mut targets = BTreeSet::new();
+        let mut fields = BTreeSet::new();
+        let mut field_styles = BTreeSet::new();
         let original = edits
             .iter()
             .any(|edit| matches!(edit, StyleEdit::Replace { .. } | StyleEdit::Remove(_)))
@@ -447,6 +464,7 @@ impl ImportedDocument {
         let mut changed = false;
         for edit in edits {
             let target = match edit {
+                StyleEdit::Retarget { .. } => unreachable!(),
                 StyleEdit::Add(_) => None,
                 StyleEdit::Patch { target, .. }
                 | StyleEdit::Field { target, .. }
@@ -454,7 +472,15 @@ impl ImportedDocument {
                 | StyleEdit::Replace { target, .. }
                 | StyleEdit::Remove(target) => {
                     self.validate_snapshot(&target.snapshot)?;
-                    if !targets.insert(target.id.as_str()) {
+                    let id = target.id.as_str();
+                    let conflict = if let StyleEdit::Field { field, region, .. } = edit {
+                        field_styles.insert(id);
+                        targets.contains(id)
+                            || !fields.insert((id, region.as_deref(), field.as_str()))
+                    } else {
+                        field_styles.contains(id) || !targets.insert(id)
+                    };
+                    if conflict {
                         return Err(unsupported("duplicate style edit target"));
                     }
                     Some(target.id.as_str())

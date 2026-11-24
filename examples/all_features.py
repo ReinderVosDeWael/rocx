@@ -461,6 +461,7 @@ async def generate(output: pathlib.Path) -> bytes:
         StyleEdit.add(d.ParagraphStyleDefinition(name="Catalog Imported Child", base_style="Catalog Base")),
         StyleEdit.patch(imported.style_anchor("CatalogBase"), italic=True),
         StyleEdit.field(imported.style_anchor("Regionfirst_row"), "b", None, region="firstRow"),
+        StyleEdit.field(imported.style_anchor("Regionfirst_row"), "lang.eastAsia", "ko-KR", region="firstRow"),
         StyleEdit.region(imported.style_anchor("Regionlast_row"), "lastRow", d.TableSectionFormat(italic=True)),
         StyleEdit.add(d.NumberingStyleDefinition(name="Catalog Imported List", numbering_id=60)),
     ])

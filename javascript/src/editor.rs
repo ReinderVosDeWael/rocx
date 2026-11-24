@@ -977,6 +977,7 @@ fn style_edit(input: &Wire, path: &str) -> Result<rocx::editor::StyleEdit> {
         "patch" => &["op", "target", "bold", "italic"],
         "replace" => &["op", "target", "definition"],
         "remove" => &["op", "target"],
+        "retarget" => &["op", "target", "replacement"],
         _ => return Err(Failure::invalid(path, "unknown style edit")),
     };
     let record = Record::new(input, path, fields)?;
@@ -1042,6 +1043,14 @@ fn style_edit(input: &Wire, path: &str) -> Result<rocx::editor::StyleEdit> {
             target: target()?,
             bold: flag("bold")?,
             italic: flag("italic")?,
+        },
+        "retarget" => StyleEdit::Retarget {
+            target: target()?,
+            replacement: (*b::borrow::<StyleAnchor>(
+                &record.get("replacement")?,
+                &record.path("replacement"),
+            )?)
+            .clone(),
         },
         _ => StyleEdit::Remove(target()?),
     })

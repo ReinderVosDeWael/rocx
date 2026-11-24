@@ -158,6 +158,8 @@ def generate(directory):
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
         catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
     catalog.sections[0].header.paragraphs[0].style = "Memo Active"
+    catalog.add_paragraph("Style migration", style="Memo Active")
+    catalog.styles.add_style("Memo Follower", WD_STYLE_TYPE.PARAGRAPH).base_style = catalog.styles["Memo Active"]
     catalog.save(directory / "styles-source.docx")
     doc = Document()
     # python-docx's bundled template omits this required Transitional attribute.
@@ -406,10 +408,25 @@ def verify(directory):
         StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
         StyleEdit.field(styles_source.style_anchor("Heading1"), "next", "MemoAdded"),
         StyleEdit.region(styles_source.style_anchor("TableGrid"), "nwCell", d.TableSectionFormat(bold=True, background=(10,20,30))),
+        StyleEdit.field(styles_source.style_anchor("LightShading"), "shd.fill", "BADACE", region="firstRow"),
+        StyleEdit.field(styles_source.style_anchor("LightShading"), "spacing.after", "180", region="firstRow"),
         StyleEdit.add(d.NumberingStyleDefinition(name="Memo List", numbering_id=1)),
         StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
     ])
     assert edit.to_docx() == style_path.read_bytes()
+    missing = ImportedDocument.open((directory/"styles-missing.docx").read_bytes())
+    created = missing.preview([], style_edits=[StyleEdit.add(d.ParagraphStyleDefinition(name="First Style"))]).to_docx()
+    assert created == (directory/"styleCreate.docx").read_bytes()
+    assert missing.styles is None and "First Style" in Document(io.BytesIO(created)).styles
+    untouched(parts(directory/"styles-missing.docx"), parts(io.BytesIO(created)), (MAIN_RELS,TYPES))
+    migrated = styles_source.preview([], style_edits=[StyleEdit.retarget(styles_source.style_anchor("MemoActive"),
+                                                                          styles_source.style_anchor("MemoReplace"))]).to_docx()
+    assert migrated == (directory/"styleRetarget.docx").read_bytes()
+    target = Document(io.BytesIO(migrated))
+    assert "Memo Active" not in target.styles and target.paragraphs[0].style.name == "Memo Replace"
+    assert target.sections[0].header.paragraphs[0].style.name == "Memo Replace"
+    assert target.styles["Memo Follower"].base_style.name == "Memo Replace"
+    untouched(parts(source_path), parts(io.BytesIO(migrated)), ("word/styles.xml",MAIN,HEADER))
     before, after = parts(source_path), parts(style_path)
     assert before.keys() == after.keys()
     untouched(before, after, ("word/styles.xml","word/numbering.xml"))

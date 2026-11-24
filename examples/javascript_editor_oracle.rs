@@ -286,6 +286,18 @@ fn main() {
                     ..Default::default()
                 })),
             },
+            StyleEdit::Field {
+                target: catalog.style_anchor("LightShading").unwrap(),
+                region: Some("firstRow".into()),
+                field: "shd.fill".into(),
+                value: Some("BADACE".into()),
+            },
+            StyleEdit::Field {
+                target: catalog.style_anchor("LightShading").unwrap(),
+                region: Some("firstRow".into()),
+                field: "spacing.after".into(),
+                value: Some("180".into()),
+            },
             StyleEdit::Add(
                 rocx::NumberingStyleDefinition {
                     name: "Memo List".into(),
@@ -306,6 +318,32 @@ fn main() {
                 .unwrap()
                 .to_docx()
                 .unwrap(),
+        );
+        let preview = |doc: &ImportedDocument, edits: &[StyleEdit]| {
+            doc.preview_edits(rocx::editor::EditBatch {
+                styles: edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap()
+        };
+        write(
+            "native-styleRetarget.docx",
+            preview(
+                &catalog,
+                &[StyleEdit::Retarget {
+                    target: catalog.style_anchor("MemoActive").unwrap(),
+                    replacement: catalog.style_anchor("MemoReplace").unwrap(),
+                }],
+            ),
+        );
+        let missing =
+            ImportedDocument::open(&fs::read(directory.join("styles-missing.docx")).unwrap())
+                .unwrap();
+        write(
+            "native-styleCreate.docx",
+            preview(&missing, &[StyleEdit::Add(style("First Style").into())]),
         );
     }
     {

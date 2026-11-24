@@ -15,10 +15,14 @@ Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 JavaScript. The optional result identifies the source part and lists direct
 style IDs, kinds, names, base/next/linked references and property-group XML.
 Missing kinds and unknown kind values are distinct. An in-memory sample clears
-a first-row bold toggle, replaces last-row formatting and adds a numbering style
+a first-row bold toggle, patches just the `lang.eastAsia` attribute in the
+same region, replaces last-row formatting and adds a numbering style
 for the existing list 60. These use Rust `StyleEdit::{Field,Region,Add}`,
 Python `StyleEdit.field/region/add`, and JavaScript `field`/`region`/`add`
 style edits. Inspection reports direct stored markup, not inherited formatting.
+The [editor oracle](javascript_editor_oracle.rs) and installed Python/JS parity
+samples additionally create a missing catalog and migrate a header, body, and
+derived style using `StyleEdit::Retarget` / `StyleEdit.retarget` / `op: "retarget"`.
 
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:

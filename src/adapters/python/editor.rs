@@ -1390,6 +1390,15 @@ struct PyStyleEdit {
 #[pymethods]
 impl PyStyleEdit {
     #[staticmethod]
+    fn retarget(target: PyRef<'_, PyStyleAnchor>, replacement: PyRef<'_, PyStyleAnchor>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Retarget {
+                target: target.inner.clone(),
+                replacement: replacement.inner.clone(),
+            },
+        }
+    }
+    #[staticmethod]
     #[pyo3(signature=(target, field, value, *, region=None))]
     fn field(
         target: PyRef<'_, PyStyleAnchor>,

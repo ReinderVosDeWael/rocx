@@ -563,6 +563,12 @@ pub async fn generate(output: &Path) -> Result<()> {
                     ..Default::default()
                 })),
             },
+            editor::StyleEdit::Field {
+                target: imported.style_anchor("Regionfirst_row")?,
+                region: Some("firstRow".into()),
+                field: "lang.eastAsia".into(),
+                value: Some("ko-KR".into()),
+            },
             editor::StyleEdit::Add(
                 NumberingStyleDefinition {
                     name: "Catalog Imported List".into(),

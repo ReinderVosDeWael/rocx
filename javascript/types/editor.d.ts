@@ -92,6 +92,7 @@ declare const styleAnchor: unique symbol;
 export interface StyleAnchor { readonly [styleAnchor]: true }
 type EditableDefinition = Exclude<StyleDefinition, NumberingStyleDefinition>;
 export type StyleEdit =
+  | { readonly op: "retarget"; readonly target: StyleAnchor; readonly replacement: StyleAnchor }
   | { readonly op: "field"; readonly target: StyleAnchor; readonly region?: StyleRegion; readonly field: StyleField; readonly value: string | null }
   | { readonly op: "region"; readonly target: StyleAnchor; readonly region: StyleRegion; readonly format: TableSectionFormat | null }
   | { readonly op: "add"; readonly definition: StyleDefinition }
@@ -100,7 +101,14 @@ export type StyleEdit =
   | { readonly op: "remove"; readonly target: StyleAnchor };
 
 type StyleRegion = "wholeTable" | "firstRow" | "lastRow" | "firstCol" | "lastCol" | "band1Horz" | "band2Horz" | "band1Vert" | "band2Vert" | "nwCell" | "neCell" | "swCell" | "seCell";
-type StyleField = "basedOn" | "next" | "link" | "b" | "i" | "bCs" | "iCs" | "rtl" | "cs" | "strike" | "caps" | "smallCaps" | "vanish" | "keepNext" | "keepLines" | "pageBreakBefore" | "widowControl" | "bidi" | "contextualSpacing" | "mirrorIndents" | "snapToGrid" | "jc";
+type StyleField = "basedOn" | "next" | "link" | "b" | "i" | "bCs" | "iCs" | "rtl" | "cs" | "strike" | "caps" | "smallCaps" | "vanish" | "keepNext" | "keepLines" | "pageBreakBefore" | "widowControl" | "bidi" | "contextualSpacing" | "mirrorIndents" | "snapToGrid" | "jc" | "suppressLineNumbers"
+  | `rFonts.${"ascii" | "hAnsi" | "eastAsia" | "cs" | "asciiTheme" | "hAnsiTheme" | "eastAsiaTheme" | "cstheme"}`
+  | `lang.${"val" | "eastAsia" | "bidi"}` | `${"sz" | "szCs" | "vertAlign" | "runSnapToGrid"}.val`
+  | `${"color" | "u" | "shd"}.${"val" | "themeColor" | "themeTint" | "themeShade"}`
+  | "u.color" | `shd.${"fill" | "color" | "themeFill" | "themeFillTint" | "themeFillShade"}`
+  | `spacing.${"line" | "lineRule" | "before" | "after" | "beforeLines" | "afterLines" | "beforeAutospacing" | "afterAutospacing"}`
+  | `ind.${"left" | "right" | "start" | "end" | "leftChars" | "rightChars" | "startChars" | "endChars" | "firstLine" | "hanging" | "firstLineChars" | "hangingChars"}`
+  | `tab.${number}.${"val" | "leader"}`;
 
 export type ResourceEdit =
   | { [K in keyof DefaultValues]: {readonly kind: "documentDefault"; readonly field: K; readonly value: DefaultValues[K] | null} }[keyof DefaultValues]
