@@ -472,6 +472,15 @@ async def generate(output: pathlib.Path) -> bytes:
     assert review.kind == "comment" and review.initials == "SR"
     review_run = review.blocks[0].inline_structure[0]
     assert imported.inline_at(review_run.anchor).items[0].value.startswith("Structured comment:")
+    entries_output = data
+    for kind in ("footnote", "endnote", "comment"):
+        source = ImportedDocument.open(entries_output)
+        entry = next(e for e in source.entry_stories if e.kind == kind and
+                     (e.author == "Structured reviewer" if kind == "comment" else e.id == "0"))
+        entry_run = next(n for n in entry.blocks[0].inline_structure if isinstance(n, ImportedRun) and
+                   len(n.items) == 1 and n.items[0].kind == "text")
+        entries_output = source.edit_story_text(entry.part_name, [RunTextEdit(entry_run.anchor, f"Edited {kind} entry")])
+    output.with_suffix(".entry-text.docx").write_bytes(entries_output)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
@@ -582,6 +591,11 @@ async def generate(output: pathlib.Path) -> bytes:
         assert first_run.anchor == second_run.anchor == header_doc.inline_at(second_run.anchor).anchor
     assert stories[0].blocks[1].inline_structure[0].anchor == label.anchor
     resolved_image = await image("png").resolve()
+    footer = stories[-1]
+    changed = ImportedDocument.open(header_doc.edit_story_text(footer.part_name, [
+        RunTextEdit(footer.blocks[1].inline_structure[0].anchor, "Edited shared even footer")]))
+    edit = HeaderImageEdit(changed.stories[-1].anchor, resolved_image, mode="section_local")
+    output.with_suffix(".footer-even.docx").write_bytes(changed.preview_header_image(edit).to_docx())
     first_page = next(s for s in stories if (s.section_index, s.kind, s.variant) == (1, "header", "first"))
     for mode, suffix in (("shared", ".header-first-shared.docx"),
                          ("section_local", ".header-first-local.docx")):

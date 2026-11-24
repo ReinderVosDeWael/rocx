@@ -2532,3 +2532,63 @@ fn first_header_image_local_preserves_aliases_and_inheritance() {
         }
     }
 }
+
+#[test]
+fn physical_header_text_batch_rejects_alias_duplicates_and_protected_ranges() {
+    use rocx::editor::{ImportedInlineNode::Run, RunTextEdit};
+    let bytes = header_fixture(
+        r#"<w:p><w:r><w:t>safe</w:t></w:r><w:bookmarkStart w:id="7" w:name="spot"/><w:r><w:t>protected</w:t></w:r><w:bookmarkEnd w:id="7"/></w:p><w:customXml/>"#,
+        false,
+    );
+    let doc = ImportedDocument::open(&bytes).unwrap();
+    let headers = doc.default_headers().unwrap();
+    let owner = &headers[0].part_name;
+    let edit = |section: usize, index: usize| {
+        let Run(run) = &headers[section].inline_structure(0).unwrap()[index] else {
+            panic!()
+        };
+        RunTextEdit {
+            target: run.anchor.clone(),
+            text: "changed".into(),
+        }
+    };
+    for invalid in [edit(1, 0), edit(1, 2)] {
+        assert!(doc.edit_story_text(owner, &[edit(0, 0), invalid]).is_err());
+    }
+    let mut actual = parts(&doc.edit_story_text(owner, &[edit(1, 0)]).unwrap());
+    let mut original = parts(&bytes);
+    let changed = String::from_utf8(actual.remove(owner).unwrap()).unwrap();
+    assert!(
+        changed.contains(">changed</w:t>")
+            && changed.contains("protected")
+            && changed.contains("w:customXml")
+    );
+    original.remove(owner);
+    assert_eq!(actual, original);
+}
+
+#[test]
+fn local_story_fork_rejects_unknown_implicit_relationships() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let mut input = parts(&header_fixture("<w:p/>", true));
+    let rels = "word/_rels/headerTest.xml.rels";
+    let xml = String::from_utf8(input[rels].clone())
+        .unwrap()
+        .replace("relationships/hyperlink", "relationships/unknown");
+    input.insert(rels.into(), xml.into_bytes());
+    let doc = ImportedDocument::open(&package_bytes(input)).unwrap();
+    let target = doc.default_headers().unwrap().remove(1).anchor;
+    let mut edit = HeaderImageEdit {
+        target,
+        mode: HeaderEditMode::SectionLocal,
+        image: header_image(),
+    };
+    assert!(
+        doc.preview_header_image(&edit)
+            .unwrap_err()
+            .to_string()
+            .contains("relationships cannot be safely copied")
+    );
+    edit.mode = HeaderEditMode::Shared;
+    assert!(doc.preview_header_image(&edit).is_ok());
+}

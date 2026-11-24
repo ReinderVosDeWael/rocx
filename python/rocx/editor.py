@@ -11,9 +11,10 @@ also be used for text replacement or whole-run removal.
 All targets refer to the original snapshot.
 
 ``ImportedDocument.stories`` inspects effective default, first, and even header
-and footer references without simulating page selection. Default and first-page
-header stories expose image-edit anchors; ``ImportedDocument.default_headers``
-also exposes the default-header targets.
+and footer references without simulating page selection. Every effective slot
+exposes an image-edit anchor; ``ImportedDocument.default_headers``
+also exposes the default-header targets. Use ``edit_story_text(owner_part, edits)``
+for single-text runs in a physical header/footer or note/comment owner.
 """
 
 from ._native import (

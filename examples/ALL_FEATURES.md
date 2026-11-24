@@ -34,7 +34,7 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync pyth
 ```
 
 This builds/runs the Rust and Python examples, compares complete DOCX ZIP bytes for the final,
-template, batch-edited and run-text catalogs and the five header-scope artifacts, verifies
+template, batch-edited and run-text catalogs and the seven story artifacts, verifies
 content and prints SHA-256 hashes for the main catalogs and header-scope artifacts.
 Output:
 
@@ -48,7 +48,10 @@ Output:
   artifacts: a two-section source with six inherited header/footer slots and two
   independent transactions, each combining an alignment patch, a table insertion,
   and a default-header image. The `.header-first-shared.docx` and
-  `.header-first-local.docx` artifacts separately preview first-page images.
+  `.header-first-local.docx` artifacts separately preview first-page images. The `.footer-even.docx` sample uses
+  a physical-part text edit shared by both sections and forks an inline image into
+  only the second section’s even footer. The `.entry-text.docx` sample independently
+  changes a footnote, an endnote with the same ID and a reviewer’s comment.
 - Paired `.run-text.docx` artifacts: replace a direct body run's text and
   insert a resolved paragraph after the original body anchor in the same batch.
 
@@ -74,7 +77,8 @@ The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.template.docx`, `all_features-javascript.edited.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
 `all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
-`all_features-javascript.header-first-local.docx`, and `all_features-javascript.run-text.docx`. Repeat `--javascript-dir` to check
+`all_features-javascript.header-first-local.docx`, `all_features-javascript.run-text.docx`,
+`all_features-javascript.footer-even.docx`, and `all_features-javascript.entry-text.docx`. Repeat `--javascript-dir` to check
 multiple runtime outputs. The checker requires all nine exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
@@ -122,7 +126,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | 01 Paragraphs/headings | Heading 0/no heading through 9; all nine alignments; multiplier/exact/minimum line heights and legacy line spacing; before/after spacing; left/right/first-line/hanging point indents; keep-lines/next, widow control, page-break-before and explicit false values. |
 | 01 Imported editor | All three APIs inspect the generated body and preview an anchored center-alignment patch followed by a declarative two-column fixed-width table. Each reopens the edited package, inspects the physical cells, and resolves a read-only run anchor in the second cell. The first cell has a bold label; the second has two distinct runs that read “Fixed-width second column.” Coverage rejects merging those runs even when their visible text is unchanged. The table appears only in the edited catalog; other package parts retain their exact payload bytes. |
 | Combined body and default-header transaction | One default header is shared by two sections. The APIs resolve the labeled header run and hyperlink's snapshot-scoped read-only anchors with `inline_at` or `inlineAt`. Inherited aliases of the same physical part yield equal inline anchors; the image edit target is still section-scoped. Both previews center the labeled body paragraph and insert a table immediately after it, in the same transaction as the header edit targeting the second section. Shared mode changes the header used by both; section-local copies it and changes only the second section. Exact byte parity and package checks cover all three artifacts, including body changes, part-local relationships, image counts, and untouched payloads. |
-| Inherited header/footer inspection | The same source labels five additional slots: first/even headers and default/first/even footers. The first section defines each; the second inherits each. All three APIs inspect all six slots in order and resolve their read-only inline anchors. Package and python-docx checks verify that editing the default header leaves the other slots inherited with unchanged content. |
+| Inherited header/footer inspection | The same source labels five additional slots: first/even headers and default/first/even footers. The first section defines each; the second inherits each. All three APIs inspect all six slots in order and resolve their physical inline anchors. Package and python-docx checks verify that editing the default header leaves the other slots inherited with unchanged content. |
 | 01 Tabs | All eight alignments including start/end/bar/clear; all six leaders; signed positions and explicit clear at −12 pt. |
 | 02 Runs | Bold/italic/strike/caps/small-caps/super/subscript; false overrides; literal fonts and point sizes; RGB/automatic color; all 16 theme slots with tint/shade; all seven underline styles; Unicode, preserved spaces, empty runs, literal tabs/newlines. A labeled chainable-setter sample shows omitted, enabled and explicitly disabled bold (with italic enabled); builders alter Rust authoring syntax only, not OOXML features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters). |
 | 02 Script requests | Independent paragraph bidi, run RTL/complex-script flags, complex-script bold/italic/size, three language slots and literal East Asian/complex-script fonts; true/false cases. |

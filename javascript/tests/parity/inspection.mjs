@@ -437,7 +437,8 @@ async function importedSectionStoriesAndCrossViewIdentity() {
     opaque("w:sdt"),
   ]);
   assert.ok(Object.isFrozen(footer.view.blocks));
-  assert.equal(footer.view.anchor, undefined);
+  assert.ok(footer.view.anchor);
+  assert.notEqual(footer.view.anchor, stories[0].view.anchor);
   assert.deepEqual(footer.inlineStructure(1), []);
   for (const index of [2, 3, Number.MAX_SAFE_INTEGER]) {
     assert.equal(footer.inlineStructure(index), undefined);

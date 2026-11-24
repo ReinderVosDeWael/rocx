@@ -9,6 +9,8 @@ const suffixes = {
   headerLocal: ".header-local",
   headerFirstShared: ".header-first-shared",
   headerFirstLocal: ".header-first-local",
+  entryText: ".entry-text",
+  footerEven: ".footer-even",
   runText: ".run-text",
 };
 

@@ -582,6 +582,45 @@ pub async fn generate(output: &Path) -> Result<()> {
         matches!(imported.inline_at(&review_run.anchor)?, editor::ImportedInlineNode::Run(found)
         if matches!(found.items.first(), Some(editor::ImportedInline::Text(text)) if text.starts_with("Structured comment:")))
     );
+    let mut entries_output = bytes.clone();
+    for kind in [
+        editor::EntryKind::Footnote,
+        editor::EntryKind::Endnote,
+        editor::EntryKind::Comment,
+    ] {
+        let source = editor::ImportedDocument::open(&entries_output)?;
+        let e = source
+            .entry_stories()?
+            .iter()
+            .find(|e| {
+                e.kind == kind
+                    && if kind == editor::EntryKind::Comment {
+                        e.author.as_deref() == Some("Structured reviewer")
+                    } else {
+                        e.id == "0"
+                    }
+            })
+            .unwrap();
+        let run = e
+            .inline_structure(0)
+            .unwrap()
+            .iter()
+            .find_map(|node| match node {
+                Run(r) if matches!(r.items.as_slice(), [editor::ImportedInline::Text(_)]) => {
+                    Some(r)
+                }
+                _ => None,
+            })
+            .unwrap();
+        entries_output = source.edit_story_text(
+            &e.part_name,
+            &[editor::RunTextEdit {
+                target: run.anchor.clone(),
+                text: format!("Edited {} entry", kind.as_str()),
+            }],
+        )?;
+    }
+    std::fs::write(output.with_extension("entry-text.docx"), entries_output)?;
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
     assert!(imported.body().iter().any(|block| matches!(
         block, editor::BodyBlock::ContentControl(control)
@@ -892,6 +931,27 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(body_target.text, HEADER_BATCH_LABEL);
     let target = &headers[1];
     let resolved = image("png", None).await?.expect("showcase image");
+    let footer = stories.last().unwrap(); // inherited even footer
+    let Run(label) = &footer.inline_structure(1).unwrap()[0] else {
+        unreachable!()
+    };
+    let bytes = imported.edit_story_text(
+        &footer.part_name,
+        &[editor::RunTextEdit {
+            target: label.anchor.clone(),
+            text: "Edited shared even footer".into(),
+        }],
+    )?;
+    let edited_footer = editor::ImportedDocument::open(&bytes)?;
+    let edit = editor::HeaderImageEdit {
+        target: edited_footer.stories()?.pop().unwrap().anchor.unwrap(),
+        mode: editor::HeaderEditMode::SectionLocal,
+        image: resolved.image().unwrap().clone(),
+    };
+    std::fs::write(
+        output.with_extension("footer-even.docx"),
+        edited_footer.preview_header_image(&edit)?.to_docx()?,
+    )?;
     let first_page = stories
         .iter()
         .find(|story| {

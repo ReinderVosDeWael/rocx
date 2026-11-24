@@ -2,6 +2,14 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+Story topic checkpoint: all six effective header/footer slots support shared and
+section-local inline images. Direct single-text runs support an explicit physical
+owner in section stories and normal note/comment entries. Focused checks cover
+inheritance restoration, reserved and duplicate IDs, wrong owners, foreign anchors
+and untouched parts. The two new artifacts (`footer-even`, `entry-text`) passed
+schema and OPC validation; all eleven catalog outputs matched byte-for-byte in
+Rust, Python 3.12 and packed Node 26. Integrated browser/Node qualification remains open.
+
 ## Current milestone: qualify the combined #3 editor
 
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).

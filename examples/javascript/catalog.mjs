@@ -14,6 +14,8 @@ export const catalogNames = Object.freeze({
   headerLocal: "all_features-javascript.header-local.docx",
   headerFirstShared: "all_features-javascript.header-first-shared.docx",
   headerFirstLocal: "all_features-javascript.header-first-local.docx",
+  entryText: "all_features-javascript.entry-text.docx",
+  footerEven: "all_features-javascript.footer-even.docx",
   runText: "all_features-javascript.run-text.docx",
 });
 const EDIT_TABLE_LABEL = "Imported editor table: bold label";
@@ -165,6 +167,13 @@ export async function generateCatalog(fixtures, options) {
   assert(review?.kind === "comment" && review.initials === "SR", "missing structured review");
   const reviewRun = review.blocks[0].inlineStructure[0];
   assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
+  let entryText = final;
+  for (const kind of ["footnote", "endnote", "comment"]) {
+    const source = await openDocx(entryText);
+    const entry = source.entryStories().find(e => e.kind === kind && (kind === "comment" ? e.author === "Structured reviewer" : e.id === "0"));
+    const run = entry.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items.length === 1 && n.items[0].kind === "text");
+    entryText = source.editStoryText({ownerPart: entry.partName, runText: [{target: run.anchor, text: `Edited ${kind} entry`}]});
+  }
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
   const textPreview = imported.preview({
@@ -225,6 +234,15 @@ export async function generateCatalog(fixtures, options) {
   const headerTarget = headers.body()[0];
   assert(headerTarget.kind === "paragraph" && headerTarget.text === HEADER_BATCH_LABEL, "expected header batch anchor");
   const resolvedImage = (await resolveComponent(image("png"))).view.image;
+  const footer = headers.stories().at(-1);
+  const edit = {target: footer.inlineStructure(1)[0].anchor, text: "Edited shared even footer"};
+  const scope = {ownerPart: footer.view.partName, runText: [edit]};
+  assertThrows(() => headers.editStoryText({...scope, runText: [edit, edit]}), "accepted a duplicate physical target");
+  assertThrows(() => headers.editStoryText({...scope, ownerPart: first.view.partName}), "accepted a wrong owner");
+  const changedFooter = await openDocx(headers.editStoryText(scope));
+  assertThrows(() => changedFooter.editStoryText(scope), "accepted a foreign story target");
+  const footerEven = changedFooter.previewHeaderImage({target: changedFooter.stories().at(-1).view.anchor,
+    mode: "sectionLocal", image: resolvedImage}).toDocx();
   const firstPage = headers.stories().find(({view}) => view.sectionIndex === 1 && view.kind === "header" && view.variant === "first").view;
   const firstOutputs = [];
   for (const mode of ["shared", "sectionLocal"]) {
@@ -252,5 +270,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText };
+  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText };
 }

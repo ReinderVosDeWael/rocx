@@ -24,6 +24,7 @@ pub struct HeaderAnchor {
     snapshot: Arc<()>,
     section_index: usize,
     variant: usize,
+    kind: SectionStoryKind,
 }
 
 #[derive(Debug)]
@@ -61,7 +62,7 @@ pub enum ImportedHeaderBlock {
 pub use ImportedHeaderBlock as ImportedStoryBlock;
 
 /// Whether the story is at the top or bottom of a page.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SectionStoryKind {
     Header,
     Footer,
@@ -93,7 +94,7 @@ const VARIANTS: [HeaderFooterType; 3] = [
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedStory {
-    /// Image-edit target for default and first-page headers, if supported.
+    /// Image-edit target for this effective section slot.
     pub anchor: Option<HeaderAnchor>,
     pub section_index: usize,
     pub kind: SectionStoryKind,
@@ -258,6 +259,7 @@ impl ImportedDocument {
                         snapshot: self.snapshot.clone(),
                         section_index: alias.section_index,
                         variant: 0,
+                        kind: alias.kind,
                     },
                     section_index: alias.section_index,
                     part_name: alias.part_name.to_string(),
@@ -288,12 +290,8 @@ impl ImportedDocument {
             .map(|alias| {
                 let physical = inspection.parts[&alias.part_name].clone();
                 ImportedStory {
-                    anchor: (alias.kind == SectionStoryKind::Header
-                        && matches!(
-                            alias.variant,
-                            HeaderFooterType::Default | HeaderFooterType::First
-                        ))
-                    .then(|| HeaderAnchor {
+                    anchor: Some(HeaderAnchor {
+                        kind: alias.kind,
                         snapshot: self.snapshot.clone(),
                         section_index: alias.section_index,
                         variant: alias.variant as usize,
@@ -389,7 +387,7 @@ impl ImportedDocument {
         StoryPart { blocks, structures }
     }
 
-    /// Stage an image in one existing default or first-page header, with explicit sharing intent.
+    /// Stage an image in one existing section story, with explicit sharing intent.
     pub fn preview_header_image(&self, edit: &HeaderImageEdit) -> Result<HeaderImagePreview> {
         Ok(HeaderImagePreview {
             batch: self.preview_transaction(&[], &[], std::slice::from_ref(edit))?,
@@ -407,7 +405,14 @@ impl ImportedDocument {
         let mut targets = BTreeMap::new();
         for edit in edits {
             if targets
-                .insert((edit.target.section_index, edit.target.variant), edit)
+                .insert(
+                    (
+                        edit.target.section_index,
+                        edit.target.kind,
+                        edit.target.variant,
+                    ),
+                    edit,
+                )
                 .is_some()
             {
                 return Err(unsupported(
@@ -415,15 +420,16 @@ impl ImportedDocument {
                 ));
             }
         }
-        let sections = story_sections(
-            &self.package,
-            &self.main,
-            &section_slots(root)?,
-            SectionStoryKind::Header,
-        )?;
+        let slots = section_slots(root)?;
+        let mut sections = BTreeMap::new();
+        for &(_, kind, _) in targets.keys() {
+            if let std::collections::btree_map::Entry::Vacant(entry) = sections.entry(kind) {
+                entry.insert(story_sections(&self.package, &self.main, &slots, kind)?);
+            }
+        }
         let mut sources = BTreeMap::new();
-        for (&(index, variant), edit) in &targets {
-            let source = header_source(&sections, index, variant)?;
+        for (&(index, kind, variant), edit) in &targets {
+            let source = header_source(&sections[&kind], index, variant)?;
             if let Some(previous) = sources.insert(&source.part, edit.mode)
                 && (previous == HeaderEditMode::Shared || edit.mode == HeaderEditMode::Shared)
             {
@@ -446,8 +452,8 @@ fn header_source(sections: &[SectionStoryRefs], index: usize, variant: usize) ->
 
 #[derive(Default)]
 pub(super) struct HeaderBatch<'a> {
-    sections: Vec<SectionStoryRefs>,
-    targets: BTreeMap<(usize, usize), &'a HeaderImageEdit>,
+    sections: BTreeMap<SectionStoryKind, Vec<SectionStoryRefs>>,
+    targets: BTreeMap<(usize, SectionStoryKind, usize), &'a HeaderImageEdit>,
 }
 
 impl HeaderBatch<'_> {
@@ -459,9 +465,9 @@ impl HeaderBatch<'_> {
     ) -> Result<(Package, Vec<HeaderImageChange>)> {
         let mut changes = Vec::with_capacity(self.targets.len());
         let mut resources = None;
-        for (&(index, variant), edit) in &self.targets {
+        for (&(index, kind, variant), edit) in &self.targets {
             let (mut header, change) =
-                self.prepare_image(&mut package, main, body, index, variant, edit.mode)?;
+                self.prepare_image(&mut package, main, body, (index, kind, variant), edit.mode)?;
             let (staged, paragraph) = encode_header_image(
                 package,
                 main,
@@ -482,14 +488,13 @@ impl HeaderBatch<'_> {
         package: &mut Package,
         main: &str,
         body: &mut Node,
-        index: usize,
-        variant: usize,
+        (index, kind, variant): (usize, SectionStoryKind, usize),
         mode: HeaderEditMode,
     ) -> Result<(Node, HeaderImageChange)> {
-        let sections = &self.sections;
+        let sections = &self.sections[&kind];
         let source = header_source(sections, index, variant)?;
         let mut header = package.word(&source.part)?;
-        if header.name != "w:hdr" || !insertion::can_append(&header) {
+        if header.name != kind.part_type().1 || !insertion::can_append(&header) {
             return Err(unsupported("header cannot be safely extended"));
         }
         let mut restored_section = None;
@@ -513,20 +518,21 @@ impl HeaderBatch<'_> {
                 let links = package.relationships(&source.part, "hyperlink")?;
                 check_copy(&mut header, &links)?;
                 let prefix = source.part.rsplit_once('/').map_or_else(
-                    || "rocx-header".into(),
-                    |(dir, _)| format!("{dir}/rocx-header"),
+                    || format!("rocx-{}", kind.as_str()),
+                    |(dir, _)| format!("{dir}/rocx-{}", kind.as_str()),
                 );
                 let output = package.unique(&prefix, "xml");
                 package.copy_sibling_relationships(&source.part, &output)?;
-                package.content_type(&output, HEADER_MIME)?;
-                let id = package.link(main, "header", &output)?;
-                set_header_reference(body, sections[index].slot, variant, &id)?;
+                package.content_type(&output, kind.part_type().2)?;
+                let id = package.link(main, kind.as_str(), &output)?;
+                set_story_reference(body, kind, sections[index].slot, variant, &id)?;
                 // A following section with its own local edit gets that new
                 // reference, not a restoration. It still forks the original.
                 if let Some(next) = sections.get(index + 1).filter(|part| {
-                    !part.explicit[variant] && !self.targets.contains_key(&(index + 1, variant))
+                    !part.explicit[variant]
+                        && !self.targets.contains_key(&(index + 1, kind, variant))
                 }) {
-                    set_header_reference(body, next.slot, variant, &source.id)?;
+                    set_story_reference(body, kind, next.slot, variant, &source.id)?;
                     restored_section = Some(index + 1);
                 }
                 (output, vec![index])
@@ -684,7 +690,13 @@ fn hides_section(node: &Node) -> bool {
     node.name == ALTERNATE && contains_section(node)
 }
 
-fn set_header_reference(body: &mut Node, slot: Slot, variant: usize, id: &str) -> Result<()> {
+fn set_story_reference(
+    body: &mut Node,
+    kind: SectionStoryKind,
+    slot: Slot,
+    variant: usize,
+    id: &str,
+) -> Result<()> {
     let variant = VARIANTS[variant].xml();
     let props = match slot {
         Slot::Terminal => body.ensure("w:sectPr"),
@@ -698,12 +710,12 @@ fn set_header_reference(body: &mut Node, slot: Slot, variant: usize, id: &str) -
     };
     let existing = props
         .elements_mut()
-        .find(|node| node.name == "w:headerReference" && node.get("w:type") == Some(variant));
+        .find(|node| node.name == kind.part_type().0 && node.get("w:type") == Some(variant));
     if let Some(existing) = existing {
         existing.set("r:id", id);
     } else {
         props.push(
-            Node::new("w:headerReference")
+            Node::new(kind.part_type().0)
                 .attr("w:type", variant)
                 .attr("r:id", id),
         );
@@ -717,6 +729,7 @@ fn check_copy(node: &mut Node, links: &[(String, String)]) -> Result<()> {
     if !matches!(
         name,
         "w:hdr"
+            | "w:ftr"
             | "w:p"
             | "w:r"
             | "w:t"

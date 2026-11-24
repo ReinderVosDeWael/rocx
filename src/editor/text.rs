@@ -3,7 +3,8 @@ use crate::Result;
 use crate::xml::{Content, Node};
 use std::collections::BTreeMap;
 
-/// Change the text of one direct body run, preserving its formatting and attributes.
+/// Change one direct single-text run. Body preview and physical-story editing
+/// accept targets from their respective scopes and preserve formatting.
 #[derive(Clone, Debug)]
 pub struct RunTextEdit {
     pub target: InlineAnchor,
@@ -38,13 +39,7 @@ pub(super) fn apply(
         else {
             return Err(unsupported("text target must be a direct body run"));
         };
-        if edit.text.contains(['\t', '\r', '\n'])
-            || crate::document::invalid_xml_character(&edit.text).is_some()
-        {
-            return Err(unsupported(
-                "replacement must be single-line XML text without tabs",
-            ));
-        }
+        validate_text(&edit.text)?;
         if targets
             .insert((*body_index, *inline_index), Some(&edit.text))
             .is_some()
@@ -62,12 +57,31 @@ pub(super) fn apply(
             return Err(unsupported("duplicate or conflicting run target"));
         }
     }
+    apply_targets(body, targets, true)
+}
+
+type Targets<'a> = BTreeMap<(usize, usize), Option<&'a String>>;
+
+fn validate_text(text: &str) -> Result<()> {
+    if text.contains(['\t', '\r', '\n']) || crate::document::invalid_xml_character(text).is_some() {
+        return Err(unsupported(
+            "replacement must be single-line XML text without tabs",
+        ));
+    }
+    Ok(())
+}
+
+fn apply_targets(
+    body: &mut Node,
+    mut targets: Targets<'_>,
+    main_body: bool,
+) -> Result<(Vec<RunTextChange>, Vec<RunRemovalChange>)> {
     let mut changes = Vec::new();
     let mut removed = Vec::new();
     let mut boundaries = BoundaryState::default();
     for (body_index, block) in body
         .elements_mut()
-        .filter(|n| n.name != "w:sectPr")
+        .filter(|n| !main_body || n.name != "w:sectPr")
         .enumerate()
     {
         if targets.is_empty() {
@@ -184,4 +198,87 @@ pub(super) fn apply(
         return Err(unsupported("text target not found"));
     }
     Ok((changes, removed))
+}
+
+impl super::ImportedDocument {
+    /// Replace direct single-text runs in one physical story owner. Section aliases
+    /// share the change. Entry IDs, reference runs and main-document links are untouched.
+    pub fn edit_story_text(&self, owner_part: &str, edits: &[RunTextEdit]) -> Result<Vec<u8>> {
+        use crate::ooxml::WordParts;
+        let mut groups = BTreeMap::<Option<usize>, Targets>::new();
+        let mut entry_ids = None;
+        if edits.is_empty() {
+            return Err(unsupported("expected a story text edit"));
+        }
+        for edit in edits {
+            self.validate_snapshot(&edit.target.snapshot)?;
+            validate_text(&edit.text)?;
+            let [inline] = edit.target.path.as_slice() else {
+                return Err(unsupported("expected a direct story run"));
+            };
+            let (entry, block) = match &edit.target.location {
+                InlineLocation::Story { part, block_index } if part.as_ref() == owner_part => {
+                    (None, *block_index)
+                }
+                InlineLocation::Entry { index, block_index } => {
+                    let entries = self.entry_stories()?;
+                    let e = &entries[*index];
+                    if e.part_name != owner_part {
+                        return Err(unsupported("story text owner mismatch"));
+                    }
+                    let id = crate::ooxml::decimal_id(&e.id)
+                        .ok_or_else(|| unsupported("invalid story entry ID"))?;
+                    if e.kind != super::EntryKind::Comment
+                        && (id.starts_with('-')
+                            || !matches!(e.note_type.as_deref(), None | Some("normal")))
+                    {
+                        return Err(unsupported("reserved note entry"));
+                    }
+                    let counts = entry_ids.get_or_insert_with(|| {
+                        let mut counts = BTreeMap::new();
+                        for id in entries
+                            .iter()
+                            .filter(|other| other.part_name == owner_part)
+                            .filter_map(|other| crate::ooxml::decimal_id(&other.id))
+                        {
+                            *counts.entry(id).or_insert(0usize) += 1;
+                        }
+                        counts
+                    });
+                    if counts.get(&id) != Some(&1) {
+                        return Err(unsupported("ambiguous story entry ID"));
+                    }
+                    (Some(e.element_index), *block_index)
+                }
+                _ => return Err(unsupported("story text owner mismatch")),
+            };
+            if groups
+                .entry(entry)
+                .or_default()
+                .insert((block, *inline), Some(&edit.text))
+                .is_some()
+            {
+                return Err(unsupported("duplicate story text target"));
+            }
+        }
+        let mut package = self.package.clone();
+        let mut root = package.word(owner_part)?;
+        let mut changed = false;
+        if let Some(targets) = groups.remove(&None) {
+            changed = !apply_targets(&mut root, targets, false)?.0.is_empty();
+        } else {
+            for (i, entry) in root.elements_mut().enumerate() {
+                if let Some(targets) = groups.remove(&Some(i)) {
+                    changed |= !apply_targets(entry, targets, false)?.0.is_empty();
+                }
+            }
+        }
+        if !groups.is_empty() {
+            return Err(unsupported("story entry not found"));
+        }
+        if changed {
+            package.put_word(owner_part, root)?;
+        }
+        super::PackagePlan::new(package)?.to_bytes()
+    }
 }
