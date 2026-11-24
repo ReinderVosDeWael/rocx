@@ -26,6 +26,7 @@ zip = { version = "~9.7.3", default-features = false, features = ["deflate-flate
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 roxmltree = "0.21"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-executor = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

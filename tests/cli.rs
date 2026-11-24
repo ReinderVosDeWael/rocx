@@ -22,6 +22,10 @@ fn parts(bytes: &[u8]) -> std::collections::BTreeMap<String, Vec<u8>> {
 }
 
 fn run(request: Value) -> (bool, Value) {
+    run_raw(&request.to_string())
+}
+
+fn run_raw(request: &str) -> (bool, Value) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_rocx"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -31,13 +35,35 @@ fn run(request: Value) -> (bool, Value) {
         .stdin
         .take()
         .unwrap()
-        .write_all(request.to_string().as_bytes())
+        .write_all(request.as_bytes())
         .unwrap();
     let output = child.wait_with_output().unwrap();
     (
         output.status.success(),
         serde_json::from_slice(&output.stdout).unwrap(),
     )
+}
+
+#[test]
+fn duplicate_json_fields_are_not_last_value_wins() {
+    for edit in [
+        r#"{"target":0,"target":1,"alignment":"left"}"#,
+        r#"{"kind":"run-remove","kind":"alignment","target":0,"alignment":"left"}"#,
+        r#"{"kind":"run-text","target":0,"inline_index":1,"text":"a","text":"b"}"#,
+        r#"{"kind":"header-image","target":{"section_index":1,"section_index":0,"variant":"first"},"mode":"shared","bytes":[0]}"#,
+    ] {
+        let (ok, response) = run_raw(&format!(
+            r#"{{"command":"preview","source":"unused","snapshot":"unused","edits":[{edit}]}}"#
+        ));
+        assert!(!ok);
+        assert!(
+            response["error"]
+                .as_str()
+                .unwrap()
+                .starts_with("invalid request:"),
+            "{response}"
+        );
+    }
 }
 
 #[test]
