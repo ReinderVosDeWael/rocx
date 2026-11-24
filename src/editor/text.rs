@@ -40,6 +40,37 @@ pub enum InlineAction {
     Replace(crate::ResolvedInline),
     /// Set direct (non-complex-script) bold without rebuilding the run properties.
     SetBold(bool),
+    /// Set (true/false) or clear (None) a direct property, without resolving styles.
+    SetToggle(RunToggle, Option<bool>),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum RunToggle {
+    Bold,
+    Italic,
+    Strike,
+    Hidden,
+}
+
+impl RunToggle {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Bold => "w:b",
+            Self::Italic => "w:i",
+            Self::Strike => "w:strike",
+            Self::Hidden => "w:vanish",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "bold" => Some(Self::Bold),
+            "italic" => Some(Self::Italic),
+            "strike" => Some(Self::Strike),
+            "hidden" => Some(Self::Hidden),
+            _ => None,
+        }
+    }
 }
 
 pub(super) enum Action {
@@ -47,7 +78,7 @@ pub(super) enum Action {
     Remove,
     After(Vec<Node>),
     Replace(Vec<Node>),
-    Bold(bool),
+    Toggle(RunToggle, Option<bool>),
 }
 pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
@@ -92,7 +123,8 @@ pub(super) fn prepare(
                     match action {
                         InlineAction::InsertAfter(_) => Action::After(nodes.next().unwrap()),
                         InlineAction::Replace(_) => Action::Replace(nodes.next().unwrap()),
-                        InlineAction::SetBold(b) => Action::Bold(*b),
+                        InlineAction::SetBold(b) => Action::Toggle(RunToggle::Bold, Some(*b)),
+                        InlineAction::SetToggle(prop, value) => Action::Toggle(*prop, *value),
                     },
                 )
             })
@@ -100,33 +132,47 @@ pub(super) fn prepare(
     ))
 }
 
-fn patch_bold(run: &mut Node, value: bool) -> Result<bool> {
+pub(super) fn direct_toggle(run: &Node, prop: RunToggle) -> Result<Option<bool>> {
+    let tag = prop.tag();
     if run.elements().filter(|n| n.name == "w:rPr").count() > 1
         || run.child("w:rPr").is_some_and(|p| {
             p.child(super::ALTERNATE).is_some()
                 || p.child("w:rPrChange").is_some()
-                || p.elements().filter(|n| n.name == "w:b").count() > 1
+                || p.elements().filter(|n| n.name == tag).count() > 1
         })
     {
         return Err(unsupported("ambiguous run properties"));
+    }
+    run.child("w:rPr")
+        .and_then(|p| p.child(tag))
+        .map(|p| match p.get("w:val") {
+            None | Some("true" | "1" | "on") => Ok(true),
+            Some("false" | "0" | "off") => Ok(false),
+            _ => Err(unsupported("unknown run toggle value")),
+        })
+        .transpose()
+}
+
+fn patch_toggle(run: &mut Node, prop: RunToggle, value: Option<bool>) -> Result<bool> {
+    let tag = prop.tag();
+    if direct_toggle(run, prop)? == value {
+        return Ok(false);
     }
     if run.child("w:rPr").is_none() {
         run.children.insert(0, Content::Element(Node::new("w:rPr")));
     }
     let props = run.child_mut("w:rPr").unwrap();
-    if let Some(bold) = props.child("w:b") {
-        let prior = match bold.get("w:val") {
-            None | Some("true" | "1" | "on") => true,
-            Some("false" | "0" | "off") => false,
-            _ => return Err(unsupported("unknown bold property value")),
-        };
-        if prior == value {
-            return Ok(false);
+    if let Some(value) = value {
+        props
+            .ensure(tag)
+            .set("w:val", if value { "1" } else { "0" });
+    } else {
+        let node = props.child(tag).unwrap();
+        if has_other_attrs(node, &["w:val"]) || !node.children.is_empty() {
+            return Err(unsupported("cannot clear opaque run property"));
         }
+        props.remove(tag);
     }
-    props
-        .ensure("w:b")
-        .set("w:val", if value { "1" } else { "0" });
     Ok(true)
 }
 
@@ -165,6 +211,29 @@ fn opaque_content(node: &Node) -> bool {
         Content::Text(t) => !t.trim().is_empty(),
         Content::Raw(_) => true,
     })
+}
+
+/// Signals retained markup not represented by the four direct toggle fields.
+pub(super) fn has_opaque_formatting(run: &Node) -> bool {
+    let mut properties = run.elements().filter(|p| p.name == "w:rPr");
+    let Some(props) = properties.next() else {
+        return false;
+    };
+    properties.next().is_some()
+        || has_other_attrs(props, &[])
+        || opaque_content(props)
+        || props.elements().any(|node| {
+            let prop = match node.name.as_str() {
+                "w:b" => RunToggle::Bold,
+                "w:i" => RunToggle::Italic,
+                "w:strike" => RunToggle::Strike,
+                "w:vanish" => RunToggle::Hidden,
+                _ => return true,
+            };
+            has_other_attrs(node, &["w:val"])
+                || !node.children.is_empty()
+                || direct_toggle(run, prop).is_err()
+        })
 }
 
 /// Only discard known local properties. Unknown markup may carry a relationship,
@@ -233,6 +302,10 @@ fn check_run(run: &Node, discard: bool) -> Result<()> {
     if elements.next().is_some() {
         return Err(error());
     }
+    check_leaf(leaf, discard)
+}
+
+fn check_leaf(leaf: &Node, discard: bool) -> Result<()> {
     match leaf.name.as_str() {
         "w:t"
             if !(discard && has_other_attrs(leaf, &["xml:space"]))
@@ -256,8 +329,24 @@ fn check_run(run: &Node, discard: bool) -> Result<()> {
         {
             Ok(())
         }
-        _ => Err(error()),
+        _ => Err(unsupported(
+            "run has unsupported properties or inline content",
+        )),
     }
+}
+
+/// A property-only patch can preserve multiple ordinary leaves without
+/// interpreting their order or modifying their text or attributes.
+fn check_toggle_target(run: &Node) -> Result<()> {
+    if run.name != "w:r" || opaque_content(run) {
+        return Err(unsupported("expected direct run with ordinary leaves"));
+    }
+    let mut children = run.elements().peekable();
+    children.next_if(|n| n.name == "w:rPr");
+    if children.peek().is_none() {
+        return Err(unsupported("expected nonempty run"));
+    }
+    children.try_for_each(|leaf| check_leaf(leaf, false))
 }
 
 /// Revision operations may copy or discard either ordinary or deleted text.
@@ -385,9 +474,9 @@ fn apply_targets(
                         splices.push((slot + 1..slot + 1, nodes));
                         inline_changes.push((body_index, inline_index));
                     }
-                    Action::Bold(bold) => {
-                        check_run(child, false)?;
-                        if patch_bold(child, bold)? {
+                    Action::Toggle(prop, value) => {
+                        check_toggle_target(child)?;
+                        if patch_toggle(child, prop, value)? {
                             inline_changes.push((body_index, inline_index));
                         }
                     }

@@ -99,9 +99,9 @@ or replace a single text, break or tab run, or a hyperlink containing only such
 runs. Payloads use the imported-paragraph codecs for resolved text, breaks, tabs,
 fractions and external hyperlinks. New external links allocate relationships on
 the actual document part. Replacement refuses to discard unrecognized properties
-or markup; unused existing relationships are retained. A direct bold patch on a
-supported run sets only `w:rPr/w:b`, preserving other properties (including
-unmodeled markup). Duplicate targets, nested targets, tracked or ambiguous
+or markup; unused existing relationships are retained. Property-only patches also
+accept runs containing multiple ordinary text, tab, and break leaves. They preserve
+the leaves and unrelated run properties. Duplicate targets, nested targets, tracked or ambiguous
 properties and active supported field/range boundaries reject the batch.
 
 | Rust: `preview_with_inlines`, `InlineEdit { target, action }` | Python: `preview([], inline_edits=[…])` | JavaScript: `preview({inlineEdits: […]})` |
@@ -109,9 +109,23 @@ properties and active supported field/range boundaries reject the batch.
 | `InlineAction::InsertAfter(inline)` | `InlineEdit.insert_after(anchor, inline)` | `{kind: "insertAfter", target, inline}` |
 | `InlineAction::Replace(inline)` | `InlineEdit.replace(anchor, inline)` | `{kind: "replace", target, inline}` |
 | `InlineAction::SetBold(false)` | `InlineEdit.set_bold(anchor, False)` | `{kind: "setBold", target, bold: false}` |
+| `InlineAction::SetToggle(RunToggle::Italic, None)` | `InlineEdit.set_toggle(anchor, "italic", None)` | `{kind: "setToggle", target, property: "italic", value: null}` |
+
+Use `Bold`, `Italic`, `Strike`, or `Hidden` in Rust and `bold`, `italic`,
+`strike`, or `hidden` in Python and JavaScript. `true` and `false` set
+explicit direct values; `None`/`null` removes the property so style inheritance
+applies. A clear refuses to discard attributes or children outside the modeled
+value. Only one edit per original run is supported in a batch.
+
+`ImportedRun.bold`, `.italic`, `.strike`, and `.hidden` inspect the same direct
+properties wherever structured runs are exposed. An unset or ambiguous toggle
+is `None` in Rust/Python and absent in JavaScript. `has_opaque_formatting`
+(`hasOpaqueFormatting` in JavaScript) signals retained properties or markup
+outside this projection. These values do not resolve styles, complex-script
+variants, or effective visual formatting.
 
 `inline_changes()` / `inline_changes` / `inlineChanges()` return original
-(body, inline) index pairs in document order; an already-matching direct bold
+(body, inline) index pairs in document order; an already-matching direct toggle
 value is omitted. There are no character-range addresses in these operations.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical

@@ -269,6 +269,38 @@ fn main() {
     }
     let ranged =
         ImportedDocument::open(&fs::read(directory.join("range-source.docx")).unwrap()).unwrap();
+    {
+        use rocx::editor::{EditBatch, InlineAction, InlineEdit, RunToggle};
+        let edits = [
+            (0, 0, RunToggle::Bold, Some(false)),
+            (1, 0, RunToggle::Hidden, Some(true)),
+            (1, 1, RunToggle::Strike, Some(true)),
+            (1, 2, RunToggle::Italic, None),
+        ]
+        .map(|(body, slot, prop, value)| {
+            let BodyBlock::Paragraph(p) = &ranged.body()[body] else {
+                panic!("paragraph")
+            };
+            let Run(run) = &p.inline_structure[slot] else {
+                panic!("run")
+            };
+            InlineEdit {
+                target: run.anchor.clone(),
+                action: InlineAction::SetToggle(prop, value),
+            }
+        });
+        write(
+            "native-runFormatting.docx",
+            ranged
+                .preview_edits(EditBatch {
+                    inline_edits: &edits,
+                    ..Default::default()
+                })
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
     let selection = rocx::editor::TextRangeEdit {
         target: anchor(&ranged, 1),
         start: 1,
@@ -381,7 +413,7 @@ fn main() {
             },
             InlineEdit {
                 target: target(0),
-                action: InlineAction::SetBold(false),
+                action: InlineAction::SetToggle(rocx::editor::RunToggle::Bold, None),
             },
             InlineEdit {
                 target: target(1),

@@ -43,7 +43,7 @@ pub use resource_fields::{AbstractStart, ResourceEdit};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
-pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit};
+pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -311,6 +311,12 @@ pub struct ImportedRevision {
 #[non_exhaustive]
 pub struct ImportedRun {
     pub anchor: InlineAnchor,
+    /// Direct toggles only. Absent or ambiguous properties are None.
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub strike: Option<bool>,
+    pub hidden: Option<bool>,
+    pub has_opaque_formatting: bool,
     /// The run's text, tabs, breaks, and opaque children; excludes run properties.
     pub items: Vec<ImportedInline>,
 }
@@ -1058,6 +1064,11 @@ fn read_inline_nodes<'a>(
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
+                        bold: text::direct_toggle(node, RunToggle::Bold).ok().flatten(),
+                        italic: text::direct_toggle(node, RunToggle::Italic).ok().flatten(),
+                        strike: text::direct_toggle(node, RunToggle::Strike).ok().flatten(),
+                        hidden: text::direct_toggle(node, RunToggle::Hidden).ok().flatten(),
+                        has_opaque_formatting: text::has_opaque_formatting(node),
                         items,
                     })
                 }

@@ -13,7 +13,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | --- | --- | --- |
 | #42 Text ranges | Replace or delete nonempty scalar ranges across simple, singly textual runs of a direct body paragraph, retaining formatting outside the selection. | Cross-paragraph offsets, mixed/opaque paragraphs, zero-length insertion and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
-| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
+| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear direct bold, italic, strike, and hidden toggles, including multi-leaf ordinary runs. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
@@ -33,6 +33,13 @@ consumers. Regressions cover crossing a bookmark inside math, live style
 aliases, protected move and bound-control template edits, proofing ranges
 across cells, and sharing a staged style catalog across operations.
 Keep #48 open for the remaining resource inventory; #52 is separate.
+
+The direct run-toggle follow-up to #3 adds four imported formatting values and
+an opaque-formatting indicator. On its standalone branch, 54 Rust and 57
+installed Python editor tests passed. The four-toggle DOCX matched across Rust,
+Python 3.12, and packed Node 26, with schema/OPC, python-docx, and unchanged-part
+checks. All eleven catalogs also matched across these consumers. Browser and
+combined-branch qualification remain separate.
 
 ## Selected standalone topic results (before ten-way integration)
 

@@ -164,13 +164,19 @@ fn paragraph_insertion(input: &Wire, path: &str) -> Result<ParagraphInsertion> {
 
 fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
     use rocx::editor::{InlineAction, InlineEdit};
-    let record = Record::new(input, path, &["target", "kind", "inline", "bold"])?;
+    let record = Record::new(
+        input,
+        path,
+        &["target", "kind", "inline", "bold", "property", "value"],
+    )?;
     let kind = b::string(&record.get("kind")?, &record.path("kind"))?;
     let edit = Record::new(
         input,
         path,
         if kind == "setBold" {
             &["target", "kind", "bold"]
+        } else if kind == "setToggle" {
+            &["target", "kind", "property", "value"]
         } else {
             &["target", "kind", "inline"]
         },
@@ -186,6 +192,21 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
         action: match kind.as_str() {
             "insertAfter" => InlineAction::InsertAfter(payload()?),
             "replace" => InlineAction::Replace(payload()?),
+            "setToggle" => {
+                let name = b::string(&edit.get("property")?, &edit.path("property"))?;
+                let prop = rocx::editor::RunToggle::parse(&name).ok_or_else(|| {
+                    Failure::invalid(&edit.path("property"), "unknown run toggle")
+                })?;
+                let v = edit.get("value")?;
+                let value = if v.js().is_null() {
+                    None
+                } else {
+                    Some(v.js().as_bool().ok_or_else(|| {
+                        Failure::invalid(&edit.path("value"), "expected boolean or null")
+                    })?)
+                };
+                InlineAction::SetToggle(prop, value)
+            }
             "setBold" => InlineAction::SetBold(
                 edit.get("bold")?
                     .js()

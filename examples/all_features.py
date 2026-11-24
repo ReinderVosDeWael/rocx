@@ -515,7 +515,8 @@ async def generate(output: pathlib.Path) -> bytes:
              if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     ]
     assert any(c.before == INLINE_LABEL for c in preview.run_text_changes)
-    whole = imported.preview([], inline_edits=[InlineEdit.set_bold(label.anchor, False),
+    assert label.italic is None
+    whole = imported.preview([], inline_edits=[InlineEdit.set_toggle(label.anchor, "italic", True),
         InlineEdit.insert_after(inline_link.anchor, await d.TextRun("Imported editor: inserted paragraph.").resolve())])
     assert whole.inline_changes[-1][1] == 1
     removal = imported.preview([], run_removals=[label.anchor])

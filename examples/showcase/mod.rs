@@ -780,7 +780,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         &[
             editor::InlineEdit {
                 target: label.anchor.clone(),
-                action: editor::InlineAction::SetBold(false),
+                action: editor::InlineAction::SetToggle(editor::RunToggle::Italic, Some(true)),
             },
             editor::InlineEdit {
                 target: link.anchor.clone(),
@@ -789,6 +789,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         ],
     )?;
     assert_eq!(whole.inline_changes().last(), Some(&(paragraph_index, 1)));
+    assert_eq!(label.italic, None);
     let removal = imported.preview_with_run_removals(
         &[],
         &[],

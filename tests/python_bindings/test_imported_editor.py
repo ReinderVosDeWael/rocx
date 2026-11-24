@@ -1237,6 +1237,40 @@ async def test_inline_range_and_ambiguous_properties_reject_batch():
     assert _parts(doc.preview([]).to_docx()) == _parts(out.getvalue())
 
 
+def test_direct_run_toggles_preserve_mixed_leaves_and_opaque_formatting():
+    from rocx.editor import InlineEdit
+
+    source = docx.Document()
+    p = source.add_paragraph()
+    r = p.add_run("text\twith\nbreaks")
+    r.bold = True
+    r.underline = True
+    p.add_run("visible").font.hidden = True
+    p.add_run("third").font.strike = False
+    out = io.BytesIO()
+    source.save(out)
+    imported = ImportedDocument.open(out.getvalue())
+    a, b, c = imported.body[0].inline_structure
+    assert a.has_opaque_formatting and (a.bold, a.italic) == (True, None)
+    assert b.hidden is True and c.strike is False
+    edits = [InlineEdit.set_toggle(a.anchor, "italic", False),
+             InlineEdit.set_toggle(b.anchor, "hidden", None),
+             InlineEdit.set_toggle(c.anchor, "strike", True)]
+    with pytest.raises(ValueError):
+        imported.preview([], inline_edits=[*edits, edits[0]])
+    result = imported.preview([], inline_edits=edits).to_docx()
+    reopened = ImportedDocument.open(result)
+    with pytest.raises(ValueError):
+        reopened.preview([], inline_edits=edits)
+    a, b, c = reopened.body[0].inline_structure
+    assert (a.bold, a.italic, b.hidden, c.strike) == (True, False, None, True)
+    assert a.has_opaque_formatting and not c.has_opaque_formatting
+    r, shown, struck = docx.Document(io.BytesIO(result)).paragraphs[0].runs
+    assert r.text == "text\twith\nbreaks" and r.underline and r.bold and r.italic is False
+    assert shown.font.hidden is None and struck.font.strike is True
+    assert reopened.preview([], inline_edits=[InlineEdit.set_toggle(b.anchor, "hidden", None)]).inline_changes == []
+
+
 async def test_table_structure_merged_fixture_and_atomic_rejection():
     from rocx.editor import TableStructureEdit as E
 

@@ -441,6 +441,18 @@ export async function run(fixtures: Fixtures) {
   const other = await openDocx(fixtures.base);
   rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
   const ranged = await openDocx(fixtures["range-source"]);
+  const [a, b, c] = paragraph(ranged, 1).inlineStructure;
+  const heading = paragraph(ranged, 0).inlineStructure[0];
+  check(a.kind === "run" && b.kind === "run" && c.kind === "run" && heading.kind === "run", "format targets");
+  const runFormatting = ranged.preview({inlineEdits: [
+    {kind: "setToggle", target: heading.anchor, property: "bold", value: false},
+    {kind: "setToggle", target: a.anchor, property: "hidden", value: true},
+    {kind: "setToggle", target: b.anchor, property: "strike", value: true},
+    {kind: "setToggle", target: c.anchor, property: "italic", value: null},
+  ]}).toDocx();
+  const [x, y, z] = paragraph(await openDocx(runFormatting), 1).inlineStructure;
+  check(x.kind === "run" && x.bold && x.hidden && y.kind === "run" && y.strike &&
+    y.hasOpaqueFormatting && z.kind === "run" && z.italic === undefined, "reopened direct run formatting");
   const selection = {target: paragraph(ranged, 1).anchor, start: 1, end: 6, text: " 🐈 "};
   rejects(() => ranged.preview({textRanges: [selection, selection]}), /overlapping/);
   rejects(() => doc.preview({textRanges: [selection]}), /different document snapshot/);
@@ -465,10 +477,16 @@ export async function run(fixtures: Fixtures) {
   check(payload, "inline declarations resolved");
   const inlineEdits: NonNullable<EditBatch["inlineEdits"]> = [
     { kind: "insertAfter", target: fourth.anchor, inline: payload.view.runs[0] },
-    { kind: "setBold", target: first.anchor, bold: false },
+    { kind: "setToggle", target: first.anchor, property: "bold", value: null },
     { kind: "replace", target: second.anchor, inline: payload.view.runs[1] },
   ];
   const inline = doc.preview({inlineEdits});
+  const cleared = paragraph(await openDocx(inline.toDocx()), 0).inlineStructure[0];
+  check(first.kind === "run" && first.bold === true && !first.hasOpaqueFormatting &&
+    cleared.kind === "run" && cleared.bold === undefined, "direct bold clear and readback");
+  const italic = doc.preview({inlineEdits: [{kind: "setToggle", target: first.anchor, property: "italic", value: false}]});
+  const explicit = paragraph(await openDocx(italic.toDocx()), 0).inlineStructure[0];
+  check(explicit.kind === "run" && explicit.bold === true && explicit.italic === false, "explicit false and retained bold");
   same(inline.inlineChanges(), [[0,0],[1,0],[4,0]], "inline change sites");
   rejects(() => other.preview({inlineEdits}), /different document snapshot/);
   rejects(() => doc.preview({inlineEdits, runRemovals: [first.anchor]}), /conflicting/);
@@ -490,7 +508,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
     controlEdits: await editControls(fixtures),
