@@ -224,8 +224,16 @@ impl BoundaryState {
             self.uncertain |= std::mem::replace(&mut self.proof_ranges[index], open) == open;
         }
         if let Some((range, start)) = range_marker(name) {
-            if let Some(id) = node.get("w:id") {
-                let key = (range, id.to_owned());
+            // Permission IDs are strings; the other marker families use the
+            // arbitrary-precision ST_DecimalNumber value space.
+            if let Some(id) = node.get("w:id").and_then(|id| {
+                if range == "w:perm" {
+                    Some(id.to_owned())
+                } else {
+                    crate::ooxml::decimal_id(id)
+                }
+            }) {
+                let key = (range, id);
                 let matched = if start {
                     self.ranges.insert(key)
                 } else {

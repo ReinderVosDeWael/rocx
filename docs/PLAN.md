@@ -4,6 +4,14 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+**#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
+`ProcessContent` wrappers before treating a property as absent or a bookmark
+as closed. Regression fixtures cover body and entry stories, table layout,
+numbering, decimal bookmark identity, XML integer lexical forms, mixed-case
+resource media types, and byte preservation for no-op layout edits. Thirteen
+cases failed on `fe5e5df`; all 16 pass with the fixes, including controls for
+unrelated opaque nodes and string-valued permission IDs.
+
 #48 metadata worktree: core scalars and timestamps, company/manager, and named
 string/boolean custom-property edits passed standalone qualification: 55 Rust
 editor/showcase tests, nine installed-wheel resource tests, native Clippy and
