@@ -509,6 +509,19 @@ async def generate(output: pathlib.Path) -> bytes:
     assert {(c.context, c.id) for c in imported.controls} >= {
         ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
     caption, = (c for c in imported.controls if c.id == "5001")
+    from rocx.editor import ControlProperties
+    status, = (c for c in imported.controls if c.tag == "review-status")
+    pending = ImportedDocument.open(imported.preview_control_choice(status.anchor, "pending").to_docx())
+    site, = (s for s in pending.control_sites if s.context == "block" and s.text == EDIT_LABEL)
+    wrapped = ImportedDocument.open(pending.preview_wrap_control(site, "workflow").to_docx())
+    workflow, = (c for c in wrapped.controls if c.tag == "workflow")
+    qualified = wrapped.preview_replace_control(workflow.anchor, ControlProperties(
+        alias="Imported plain-text sample", text_type="plain", multi_line=False)).to_docx()
+    plain = ImportedDocument.open(qualified)
+    sample, = (c for c in plain.controls if c.alias == "Imported plain-text sample")
+    assert sample.tag is None and sample.kind == "text"
+    plain.preview_unwrap_control(sample.anchor)
+    output.with_suffix(".controls.docx").write_bytes(qualified)
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
                                text_insertions=[TextInsertion(targets[0].anchor, 8, " + point")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),

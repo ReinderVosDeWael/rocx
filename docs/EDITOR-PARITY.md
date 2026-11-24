@@ -94,9 +94,38 @@ paragraph, row and cell containers for its context. Text edits preserve run
 formatting. Metadata edits preserve unrecognized extension properties; a text
 edit refuses unknown control properties. Content locks prohibit text edits,
 control locks prohibit metadata edits, and combined or unknown locks prohibit
-both. Bound controls, nested controls, protected ranges, ambiguous wrappers,
-and specialized controls (e.g. lists) are not editable. This does not insert
-or remove wrappers or edit controls in headers, footers or entry stories.
+both. Use the separate operations below for wrapper and choice edits.
+
+| Operation | Rust | Python | JavaScript |
+| --- | --- | --- | --- |
+| Inspect eligible single-text wrapper sites | `doc.control_sites()` | `doc.control_sites` | `doc.controlSites()` |
+| Wrap the original payload in a tagged rich-text control | `doc.preview_wrap_control(site, tag)` | `doc.preview_wrap_control(site, tag)` | `doc.previewWrapControl({target: site.anchor, tag})` |
+| Replace the complete wrapper definition | `doc.preview_replace_control(anchor, &properties)` | `doc.preview_replace_control(anchor, properties)` | `doc.previewReplaceControl({target, properties})` |
+| Select a drop-down value; optionally replace the ordered choices | `doc.preview_control_choice(anchor, value, items)` | `doc.preview_control_choice(anchor, value, choices=items)` | `doc.previewControlChoice({target, selected, choices})` |
+| Remove the wrapper, retaining its payload | `doc.preview_unwrap_control(anchor)` | `doc.preview_unwrap_control(anchor)` | `doc.previewUnwrapControl(anchor)` |
+
+`control_sites` identifies physical targets by snapshot; its `context` and
+`text` label are for inspection, not unique addresses. Each standalone operation
+returns a preview. Reopen its output before taking anchors for the next edit.
+The original control inspection also returns `kind` (e.g. `richText`, `text`,
+`dropDownList`), literal `multi_line` / `multiLine`, `selected` (the stored
+`lastValue`) and ordered `choices`. Display labels and stored values are
+separate; selection updates the cached text and preserves run formatting.
+Rust choices are `ContentControlListItem`, Python choice edits use
+`(display_text, value)` pairs, and JS uses `{displayText, value}`.
+
+Use Rust `ContentControlProperties`, Python `rocx.editor.ControlProperties`,
+or JS `ContentControlProperties` for a complete replacement, clearing omitted
+metadata. An explicit ID must be unique across the package. Rows and cells
+require rich text. Block and inline sites also support plain text and a
+drop-down whose selected label matches the existing text. Replacing a
+definition requires an unlocked control; either content or wrapper lock
+prevents replacing the choice list. A wrapper-only lock still allows selection,
+and a content-only lock permits removing an understood wrapper without
+changing its payload. Imported opaque properties, ambiguous layouts,
+protected ranges, nested controls and custom XML bindings are refused.
+Rich multi-run/structural payloads, other specialized types and stories
+outside the main document remain outside these wrapper operations.
 
 Paragraph insertion adds a resolved paragraph immediately after a direct body paragraph.
 Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses

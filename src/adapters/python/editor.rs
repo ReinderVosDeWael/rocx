@@ -169,6 +169,23 @@ struct PyControlAnchor {
     inner: editor::ControlAnchor,
 }
 
+#[pyclass(name = "ControlSite", frozen, module = "rocx.editor")]
+struct PyControlSite {
+    inner: editor::ControlSite,
+}
+
+#[pymethods]
+impl PyControlSite {
+    #[getter]
+    fn context(&self) -> &'static str {
+        self.inner.context.as_str()
+    }
+    #[getter]
+    fn text(&self) -> &str {
+        &self.inner.text
+    }
+}
+
 #[pyclass(name = "ImportedControl", frozen, get_all, module = "rocx.editor")]
 struct PyImportedControl {
     anchor: Py<PyControlAnchor>,
@@ -178,6 +195,10 @@ struct PyImportedControl {
     alias: Option<String>,
     lock: Option<String>,
     bound: bool,
+    kind: &'static str,
+    choices: Vec<(String, String)>,
+    multi_line: Option<String>,
+    selected: Option<String>,
 }
 
 #[pyclass(name = "ControlEdit", frozen, module = "rocx.editor")]
@@ -1427,9 +1448,105 @@ impl PyImportedDocument {
                     alias: c.alias.clone(),
                     lock: c.lock.clone(),
                     bound: c.bound,
+                    kind: c.kind,
+                    multi_line: c.multi_line.clone(),
+                    choices: c
+                        .choices
+                        .iter()
+                        .map(|i| (i.display_text.clone(), i.value.clone()))
+                        .collect(),
+                    selected: c.selected.clone(),
                 })
             })
             .collect()
+    }
+    #[getter]
+    fn control_sites(&self) -> PyResult<Vec<PyControlSite>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .control_sites()
+            .iter()
+            .cloned()
+            .map(|inner| PyControlSite { inner })
+            .collect())
+    }
+    fn preview_wrap_control(
+        &self,
+        site: PyRef<'_, PyControlSite>,
+        tag: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_wrap_control(&site.inner, tag)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    fn preview_replace_control(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+        properties: &Bound<'_, PyAny>,
+    ) -> PyResult<PyEditPreview> {
+        let props = super::content::content_control_properties(properties)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_replace_control(&target.inner, &props)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    fn preview_unwrap_control(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_unwrap_control(&target.inner)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    #[pyo3(signature=(target, selected, *, choices=None))]
+    fn preview_control_choice(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+        selected: &str,
+        choices: Option<Vec<(String, String)>>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let choices = choices.map(|items| {
+            items
+                .into_iter()
+                .map(|(display_text, value)| crate::ContentControlListItem {
+                    display_text,
+                    value,
+                })
+                .collect::<Vec<_>>()
+        });
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_control_choice(&target.inner, selected, choices.as_deref())
+                    .map_err(rust_error)?,
+            ),
+        })
     }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
@@ -1850,6 +1967,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStyleAnchor>()?;
     module.add_class::<PyStyleEdit>()?;
     module.add_class::<PyControlAnchor>()?;
+    module.add_class::<PyControlSite>()?;
     module.add_class::<PyControlEdit>()?;
     module.add_class::<PyImportedControl>()?;
     module.add_class::<PyBlockEdit>()?;

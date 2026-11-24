@@ -30,12 +30,16 @@ Use ``edit_entry_inlines(owner_part, edits)`` for resolved inline insertion,
 replacement, or direct run bold in ordinary note/comment definitions.
 """
 
+from dataclasses import dataclass, field
+from typing import Literal
+from .declarative.content_control import ContentControlListItem, ContentControlMetadata
 from ._native import (
     AbstractStart,
     ResourceEdit,
     StyleAnchor,
     StyleEdit,
     ControlAnchor,
+    ControlSite,
     ControlEdit,
     ImportedControl,
     BlockEdit,
@@ -85,12 +89,25 @@ from ._native import (
 # Both story views expose the same paragraph class.
 ImportedStoryParagraph = ImportedHeaderParagraph
 
+
+@dataclass
+class ControlProperties(ContentControlMetadata):
+    """Complete replacement definition; omitted optional properties are cleared."""
+
+    text_type: Literal["rich", "plain", "dropdown"] = "rich"
+    multi_line: bool | None = None
+    items: list[ContentControlListItem] = field(default_factory=list)
+    selected: str | None = None
+
+
 __all__ = [
     "AbstractStart",
     "ResourceEdit",
     "StyleAnchor",
     "StyleEdit",
     "ControlAnchor",
+    "ControlSite",
+    "ControlProperties",
     "ControlEdit",
     "ImportedControl",
     "BlockEdit",

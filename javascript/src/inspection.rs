@@ -18,6 +18,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("openDocx", (open, Paths::Package)),
         ("importedBody", (body, Paths::Package)),
         ("importedControls", (controls, Paths::Package)),
+        ("importedControlSites", (control_sites, Paths::Package)),
         ("importedSections", (sections, Paths::Package)),
         ("importedInlineAt", (inline_at, Paths::Package)),
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
@@ -45,6 +46,11 @@ pub(crate) const HOOKS: Hooks = Hooks {
 const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("body", "importedBody"),
     ("controls", "importedControls"),
+    ("controlSites", "importedControlSites"),
+    ("previewWrapControl", "importedPreviewWrapControl"),
+    ("previewReplaceControl", "importedPreviewReplaceControl"),
+    ("previewUnwrapControl", "importedPreviewUnwrapControl"),
+    ("previewControlChoice", "importedPreviewControlChoice"),
     ("sections", "importedSections"),
     ("inlineAt", "importedInlineAt"),
     ("defaultHeaders", "importedDefaultHeaders"),
@@ -72,6 +78,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
 struct Anchors {
     styles: RefCell<HashMap<String, JsValue>>,
     controls: RefCell<HashMap<usize, JsValue>>,
+    control_sites: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
     headers: RefCell<HashMap<(usize, rocx::editor::SectionStoryKind, usize), JsValue>>,
@@ -113,6 +120,27 @@ fn entry_stories(input: &Wire) -> Result<JsValue> {
     )
 }
 
+fn control_sites(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        source
+            .document
+            .control_sites()
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                b::record(&[
+                    (
+                        "anchor",
+                        view::cached(&source.anchors.control_sites, i, "controlSite", s),
+                    ),
+                    ("context", s.context.as_str().into()),
+                    ("text", s.text.as_str().into()),
+                ])
+            }),
+    ))
+}
+
 fn controls(input: &Wire) -> Result<JsValue> {
     let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(view::array(
@@ -124,9 +152,21 @@ fn controls(input: &Wire) -> Result<JsValue> {
                 ),
                 ("context", c.context.as_str().into()),
                 ("bound", c.bound.into()),
+                ("kind", c.kind.into()),
+                (
+                    "choices",
+                    view::array(c.choices.iter().map(|i| {
+                        b::record(&[
+                            ("displayText", i.display_text.as_str().into()),
+                            ("value", i.value.as_str().into()),
+                        ])
+                    })),
+                ),
             ]);
             for (key, v) in [
                 ("id", &c.id),
+                ("selected", &c.selected),
+                ("multiLine", &c.multi_line),
                 ("tag", &c.tag),
                 ("alias", &c.alias),
                 ("lock", &c.lock),

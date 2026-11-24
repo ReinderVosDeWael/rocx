@@ -113,7 +113,7 @@ impl ContentControlProperties {
         Ok(())
     }
 
-    fn validate(&self) -> Result<(), Diagnostic> {
+    pub(crate) fn validate(&self) -> Result<(), Diagnostic> {
         if self
             .id
             .is_some_and(|id| !(1..=i32::MAX as u32).contains(&id))
