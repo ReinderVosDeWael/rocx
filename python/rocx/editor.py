@@ -27,7 +27,10 @@ exposes an image-edit anchor; ``ImportedDocument.default_headers``
 also exposes the default-header targets. Use ``edit_story_text(owner_part, edits)``
 for single-text runs in a physical header/footer or note/comment owner.
 Use ``edit_entry_inlines(owner_part, edits)`` for resolved inline insertion,
-replacement, or direct run bold in ordinary note/comment definitions.
+replacement, or direct formatting in ordinary note/comment definitions.
+``edit_run_format(edits, owner_part=part)`` patches runs and hyperlink child
+runs in one named header, footer, or entry part. Omit ``owner_part`` for direct
+body paragraphs and paragraphs of directly inspected body table cells.
 """
 
 from ._native import (

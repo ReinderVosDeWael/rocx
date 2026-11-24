@@ -227,6 +227,13 @@ with an external hyperlink and verifies its relationship and exact package bytes
 
 Removal rejects opaque or unsafe run markup.
 
+In the entry-story catalog, the “Review link” child run in each ordinary note
+and comment is formatted at 13.5 points with Rust `edit_run_format`, Python
+`edit_run_format`, or JavaScript `editRunFormat`, naming the entry's part.
+The installed `formatOwners` oracle exercises the same call on a linked run
+containing text, a tab, a drawing and a nonbreaking hyphen in a body cell and
+in shared header/footer parts.
+
 The header-source catalog also previews four block edits independently using
 the first paragraph of the inherited section. Rust uses `preview_blocks` and
 `BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext}`. Python passes

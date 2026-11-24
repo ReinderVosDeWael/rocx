@@ -21,6 +21,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
         ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
+        ("importedEditRunFormat", (format_runs, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
@@ -366,6 +367,30 @@ fn entry_inlines(input: &Wire) -> Result<JsValue> {
         source
             .document()
             .edit_entry_inlines(&owner, &edits(&batch, "inlineEdits", inline_edit)?)?
+            .as_slice(),
+    )
+    .into())
+}
+
+fn format_runs(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["ownerPart", "inlineEdits"],
+    )?;
+    let owner = batch.get("ownerPart")?;
+    let owner = (!owner.js().is_undefined())
+        .then(|| b::string(&owner, "batch.ownerPart"))
+        .transpose()?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_run_format(
+                owner.as_deref(),
+                &edits(&batch, "inlineEdits", inline_edit)?,
+            )?
             .as_slice(),
     )
     .into())

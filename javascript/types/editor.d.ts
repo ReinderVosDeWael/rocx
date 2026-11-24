@@ -185,6 +185,7 @@ declare module "./inspection.js" {
     /** Change single-text runs in the named physical story part, including all aliases. */
     editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
     editEntryInlines(batch: { readonly ownerPart: string; readonly inlineEdits: readonly InlineEdit[] }): Uint8Array;
+    editRunFormat(batch: { readonly ownerPart?: string; readonly inlineEdits: readonly Exclude<InlineEdit, { readonly kind: "insertAfter" | "replace" }>[] }): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to a shared header/footer or a section-local fork. */

@@ -44,6 +44,7 @@ pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
 pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
+mod format_targets;
 mod run_format;
 pub use run_format::RunFormatField;
 

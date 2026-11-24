@@ -214,6 +214,9 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   four direct values, a `format` view and `hasOpaqueFormatting`. Use `patchFormat`
   with a `RunFormat` value under `format` and optional field names under `clear`.
   Multiple format edits can share a run when their properties are disjoint.
+  `editRunFormat({inlineEdits, ownerPart?})` returns new bytes and accepts
+  run anchors in body cells and hyperlink children. For header/footer and
+  ordinary note/comment runs, name their inspected physical `ownerPart`.
 - `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
   `insertColumn`, `removeColumn` and `replaceCell`. Row/cell positions are
   physical; column positions count logical grid columns.

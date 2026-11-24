@@ -191,8 +191,11 @@ export async function generateCatalog(fixtures, options) {
     entryText = source.editEntryInlines(batch);
     const reopened = await openDocx(entryText);
     assertThrows(() => reopened.editEntryInlines(batch), "accepted a stale entry anchor");
-    assert(reopened.entryStories().find(e => e.kind === kind && e.id === entry.id)
-      .blocks[0].inlineStructure.some(n => n.kind === "hyperlink" && n.children[0].items[0].text === "Review link"), "missing inserted link");
+    const link = reopened.entryStories().find(e => e.kind === kind && e.id === entry.id)
+      .blocks[0].inlineStructure.find(n => n.kind === "hyperlink" && n.children[0].items[0].text === "Review link");
+    assert(link, "missing inserted link");
+    entryText = reopened.editRunFormat({ownerPart:entry.partName, inlineEdits:[
+      {kind:"patchFormat",target:link.children[0].anchor,format:{size:13.5}}]});
   }
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });

@@ -1586,6 +1586,25 @@ impl PyImportedDocument {
             .collect()
     }
 
+    #[pyo3(signature=(edits, *, owner_part=None))]
+    fn edit_run_format<'py>(
+        &self,
+        py: Python<'py>,
+        edits: Vec<PyRef<'_, PyInlineEdit>>,
+        owner_part: Option<&str>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_run_format(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
     fn edit_entry_inlines<'py>(
         &self,
         py: Python<'py>,

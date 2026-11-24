@@ -1328,6 +1328,50 @@ def test_disjoint_run_format_updates_clears_and_rollbacks():
         reopened.preview([], inline_edits=edits)
 
 
+@pytest.mark.parametrize("guard", ["deleted_row","changed_cell","reviewed_run","field","cross_cell","protection"])
+def test_cell_run_format_rejects_reviewed_protected_and_active_contexts(guard):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import InlineEdit
+
+    source = docx.Document()
+    source.add_paragraph("before")
+    table = source.add_table(rows=1,cols=2)
+    table.cell(0,0).text = "left"
+    p = table.cell(0,1).paragraphs[0]
+    run = p.add_run("right")
+    if guard == "deleted_row":
+        table.rows[0]._tr.get_or_add_trPr().append(OxmlElement("w:del"))
+    elif guard == "changed_cell":
+        table.cell(0,1)._tc.get_or_add_tcPr().append(OxmlElement("w:tcPrChange"))
+    elif guard == "reviewed_run":
+        wrapper = OxmlElement("w:ins"); wrapper.append(run._r); p._p.append(wrapper)
+    elif guard == "field":
+        begin = OxmlElement("w:fldChar"); begin.set(qn("w:fldCharType"),"begin")
+        table.cell(0,0).paragraphs[0].add_run()._r.append(begin)
+    elif guard == "cross_cell":
+        start = OxmlElement("w:permStart"); start.set(qn("w:id"),"4")
+        end = OxmlElement("w:permEnd"); end.set(qn("w:id"),"4")
+        table.cell(0,0).paragraphs[0]._p.append(start); p._p.append(end)
+    else:
+        protection = OxmlElement("w:documentProtection")
+        protection.set(qn("w:enforcement"),"on"); protection.set(qn("w:edit"),"readOnly")
+        source.settings.element.append(protection)
+    out = io.BytesIO(); source.save(out)
+    imported = ImportedDocument.open(out.getvalue())
+    body = imported.body
+    good = InlineEdit.set_bold(body[0].inline_structure[0].anchor,True)
+    target = body[1].children[0].children[1].blocks[0].inline_structure[0]
+    if guard == "reviewed_run":
+        target = target.children[0]
+    with pytest.raises(ValueError):
+        imported.edit_run_format([good,InlineEdit.set_bold(target.anchor,True)])
+    assert body[0].inline_structure[0].bold is None
+    if guard != "protection":
+        retry = ImportedDocument.open(imported.edit_run_format([good]))
+        assert retry.body[0].inline_structure[0].bold is True
+
+
 async def test_table_structure_merged_fixture_and_atomic_rejection():
     from rocx.editor import TableStructureEdit as E
 

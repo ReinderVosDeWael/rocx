@@ -13,7 +13,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | --- | --- | --- |
 | #42 Text ranges | Replace or delete nonempty scalar ranges across simple, singly textual runs of a direct body paragraph, retaining formatting outside the selection. | Cross-paragraph offsets, mixed/opaque paragraphs, zero-length insertion and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
-| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
+| #44 Inlines | Insert/replace supported direct body inlines. Inspect and patch direct formatting on runs, including hyperlink children, in body paragraphs, physical body cells, effective header/footer parts and ordinary note/comment entries. | Nested tables, control/revision targets, themed or split Latin font selections and destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text edits in one physical story part. Ordinary note/comment entries also support direct inline insertion/replacement and run bold. | Entry/reference lifecycle, comment metadata changes, block editing, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
@@ -50,6 +50,13 @@ complete DOCX bytes in Rust, installed Python 3.12, packed Node 26 and Chromium
 payloads. All 24 editor outputs matched Rust in Node and Chromium; all 11
 catalogs matched across Rust, Python and Node. Native/Wasm Clippy, strict
 TypeScript, 54 Rust and 58 Python editor tests passed on the standalone branch.
+
+After integrating `8c18d1b`, physical-owner run formatting passed 54 Rust and
+84 Python editor/note tests, strict TypeScript and native/Wasm Clippy. Node 26
+and Chromium 159 matched all 25 Rust editor outputs. The rich linked drawing
+fixture matched Python too, retained the original content and relationships,
+and passed schema/OPC checks. All eleven catalogs matched Rust/Python/Node,
+including the formatted hyperlink in each ordinary note/comment owner.
 
 ## Selected standalone topic results (before ten-way integration)
 

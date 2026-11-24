@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "format-owners-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -416,6 +416,29 @@ async function editControls(fixtures: Fixtures) {
 }
 
 export async function run(fixtures: Fixtures) {
+  let formatOwners = fixtures["format-owners-source"];
+  for (const label of ["cell","header","footer"] as const) {
+    const source = await openDocx(formatOwners);
+    let structure;
+    let ownerPart: string | undefined;
+    if (label === "cell") {
+      const t = source.body()[0]; check(t.kind === "table","cell table");
+      const row=t.children[0]; check(row.kind === "row","cell row");
+      const cell=row.children[0]; check(cell.kind === "cell","physical cell");
+      const p=cell.blocks[0]; check(p.kind === "paragraph","cell paragraph"); structure=p.inlineStructure;
+    } else {
+      const story=source.stories().find(s=>s.view.kind===label && s.view.sectionIndex===1 && s.view.variant==="default");
+      check(story?.view.inherited,"shared inherited owner");
+      ownerPart=story.view.partName; structure=story.inlineStructure(0);
+    }
+    const link=structure?.[0]; check(link?.kind==="hyperlink","owner link");
+    const r=link.children[0]; check(r.kind==="run","hyperlink run");
+    const inlineEdits=[{kind:"patchFormat",target:r.anchor,format:{size:13.5}}] as const;
+    rejects(()=>source.editRunFormat({ownerPart:"word/unrelated.xml",inlineEdits}),/owner mismatch/);
+    formatOwners=source.editRunFormat({ownerPart,inlineEdits});
+    const reopened=await openDocx(formatOwners);
+    rejects(()=>reopened.editRunFormat({ownerPart,inlineEdits}),/snapshot/);
+  }
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
@@ -519,7 +542,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, formatOwners, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
     controlEdits: await editControls(fixtures),

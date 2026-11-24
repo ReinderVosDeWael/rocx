@@ -146,6 +146,20 @@ def verify_controls(directory):
 
 def generate(directory):
     generate_controls(directory)
+    owners = Document()
+    owners.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    cell = owners.add_table(rows=1, cols=1).cell(0, 0)
+    for label, p in [("cell",cell.paragraphs[0]), ("header",owners.sections[0].header.paragraphs[0]),
+                     ("footer",owners.sections[0].footer.paragraphs[0])]:
+        link = elem("hyperlink")
+        link.set(qn("r:id"),p.part.relate_to("https://example.invalid/"+label, RELATIONSHIP_TYPE.HYPERLINK,is_external=True))
+        run = p.add_run(label+"\tword")
+        run.add_picture(io.BytesIO(png((11,22,33))),width=Twips(100))
+        run._r.append(elem("noBreakHyphen"))
+        link.append(run._r)
+        p._p.append(link)
+    owners.add_section()
+    owners.save(directory / "format-owners-source.docx")
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
@@ -351,6 +365,32 @@ def verify_ordinary(directory):
 
 
 def verify(directory):
+    from rocx.editor import ImportedDocument, InlineEdit
+    raw = (directory / "format-owners-source.docx").read_bytes()
+    source = parts(io.BytesIO(raw))
+    for label in ("cell","header","footer"):
+        d = ImportedDocument.open(raw)
+        if label == "cell":
+            owner, paragraph = None, d.body[0].children[0].children[0].blocks[0]
+        else:
+            story = next(s for s in d.stories if s.kind == label and s.section_index == 1 and s.variant == "default")
+            owner, paragraph = story.part_name, story.blocks[0]
+        target = paragraph.inline_structure[0].children[0].anchor
+        raw = d.edit_run_format([InlineEdit.patch_format(target,size=13.5)],owner_part=owner)
+    assert raw == (directory / "formatOwners.docx").read_bytes()
+    output = parts(io.BytesIO(raw))
+    owners = (MAIN, HEADER, "word/footer1.xml")
+    untouched(source,output,owners)
+    for part in owners:
+        old, changed = [etree.fromstring(z[part]) for z in (source,output)]
+        rpr, = xp(changed,".//w:hyperlink/w:r/w:rPr")
+        assert xp(rpr,"./w:sz/@w:val") == ["27"]
+        rpr.getparent().remove(rpr)
+        assert tree(changed) == tree(old)
+    readback = Document(io.BytesIO(raw))
+    for p in [readback.tables[0].cell(0,0).paragraphs[0],readback.sections[1].header.paragraphs[0],
+              readback.sections[1].footer.paragraphs[0]]:
+        assert p.hyperlinks[0].runs[0].font.size.pt == 13.5
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d

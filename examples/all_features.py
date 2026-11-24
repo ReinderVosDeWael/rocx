@@ -493,6 +493,11 @@ async def generate(output: pathlib.Path) -> bytes:
                          n.items and n.items[0].kind == "text" and n.items[0].value == label)
         review_link = await d.Hyperlink("https://example.com/entry-review", [d.TextRun("Review link")]).resolve()
         entries_output = source.edit_entry_inlines(entry.part_name, [InlineEdit.insert_after(entry_run.anchor, review_link)])
+        source = ImportedDocument.open(entries_output)
+        entry = next(e for e in source.entry_stories if e.kind == kind and e.id == entry.id)
+        link_run = next(n.children[0] for n in entry.blocks[0].inline_structure if isinstance(n, ImportedHyperlink)
+                        and n.children[0].items[0].value == "Review link")
+        entries_output = source.edit_run_format([InlineEdit.patch_format(link_run.anchor, size=13.5)], owner_part=entry.part_name)
     output.with_suffix(".entry-text.docx").write_bytes(entries_output)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))

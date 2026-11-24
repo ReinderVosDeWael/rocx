@@ -41,6 +41,59 @@ fn pair(a: &str, b: &str) -> Table {
 
 fn main() {
     let directory = PathBuf::from(env::args_os().nth(1).expect("fixture directory"));
+    {
+        use rocx::editor::{
+            ImportedInlineNode::{Hyperlink, Run},
+            ImportedRowChild, ImportedTableChild, InlineAction, InlineEdit,
+        };
+        let mut bytes = fs::read(directory.join("format-owners-source.docx")).unwrap();
+        for label in ["cell", "header", "footer"] {
+            let source = ImportedDocument::open(&bytes).unwrap();
+            let stories = source.stories().unwrap();
+            let (owner, structure) = if label == "cell" {
+                let BodyBlock::Table(t) = &source.body()[0] else {
+                    panic!("table")
+                };
+                let ImportedTableChild::Row(r) = &t.children[0] else {
+                    panic!("row")
+                };
+                let ImportedRowChild::Cell(c) = &r.children[0] else {
+                    panic!("cell")
+                };
+                (None, c.inline_structure(0).unwrap())
+            } else {
+                let s = stories
+                    .iter()
+                    .find(|s| {
+                        s.kind.as_str() == label
+                            && s.section_index == 1
+                            && s.variant == rocx::HeaderFooterType::Default
+                    })
+                    .unwrap();
+                assert!(s.inherited);
+                (Some(s.part_name.as_str()), s.inline_structure(0).unwrap())
+            };
+            let Hyperlink(link) = &structure[0] else {
+                panic!("link")
+            };
+            let Run(r) = &link.children[0] else {
+                panic!("run")
+            };
+            bytes = source
+                .edit_run_format(
+                    owner,
+                    &[InlineEdit {
+                        target: r.anchor.clone(),
+                        action: InlineAction::PatchFormat {
+                            set: Box::new(RunFormat::default().with_size(13.5)),
+                            clear: vec![],
+                        },
+                    }],
+                )
+                .unwrap();
+        }
+        fs::write(directory.join("native-formatOwners.docx"), bytes).unwrap();
+    }
     let doc = ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
     let headers = doc.default_headers().unwrap();
     let image = immediate(Component::resolve(ImageRun::new(

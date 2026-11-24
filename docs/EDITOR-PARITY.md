@@ -147,6 +147,26 @@ existing spelling and fallback. Unsupported direct selections, including
 themed fonts and unequal or incomplete Latin font pairs, are opaque and cannot
 be patched in the affected slot.
 
+**Property-only edits across physical owners.** For an anchored run in a body
+paragraph or a direct body-table cell paragraph, use Rust
+`doc.edit_run_format(None, &[edit])`, Python `doc.edit_run_format([edit])`,
+or JavaScript `doc.editRunFormat({inlineEdits: [edit]})`. A run can be a
+direct paragraph child or a direct child of its hyperlink. For a section
+header/footer or an ordinary note/comment entry, pass the inspected physical
+part name: `Some(&part)` in Rust, `owner_part=part` in Python, `ownerPart:
+part` in JavaScript. Each call returns new DOCX bytes. Section aliases share
+the edit; reopen before targeting another part or using the new snapshot.
+Disjoint patches to one physical run coalesce, even through section aliases.
+
+This operation changes only `rPr`. Text, tabs, breaks, inline/anchored
+drawings, symbols and supported hyphens are retained, as are the hyperlink
+wrapper and the owner's relationships. It rejects field/reference runs, active
+ranges, revision or control wrappers, reviewed ancestor properties, enforced
+document protection, non-format actions, stale anchors and owner mismatches.
+Entry identities must be unique and ordinary; separator/continuation entries
+are protected. Story tables, nested body tables, textbox stories and creating
+a local fork of a shared section part remain outside this operation.
+
 `ImportedRun.bold`, `.italic`, `.strike`, and `.hidden` inspect the same direct
 properties wherever structured runs are exposed. An unset or ambiguous toggle
 is `None` in Rust/Python and absent in JavaScript. `has_opaque_formatting`
@@ -304,9 +324,10 @@ Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 `editEntryInlines({ownerPart, inlineEdits})` (JavaScript) return bytes for an
 atomic batch of `InlineEdit` operations in one footnotes, endnotes or comments
 part. Insert after or replace an eligible direct run or hyperlink, or patch
-direct run bold. Use original inline anchors from ordinary entries with unique
+direct run formatting. Format-only batches also accept direct hyperlink child
+runs, using the same guards as `edit_run_format`. Use original inline anchors from ordinary entries with unique
 decimal IDs. Replacement uses the body editor's discard checks; note/reference
-marks, field/range interiors, nested targets and reserved notes are ineligible.
+marks, field/range interiors, nested splice targets and reserved notes are ineligible.
 External links allocate relationships in the entry part, including when its
 path is nonstandard. Existing relationships are retained. No entry or reference
 is created, deleted or renumbered. Reopen the returned package for new anchors.

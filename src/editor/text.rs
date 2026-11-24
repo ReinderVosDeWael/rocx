@@ -115,7 +115,7 @@ fn render_actions<K: Ord>(
     main: &str,
     owner: &str,
     kind: crate::StoryKind,
-    ordered: BTreeMap<K, &InlineAction>,
+    ordered: BTreeMap<K, Vec<&InlineAction>>,
 ) -> Result<(crate::opc::Package, BTreeMap<K, Action>)> {
     let payloads: Vec<_> = ordered
         .values()
@@ -131,7 +131,7 @@ fn render_actions<K: Ord>(
         crate::ooxml::encode_editor_inlines(package, main, owner, kind, &payloads)?
     };
     let mut nodes = nodes.into_iter();
-    let mut targets = Targets::new();
+    let mut targets = BTreeMap::new();
     for (key, group) in ordered {
         let action = match group.as_slice() {
             [InlineAction::InsertAfter(_)] => Action::After(nodes.next().unwrap()),
@@ -139,25 +139,7 @@ fn render_actions<K: Ord>(
             _ => {
                 let mut slots = run_format::Slots::new();
                 for action in group {
-                    let (prop, value) = match action {
-                        InlineAction::InsertAfter(_) | InlineAction::Replace(_) => {
-                            return Err(unsupported("duplicate or conflicting inline target"));
-                        }
-                        InlineAction::PatchFormat { set, clear } => {
-                            run_format::compile(&mut slots, set, clear, &package, main)?;
-                            continue;
-                        }
-                        InlineAction::SetBold(b) => (RunToggle::Bold, Some(*b)),
-                        InlineAction::SetToggle(p, v) => (*p, *v),
-                    };
-                    let field = prop.field();
-                    run_format::add(
-                        &mut slots,
-                        field,
-                        value.map(|b| {
-                            Node::new(field.tag()).attr("w:val", if b { "1" } else { "0" })
-                        }),
-                    )?;
+                    compile_format(&mut slots, action, &package, main)?;
                 }
                 Action::Format(slots)
             }
@@ -165,6 +147,32 @@ fn render_actions<K: Ord>(
         targets.insert(key, action);
     }
     Ok((package, targets))
+}
+
+pub(super) fn compile_format(
+    slots: &mut run_format::Slots,
+    action: &InlineAction,
+    package: &crate::opc::Package,
+    main: &str,
+) -> Result<()> {
+    let (prop, value) = match action {
+        InlineAction::InsertAfter(_) | InlineAction::Replace(_) => {
+            return Err(unsupported(
+                "duplicate/conflicting target or non-format inline edit",
+            ));
+        }
+        InlineAction::PatchFormat { set, clear } => {
+            return run_format::compile(slots, set, clear, package, main);
+        }
+        InlineAction::SetBold(b) => (RunToggle::Bold, Some(*b)),
+        InlineAction::SetToggle(p, v) => (*p, *v),
+    };
+    let field = prop.field();
+    run_format::add(
+        slots,
+        field,
+        value.map(|b| Node::new(field.tag()).attr("w:val", if b { "1" } else { "0" })),
+    )
 }
 
 fn single_text(run: &Node) -> Result<String> {
@@ -305,7 +313,7 @@ fn check_leaf(leaf: &Node, discard: bool) -> Result<()> {
 
 /// A property-only patch can preserve multiple ordinary leaves without
 /// interpreting their order or modifying their text or attributes.
-fn check_toggle_target(run: &Node) -> Result<()> {
+pub(super) fn check_format_target(run: &Node) -> Result<()> {
     if run.name != "w:r" || opaque_content(run) {
         return Err(unsupported("expected direct run with ordinary leaves"));
     }
@@ -314,7 +322,22 @@ fn check_toggle_target(run: &Node) -> Result<()> {
     if children.peek().is_none() {
         return Err(unsupported("expected nonempty run"));
     }
-    children.try_for_each(|leaf| check_leaf(leaf, false))
+    children.try_for_each(|leaf| match leaf.name.as_str() {
+        "w:noBreakHyphen" | "w:softHyphen" | "w:sym" | "w:lastRenderedPageBreak" | "w:ptab"
+            if leaf.children.is_empty() =>
+        {
+            Ok(())
+        }
+        "w:drawing"
+            if leaf.elements().count() == 1
+                && leaf
+                    .elements()
+                    .all(|n| matches!(n.name.as_str(), "wp:inline" | "wp:anchor")) =>
+        {
+            Ok(())
+        }
+        _ => check_leaf(leaf, false),
+    })
 }
 
 /// Revision operations may copy or discard either ordinary or deleted text.
@@ -443,7 +466,7 @@ fn apply_targets(
                         inline_changes.push((body_index, inline_index));
                     }
                     Action::Format(slots) => {
-                        check_toggle_target(child)?;
+                        check_format_target(child)?;
                         if run_format::apply(child, slots)? {
                             inline_changes.push((body_index, inline_index));
                         }
@@ -514,6 +537,22 @@ impl super::ImportedDocument {
     /// footnote, endnote or comment part, using original snapshot anchors.
     pub fn edit_entry_inlines(&self, owner_part: &str, edits: &[InlineEdit]) -> Result<Vec<u8>> {
         use crate::ooxml::WordParts;
+        if !edits.is_empty()
+            && edits.iter().all(|e| {
+                !matches!(
+                    e.action,
+                    InlineAction::InsertAfter(_) | InlineAction::Replace(_)
+                )
+            })
+        {
+            if !edits
+                .iter()
+                .all(|e| matches!(e.target.location, InlineLocation::Entry { .. }))
+            {
+                return Err(unsupported("expected an entry inline"));
+            }
+            return self.edit_run_format(Some(owner_part), edits);
+        }
         let mut ordered = BTreeMap::new();
         let mut counts = None;
         let mut kind = None;
@@ -530,12 +569,10 @@ impl super::ImportedDocument {
                 super::EntryKind::Footnote => crate::StoryKind::Footnote,
                 super::EntryKind::Endnote => crate::StoryKind::Endnote,
             });
-            if ordered
-                .insert((e.element_index, *block_index, *inline), &edit.action)
-                .is_some()
-            {
-                return Err(unsupported("duplicate entry inline target"));
-            }
+            ordered
+                .entry((e.element_index, *block_index, *inline))
+                .or_insert_with(Vec::new)
+                .push(&edit.action);
         }
         let kind = kind.ok_or_else(|| unsupported("expected an entry inline edit"))?;
         let (mut package, actions) =
@@ -563,7 +600,7 @@ impl super::ImportedDocument {
         super::PackagePlan::new(package)?.to_bytes()
     }
 
-    fn editable_entry(
+    pub(super) fn editable_entry(
         &self,
         owner_part: &str,
         index: usize,
