@@ -44,6 +44,7 @@ export interface HeaderImageEdit {
 }
 
 export interface EditBatch {
+  readonly resources?: readonly ResourceEdit[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
@@ -52,6 +53,11 @@ export interface EditBatch {
   readonly headerImages?: readonly HeaderImageEdit[];
   readonly cellAlignments?: readonly CellAlignmentEdit[];
 }
+
+export type ResourceEdit =
+  | { readonly kind: "coreTitle"; readonly value: string | null }
+  | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
+  | { readonly kind: "abstractStart"; readonly abstractId: number; readonly level: number; readonly value: number | null };
 
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
 export interface RunRemovalChange {

@@ -122,7 +122,8 @@ wrong content type or missing entry ID fails without changing the snapshot.
 
 [Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
 part identity and direct style ID, kind, name, and base reference in all three
-bindings. Other style properties and resource editing remain outstanding.
+bindings. The same guide lists direct core title, default paragraph alignment,
+and shared abstract level start inspection and edits.
 
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing

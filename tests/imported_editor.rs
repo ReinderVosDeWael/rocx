@@ -34,6 +34,45 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn resource_numbering_starts_reject_duplicate_identities_and_preserve_lexical_noop() {
+    use rocx::editor::{AbstractStart, ResourceEdit};
+    let fixture = include_bytes!("fixtures/imported-editor.docx");
+    let mut entries = parts(fixture);
+    let name = "word/numbering.xml";
+    for (levels, expected_ok) in [
+        (r#"<w:lvl w:ilvl="00"><w:start w:val="007"/></w:lvl>"#, true),
+        (r#"<w:lvl w:ilvl="0"/><w:lvl w:ilvl="00"/>"#, false),
+        (r#"<w:lvl w:ilvl="0"><w:start w:val="-3"/></w:lvl>"#, false),
+    ] {
+        entries.insert(name.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="0">{levels}</w:abstractNum></w:numbering>"#).into_bytes());
+        let doc = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+        let start = AbstractStart {
+            abstract_id: 0,
+            level: 0,
+            start: Some(7),
+        };
+        let read = doc.abstract_starts();
+        let preview = doc.preview_with_resources(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[ResourceEdit::AbstractStart(start.clone())],
+        );
+        if expected_ok {
+            assert_eq!(read.unwrap(), [start]);
+            assert_eq!(entries, parts(&preview.unwrap().to_docx().unwrap()));
+        } else {
+            assert!(read.is_err());
+            assert!(preview.is_err());
+        }
+    }
+}
+
+#[test]
 fn cell_alignment_patch_validates_grid_and_preserves_other_content() {
     use rocx::{VerticalAlignment, editor::CellAlignmentEdit};
     let xml = format!(

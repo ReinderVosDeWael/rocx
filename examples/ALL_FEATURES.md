@@ -50,7 +50,9 @@ Output:
   and a default-header image. The `.header-first-shared.docx` and
   `.header-first-local.docx` artifacts separately preview first-page images.
 - Paired `.run-text.docx` artifacts: replace a direct body run's text and
-  insert a resolved paragraph after the original body anchor in the same batch.
+  insert a resolved paragraph after the original body anchor, set the core title
+  to “Edited resource sample”, center the paragraph default, and set shared
+  abstract numbering level (100, 0) to start at 7 in the same batch.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -174,12 +176,18 @@ and JavaScript uses `preview({cellAlignments: [...]})`. The target is the new
 snapshot's table anchor plus physical row and cell indices.
 
 For the run-text output Rust passes `ParagraphInsertion` to
-`preview_with_paragraphs`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
+`preview_with_resources`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
 to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`
 alongside the run-text replacement. The insertion report gives the original
 anchor's body index. Inserted content follows the same inline and style
 restrictions as inserted tables. A paragraph and table cannot be inserted at
 the same anchor in one batch.
+
+The batch also passes Rust `ResourceEdit::{CoreTitle, DefaultAlignment, AbstractStart}`,
+Python `resources=[ResourceEdit.core_title(...), ResourceEdit.default_alignment(...),
+ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
+`coreTitle`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
+for clearing, absence, and shared-numbering semantics.
 
 Separately, all three catalogs preview removal of the labeled single-text body
 run without writing a tenth file: Rust `preview_with_run_removals`, Python

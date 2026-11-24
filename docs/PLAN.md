@@ -4,6 +4,15 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: qualify the combined #3 editor
 
+Next resources increment (#3): inspect and set/clear direct core title, default
+paragraph alignment and shared abstract numbering level starts in mixed batches.
+Keep IDs, instance overrides, paragraph references, and unrelated package
+payloads intact. Scope and unsupported cases: [resource edit contract](EDITOR-RESOURCES.md).
+Standalone verification: 44 Rust and 35 Python focused tests, Clippy, strict
+TypeScript consumer check, independent python-docx readback, and exact parity
+of nine catalog files across native Rust, Python 3.12 and packed Node 26.
+The mixed resource output passed schema/OPC checks (20 schema-covered parts).
+
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 [CLI contract](CLI.md) for its narrower, digest-bound alignment workflow.

@@ -167,9 +167,10 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
+            "resources",
         ],
     )?;
-    let preview = source.document().preview_mixed(
+    let preview = source.document().preview_with_resources(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -186,6 +187,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
         &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
+        &edits(&batch, "resources", resource_edit)?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",
@@ -202,6 +204,48 @@ fn preview(input: &Wire) -> Result<JsValue> {
             ("toDocx", "editPreviewToDocx"),
         ],
     ))
+}
+
+fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit> {
+    use rocx::editor::{AbstractStart, ResourceEdit};
+    let edit = Record::new(input, path, &["kind", "value", "abstractId", "level"])?;
+    let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
+    if kind != "abstractStart" {
+        Record::new(input, path, &["kind", "value"])?;
+    }
+    let v = edit.get("value")?;
+    let clear = v.js().is_null();
+    let vp = edit.path("value");
+    let uint = |wire: &Wire, p: &str| -> Result<u32> {
+        b::u64_number(wire, p)?
+            .try_into()
+            .map_err(|_| Failure::invalid(p, "expected u32"))
+    };
+    Ok(match kind.as_str() {
+        "coreTitle" => ResourceEdit::CoreTitle(if clear {
+            None
+        } else {
+            Some(b::string(&v, &vp)?)
+        }),
+        "defaultAlignment" => ResourceEdit::DefaultAlignment(if clear {
+            None
+        } else {
+            Some(alignment(&v, &vp)?)
+        }),
+        "abstractStart" => ResourceEdit::AbstractStart(AbstractStart {
+            abstract_id: uint(&edit.get("abstractId")?, &edit.path("abstractId"))?,
+            level: uint(&edit.get("level")?, &edit.path("level"))?
+                .try_into()
+                .map_err(|_| Failure::invalid(&edit.path("level"), "invalid level"))?,
+            start: if clear { None } else { Some(uint(&v, &vp)?) },
+        }),
+        _ => {
+            return Err(Failure::invalid(
+                &edit.path("kind"),
+                "unknown resource edit",
+            ));
+        }
+    })
 }
 
 fn run_removals(input: &Wire) -> Result<JsValue> {

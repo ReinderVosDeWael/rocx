@@ -167,7 +167,13 @@ export async function generateCatalog(fixtures, options) {
   assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
+  assert(imported.coreTitle() === "All features visual inspection" && imported.defaultAlignment() === undefined,
+    "unexpected direct catalog defaults");
+  assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
+    "missing shared abstract numbering level");
   const textPreview = imported.preview({
+    resources: [{kind: "coreTitle", value: "Edited resource sample"},
+      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
     paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
   });
@@ -179,6 +185,18 @@ export async function generateCatalog(fixtures, options) {
     change.bodyIndex === body.indexOf(inline) && change.inlineIndex === 0, "incorrect text change");
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
+  const editedResources = await openDocx(runText);
+  assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample",
+    "missing resource edits");
+  const cleared = await openDocx(editedResources.preview({resources: [
+    {kind: "coreTitle", value: null}, {kind: "defaultAlignment", value: null},
+    {kind: "abstractStart", abstractId: 100, level: 0, value: null}]}).toDocx());
+  assert(cleared.coreTitle() === undefined && cleared.defaultAlignment() === undefined &&
+    cleared.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === undefined),
+    "clearing direct properties should return absence");
+  assertThrows(() => imported.preview({resources: [{kind: "coreTitle", value: "uncommitted"},
+    {kind: "abstractStart", abstractId: 9001, level: 0, value: 6}]}), "accepted missing numbering level");
+  assertThrows(() => imported.preview({resources: [{kind: "coreTitle"}]}), "treated missing value as clear");
   const internalLink = checkLink(imported, inline.inlineStructure, INLINE_LABEL, INLINE_LINK_RUNS);
   assert(internalLink.bookmark === "CatalogBookmark" && internalLink.relationshipId === undefined, "expected bookmark hyperlink");
   const editTargets = body.filter((node) => node.kind === "paragraph" && node.text === EDIT_LABEL);

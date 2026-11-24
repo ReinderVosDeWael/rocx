@@ -398,6 +398,11 @@ export async function run(fixtures: Fixtures) {
 
 // Compile only. Check public inputs and output types without letting invalid calls execute.
 export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  for (const {abstractId, level} of doc.abstractStarts()) {
+    doc.preview({resources: [{kind: "abstractStart", abstractId, level, value: null}]});
+  }
+  // @ts-expect-error omitting the value is not a request to clear a title
+  doc.preview({resources: [{kind: "coreTitle"}]});
   for (const e of doc.entryStories()) {
     const id: string = e.id;
     for (const block of e.blocks) {

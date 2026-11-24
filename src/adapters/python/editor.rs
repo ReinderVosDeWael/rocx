@@ -835,8 +835,83 @@ struct PyImportedStyles {
     styles: Vec<Py<PyImportedStyle>>,
 }
 
+#[pyclass(name = "AbstractStart", module = "rocx.editor", frozen, get_all)]
+struct PyAbstractStart {
+    abstract_id: u32,
+    level: u8,
+    start: Option<u32>,
+}
+
+#[pyclass(name = "ResourceEdit", module = "rocx.editor", frozen)]
+struct PyResourceEdit {
+    inner: editor::ResourceEdit,
+}
+
+#[pymethods]
+impl PyResourceEdit {
+    #[staticmethod]
+    #[pyo3(signature=(value))]
+    fn core_title(value: Option<String>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::CoreTitle(value),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(value))]
+    fn default_alignment(value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::DefaultAlignment(value.map(super::alignment).transpose()?),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(abstract_id, level, start))]
+    fn abstract_start(abstract_id: u32, level: u8, start: Option<u32>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::AbstractStart(editor::AbstractStart {
+                abstract_id,
+                level,
+                start,
+            }),
+        }
+    }
+}
+
 #[pymethods]
 impl PyImportedDocument {
+    #[getter]
+    fn core_title(&self) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .core_title()
+            .map_err(rust_error)
+    }
+    #[getter]
+    fn default_alignment(&self) -> PyResult<Option<&'static str>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .default_alignment()
+            .map_err(rust_error)?
+            .map(alignment_name))
+    }
+    #[getter]
+    fn abstract_starts(&self) -> PyResult<Vec<PyAbstractStart>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .abstract_starts()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|s| PyAbstractStart {
+                abstract_id: s.abstract_id,
+                level: s.level,
+                start: s.start,
+            })
+            .collect())
+    }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
         let doc = self
@@ -1057,7 +1132,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, resources=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1067,6 +1142,7 @@ impl PyImportedDocument {
         run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
+        resources: Option<Vec<PyRef<'_, PyResourceEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1094,7 +1170,7 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_mixed(
+                doc.preview_with_resources(
                     &edits,
                     &insertions,
                     &header_images,
@@ -1121,6 +1197,11 @@ impl PyImportedDocument {
                         .iter()
                         .map(|anchor| anchor.inner.clone())
                         .collect::<Vec<_>>(),
+                    &resources
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|r| r.inner.clone())
+                        .collect::<Vec<_>>(),
                 )
                 .map_err(rust_error)?,
             ),
@@ -1129,6 +1210,8 @@ impl PyImportedDocument {
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyAbstractStart>()?;
+    module.add_class::<PyResourceEdit>()?;
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;

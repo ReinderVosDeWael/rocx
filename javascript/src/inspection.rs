@@ -23,6 +23,12 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedStories", (stories, Paths::Package)),
         ("importedEntryStories", (entry_stories, Paths::Package)),
         ("importedStyles", (styles, Paths::Package)),
+        ("importedCoreTitle", (core_title, Paths::Package)),
+        (
+            "importedDefaultAlignment",
+            (default_alignment, Paths::Package),
+        ),
+        ("importedAbstractStarts", (abstract_starts, Paths::Package)),
         (
             "importedStoryInlineStructure",
             (story_inline_structure, Paths::Package),
@@ -39,6 +45,9 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("stories", "importedStories"),
     ("entryStories", "importedEntryStories"),
     ("styles", "importedStyles"),
+    ("coreTitle", "importedCoreTitle"),
+    ("defaultAlignment", "importedDefaultAlignment"),
+    ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("preview", "importedPreview"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
@@ -119,6 +128,37 @@ fn styles(input: &Wire) -> Result<JsValue> {
                 ("styles", view::array(items)),
             ])
         }))
+}
+
+fn core_title(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(doc
+        .document()
+        .core_title()?
+        .map_or(JsValue::UNDEFINED, Into::into))
+}
+fn default_alignment(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(doc
+        .document()
+        .default_alignment()?
+        .as_ref()
+        .map_or(JsValue::UNDEFINED, crate::text_layout::alignment_view))
+}
+fn abstract_starts(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        doc.document().abstract_starts()?.into_iter().map(|s| {
+            let record = b::record(&[
+                ("abstractId", s.abstract_id.into()),
+                ("level", s.level.into()),
+            ]);
+            if let Some(v) = s.start {
+                b::set(&record, "start", &v.into());
+            }
+            record
+        }),
+    ))
 }
 
 pub(crate) struct ImportedSource {

@@ -617,7 +617,18 @@ pub async fn generate(output: &Path) -> Result<()> {
     else {
         panic!("expected paragraph payload");
     };
-    let preview = imported.preview_with_paragraphs(
+    assert_eq!(
+        imported.core_title()?.as_deref(),
+        Some("All features visual inspection")
+    );
+    assert_eq!(imported.default_alignment()?, None);
+    assert!(
+        imported
+            .abstract_starts()?
+            .iter()
+            .any(|s| (s.abstract_id, s.level, s.start) == (100, 0, Some(1)))
+    );
+    let preview = imported.preview_with_resources(
         &[],
         &[],
         &[],
@@ -629,6 +640,17 @@ pub async fn generate(output: &Path) -> Result<()> {
             target: paragraph.anchor.clone(),
             paragraph: inserted_paragraph.clone(),
         }],
+        &[],
+        &[],
+        &[
+            editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
+            editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
+            editor::ResourceEdit::AbstractStart(editor::AbstractStart {
+                abstract_id: 100,
+                level: 0,
+                start: Some(7),
+            }),
+        ],
     )?;
     assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);
     assert_eq!(preview.run_text_changes()[0].before, INLINE_LABEL);

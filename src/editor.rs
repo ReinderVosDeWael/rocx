@@ -18,6 +18,7 @@ use std::sync::{Arc, OnceLock};
 mod entries;
 mod header;
 mod insertion;
+mod resource_fields;
 mod resources;
 mod tables;
 mod text;
@@ -26,6 +27,7 @@ pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
+pub use resource_fields::{AbstractStart, ResourceEdit};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit};
 pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
@@ -647,6 +649,31 @@ impl ImportedDocument {
         cells: &[CellAlignmentEdit],
         run_removals: &[InlineAnchor],
     ) -> Result<EditPreview> {
+        self.preview_with_resources(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            &[],
+        )
+    }
+
+    /// Edit document-wide properties in the same original-snapshot transaction.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_with_resources(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+        resources: &[ResourceEdit],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -680,6 +707,7 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        resource_fields::apply(&mut package, &self.main, resources)?;
         let mut paragraph_targets = BTreeMap::new();
         for insertion in paragraphs {
             if paragraph_targets

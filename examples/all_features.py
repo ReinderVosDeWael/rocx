@@ -12,7 +12,7 @@ import sys
 import rocx
 from rocx import declarative as d
 from rocx.editor import (
-    HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
+    HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit, ResourceEdit,
     TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
@@ -477,7 +477,12 @@ async def generate(output: pathlib.Path) -> bytes:
     label, inline_link = inline_block.inline_structure
     replacement = "Imported editor: replaced this run by its anchor. "
     inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
+    assert imported.core_title == "All features visual inspection" and imported.default_alignment is None
+    assert any((s.abstract_id, s.level, s.start) == (100, 0, 1) for s in imported.abstract_starts)
     preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)],
+                               resources=[ResourceEdit.core_title("Edited resource sample"),
+                                          ResourceEdit.default_alignment("center"),
+                                          ResourceEdit.abstract_start(100, 0, 7)],
                                paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
     assert preview.paragraph_insertions == [
         next(i for i, block in enumerate(imported.body)
