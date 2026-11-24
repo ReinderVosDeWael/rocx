@@ -4,7 +4,7 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: qualify the combined #3 editor
 
-Nine slices based on `aefcec8` are being reconciled in one unreleased candidate.
+Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 [CLI contract](CLI.md) for its narrower, digest-bound alignment workflow.
 
@@ -18,12 +18,15 @@ Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 | Controls and revisions | Inspect direct body control metadata and inline insertion/deletion wrappers; neither is editable. |
 | CLI | Inspect direct body blocks, preview alignment edits, and save to a new path. |
 
-**Combined gate pending.** Validate mixed operations, stale/conflicting targets,
-readback and untouched payloads on the same revision. Run Rust checks, the
-schema-required Python suite, strict docs, and installed Node 22/24 and Chromium
-development/production checks, including reproducible package provenance and
-exact Rust/Python/JavaScript bytes for all nine catalog artifacts. Record the
-tested revision and results before claiming qualification. Earlier branch
+**Combined verification passed locally on `6b34ff0`.** All Rust targets, three
+doctests, native/Wasm Clippy, the Rust 1.88 check, 822 schema-required Python
+tests, the isolated wheel check and the strict 552-page docs build passed.
+Packed Node 22 and 24, with Chromium development and production builds, passed
+offline package replay, schema/OPC checks and exact byte comparisons for all
+nine catalog outputs. A mixed paragraph insertion, cell patch and run removal
+produced identical DOCX bytes in Rust, Python, Node and both browser builds.
+Readback verified target placement and unchanged part payloads; a conflicting
+batch was rejected and the original anchors remained usable. Earlier branch
 results below describe their own checkpoints. #3 and release preflight remain open.
 
 Standalone evidence is available at the topic tips: addressing `b03a230`,
