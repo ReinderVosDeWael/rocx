@@ -23,6 +23,14 @@ the Rust oracle in the packed consumers. Installed Python independently matched
 layout, split/merge, shared story and table output bytes, with separate
 anchor, error, schema/OPC and untouched-payload checks.
 
+Follow-up integrated `29be239` and `fc1cad0`: 343 Rust tests, native/Wasm
+Clippy, Rust 1.88, and 35 focused installed-wheel tests passed. Mixed ordinary
+CLI edits, direct layout, story references/splices and physical-table batches
+matched their installed core output byte for byte. Fixtures check stale digests,
+overlap and owner rejection, no-op package payloads, and relationships
+allocated only to the edited footer. Packed Node 22/24 and Chromium
+development/production matched all 31 editor outputs and 13 catalog artifacts.
+
 **#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
 `ProcessContent` wrappers before treating a property as absent or a bookmark
 as closed. Regression fixtures cover body and entry stories, table layout,
