@@ -562,6 +562,98 @@ struct PyParagraphAlignmentEdit {
     alignment: crate::Alignment,
 }
 
+#[pyclass(name = "TableStructureEdit", frozen, module = "rocx.editor")]
+struct PyTableStructureEdit {
+    inner: editor::TableStructureEdit,
+}
+#[pymethods]
+impl PyTableStructureEdit {
+    #[staticmethod]
+    fn insert_row(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::InsertRow(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_row(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveRow(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn insert_column(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::InsertColumn(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_column(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveColumn(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn insert_cell(target: PyRef<'_, PyTableAnchor>, row: usize, cell: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::InsertCell { row, cell },
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_cell(target: PyRef<'_, PyTableAnchor>, row: usize, cell: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveCell { row, cell },
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace_cell(
+        target: PyRef<'_, PyTableAnchor>,
+        row: usize,
+        cell: usize,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::ReplaceCell {
+                    row,
+                    cell,
+                    blocks: blocks
+                        .iter()
+                        .map(|block| {
+                            let cls = block
+                                .py()
+                                .import("rocx.resolution.snapshot")?
+                                .getattr("ResolvedNode")?;
+                            if !block.is_instance(&cls)? {
+                                return Err(PyTypeError::new_err("expected a resolved cell block"));
+                            }
+                            super::content::block(block)?
+                                .ok_or_else(|| PyValueError::new_err("empty cell block"))
+                        })
+                        .collect::<PyResult<_>>()?,
+                },
+            },
+        })
+    }
+}
 #[pyclass(name = "CellAlignmentEdit", frozen, module = "rocx.editor")]
 struct PyCellAlignmentEdit {
     inner: editor::CellAlignmentEdit,
@@ -1310,6 +1402,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
+    module.add_class::<PyTableStructureEdit>()?;
     module.add_class::<PyCellAlignmentEdit>()?;
     module.add_class::<PyCellAlignmentChange>()?;
     module.add_class::<PyImportedTableRow>()?;

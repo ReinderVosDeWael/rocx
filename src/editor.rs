@@ -696,6 +696,7 @@ impl ImportedDocument {
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
             .chain(ranges.iter().map(|r| &r.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
+            .chain(structural.iter().map(|edit| &edit.target._snapshot))
         {
             self.validate_snapshot(snapshot)?;
         }
@@ -864,6 +865,7 @@ impl ImportedDocument {
                 || !inline_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
+                || !structural.is_empty()
                 || !insertions.is_empty()
                 || !paragraph_insertions.is_empty()
                 || header_changes

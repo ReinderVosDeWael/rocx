@@ -6,6 +6,7 @@ export async function editorFixtures(read) {
   const result = await run({ ...Object.fromEntries(sources), image: await read("image.png") });
   const files = {
     body: result.body,
+    tableStructure: result.tableStructure,
     cell: result.cell,
     mixedBody: result.mixedBody,
     blocks: result.blocks,

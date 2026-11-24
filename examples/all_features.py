@@ -530,6 +530,9 @@ async def generate(output: pathlib.Path) -> bytes:
     reopened_again = ImportedDocument.open(edited)
     other_cell = reopened_again.body[table_index].children[0].children[1]
     assert other_cell.blocks[0].inline_structure[1].anchor != suffix.anchor
+    # Structural sample: append an empty row to this original table.
+    appended = reopened.preview([], table_structure=[TableStructureEdit.insert_row(inserted.anchor, 1)])
+    assert len(ImportedDocument.open(appended.to_docx()).body[table_index].children) == 2
     cell_preview = reopened.preview([], cell_alignments=[CellAlignmentEdit(inserted.anchor, 0, 0, "center")])
     assert len(cell_preview.cell_alignment_changes) == 1
     output.with_suffix(".edited.docx").write_bytes(cell_preview.to_docx())

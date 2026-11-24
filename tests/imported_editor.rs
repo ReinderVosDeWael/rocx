@@ -2691,3 +2691,69 @@ fn first_header_image_local_preserves_aliases_and_inheritance() {
         }
     }
 }
+
+#[test]
+fn table_structure_rejects_invalid_chains_ranges_and_foreign_anchors_atomically() {
+    use rocx::editor::{TableOperation::InsertRow, TableStructureEdit};
+    let base = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p/><w:tbl><w:tblGrid><w:gridCol/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let original = ImportedDocument::open(&fixture_with_body(&base)).unwrap();
+    let edit = |doc: &ImportedDocument| {
+        let BodyBlock::Table(t) = &doc.body()[1] else {
+            panic!("expected table")
+        };
+        TableStructureEdit {
+            target: t.anchor.clone(),
+            operation: InsertRow(0),
+        }
+    };
+    let apply = |doc: &ImportedDocument, structural: &[TableStructureEdit]| {
+        doc.preview_with_table_structure(
+            &[ParagraphAlignmentEdit {
+                target: paragraph(doc, 0).anchor.clone(),
+                alignment: Alignment::Center,
+            }],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            structural,
+        )
+    };
+    let good = apply(&original, &[edit(&original)])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    for xml in [
+        base.replace("<w:tc>",r#"<w:tc><w:tcPr><w:tcW w:w="500" w:type="dxa"/><w:tcW w:w="1000" w:type="dxa"/></w:tcPr>"#),
+        base.replace("<w:tc>", "<w:tc><w:tcPr><w:vMerge/></w:tcPr>"),
+        base.replace("<w:tc>", "<w:tc><w:tcPr><w:gridSpan w:val=\"2\"/></w:tcPr>"),
+        base.replace(
+            "<w:p/><w:tbl>",
+            "<w:p><w:bookmarkStart w:id=\"9\" w:name=\"keep\"/></w:p><w:tbl>",
+        ),
+        base.replace(
+            "<w:tr>",
+            "<w:tr><w:trPr><w:ins w:id=\"1\" w:author=\"Ada\"/></w:trPr>",
+        ),
+    ] {
+        let bytes = fixture_with_body(&xml);
+        let source = ImportedDocument::open(&bytes).unwrap();
+        assert!(apply(&source, &[edit(&source)]).is_err());
+        assert!(apply(&source, &[edit(&original)]).is_err());
+        assert_eq!(
+            parts(&source.preview(&[]).unwrap().to_docx().unwrap()),
+            parts(&bytes)
+        );
+    }
+    assert_eq!(
+        apply(&original, &[edit(&original)])
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        good
+    );
+}

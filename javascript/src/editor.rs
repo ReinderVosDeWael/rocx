@@ -223,6 +223,63 @@ fn cell_alignment_edit(input: &Wire, path: &str) -> Result<rocx::editor::CellAli
     })
 }
 
+fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructureEdit> {
+    use rocx::editor::{TableOperation::*, TableStructureEdit};
+    let edit = Record::new(
+        input,
+        path,
+        &["target", "kind", "index", "row", "cell", "blocks"],
+    )?;
+    let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
+    let fields: &[&str] = if kind == "replaceCell" {
+        &["target", "kind", "row", "cell", "blocks"]
+    } else if matches!(kind.as_str(), "insertCell" | "removeCell") {
+        &["target", "kind", "row", "cell"]
+    } else {
+        &["target", "kind", "index"]
+    };
+    let edit = Record::new(input, path, fields)?;
+    let index = |name: &str| -> Result<usize> {
+        usize::try_from(b::u64_number(&edit.get(name)?, &edit.path(name))?)
+            .map_err(|_| Failure::invalid(&edit.path(name), "index is too large"))
+    };
+    let operation = match kind.as_str() {
+        "insertRow" => InsertRow(index("index")?),
+        "removeRow" => RemoveRow(index("index")?),
+        "insertColumn" => InsertColumn(index("index")?),
+        "removeColumn" => RemoveColumn(index("index")?),
+        "insertCell" => InsertCell {
+            row: index("row")?,
+            cell: index("cell")?,
+        },
+        "removeCell" => RemoveCell {
+            row: index("row")?,
+            cell: index("cell")?,
+        },
+        "replaceCell" => ReplaceCell {
+            row: index("row")?,
+            cell: index("cell")?,
+            blocks: b::list(&edit.get("blocks")?, &edit.path("blocks"))?
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    crate::structured::block_value(item, &format!("{}[{i}]", edit.path("blocks")))
+                })
+                .collect::<Result<_>>()?,
+        },
+        _ => {
+            return Err(Failure::invalid(
+                &edit.path("kind"),
+                "unknown table operation",
+            ));
+        }
+    };
+    Ok(TableStructureEdit {
+        target: (*borrow_target::<TableAnchor>(&edit, &edit.path("target"))?).clone(),
+        operation,
+    })
+}
+
 fn header_edit(input: &Wire, path: &str) -> Result<HeaderImageEdit> {
     let edit = Record::new(input, path, &["target", "mode", "image"])?;
     let mode_path = edit.path("mode");

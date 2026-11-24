@@ -174,6 +174,12 @@ vertical center after reopening. Rust uses `preview_with_cells` with
 and JavaScript uses `preview({cellAlignments: [...]})`. The target is the new
 snapshot's table anchor plus physical row and cell indices.
 
+All three catalogs also preview appending a blank row to that original table:
+Rust `TableOperation::InsertRow(1)`, Python `TableStructureEdit.insert_row(anchor, 1)`,
+and JavaScript `{target: anchor, kind: "insertRow", index: 1}`. The reopened
+preview has two rows. See [structural table edits](../docs/EDITOR-PARITY.md#structural-edits-to-a-direct-body-table)
+for the physical cell and logical column operations and merge guards.
+
 For the run-text output Rust passes `ParagraphInsertion` to
 `preview_with_ranges`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
 to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`

@@ -307,6 +307,14 @@ def verify(directory):
     assert cell_readback.tables[1].cell(0, 0).vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
     assert cell_readback.tables[1].cell(0, 0).text == "next A"
 
+    structure = directory / "tableStructure.docx"
+    untouched(body, parts(structure), (MAIN,))
+    row = Document(structure).tables[1].rows[0]
+    assert [cell.text for cell in row.cells] == ["next A", "inserted paragraph\n"]
+    assert [c.text for c in row.cells[1].tables[0].rows[0].cells] == ["next A", "next B"]
+    assert row.cells[1]._tc[-1].tag == qn("w:p")
+    assert row.grid_cols_after == 1
+
     mixed_body = directory / "mixedBody.docx"
     blocks = parts(directory / "blocks.docx")
     untouched(source, blocks, (MAIN,))

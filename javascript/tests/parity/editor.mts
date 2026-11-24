@@ -3,7 +3,7 @@ import {
   type AlignmentChange, type EditBatch, type EditPreview, type HeaderImageChange,
   type HeaderImageEdit, type HeaderImagePreview, type ImportedDocument, type ImportedParagraph,
   type ResolvedImage, type ResolvedTable, type TableCellDeclaration, type TableDeclaration,
-  type TableInsertionChange,
+  type TableInsertionChange, type TableStructureEdit, type TableAnchor,
 } from "rocx-docx";
 
 export interface Fixtures {
