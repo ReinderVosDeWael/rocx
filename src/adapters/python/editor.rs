@@ -74,6 +74,18 @@ struct PyImportedStory {
     blocks: Vec<Py<PyAny>>,
 }
 
+#[pyclass(name = "ImportedEntry", frozen, module = "rocx.editor", get_all)]
+struct PyImportedEntry {
+    kind: &'static str,
+    part_name: String,
+    id: String,
+    note_type: Option<String>,
+    author: Option<String>,
+    date: Option<String>,
+    initials: Option<String>,
+    blocks: Vec<Py<PyAny>>,
+}
+
 fn story_blocks<'a>(
     py: Python<'_>,
     blocks: &[editor::ImportedStoryBlock],
@@ -667,6 +679,30 @@ impl PyImportedDocument {
             .collect()
     }
 
+    #[getter]
+    fn entry_stories(&self, py: Python<'_>) -> PyResult<Vec<PyImportedEntry>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.entry_stories()
+            .map_err(rust_error)?
+            .iter()
+            .map(|e| {
+                Ok(PyImportedEntry {
+                    kind: e.kind.as_str(),
+                    part_name: e.part_name.clone(),
+                    id: e.id.clone(),
+                    note_type: e.note_type.clone(),
+                    author: e.author.clone(),
+                    date: e.date.clone(),
+                    initials: e.initials.clone(),
+                    blocks: story_blocks(py, e.blocks(), |i| e.inline_structure(i))?,
+                })
+            })
+            .collect()
+    }
+
     fn preview_header_image(
         &self,
         edit: PyRef<'_, PyHeaderImageEdit>,
@@ -778,6 +814,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;
     module.add_class::<PyImportedStory>()?;
+    module.add_class::<PyImportedEntry>()?;
     module.add_class::<PyImportedSection>()?;
     module.add_class::<PyHeaderImageEdit>()?;
     module.add_class::<PyHeaderImageChange>()?;

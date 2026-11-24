@@ -528,6 +528,23 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(bytes, plan.to_bytes()?);
     snapshot.save_with_template_and_options(output, &template, &options)?;
     let imported = editor::ImportedDocument::open(&bytes)?;
+    let entries = imported.entry_stories()?;
+    for kind in [editor::EntryKind::Footnote, editor::EntryKind::Endnote] {
+        assert!(entries.iter().any(|e| e.kind == kind && e.id == "0"));
+    }
+    let review = entries
+        .iter()
+        .find(|e| e.author.as_deref() == Some("Structured reviewer"))
+        .unwrap();
+    assert_eq!(review.kind, editor::EntryKind::Comment);
+    assert_eq!(review.initials.as_deref(), Some("SR"));
+    let Some([editor::ImportedInlineNode::Run(review_run)]) = review.inline_structure(0) else {
+        panic!("expected structured comment label")
+    };
+    assert!(
+        matches!(imported.inline_at(&review_run.anchor)?, editor::ImportedInlineNode::Run(found)
+        if matches!(found.items.first(), Some(editor::ImportedInline::Text(text)) if text.starts_with("Structured comment:")))
+    );
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
     let (paragraph_index, paragraph) = imported
         .body()

@@ -44,6 +44,11 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 
 ## Resolution, editing and output
 
+For notes and comments use Rust `ImportedDocument::entry_stories()` or Python
+`doc.entry_stories`. Entries include the original ID, note type or comment
+metadata, and direct paragraphs with snapshot-scoped read-only inline anchors.
+Tables and other block types are opaque in these stories.
+
 - Rust consumes declarations; Python leaves them unchanged. [Resolve once](docs/DEFERRED-FIELDS.md) to render repeatedly without rerunning producers or rereading images.
 - **Compose** with an unsigned Transitional DOCX or DOTX template; output is DOCX. **Inspect and preview edits** on an unsigned DOCX: align direct body paragraphs, insert supported tables or append an image to an existing default header. A shared edit affects every section using that header; a section-local edit forks a supported header. Use targets from the same snapshot.
 - [Template replacement](https://reindervosdewael.github.io/rocx/recipes/#edit-an-existing-document) can span runs within a paragraph or hyperlink. It cannot cross structured boundaries or change fields, revisions or controls. Replacement text belongs to the first matched run; bookmark/comment markers and untouched break attributes stay in place.

@@ -194,6 +194,10 @@ until the hosted preflight succeeds and registry setup is confirmed.
 
 ## Editor goal: declarative parity
 
+Complete #3 before releasing 0.4.0. Continue the serial checkpoint with
+relationship-based inspection of footnote, endnote and comment entries.
+Re-run release preflight on the integrated candidate, not the earlier docs commit.
+
 An agent should be able to open an existing DOCX, inspect it as typed rocx
 content, and apply anything rocx can author declaratively at a valid target.
 Text replacement is one operation, not the scope of the editor. Keep the

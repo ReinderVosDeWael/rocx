@@ -613,6 +613,10 @@ def verify_content(data: bytes, template: bytes) -> None:
             root = etree.fromstring(package.read(f"word/{name}.xml"))
             assert label in "".join(root.xpath("//w:t/text()", namespaces=NS))
             assert root.xpath(f"//w:{tag}", namespaces=NS)
+            if tag == "comment":
+                assert root.xpath("w:comment[@w:author='Structured reviewer']/@w:initials", namespaces=NS) == ["SR"]
+            else:
+                assert root.xpath(f"count(w:{tag}[@w:id='0'])", namespaces=NS) == 1
         assert values(document, "//w:sectPr/w:type/@w:val") >= {"nextPage", "nextColumn", "continuous", "evenPage", "oddPage"}
         for prop in ["bidi", "rtlGutter"]:
             assert values(document, f"//w:sectPr/w:{prop}/@w:val") == {"0", "1"}

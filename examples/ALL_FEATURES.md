@@ -77,6 +77,9 @@ checked against the other implementation, not against a permanently fixed hash.
 
 ## Inspection guide and coverage inventory
 
+The editor reads the labeled footnote, endnote and structured comment back as
+separate entries. The two ordinary notes both use ID `0` in different parts.
+
 Each sample names its requested feature in ordinary text before/within it.
 Heading samples say **“This is a Heading 1”** through **“This is a Heading 9”**;
 numbered topic headings are separate navigation aids. The machine-readable

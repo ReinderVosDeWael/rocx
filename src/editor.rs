@@ -12,8 +12,10 @@ use crate::{Alignment, BreakType, Diagnostic, Error, ResolvedTable, Result, Rule
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
+mod entries;
 mod header;
 mod insertion;
+pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
@@ -202,6 +204,10 @@ pub struct InlineAnchor {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum InlineLocation {
+    Entry {
+        index: usize,
+        block_index: usize,
+    },
     Body(usize),
     TableCell {
         body_index: usize,
@@ -339,6 +345,7 @@ pub struct ImportedDocument {
     snapshot: Arc<()>,
     default_header_inspection: OnceLock<header::StoryInspection>,
     story_inspection: OnceLock<header::StoryInspection>,
+    entries: OnceLock<Vec<ImportedEntry>>,
 }
 
 impl ImportedDocument {
@@ -400,6 +407,7 @@ impl ImportedDocument {
             snapshot,
             default_header_inspection: OnceLock::new(),
             story_inspection: OnceLock::new(),
+            entries: OnceLock::new(),
         })
     }
 
@@ -413,6 +421,11 @@ impl ImportedDocument {
         self.validate_snapshot(&target.snapshot)?;
         let invalid = || unsupported("inline target not found");
         let mut nodes = match &target.location {
+            InlineLocation::Entry { index, block_index } => self
+                .entry_stories()?
+                .get(*index)
+                .and_then(|entry| entry.inline_structure(*block_index))
+                .ok_or_else(invalid)?,
             InlineLocation::Body(index) => {
                 let Some(BodyBlock::Paragraph(paragraph)) = self.body.get(*index) else {
                     return Err(invalid());

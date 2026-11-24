@@ -114,13 +114,13 @@ impl ImportedStory {
 }
 
 #[derive(Debug)]
-struct StoryPart {
-    blocks: Vec<ImportedHeaderBlock>,
+pub(super) struct StoryPart {
+    pub(super) blocks: Vec<ImportedHeaderBlock>,
     structures: Vec<Option<Vec<ImportedInlineNode>>>,
 }
 
 impl StoryPart {
-    fn inline_structure(&self, index: usize) -> Option<&[ImportedInlineNode]> {
+    pub(super) fn inline_structure(&self, index: usize) -> Option<&[ImportedInlineNode]> {
         self.structures.get(index)?.as_deref()
     }
 }
@@ -346,18 +346,25 @@ impl ImportedDocument {
         if root.name != kind.part_type().1 {
             return Err(unsupported(&format!("invalid {} root", kind.as_str())));
         }
+        Ok(
+            self.read_story_blocks(&root, |block_index| InlineLocation::Story {
+                part: part.clone(),
+                block_index,
+            }),
+        )
+    }
+
+    pub(super) fn read_story_blocks(
+        &self,
+        root: &Node,
+        location: impl Fn(usize) -> InlineLocation,
+    ) -> StoryPart {
         let mut blocks = Vec::new();
         let mut structures = Vec::new();
         for (block_index, node) in root.elements().enumerate() {
             if node.name == "w:p" {
-                let (items, structure) = read_paragraph_inlines(
-                    node,
-                    &self.snapshot,
-                    InlineLocation::Story {
-                        part: part.clone(),
-                        block_index,
-                    },
-                );
+                let (items, structure) =
+                    read_paragraph_inlines(node, &self.snapshot, location(block_index));
                 blocks.push(ImportedStoryBlock::Paragraph(items));
                 structures.push(Some(structure));
             } else {
@@ -365,7 +372,7 @@ impl ImportedDocument {
                 structures.push(None);
             }
         }
-        Ok(StoryPart { blocks, structures })
+        StoryPart { blocks, structures }
     }
 
     /// Stage an image in one existing default header, with explicit sharing intent.

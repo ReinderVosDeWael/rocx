@@ -41,6 +41,14 @@ or filter based on first-page or odd/even settings. Footnote, endnote, and comme
 stories are not included. Rust uses `SectionStoryKind` and `HeaderFooterType`;
 Python exposes `kind` and `variant` as lowercase strings.
 
+`entry_stories()` (Python: `entry_stories`) separately inspects footnotes,
+endnotes and comments in that order, including separator entries. It follows
+main-document relationships; entries preserve source order within each part.
+IDs are source strings, not addresses. Run/link anchors distinguish entries
+even with identical IDs across part kinds. Tables and other non-paragraph
+children remain opaque. Inspecting an ambiguous relationship, wrong root,
+wrong content type or missing entry ID fails without changing the snapshot.
+
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
 `ImportedHeaderBlock` type. In Python, `ImportedStoryParagraph` is an alias of

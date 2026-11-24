@@ -38,6 +38,29 @@ from rocx.editor import (
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 
+def test_entry_stories_distinguish_identical_comment_runs_and_preserve_source():
+    source = docx.Document()
+    paragraph = source.add_paragraph("Before")
+    for author in ["Ada", "Sam"]:
+        source.add_comment(paragraph.runs, text="Review", author=author, initials=author[0])
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    entries = imported.entry_stories
+    assert [(e.kind, e.id, e.author, e.initials) for e in entries] == [
+        ("comment", "0", "Ada", "A"), ("comment", "1", "Sam", "S")]
+    runs = [e.blocks[0].inline_structure[-1] for e in entries]
+    assert runs[0].anchor != runs[1].anchor
+    for run in runs:
+        assert imported.inline_at(run.anchor).items[0].value == "Review"
+    with pytest.raises(ValueError):
+        ImportedDocument.open(data).inline_at(runs[0].anchor)
+    output = imported.preview([ParagraphAlignmentEdit(imported.body[0].anchor, "center")]).to_docx()
+    assert _parts(output)["word/comments.xml"] == _parts(data)["word/comments.xml"]
+    assert [c.text for c in docx.Document(io.BytesIO(output)).comments] == ["Review", "Review"]
+
+
 def _parts(data):
     with ZipFile(io.BytesIO(data)) as package:
         return {name: package.read(name) for name in package.namelist()}
