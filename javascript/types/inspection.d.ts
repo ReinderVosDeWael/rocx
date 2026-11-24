@@ -2,7 +2,7 @@ import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 import type { TableLayout } from "./tables.js";
 
 declare const anchor: unique symbol;
-export type MetadataField = "creator" | "description" | "category" | "keywords" | "version"
+export type MetadataField = "title" | "subject" | "creator" | "description" | "category" | "keywords" | "version"
   | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
   | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
@@ -99,6 +99,28 @@ export type ImportedAlignment =
   | "justifyMedium" | "justifyHigh" | "justifyLow" | "thaiJustify";
 export type ImportedBreakType = "line" | "page" | "column" | "textWrapping";
 export type ImportedSectionType = "nextPage" | "nextColumn" | "continuous" | "evenPage" | "oddPage";
+
+export interface DefaultTab {
+  readonly positionTwips: number;
+  readonly alignment: "left" | "right" | "center" | "decimal" | "bar" | "clear" | "start" | "end" | "num";
+  readonly leader?: "none" | "dot" | "hyphen" | "underscore" | "heavy" | "middleDot";
+}
+type DefaultToggle = "bold" | "italic" | "boldCs" | "italicCs" | "runRtl" | "complexScript"
+  | "caps" | "smallCaps" | "strike" | "runSnapToGrid" | "paragraphBidi" | "keepTogether"
+  | "keepWithNext" | "pageBreakBefore" | "widowControl" | "suppressLineNumbers" | "contextualSpacing"
+  | "mirrorIndents" | "paragraphSnapToGrid" | "mirrorMargins" | "gutterAtTop" | "trackRevisions"
+  | "beforeAutoSpacing" | "afterAutoSpacing";
+type DefaultInteger = "sizeHalfPoints" | "sizeCsHalfPoints" | "beforeTwips" | "afterTwips" | "line"
+  | "leftTwips" | "rightTwips" | "firstLineTwips" | "hangingTwips" | "leftChars" | "rightChars"
+  | "firstLineChars" | "hangingChars" | "footnoteStart" | "endnoteStart" | "startTwips" | "endTwips"
+  | "startChars" | "endChars" | "beforeLines" | "afterLines";
+type DefaultText = "fontAscii" | "fontHAnsi" | "fontEastAsia" | "fontCs" | "fontAsciiTheme"
+  | "fontHAnsiTheme" | "fontEastAsiaTheme" | "fontCsTheme" | "language" | "languageEastAsia"
+  | "languageBidi" | "underline" | "verticalAlign" | "runColor" | "colorTheme" | "colorTint"
+  | "colorShade" | "lineRule" | "footnotePosition" | "endnotePosition" | "footnoteFormat"
+  | "endnoteFormat" | "footnoteRestart" | "endnoteRestart" | "justification";
+export type DefaultValues = Readonly<Record<DefaultToggle, boolean> & Record<DefaultInteger, number>
+  & Record<DefaultText, string> & {tabStops: readonly DefaultTab[]}>;
 
 export interface ImportedOpaque {
   readonly kind: "opaque";
@@ -291,6 +313,9 @@ export interface ImportedStyle {
   readonly kindXml?: string;
   readonly name?: string;
   readonly basedOn?: string;
+  readonly nextStyle?: string;
+  readonly linkedStyle?: string;
+  readonly propertyXml: readonly string[];
 }
 export interface ImportedStyles {
   readonly partName: string;
@@ -320,13 +345,23 @@ export interface ImportedDocument {
   metadataField(field: MetadataField): string | undefined;
   customProperty(name: string): string | boolean | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
+  documentDefaults(): Partial<DefaultValues>;
   abstractStarts(): readonly AbstractStart[];
+  numberingInstances(): readonly ImportedNumberingInstance[];
+  paragraphNumbering(target: ParagraphAnchor): { readonly id: number; readonly level: number } | undefined;
 }
 
 export interface AbstractStart {
   readonly abstractId: number;
   readonly level: number;
   readonly start?: number;
+}
+
+export interface ImportedNumberingInstance {
+  readonly replacementLevels: readonly number[];
+  readonly numId: number;
+  readonly abstractId: number;
+  readonly startOverrides: readonly { readonly level: number; readonly start: number }[];
 }
 
 export interface OpenDocxOptions {

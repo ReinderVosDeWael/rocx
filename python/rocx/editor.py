@@ -23,8 +23,18 @@ accept or reject one wrapper (both wrappers for moves). Paragraph text omits
 unreviewed wrappers; ``inline_structure`` retains their text and metadata.
 
 Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
-accepts paragraph, character and table declarations. ``StyleEdit.patch`` sets
-direct bold/italic flags; ``replace`` and ``remove`` require unused, simple custom styles.
+accepts paragraph, character, table and numbering declarations. A numbering
+style binds an existing concrete list. ``StyleEdit.field`` sets or clears a
+direct scalar field; ``StyleEdit.region`` sets or clears a conditional table
+region. ``replace`` and ``remove`` require unused, recognized custom definitions.
+Each ``ImportedStyle.property_xml`` entry contains one direct property group
+or table region, with its namespace declarations.
+
+``ImportedDocument.document_defaults`` returns the directly present run,
+paragraph and settings defaults. ``ResourceEdit.document_default(field, value)``
+sets one field, or clears it when ``value`` is ``None``. For example, ``False``
+on ``"bold"`` is distinct from clearing it. Tab stops are triples of signed
+twip position, alignment, and optional leader.
 
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Every effective slot
@@ -43,6 +53,7 @@ comment metadata or removes an unused ordinary note.
 
 from ._native import (
     AbstractStart,
+    ImportedNumberingInstance,
     ResourceEdit,
     StyleAnchor,
     StyleEdit,
@@ -101,6 +112,7 @@ ImportedStoryParagraph = ImportedHeaderParagraph
 
 __all__ = [
     "AbstractStart",
+    "ImportedNumberingInstance",
     "ResourceEdit",
     "StyleAnchor",
     "StyleEdit",

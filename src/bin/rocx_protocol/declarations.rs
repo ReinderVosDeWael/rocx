@@ -428,6 +428,10 @@ impl TableSource {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum Style {
+    Numbering {
+        name: String,
+        numbering_id: u32,
+    },
     Paragraph {
         name: String,
         base_style: Option<String>,
@@ -448,6 +452,9 @@ pub(crate) enum Style {
 impl From<Style> for StyleDefinition {
     fn from(value: Style) -> Self {
         match value {
+            Style::Numbering { name, numbering_id } => {
+                rocx::NumberingStyleDefinition { name, numbering_id }.into()
+            }
             Style::Paragraph {
                 name,
                 base_style,

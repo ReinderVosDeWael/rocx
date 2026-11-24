@@ -178,6 +178,7 @@ def generate(directory):
     layout.save(directory / "layout-source.docx")
     generate_controls(directory)
     catalog = Document()
+    catalog.add_paragraph("Numbering target")
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
         catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
@@ -359,7 +360,8 @@ def inspect_header(before, after, change, image):
 
 
 def verify_ordinary(directory):
-    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, TextRangeEdit
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, StyleEdit, TextRangeEdit
     source = directory / "base.docx"
     output = directory / "combined.docx"
     doc = ImportedDocument.open(source.read_bytes())
@@ -370,16 +372,25 @@ def verify_ordinary(directory):
                      BlockEdit.paragraph_flag(doc.body[4].anchor, "page_break_before", False),
                      BlockEdit.section_flag(doc.body[4].anchor, "title_page", True),
                      BlockEdit.section_type(doc.body[0].anchor, "continuous")],
-        resources=[ResourceEdit.core_title("Combined editor")],
+        style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Batch List", 702))],
+        resources=[ResourceEdit.document_default("tabStops", [(720, "right", "dot")]),
+                   ResourceEdit.core_title("Combined editor"), ResourceEdit.metadata("subject", "Batch resources"),
+                   ResourceEdit.document_default("bold", False), ResourceEdit.add_instance(702,701),
+                   ResourceEdit.add_abstract(701, [d.NumberingLevel()])],
     ).to_docx() == output.read_bytes()
     original, result = parts(source), parts(output)
     assert original.keys() == result.keys()
-    untouched(original, result, (MAIN, "docProps/core.xml"))
+    untouched(original, result, (MAIN, "docProps/core.xml", "word/styles.xml", "word/numbering.xml"))
+    tab, = xp(etree.fromstring(result["word/styles.xml"]), "w:docDefaults/w:pPrDefault/w:pPr/w:tabs/w:tab")
+    assert [tab.get(qn("w:" + attr)) for attr in ("val", "pos", "leader")] == ["right", "720", "dot"]
     for query in (".//w:fldSimple", ".//w:drawing"):
         assert [tree(n) for n in xp(etree.fromstring(original[MAIN]), query)] == [
             tree(n) for n in xp(etree.fromstring(result[MAIN]), query)]
     readback = Document(output)
     assert readback.core_properties.title == "Combined editor"
+    assert readback.core_properties.subject == "Batch resources"
+    assert readback.styles["Batch List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["702"]
+    assert readback.part.numbering_part.element.xpath("w:abstractNum[@w:abstractNumId='701']/w:styleLink/@w:val") == ["BatchList"]
     p = readback.paragraphs
     assert p[1].text == "Xnset alignment"
     assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
@@ -396,6 +407,40 @@ def verify_ordinary(directory):
                 if prop is not None:
                     node.remove(prop)
         assert tree(old) == tree(new)
+
+
+async def structural_resources(path):
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, ResourceEdit as R, StyleEdit, TableStructureEdit as T
+
+    source = ImportedDocument.open(path.read_bytes())
+    first, second, paragraph = source.body
+    table = await d.Table([d.TableRow([d.TableCell([d.Paragraph(children=[
+        d.Hyperlink("https://example.invalid/staged-table", [d.TextRun("staged link")])
+    ])])])], style="Staged Table").resolve()
+    batch = dict(table_structure=[T.replace_node(first.anchor, table), T.remove_table(second.anchor)],
+                 style_edits=[StyleEdit.add(d.TableStyleDefinition("Staged Table"))])
+    resources = [R.add_abstract(90, [d.NumberingLevel()]), R.add_instance(91, 90),
+                 R.paragraph_numbering(paragraph.anchor, (91, 0)), R.custom_property("Staged", True)]
+    try:
+        source.preview([], **batch, resources=[*resources, R.remove_instance(1)])
+    except ValueError as exc:
+        assert "references" in str(exc), exc
+    else:
+        raise AssertionError("removed live numbering")
+    result = source.preview([], **batch, resources=resources).to_docx()
+    assert source.preview([], **batch, resources=resources).to_docx() == result
+    assert source.paragraph_numbering(paragraph.anchor) is None
+    reopened = ImportedDocument.open(result)
+    assert len(reopened.body) == 2 and reopened.custom_property("Staged") is True
+    assert reopened.paragraph_numbering(reopened.body[1].anchor) == (91, 0)
+    try:
+        reopened.paragraph_numbering(paragraph.anchor)
+    except ValueError as exc:
+        assert "snapshot" in str(exc), exc
+    else:
+        raise AssertionError("accepted stale anchor")
+    return result
 
 
 def verify(directory):
@@ -459,28 +504,49 @@ def verify(directory):
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d
-    from rocx.editor import ImportedDocument, StyleEdit
+    from rocx.editor import ImportedDocument, ResourceEdit, StyleEdit
     source_path = directory / "styles-source.docx"
     style_path = directory / "styleEdits.docx"
     styles_source = ImportedDocument.open(source_path.read_bytes())
+    numbered = directory / "numberingEdits.docx"
+    assert styles_source.preview([], resources=[
+        ResourceEdit.add_abstract(90, [d.NumberingLevel()]), ResourceEdit.add_instance(91, 90),
+        ResourceEdit.paragraph_numbering(styles_source.body[0].anchor, (91, 0)),
+    ]).to_docx() == numbered.read_bytes()
+    untouched(parts(source_path), parts(numbered), (MAIN, "word/numbering.xml"))
+    assert Document(numbered).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
     edit = styles_source.preview([], style_edits=[
         StyleEdit.add(d.ParagraphStyleDefinition(name="Memo Added", base_style="Memo Active")),
         StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
                           d.ParagraphStyleDefinition(name="Memo Replace", bold=True)),
         StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
+        StyleEdit.field(styles_source.style_anchor("Heading1"), "next", "MemoAdded"),
+        StyleEdit.region(styles_source.style_anchor("TableGrid"), "nwCell", d.TableSectionFormat(bold=True, background=(10,20,30))),
+        StyleEdit.add(d.NumberingStyleDefinition(name="Memo List", numbering_id=1)),
         StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
     ])
     assert edit.to_docx() == style_path.read_bytes()
     before, after = parts(source_path), parts(style_path)
     assert before.keys() == after.keys()
-    untouched(before, after, ("word/styles.xml",))
+    untouched(before, after, ("word/styles.xml","word/numbering.xml"))
     readback = Document(style_path)
     assert "Memo Drop" not in readback.styles
     assert readback.styles["Memo Added"].base_style.name == "Memo Active"
     assert readback.styles["Memo Replace"].font.bold and readback.styles["Memo Replace"].font.italic is None
     assert readback.sections[0].header.paragraphs[0].style.font.italic
     original_ids = [s.style_id for s in Document(source_path).styles if s.name != "Memo Drop"]
-    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded"]
+    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded","MemoList"]
+    assert readback.styles["Heading 1"].next_paragraph_style.name == "Memo Added"
+    grid = readback.styles["Table Grid"].element
+    assert grid.xpath('./w:tblStylePr[@w:type="nwCell"]/w:tcPr/w:shd/@w:fill') == ["0A141E"]
+    num = etree.fromstring(after["word/numbering.xml"])
+    aid = xp(num,'w:num[@w:numId="1"]/w:abstractNumId/@w:val')[0]
+    backlink = xp(num,f'w:abstractNum[@w:abstractNumId="{aid}"]/w:styleLink')[0]
+    assert backlink.get(qn("w:val")) == "MemoList"
+    backlink.getparent().remove(backlink)
+    def tree(node):
+        return (node.tag, dict(node.attrib), node.text, [tree(n) for n in node])
+    assert tree(num) == tree(etree.fromstring(before["word/numbering.xml"]))
     source = parts(directory / "base.docx")
     image = (directory / "image.png").read_bytes()
     reports = json.loads((directory / "reports.json").read_text(encoding="utf8"))
@@ -630,6 +696,19 @@ def verify(directory):
     assert edited.tables[0]._tbl.xpath("w:tblPr/w:jc/@w:val") == ["center"]
     assert edited.tables[0]._tbl.xpath("w:tr/w:trPr/w:tblHeader/@w:val") == ["0"]
     assert edited.tables[0].cell(0,0)._tc.xpath("w:tcPr/w:tcMar/w:top/@w:w") == ["90"]
+    staged_source = directory / "table-layout.docx"
+    staged_output = directory / "structuralResources.docx"
+    assert asyncio.run(structural_resources(staged_source)) == staged_output.read_bytes()
+    before, after = parts(staged_source), parts(staged_output)
+    assert after.keys() - before.keys() == {"docProps/custom.xml"}
+    untouched(before, after, (MAIN, MAIN_RELS, "word/numbering.xml", "word/styles.xml",
+                              TYPES, "_rels/.rels"))
+    staged = Document(staged_output)
+    assert len(staged.tables) == 1 and staged.tables[0].style.name == "Staged Table"
+    hyperlink, = staged.tables[0].cell(0, 0).paragraphs[0].hyperlinks
+    assert (hyperlink.text, hyperlink.url) == ("staged link", "https://example.invalid/staged-table")
+    assert staged.paragraphs[0].text == "after both tables"
+    assert staged.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
     untouched(body, parts(structure), (MAIN,))
     assert Document(structure).tables[1].autofit
     assert xp(etree.fromstring(parts(structure)[MAIN]), "w:body/w:tbl[2]/w:tblPr/w:tblLayout/@w:type") == ["autofit"]

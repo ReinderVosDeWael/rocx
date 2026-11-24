@@ -101,9 +101,15 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   check(normal?.kind === "paragraph" && normal.kindXml === "paragraph"
     && normal.name === "Normal", "typed Normal style metadata");
   const edge = (await openDocx(input["styles-edge"])).styles();
-  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future" },
-    { kind: "missing" }], "unknown and missing style kinds");
-  check((await openDocx(input["styles-missing"])).styles() === undefined, "missing styles relationship");
+  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future", propertyXml: [] },
+    { kind: "missing", propertyXml: [] }], "unknown and missing style kinds");
+  const missingStyles = await openDocx(input["styles-missing"]);
+  check(missingStyles.styles() === undefined, "missing styles relationship");
+  const newDefaults = await openDocx(missingStyles.preview({
+    resources: [{kind: "documentDefault", field: "bold", value: false}],
+  }).toDocx());
+  check(newDefaults.documentDefaults().bold === false && missingStyles.styles() === undefined,
+    "creating a direct run default must allocate a styles part only in the preview");
   const invalidStyles = await openDocx(input["styles-invalid"]);
   rejects(() => invalidStyles.styles(), /invalid styles root/);
   const start = paragraph(doc, 0).anchor;
@@ -501,22 +507,77 @@ export async function run(fixtures: Fixtures) {
   check(sharedHeaders.length === 2 && sharedHeaders.every(s => s.view.partName === originalHeader.partName),
     "shared edit retains aliases");
   const catalog = await openDocx(fixtures["styles-source"]);
+  const listTarget = paragraph(catalog, 0).anchor;
+  const numberingEdits = catalog.preview({resources: [
+    {kind: "addAbstract", abstractId: 90, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}]},
+    {kind: "addInstance", numId: 91, abstractId: 90},
+    {kind: "paragraphNumbering", target: listTarget, value: {id: 91, level: 0}},
+  ]}).toDocx();
+  const numbers = await openDocx(numberingEdits);
+  const numbered = paragraph(numbers, 0).anchor;
+  rejects(() => numbers.paragraphNumbering(listTarget), /snapshot/);
+  rejects(() => numbers.preview({resources: [{kind: "removeInstance", numId: 91}]}), /references/);
+  same(numbers.paragraphNumbering(numbered), {id: 91, level: 0}, "direct reference");
+  const removed = await openDocx(numbers.preview({resources: [
+    {kind: "removeAbstract", abstractId: 90}, {kind: "removeInstance", numId: 91},
+    {kind: "paragraphNumbering", target: numbered, value: null},
+  ]}).toDocx());
+  check(!removed.numberingInstances().some(n => n.numId === 91), "removed unused numbering instance");
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Memo Added", baseStyle: "Memo Active" } },
     { op: "replace", target: catalog.styleAnchor("MemoReplace"), definition: {kind: "paragraph", name: "Memo Replace", bold: true} },
     { op: "remove", target: catalog.styleAnchor("MemoDrop") },
+    { op: "field", target: catalog.styleAnchor("Heading1"), field: "next", value: "MemoAdded" },
+    { op: "region", target: catalog.styleAnchor("TableGrid"), region: "nwCell", format: {bold: true, background: [10,20,30]} },
+    { op: "add", definition: {kind: "numbering", name: "Memo List", numberingId: 1} },
     { op: "patch", target: active, italic: true },
   ] };
   rejects(() => catalog.preview({styleEdits: [...batch.styleEdits!, {op: "remove", target: active}]}), /duplicate/);
   rejects(() => catalog.preview({styleEdits: [{op: "remove", target: active}]}), /references/);
   const styleEdits = catalog.preview(batch).toDocx();
   const reopened = await openDocx(styleEdits);
+  check(reopened.styles()?.styles.find(s => s.id === "Heading1")?.nextStyle === "MemoAdded", "changed next reference");
+  check(reopened.styles()?.styles.find(s => s.id === "TableGrid")?.propertyXml.some(x => x.includes("nwCell") && x.includes("0A141E")), "conditional format");
+  rejects(() => catalog.preview({styleEdits: [{op:"field",target:active,field:"basedOn",value:"MemoActive"}]}), /cycle/);
+  rejects(() => reopened.preview({styleEdits: [{op:"region",target:active,region:"firstRow",format:null}]}), /snapshot/);
   rejects(() => reopened.preview({styleEdits: [{op: "patch", target: active, bold: true}]}), /different document snapshot/);
   check(reopened.styles()?.styles.find(s => s.id === "MemoAdded")?.basedOn === "MemoActive", "new style inheritance");
   const resolved = await payloads(fixtures.image);
   const drop = merged.body()[1];
   check(drop.kind === "table", "second table for removal");
+  const styledTable = await resolveComponent({
+    kind: "table", properties: {style: "Staged Table"},
+    rows: [{kind: "tableRow", children: [{kind: "tableCell", children: [{
+      kind: "paragraph", runs: [{kind: "hyperlink",
+        target: {kind: "external", url: "https://example.invalid/staged-table"},
+        children: [{kind: "text", text: "staged link"}]}],
+    }]}]}],
+  });
+  check(styledTable, "resolved styled table");
+  const afterTables = paragraph(merged, 2).anchor;
+  const stagedBatch: EditBatch = {
+    tableStructure: [{target: physical.anchor, kind: "replaceNode", source: styledTable},
+      {target: drop.anchor, kind: "removeTable"}],
+    styleEdits: [{op: "add", definition: {kind: "table", name: "Staged Table"}}],
+    resources: [
+      {kind: "addAbstract", abstractId: 90, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}]},
+      {kind: "addInstance", numId: 91, abstractId: 90},
+      {kind: "paragraphNumbering", target: afterTables, value: {id: 91, level: 0}},
+      {kind: "customProperty", name: "Staged", value: true},
+    ],
+  };
+  rejects(() => merged.preview({...stagedBatch,
+    resources: [...stagedBatch.resources!, {kind: "removeInstance", numId: 1}]}), /references/);
+  const structuralResources = merged.preview(stagedBatch).toDocx();
+  bytesEqual(merged.preview(stagedBatch).toDocx(), structuralResources, "repeat staged transaction");
+  check(merged.paragraphNumbering(afterTables) === undefined, "original numbering unchanged");
+  const staged = await openDocx(structuralResources);
+  check(staged.body().length === 2 && staged.customProperty("Staged") === true, "removal and custom part");
+  const stagedTable = staged.body()[0];
+  check(stagedTable.kind === "table" && stagedTable.properties.style.val === "StagedTable", "staged style applied");
+  rejects(() => staged.paragraphNumbering(afterTables), /snapshot/);
+  same(staged.paragraphNumbering(paragraph(staged, 1).anchor), {id: 91, level: 0}, "numbering after table removal");
   const single = await resolveComponent({kind: "table", properties: {alignment:"center"},
     rows: [{kind:"tableRow", properties:{repeatHeader:false}, children:[{
       kind:"tableCell", properties:{margins:{top:4.5}}, children:[text("cell")]}]}]});
@@ -592,14 +653,24 @@ export async function run(fixtures: Fixtures) {
   rejects(() => doc.preview({textRanges: [{...selection, target: paragraph(doc, 0).anchor}]}), /plain direct body/);
   same(ranged.preview({textRanges: [selection]}).runTextChanges().map(c => c.after), ["a 🐈 ", "", "d"], "scalar ranges retain run containers");
   const ordinary: EditBatch = {
+    styleEdits: [{op:"add", definition:{kind:"numbering",name:"Batch List",numberingId:702}}],
     textRanges: [{target: paragraph(doc, 1).anchor, start: 0, end: 1, text: "X"}],
     blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true},
       {kind: "paragraphFlag", target: paragraph(doc, 4).anchor, flag: "pageBreakBefore", value: false},
       {kind: "sectionFlag", target: paragraph(doc, 4).anchor, flag: "titlePage", value: true},
       {kind: "sectionType", target: paragraph(doc, 0).anchor, value: "continuous"}],
-    resources: [{kind: "coreTitle", value: "Combined editor"}],
+    resources: [{kind: "documentDefault", field: "tabStops", value:[{positionTwips:720, alignment:"right", leader:"dot"}]},
+      {kind: "coreTitle", value: "Combined editor"}, {kind:"metadata",field:"subject",value:"Batch resources"},
+      {kind:"documentDefault",field:"bold",value:false}, {kind:"addInstance",numId:702,abstractId:701},
+      {kind:"addAbstract",abstractId:701,levels:[{level:0,start:1,format:"decimal",text:"%1."}]}],
   };
   const combined = doc.preview(ordinary).toDocx();
+  const combinedDoc = await openDocx(combined);
+  check(combinedDoc.metadataField("subject") === "Batch resources" && combinedDoc.documentDefaults().bold === false,"mixed properties");
+  rejects(() => combinedDoc.preview({resources:[{kind:"removeInstance",numId:702}]}),/references/);
+  rejects(() => doc.preview({...ordinary,resources:[...ordinary.resources!,{kind:"metadata",field:"title",value:null}]}),/duplicate/);
+  same((await openDocx(combined)).documentDefaults().tabStops,
+    [{positionTwips:720, alignment:"right", leader:"dot"}], "direct tab stop readback");
   const changedProperties = await openDocx(combined);
   check(paragraph(changedProperties, 4).flags.pageBreakBefore === false && changedProperties.sections()[1].flags.titlePage &&
     changedProperties.sections()[0].sectionType === "continuous", "direct paragraph and section properties");
@@ -650,8 +721,8 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, tableNodes, physicalTables, layout,
-    sectionSplit, sectionMerge, storyShared, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, numberingEdits, tableNodes, physicalTables, layout,
+    sectionSplit, sectionMerge, storyShared, structuralResources, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),
@@ -664,6 +735,10 @@ export async function run(fixtures: Fixtures) {
 
 // Compile only. Check public inputs and output types without letting invalid calls execute.
 export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  const keep: boolean | undefined = doc.documentDefaults().keepWithNext;
+  doc.preview({resources: [{kind: "documentDefault", field: "keepWithNext", value: keep ?? null}]});
+  // @ts-expect-error numeric settings require a number
+  doc.preview({resources: [{kind: "documentDefault", field: "footnoteStart", value: "3"}]});
   // @ts-expect-error source tags and IDs are not physical control anchors
   doc.preview({ controls: [{ target: "repeat", tag: "new" }] });
   for (const {abstractId, level} of doc.abstractStarts()) {

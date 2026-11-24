@@ -100,7 +100,8 @@ pub(super) fn extend(doc: &ImportedDocument, result: &mut Value) {
                     .iter()
                     .map(|s| {
                         json!({
-                            "id":s.id,"kind":s.kind.as_str(),"name":s.name,"based_on":s.based_on
+                            "id":s.id,"kind":s.kind.as_str(),"name":s.name,"based_on":s.based_on,
+                            "next_style":s.next_style,"linked_style":s.linked_style,"property_xml":s.property_xml
                         })
                     })
                     .collect();
@@ -110,6 +111,21 @@ pub(super) fn extend(doc: &ImportedDocument, result: &mut Value) {
     );
     add(result, "core_title", doc.core_title().map(|v| json!(v)));
     add(result, "core_subject", doc.core_subject().map(|v| json!(v)));
+    add(
+        result,
+        "document_defaults",
+        doc.document_defaults().map(|v| {
+            json!(
+                v.into_iter()
+                    .map(|(k, v)| (k.key(), DefaultScalar::from(v)))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            )
+        }),
+    );
+    add(result,"numbering_instances",doc.numbering_instances().map(|v|v.into_iter().map(|i|json!({
+        "num_id":i.num_id,"abstract_id":i.abstract_id,"replacement_levels":i.replacement_levels,
+        "start_overrides":i.start_overrides.iter().map(|o|json!({"level":o.level,"start":o.start})).collect::<Vec<_>>()
+    })).collect()));
     add(
         result,
         "default_alignment",

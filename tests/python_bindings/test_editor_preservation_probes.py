@@ -7,7 +7,8 @@ import pytest
 from docx.oxml.ns import qn
 from lxml import etree
 
-from rocx.editor import ImportedDocument, InlineEdit, ResourceEdit, TableStructureEdit, TextInsertion
+from rocx.declarative import NumberingStyleDefinition
+from rocx.editor import ImportedDocument, InlineEdit, ResourceEdit, StyleEdit, TableStructureEdit, TextInsertion
 
 
 MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
@@ -199,6 +200,45 @@ def test_mixed_case_core_media_type_is_shared_across_resource_apis():
     assert (result.core_title, result.metadata_field("creator")) == ("Ω", "Ada")
     output = parts(edited)
     assert {k for k, v in parts(original).items() if output[k] != v} == {"docProps/core.xml"}
+
+
+def test_numbering_and_style_paths_share_lexical_ids_and_media_types():
+    word = docx.Document()
+    p = word.add_paragraph("numbered")
+    num_pr = p._p.get_or_add_pPr().get_or_add_numPr()
+    num_pr.get_or_add_ilvl().set(qn("w:val"), "\t-0 ")
+    num_pr.get_or_add_numId().set(qn("w:val"), " +001 ")
+
+    def lexical_numbering(root):
+        num = root.find(f"{qn('w:num')}[@{qn('w:numId')}='1']")
+        abstract = num.find(qn("w:abstractNumId"))
+        abstract.set(qn("w:val"), f" +00{abstract.get(qn('w:val'))} ")
+        num.set(qn("w:numId"), " +001 ")
+        override = etree.SubElement(num, qn("w:lvlOverride"))
+        override.set(qn("w:ilvl"), "\t-0 ")
+        etree.SubElement(override, qn("w:startOverride")).set(qn("w:val"), " +002 ")
+
+    def mixed_case_mime(root):
+        for entry in root:
+            if entry.get("PartName") in {"/word/numbering.xml", "/word/styles.xml"}:
+                entry.set("ContentType", entry.get("ContentType").upper())
+
+    data = rewrite(save(word), "word/numbering.xml", lexical_numbering)
+    data = rewrite(data, "[Content_Types].xml", mixed_case_mime)
+    source = ImportedDocument.open(data)
+    anchor = source.body[0].anchor
+    assert source.paragraph_numbering(anchor) == (1, 0)
+    assert source.styles is not None
+    assert parts(source.preview([], resources=[
+        ResourceEdit.instance_start(1, 0, 2),
+        ResourceEdit.paragraph_numbering(anchor, (1, 0)),
+    ]).to_docx()) == parts(data)
+    edited = source.preview([], style_edits=[
+        StyleEdit.add(NumberingStyleDefinition("Lexical List", 1)),
+    ]).to_docx()
+    output = parts(edited)
+    assert {k for k, v in parts(data).items() if output[k] != v} == {"word/numbering.xml", "word/styles.xml"}
+    assert any(style.name == "Lexical List" for style in ImportedDocument.open(edited).styles.styles)
 
 
 @pytest.mark.parametrize("value", [None, "fixed"])

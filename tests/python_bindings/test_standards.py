@@ -27,6 +27,18 @@ def validator():
     return validation.Validator(directory)
 
 
+def test_new_resource_parts_in_one_transaction_are_schema_valid(validator):
+    from rocx.editor import ImportedDocument
+    from test_mixed_resource_edit import fixture, mixed_edits, pack
+
+    styles, edits = mixed_edits()
+    source = ImportedDocument.open(pack(fixture()))
+    checked = validator.validate(source.preview([], resources=edits, style_edits=styles).to_docx())
+    # The core-properties namespace is OPC, outside the Part 1 schema set.
+    assert {"docProps/app1.xml", "docProps/custom.xml", "word/rocx-numbering1.xml",
+            "word/rocx-styles1.xml", "word/rocx-settings1.xml"} <= set(checked)
+
+
 def test_direct_body_revision_previews_are_schema_valid(validator):
     from docx import Document
     from docx.oxml.ns import qn

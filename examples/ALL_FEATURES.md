@@ -13,10 +13,12 @@ and `preview({controls: ...})`, respectively.
 Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 `ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
 JavaScript. The optional result identifies the source part and lists direct
-style IDs, kinds, names, and `basedOn` references, not effective formatting.
-Missing kinds and unknown kind values are distinct. Inspection does not rewrite
-the source package; style editing and inherited property resolution are not yet
-supported.
+style IDs, kinds, names, base/next/linked references and property-group XML.
+Missing kinds and unknown kind values are distinct. An in-memory sample clears
+a first-row bold toggle, replaces last-row formatting and adds a numbering style
+for the existing list 60. These use Rust `StyleEdit::{Field,Region,Add}`,
+Python `StyleEdit.field/region/add`, and JavaScript `field`/`region`/`add`
+style edits. Inspection reports direct stored markup, not inherited formatting.
 
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:
@@ -232,12 +234,28 @@ ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
 `coreTitle`, `coreSubject`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
 for clearing, absence, and shared-numbering semantics.
 
+The same batch reads the 11-point run default, sets default bold to explicit
+false, clears paragraph space-after, and changes the document footnote start
+to 5. Rust uses `document_defaults()` and `ResourceEdit::Default`; Python uses
+`document_defaults` and `ResourceEdit.document_default(field, value)`; JavaScript
+uses `documentDefaults()` and `{kind: "documentDefault", field, value}`.
+
 In the same run-text sample the reviewer and manager are set with Rust
 `ResourceEdit::Metadata`, Python `ResourceEdit.metadata`, or JavaScript
 `{kind: "metadata", field, value}`. `Reviewed` is explicitly false through
 `ResourceEdit::CustomProperty`, `ResourceEdit.custom_property`, or
 `{kind: "customProperty", name, value}`. The parity checker reopens the
 document and verifies each value in its own package part.
+
+In the same sample, the ranged paragraph receives list instance **9049**, linked
+to abstract **9048**, with a Roman label replacement and a separate start of 6.
+The new numbering style `Reviewed List` owns that instance, and the abstract's
+reciprocal `styleLink` identifies `ReviewedList`. The preview sets the core
+subject to `Imported resource edits` alongside the other metadata and defaults edits.
+The Rust `NumberingEdit::{AddAbstract, AddInstance, InstanceLevel, InstanceStart, Paragraph}`,
+Python `ResourceEdit.{add_abstract, add_instance, instance_level, instance_start, paragraph_numbering}`
+and JavaScript `addAbstract`, `addInstance`, `instanceLevel`, `instanceStart`,
+`paragraphNumbering` forms produce the same `.run-text.docx`.
 
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python

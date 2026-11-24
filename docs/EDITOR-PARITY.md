@@ -400,11 +400,17 @@ children remain opaque. Inspecting an ambiguous relationship, wrong root,
 wrong content type or missing entry ID fails without changing the snapshot.
 
 [Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
-part identity and direct style ID, kind, name, and base reference in all three
+part identity, direct style ID, kind, name, base/next/linked references, and property groups in all three
 bindings. See [imported style edits](#imported-style-edits) for definition
 and property edits. The resource guide also covers direct [core title, default alignment
 and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
+For definition and instance creation/removal, concrete overrides and body
+paragraph list assignments, see [numbering operations](EDITOR-RESOURCES.md#numbering-definitions-instances-and-paragraph-references).
 Effective formatting and arbitrary resource editing remain outstanding.
+The [defaults field inventory](EDITOR-RESOURCES.md#editing-document-defaults)
+covers direct run/paragraph properties, tabs, footnote/endnote settings, page
+switches and revision tracking with independent set/clear semantics.
+
 For timestamps, other core fields, extended company/manager and named string
 or boolean custom properties, see [package metadata](EDITOR-RESOURCES.md#package-metadata).
 
@@ -702,24 +708,50 @@ references and structural section insertion/removal are outside this layout API.
 | Address an exact style ID | `doc.style_anchor(id)?` | `doc.style_anchor(id)` | `doc.styleAnchor(id)` |
 | Add a declaration | `StyleEdit::Add(definition)` | `StyleEdit.add(definition)` | `{op: "add", definition}` |
 | Patch just bold / italic | `StyleEdit::Patch {target, bold, italic}` | `StyleEdit.patch(target, italic=True)` | `{op: "patch", target, italic: true}` |
+| Set or clear a direct scalar | `StyleEdit::Field {target, field, value, region}` | `StyleEdit.field(target, field, value, region=region)` | `{op: "field", target, field, value, region}` |
+| Set or clear an entire physical conditional region | `StyleEdit::Region {target, region, format}` | `StyleEdit.region(target, region, format)` | `{op: "region", target, region, format}` |
 | Replace an unused definition | `StyleEdit::Replace {target, definition}` | `StyleEdit.replace(target, definition)` | `{op: "replace", target, definition}` |
 | Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
 | Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
 
-Add paragraph, character or table declarations to an existing relationship-selected
-styles part. Names, source aliases, and generated IDs must be unambiguous
+Add paragraph, character, table or numbering declarations to the relationship-selected
+styles part. An addition can create a missing part. Names, source aliases, and generated IDs must be unambiguous
 across styles under ASCII case-insensitive comparison. The authoring codec
 resolves forward references and checks their types and inheritance cycles.
 Patches address direct paragraph/character run properties, including explicit
 false; omitted properties, unknown siblings and attributes are preserved.
 
-Replace and remove require a nondefault custom style with a simple definition
-(name, base, empty paragraph properties and/or bold/italic). Replacement retains
+`Field` uses the same OOXML local names and string values in all three bindings:
+`basedOn`, `next`, `link` take an exact style ID; `jc` takes supported
+paragraph justification tokens (e.g. `center`, `both`). The run flags
+`b`, `i`, `bCs`, `iCs`, `rtl`, `cs`, `strike`, `caps`, `smallCaps`, `vanish`
+and paragraph flags `keepNext`, `keepLines`, `pageBreakBefore`, `widowControl`,
+`bidi`, `contextualSpacing`, `mirrorIndents`, `snapToGrid` take OOXML on/off
+strings. `None`/`null` removes the field; clearing an annotated leaf is refused.
+A character style cannot carry paragraph fields. One edit per style ID per batch.
+
+Omitting the region addresses the style's direct properties, including the
+base formatting of a table style. A region name addresses an actual
+`w:tblStylePr` wrapper: `wholeTable`, `firstRow`, `lastRow`, `firstCol`,
+`lastCol`, `band1Horz`, `band2Horz`, `band1Vert`, `band2Vert`, `nwCell`,
+`neCell`, `swCell`, or `seCell`. `Region` takes a `TableSectionFormat` (boxed
+in Rust) or `None`/`null` to clear the wrapper. Replacement discards **all**
+formatting inside that wrapper; use `Field` to retain its siblings. Duplicate
+wrappers or opaque markup that would be discarded reject the operation.
+
+Adding `NumberingStyleDefinition` requires a nonzero concrete ID (existing or added in the same preview)
+whose abstract has local levels and no existing style owner. The edit writes
+the style's `numId` and the abstract's reciprocal `styleLink`. It allocates
+no numbering IDs and leaves levels, overrides and paragraph references intact.
+
+Replace and remove require a nondefault custom style with recognized markup
+(including supported direct formatting groups and conditional regions). Replacement retains
 its type, ID, display name and source slot. Both operations reject potential
 references elsewhere in the package, including other styles, settings, stories,
 numbering and fields, and reject unsupported markup or parts when usage cannot
-be established. There is no automatic retargeting, numbering-style creation or
-synthesis of a missing styles part.
+be established. Live references are not retargeted. Linked numbering styles
+cannot be replaced or removed.
+
 ## Section boundaries and header/footer blocks
 
 | Rust | Python | JavaScript |
@@ -736,7 +768,9 @@ if it has no blocks. Merge removes a nonfinal boundary and uses the following
 section's geometry and explicit story choices, preserving its previously
 inherited references. Only a completely empty boundary paragraph is removed;
 opaque properties and protected boundaries are rejected. Reopen to obtain
-fresh anchors after either operation.
+fresh anchors after either operation. Boundary edits cannot share a batch with
+resource, story image, or control edits, or with other edits targeting the
+affected section ranges.
 
 Story reference changes use snapshot-relative section indices and follow
 inheritance until the next explicit reference for that kind and slot. Removing

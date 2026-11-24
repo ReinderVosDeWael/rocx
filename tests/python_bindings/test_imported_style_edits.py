@@ -127,6 +127,98 @@ def test_duplicate_type_and_inheritance_guards():
         ambiguous.preview([], style_edits=[add("New Style")])
 
 
+def test_conditional_region_roundtrip_and_independent_scalar_clear():
+    regions = ("wholeTable", "firstRow", "lastRow", "firstCol", "lastCol",
+               "band1Horz", "band2Horz", "band1Vert", "band2Vert",
+               "nwCell", "neCell", "swCell", "seCell")
+    doc = fixture()
+    for region in regions:
+        doc.styles.add_style("Area " + region, WD_STYLE_TYPE.TABLE)
+    source = ImportedDocument.open(save(doc))
+    def batch(doc, factory):
+        return doc.preview([], style_edits=[factory(doc.style_anchor("Area" + r), r) for r in regions]).to_docx()
+    fmt = d.TableSectionFormat(italic=True, bold=False, alignment="center", background=(1, 2, 3))
+    first = ImportedDocument.open(batch(source, lambda a, r: StyleEdit.region(a, r, fmt)))
+    second = ImportedDocument.open(batch(first, lambda a, r: StyleEdit.field(a, "i", None, region=r)))
+    for r in regions:
+        item = next(s for s in second.styles.styles if s.id == "Area" + r)
+        wrapper, = map(etree.fromstring, item.property_xml)
+        assert wrapper.get(qn("w:type")) == r
+        assert wrapper.find(".//" + qn("w:i")) is None
+        assert wrapper.find(".//" + qn("w:b")).get(qn("w:val")) == "0"
+        assert wrapper.find(".//" + qn("w:shd")).get(qn("w:fill")) == "010203"
+    cleared = Document(io.BytesIO(batch(second, lambda a, r: StyleEdit.region(a, r, None))))
+    assert all(not cleared.styles["Area " + r].element.xpath("w:tblStylePr") for r in regions)
+
+
+def test_numbering_style_and_reference_errors_leave_anchor_usable():
+    doc = fixture()
+    data = save(doc)
+    imported = ImportedDocument.open(data)
+    a = imported.style_anchor("MemoStyle")
+    assert next(s for s in imported.styles.styles if s.id == "Heading1").linked_style == "Heading1Char"
+    bad_edits = (
+        StyleEdit.field(a, "next", "DefaultParagraphFont"),
+        StyleEdit.field(a, "basedOn", "MemoStyle"),
+        StyleEdit.add(d.NumberingStyleDefinition(name="Missing List", numbering_id=9876)),
+    )
+    for edit in bad_edits:
+        with pytest.raises(ValueError):
+            imported.preview([], style_edits=[edit])
+    first = imported.preview([], style_edits=[StyleEdit.add(d.NumberingStyleDefinition(
+        name="Valid List", numbering_id=1)), StyleEdit.field(a, "next", "MemoStyle")]).to_docx()
+    reopened = ImportedDocument.open(first)
+    assert next(s for s in reopened.styles.styles if s.id == "MemoStyle").next_style == "MemoStyle"
+    with pytest.raises(ValueError, match="snapshot"):
+        reopened.preview([], style_edits=[StyleEdit.field(a, "next", None)])
+    with pytest.raises(ValueError, match="already owns"):
+        reopened.preview([], style_edits=[StyleEdit.add(d.NumberingStyleDefinition(
+            name="Another List", numbering_id=1))])
+    assert parts(imported.preview([]).to_docx()) == parts(data)
+
+
+def test_region_replacement_refuses_opaque_content_but_field_patch_retains_it():
+    doc = fixture()
+    table = doc.styles.add_style("Annotated Table", WD_STYLE_TYPE.TABLE)
+    region = etree.SubElement(table.element, qn("w:tblStylePr"), {qn("w:type"): "firstRow"})
+    group = etree.SubElement(region, qn("w:rPr"))
+    etree.SubElement(group, qn("w:b"), {"{urn:extension}key": "keep"})
+    imported = ImportedDocument.open(save(doc))
+    a = imported.style_anchor("AnnotatedTable")
+    for edit in (StyleEdit.region(a, "firstRow", None), StyleEdit.field(a, "b", None, region="firstRow")):
+        with pytest.raises(ValueError):
+            imported.preview([], style_edits=[edit])
+    output = imported.preview([], style_edits=[StyleEdit.field(a, "b", "0", region="firstRow")]).to_docx()
+    b, = Document(io.BytesIO(output)).styles[table.name].element.xpath(".//w:b")
+    assert (b.get(qn("w:val")), b.get("{urn:extension}key")) == ("0", "keep")
+
+
+def test_guarded_removal_of_unused_custom_style_with_region():
+    imported = ImportedDocument.open(save(fixture()))
+    added = imported.preview([], style_edits=[StyleEdit.add(d.TableStyleDefinition(
+        name="Private Table", first_row=d.TableSectionFormat(italic=True, spacing_after=3)
+    ))]).to_docx()
+    reopened = ImportedDocument.open(added)
+    result = reopened.preview([], style_edits=[StyleEdit.remove(reopened.style_anchor("PrivateTable"))]).to_docx()
+    assert "Private Table" not in Document(io.BytesIO(result)).styles
+
+
+def test_numbering_style_survives_content_revalidation_and_shared_resource_patch():
+    data = save(fixture())
+    doc = ImportedDocument.open(data)
+    numbers = etree.fromstring(parts(data)["word/numbering.xml"])
+    ns = {"w": qn("w:num").split("}")[0][1:]}
+    aid = int(numbers.xpath('./w:num[@w:numId="1"]/w:abstractNumId/@w:val', namespaces=ns)[0])
+    output = doc.preview([ParagraphAlignmentEdit(doc.body[0].anchor, "right")], style_edits=[
+        StyleEdit.remove(doc.style_anchor("MemoStyle")),
+        StyleEdit.add(d.NumberingStyleDefinition(name="Ordinary List", numbering_id=1)),
+    ], resources=[ResourceEdit.abstract_start(aid, 0, 7)]).to_docx()
+    numbers = etree.fromstring(parts(output)["word/numbering.xml"])
+    abstract, = numbers.xpath(f'./w:abstractNum[@w:abstractNumId="{aid}"]', namespaces=ns)
+    assert abstract.xpath("w:styleLink/@w:val", namespaces=ns) == ["OrdinaryList"]
+    assert abstract.xpath('w:lvl[@w:ilvl="0"]/w:start/@w:val', namespaces=ns) == ["7"]
+
+
 async def test_staged_style_catalog_is_shared_by_body_and_defaults_edits():
     source = save(fixture())
     imported = ImportedDocument.open(source)

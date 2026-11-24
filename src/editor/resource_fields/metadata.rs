@@ -29,6 +29,7 @@ macro_rules! fields {
     };
 }
 fields! {
+    Title => ("title", "dc:title"), Subject => ("subject", "dc:subject"),
     Creator => ("creator", "dc:creator"), Description => ("description", "dc:description"),
     Keywords => ("keywords", "cp:keywords"), Category => ("category", "cp:category"),
     Version => ("version", "cp:version"), Created => ("created", "dcterms:created"),
@@ -111,9 +112,6 @@ impl Part {
         });
         if edit(&mut root)? {
             if new {
-                if self == Self::Core {
-                    return Err(unsupported("creating core properties is unsupported"));
-                }
                 pkg.content_type(&path, mime)?;
                 pkg.link("", rel, &path)?;
             }
@@ -309,6 +307,16 @@ pub(super) fn apply(pkg: &mut Package, edits: &[ResourceEdit]) -> Result<()> {
     let mut custom = BTreeMap::new();
     for edit in edits {
         let duplicate = match edit {
+            ResourceEdit::CoreTitle(v) => fields
+                .entry(Part::Core)
+                .or_insert_with(BTreeMap::new)
+                .insert(MetadataField::Title, v.as_ref())
+                .is_some(),
+            ResourceEdit::CoreSubject(v) => fields
+                .entry(Part::Core)
+                .or_insert_with(BTreeMap::new)
+                .insert(MetadataField::Subject, v.as_ref())
+                .is_some(),
             ResourceEdit::Metadata(f, v) => fields
                 .entry(f.part())
                 .or_insert_with(BTreeMap::new)

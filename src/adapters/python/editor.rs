@@ -1675,6 +1675,41 @@ struct PyStyleEdit {
 #[pymethods]
 impl PyStyleEdit {
     #[staticmethod]
+    #[pyo3(signature=(target, field, value, *, region=None))]
+    fn field(
+        target: PyRef<'_, PyStyleAnchor>,
+        field: String,
+        value: Option<String>,
+        region: Option<String>,
+    ) -> Self {
+        Self {
+            inner: editor::StyleEdit::Field {
+                target: target.inner.clone(),
+                field,
+                value,
+                region,
+            },
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target, region, format))]
+    fn region(
+        target: PyRef<'_, PyStyleAnchor>,
+        region: String,
+        format: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Region {
+                target: target.inner.clone(),
+                region,
+                format: format
+                    .map(super::values::tablesectionformat)
+                    .transpose()?
+                    .map(Box::new),
+            },
+        })
+    }
+    #[staticmethod]
     fn add(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
             inner: editor::StyleEdit::Add(super::style_definition(definition)?),
@@ -1715,6 +1750,9 @@ struct PyImportedStyle {
     kind_xml: Option<String>,
     name: Option<String>,
     based_on: Option<String>,
+    next_style: Option<String>,
+    linked_style: Option<String>,
+    property_xml: Vec<String>,
 }
 
 #[pyclass(name = "ImportedStyles", module = "rocx.editor", get_all)]
@@ -1730,6 +1768,20 @@ struct PyAbstractStart {
     start: Option<u32>,
 }
 
+#[pyclass(
+    name = "ImportedNumberingInstance",
+    module = "rocx.editor",
+    frozen,
+    get_all
+)]
+struct PyImportedNumberingInstance {
+    num_id: u32,
+    abstract_id: u32,
+    /// Pairs of (level, direct starting value) in source order.
+    start_overrides: Vec<(u8, u32)>,
+    replacement_levels: Vec<u32>,
+}
+
 #[pyclass(name = "ResourceEdit", module = "rocx.editor", frozen)]
 struct PyResourceEdit {
     inner: editor::ResourceEdit,
@@ -1737,6 +1789,38 @@ struct PyResourceEdit {
 
 #[pymethods]
 impl PyResourceEdit {
+    #[staticmethod]
+    #[pyo3(signature=(field,value))]
+    fn document_default(field: &str, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        use editor::{DefaultField, DefaultValue as V};
+        let field = DefaultField::from_key(field)
+            .ok_or_else(|| PyValueError::new_err("unknown document default"))?;
+        let value = value
+            .map(|v| -> PyResult<_> {
+                if let Ok(b) = v.extract::<bool>() {
+                    Ok(V::Bool(b))
+                } else if let Ok(n) = v.extract::<i64>() {
+                    Ok(V::Integer(n))
+                } else if let Ok(s) = v.extract::<String>() {
+                    Ok(V::Text(s))
+                } else {
+                    Ok(V::Tabs(
+                        v.extract::<Vec<(i32, String, Option<String>)>>()?
+                            .into_iter()
+                            .map(|(position_twips, alignment, leader)| editor::DefaultTab {
+                                position_twips,
+                                alignment,
+                                leader,
+                            })
+                            .collect(),
+                    ))
+                }
+            })
+            .transpose()?;
+        Ok(Self {
+            inner: editor::ResourceEdit::Default(field, value),
+        })
+    }
     #[staticmethod]
     #[pyo3(signature=(field, value))]
     fn metadata(field: &str, value: Option<String>) -> PyResult<Self> {
@@ -1791,6 +1875,76 @@ impl PyResourceEdit {
                 abstract_id,
                 level,
                 start,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn add_abstract(abstract_id: u32, levels: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
+                abstract_id,
+                levels: super::list(levels, super::numbering_level)?,
+            }),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(num_id,level,value))]
+    fn instance_level(num_id: u32, level: u8, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceLevel {
+                num_id,
+                level,
+                value: value
+                    .map(super::numbering_level)
+                    .transpose()?
+                    .flatten()
+                    .map(Box::new),
+            }),
+        })
+    }
+    #[staticmethod]
+    fn remove_abstract(abstract_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::RemoveAbstract {
+                abstract_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn add_instance(num_id: u32, abstract_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
+                num_id,
+                abstract_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn remove_instance(num_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::RemoveInstance {
+                num_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(num_id,level,start))]
+    fn instance_start(num_id: u32, level: u8, start: Option<u32>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceStart {
+                num_id,
+                level,
+                start,
+            }),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,value))]
+    fn paragraph_numbering(target: PyRef<'_, PyParagraphAnchor>, value: Option<(u32, u8)>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::Paragraph {
+                target: target.inner.clone(),
+                value: value.map(|(id, level)| crate::NumberingReference { id, level }),
             }),
         }
     }
@@ -1854,6 +2008,31 @@ impl PyImportedDocument {
             .map(alignment_name))
     }
     #[getter]
+    fn document_defaults<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        use editor::DefaultValue as V;
+        let values = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .document_defaults()
+            .map_err(rust_error)?;
+        let dict = pyo3::types::PyDict::new(py);
+        for (f, v) in values {
+            match v {
+                V::Bool(b) => dict.set_item(f.key(), b)?,
+                V::Integer(i) => dict.set_item(f.key(), i)?,
+                V::Text(s) => dict.set_item(f.key(), s)?,
+                V::Tabs(t) => dict.set_item(
+                    f.key(),
+                    t.into_iter()
+                        .map(|t| (t.position_twips, t.alignment, t.leader))
+                        .collect::<Vec<_>>(),
+                )?,
+            }
+        }
+        Ok(dict)
+    }
+    #[getter]
     fn abstract_starts(&self) -> PyResult<Vec<PyAbstractStart>> {
         Ok(self
             .inner
@@ -1868,6 +2047,39 @@ impl PyImportedDocument {
                 start: s.start,
             })
             .collect())
+    }
+    #[getter]
+    fn numbering_instances(&self) -> PyResult<Vec<PyImportedNumberingInstance>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .numbering_instances()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|n| PyImportedNumberingInstance {
+                num_id: n.num_id,
+                replacement_levels: n.replacement_levels.into_iter().map(u32::from).collect(),
+                abstract_id: n.abstract_id,
+                start_overrides: n
+                    .start_overrides
+                    .into_iter()
+                    .map(|o| (o.level, o.start))
+                    .collect(),
+            })
+            .collect())
+    }
+    fn paragraph_numbering(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+    ) -> PyResult<Option<(u32, u8)>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .paragraph_numbering(&target.inner)
+            .map_err(rust_error)?
+            .map(|r| (r.id, r.level)))
     }
     #[getter]
     fn controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
@@ -1921,6 +2133,9 @@ impl PyImportedDocument {
                                 kind_xml,
                                 name: style.name,
                                 based_on: style.based_on,
+                                next_style: style.next_style,
+                                linked_style: style.linked_style,
+                                property_xml: style.property_xml,
                             },
                         )
                     })
@@ -2515,6 +2730,7 @@ impl PyImportedDocument {
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAbstractStart>()?;
+    module.add_class::<PyImportedNumberingInstance>()?;
     module.add_class::<PyResourceEdit>()?;
     module.add_class::<PyStyleAnchor>()?;
     module.add_class::<PyStyleEdit>()?;

@@ -224,7 +224,7 @@ async function importedBodySectionsAndPhysicalCells() {
   const [tailRun] = tail.blocks[0].inlineStructure;
   const run = (node, value) => ({ kind: "run", format: {}, hasOpaqueFormatting: false, anchor: node.anchor, items: [text(value)] });
   assert.deepEqual(table, {
-    kind: "table", anchor: table.anchor, gridWidths: [2880,2880,2880],
+    kind: "table", anchor: table.anchor, gridWidths: [2880, 2880, 2880],
     properties: {
       "look.firstRow": {firstRow:"1",maskBit:"1"}, "look.lastRow": {lastRow:"0",maskBit:"0"},
       "look.firstColumn": {firstColumn:"1",maskBit:"1"}, "look.lastColumn": {lastColumn:"0",maskBit:"0"},

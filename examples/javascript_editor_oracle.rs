@@ -39,6 +39,108 @@ fn pair(a: &str, b: &str) -> Table {
     ])
 }
 
+fn structural_resources(directory: &std::path::Path) -> Vec<u8> {
+    use rocx::editor::{
+        CustomValue, EditBatch, NumberingEdit as N,
+        ResourceEdit::{CustomProperty, Numbering},
+        StyleEdit, TableOperation, TableSite, TableStructureEdit,
+    };
+
+    let original = fs::read(directory.join("table-layout.docx")).unwrap();
+    let doc = ImportedDocument::open(&original).unwrap();
+    let table = |index: usize| {
+        let BodyBlock::Table(table) = &doc.body()[index] else {
+            panic!("expected table");
+        };
+        table.anchor.clone()
+    };
+    let paragraph = anchor(&doc, 2);
+    let replacement = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![
+                Paragraph::from_children(vec![
+                    Hyperlink::new(
+                        HyperlinkTarget::external("https://example.invalid/staged-table").unwrap(),
+                        vec![TextRun::new("staged link").into()],
+                    )
+                    .into(),
+                ])
+                .into(),
+            ])
+            .into(),
+        ])
+        .into(),
+    ])
+    .with_properties(TableProperties::default().with_style("Staged Table"));
+    let replacement = immediate(Component::resolve(replacement)).unwrap().unwrap();
+    let structural = [
+        TableStructureEdit {
+            target: table(0),
+            operation: TableOperation::ReplaceNode {
+                site: TableSite::Table,
+                source: Box::new(replacement),
+            },
+        },
+        TableStructureEdit {
+            target: table(1),
+            operation: TableOperation::RemoveTable,
+        },
+    ];
+    let styles = [StyleEdit::Add(
+        rocx::TableStyleDefinition::default()
+            .with_name("Staged Table")
+            .into(),
+    )];
+    let reference = rocx::NumberingReference { id: 91, level: 0 };
+    let resources = [
+        Numbering(N::AddAbstract {
+            abstract_id: 90,
+            levels: vec![
+                rocx::NumberingLevel::default()
+                    .with_start(1)
+                    .with_format("decimal")
+                    .with_text("%1."),
+            ],
+        }),
+        Numbering(N::AddInstance {
+            num_id: 91,
+            abstract_id: 90,
+        }),
+        Numbering(N::Paragraph {
+            target: paragraph.clone(),
+            value: Some(reference.clone()),
+        }),
+        CustomProperty("Staged".into(), Some(CustomValue::Boolean(true))),
+    ];
+    let preview = |resources| {
+        doc.preview_edits(EditBatch {
+            structural: &structural,
+            styles: &styles,
+            resources,
+            ..Default::default()
+        })
+    };
+    // Existing ListBullet still uses numId 1. Reject the whole batch after
+    // staging the new body, style, hyperlink relationship and custom part.
+    let mut rejected = resources.to_vec();
+    rejected.push(Numbering(N::RemoveInstance { num_id: 1 }));
+    let Err(error) = preview(&rejected) else {
+        panic!("removed live numbering")
+    };
+    assert!(error.to_string().contains("references"), "{error}");
+    let data = preview(&resources).unwrap().to_docx().unwrap();
+    assert_eq!(preview(&resources).unwrap().to_docx().unwrap(), data);
+    assert_eq!(doc.paragraph_numbering(&paragraph).unwrap(), None);
+    let reopened = ImportedDocument::open(&data).unwrap();
+    assert_eq!(reopened.body().len(), 2);
+    assert!(reopened.paragraph_numbering(&paragraph).is_err());
+    assert_eq!(
+        reopened.paragraph_numbering(&anchor(&reopened, 1)).unwrap(),
+        Some(reference)
+    );
+    data
+}
+
 fn table_nodes(directory: &std::path::Path, pair: &rocx::ResolvedTable) -> Vec<u8> {
     use rocx::editor::{EditBatch, TableOperation::*, TableSite, TableStructureEdit};
     let doc =
@@ -132,6 +234,11 @@ fn table_nodes(directory: &std::path::Path, pair: &rocx::ResolvedTable) -> Vec<u
 
 fn main() {
     let directory = PathBuf::from(env::args_os().nth(1).expect("fixture directory"));
+    fs::write(
+        directory.join("native-structuralResources.docx"),
+        structural_resources(&directory),
+    )
+    .unwrap();
     let doc = ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
     let headers = doc.default_headers().unwrap();
     let image = immediate(Component::resolve(ImageRun::new(
@@ -338,6 +445,13 @@ fn main() {
     }
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {
+            styles: &[rocx::editor::StyleEdit::Add(
+                rocx::NumberingStyleDefinition {
+                    name: "Batch List".into(),
+                    numbering_id: 702,
+                }
+                .into(),
+            )],
             ranges: &[rocx::editor::TextRangeEdit {
                 target: anchor(&doc, 1),
                 start: 0,
@@ -358,9 +472,41 @@ fn main() {
                 ),
                 BlockEdit::SectionType(anchor(&doc, 0), Some(rocx::SectionType::Continuous)),
             ],
-            resources: &[rocx::editor::ResourceEdit::CoreTitle(Some(
-                "Combined editor".into(),
-            ))],
+            resources: &[
+                rocx::editor::ResourceEdit::Default(
+                    rocx::editor::DefaultField::TabStops,
+                    Some(rocx::editor::DefaultValue::Tabs(vec![
+                        rocx::editor::DefaultTab {
+                            position_twips: 720,
+                            alignment: "right".into(),
+                            leader: Some("dot".into()),
+                        },
+                    ])),
+                ),
+                rocx::editor::ResourceEdit::CoreTitle(Some("Combined editor".into())),
+                rocx::editor::ResourceEdit::Metadata(
+                    rocx::editor::MetadataField::Subject,
+                    Some("Batch resources".into()),
+                ),
+                rocx::editor::ResourceEdit::Default(
+                    rocx::editor::DefaultField::Bold,
+                    Some(rocx::editor::DefaultValue::Bool(false)),
+                ),
+                rocx::editor::ResourceEdit::Numbering(rocx::editor::NumberingEdit::AddInstance {
+                    num_id: 702,
+                    abstract_id: 701,
+                }),
+                rocx::editor::ResourceEdit::Numbering(rocx::editor::NumberingEdit::AddAbstract {
+                    abstract_id: 701,
+                    levels: vec![rocx::NumberingLevel {
+                        level: 0,
+                        start: 1,
+                        format: "decimal".into(),
+                        text: "%1.".into(),
+                        ..Default::default()
+                    }],
+                }),
+            ],
             ..Default::default()
         })
         .unwrap();
@@ -421,6 +567,33 @@ fn main() {
         let catalog =
             ImportedDocument::open(&fs::read(directory.join("styles-source.docx")).unwrap())
                 .unwrap();
+        use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit::Numbering};
+        let numbers = catalog
+            .preview_edits(EditBatch {
+                resources: &[
+                    Numbering(N::AddAbstract {
+                        abstract_id: 90,
+                        levels: vec![rocx::NumberingLevel {
+                            level: 0,
+                            start: 1,
+                            format: "decimal".into(),
+                            text: "%1.".into(),
+                            ..Default::default()
+                        }],
+                    }),
+                    Numbering(N::AddInstance {
+                        num_id: 91,
+                        abstract_id: 90,
+                    }),
+                    Numbering(N::Paragraph {
+                        target: anchor(&catalog, 0),
+                        value: Some(rocx::NumberingReference { id: 91, level: 0 }),
+                    }),
+                ],
+                ..Default::default()
+            })
+            .unwrap();
+        write("native-numberingEdits.docx", numbers.to_docx().unwrap());
         let style = |name: &str| ParagraphStyleDefinition::default().with_name(name);
         let changes = [
             StyleEdit::Add(style("Memo Added").with_base_style("Memo Active").into()),
@@ -429,6 +602,28 @@ fn main() {
                 definition: style("Memo Replace").with_bold(true).into(),
             },
             StyleEdit::Remove(catalog.style_anchor("MemoDrop").unwrap()),
+            StyleEdit::Field {
+                target: catalog.style_anchor("Heading1").unwrap(),
+                region: None,
+                field: "next".into(),
+                value: Some("MemoAdded".into()),
+            },
+            StyleEdit::Region {
+                target: catalog.style_anchor("TableGrid").unwrap(),
+                region: "nwCell".into(),
+                format: Some(Box::new(rocx::TableSectionFormat {
+                    bold: Some(true),
+                    background: Some([10, 20, 30]),
+                    ..Default::default()
+                })),
+            },
+            StyleEdit::Add(
+                rocx::NumberingStyleDefinition {
+                    name: "Memo List".into(),
+                    numbering_id: 1,
+                }
+                .into(),
+            ),
             StyleEdit::Patch {
                 target: catalog.style_anchor("MemoActive").unwrap(),
                 bold: None,

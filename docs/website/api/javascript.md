@@ -259,10 +259,23 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   with `value` (`null` clears). Abstract starts also require `abstractId` and
   `level`. Inspect direct values with `coreTitle()`, `coreSubject()`, `defaultAlignment()` and
   `abstractStarts()`.
+- Inspect direct run, paragraph and document-wide settings with
+  `doc.documentDefaults()`. For example,
+  `doc.preview({resources: [{kind: "documentDefault", field: "bold", value: false}]})`
+  turns default bold off. `null` clears the field, restoring absence. `DefaultValues`
+  lists keys and their types; tab positions and indent lengths use twips.
+
 - `metadataField(field)` reads a core or extended string, and
   `customProperty(name)` reads a named string or boolean. Missing properties
   return `undefined`. Pass `{kind: "metadata", field, value}` or
   `{kind: "customProperty", name, value}` in `resources`; `null` removes the property.
+
+- Numbering resource edits include `addAbstract`, `removeAbstract`, `addInstance`,
+  `removeInstance`, `instanceStart`, `instanceLevel` and `paragraphNumbering`.
+  `numberingInstances()` lists concrete IDs, abstract links, start overrides and
+  replacement-level indices. `paragraphNumbering(anchor)` returns a direct
+  `{id, level}` or `undefined`. Clear an override or direct reference with
+  `value: null`. Live references and opaque content can block removal.
 
 ```javascript
 import { openDocx } from "rocx-docx";
