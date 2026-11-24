@@ -142,7 +142,8 @@ export async function verifyTypedCatalog(files) {
   equal([series.categories, series.values], [["Final", "Revised"], [12, 8]], "chart data");
   const fraction = paragraph(objects, "Inline equation:").inlineStructure[1];
   equal([fraction.kind, fraction.numerator, fraction.denominator], ["fraction", "3", "7"], "edited fraction");
-  const images = entry(objects, "footnote", "0").blocks[0].inlineStructure.filter(r => r.drawing?.kind === "image");
+  const images = entry(objects, "footnote", "0").blocks.flatMap(b => b.inlineStructure ?? [])
+    .filter(r => r.drawing?.kind === "image");
   equal(images.length, 2, "entry image count");
   equal([Boolean(images[0].drawing.relationshipId), images[0].drawing.relationshipId],
     [true, images[1].drawing.relationshipId], "entry shared relationship ID");

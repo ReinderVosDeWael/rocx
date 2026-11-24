@@ -228,10 +228,10 @@ fn rich_artifacts(path: &Path) {
         &paragraph(&objects, "Inline equation:").inline_structure[1],
         Fraction { numerator, denominator, .. } if numerator == "3" && denominator == "7"
     ));
-    let images: Vec<_> = entry(&objects, EntryKind::Footnote, "0")
-        .inline_structure(0)
-        .unwrap()
-        .iter()
+    let footnote = entry(&objects, EntryKind::Footnote, "0");
+    let images: Vec<_> = (0..footnote.blocks().len())
+        .filter_map(|i| footnote.inline_structure(i))
+        .flatten()
         .filter_map(|n| match n {
             Run(r) => r.drawing.as_ref().filter(|d| d.kind == "image"),
             _ => None,

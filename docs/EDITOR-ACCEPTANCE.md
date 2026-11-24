@@ -1,23 +1,25 @@
 # Issue #3 editor acceptance map
 
-This is a qualification inventory for [#3](https://github.com/ReinderVosDeWael/rocx/issues/3),
-not a new API contract. **Structural baseline: `c1b6627`.** The inline
-cluster at `981d798` is accounted for separately below. In particular, the
-closed scope tickets #42–#47 and #49–#51 are not claims that every declarative
-operation is available in every imported context.
+This is the qualification inventory for the combined editor in draft
+[#65](https://github.com/ReinderVosDeWael/rocx/pull/65). It records the merge of
+`5be07b3` (structural and resource work) and `1fda978` (rich inlines, controls,
+drawings, fields, paired ranges, revisions and their CLI transport). The owner
+closed [#3](https://github.com/ReinderVosDeWael/rocx/issues/3) manually. This
+document records implemented scope and evidence; it neither changes tracker
+state nor claims every declarative operation works in every imported context.
 
 ## Original issue requirements
 
 | Issue requirement | What qualifies today | Limit or follow-up |
 | --- | --- | --- |
-| 1. Logical identities and lifetime | [Imported addresses](EDITOR-PARITY.md#existing-imported-addresses); `tests/imported_editor.rs` (`independent_body_inline_anchors_are_snapshot_scoped_and_read_only`, `story_inspection_tracks_slots_but_anchors_follow_physical_parts`, `rejects_foreign_and_duplicate_anchors_without_mutation`); catalog retry and foreign-anchor tests. CLI IDs are digest-bound addresses, not Word IDs. | Snapshot identity is supported. No durable application IDs across reopen, anchor adjustment/rebasing, or persisted resolution-to-import identity mapping. The issue expressly says not to imply persistence; decide whether this documented narrower lifetime is sufficient. |
+| 1. Logical identities and lifetime | [Imported addresses](EDITOR-PARITY.md#existing-imported-addresses); `tests/imported_editor.rs` (`independent_body_inline_anchors_are_snapshot_scoped_and_read_only`, `story_inspection_tracks_slots_but_anchors_follow_physical_parts`, `rejects_foreign_and_duplicate_anchors_without_mutation`); catalog retry and foreign-anchor tests. CLI IDs are digest-bound addresses, not Word IDs. | Snapshot identity is supported. No durable application IDs across reopen, anchor adjustment/rebasing, or persisted resolution-to-import identity mapping. |
 | 2. Structured inspection | Public typed section/body/run/link/story/control/resource views. The typed catalog tests below exercise actual property and content values, not just opening or label matching. | Some modeled declarations still project as opaque or as source-property carriers. Tests for those carriers do not prove rich typed import. |
-| 3. Structured editing | Immutable anchored preview, duplicate/conflict rejection, guarded replacements, reference checks and shared versus local intent. `mixed_new_edits_preserve_original_coordinates_across_parts` and `structuralResources.docx` combine node edits, a staged style, an owning relationship and numbering after a removed table. | See the operation map. Some commands are separate scoped copies, not members of the ordinary mixed batch. |
-| 4. Tracked revisions | Explicit proposal and review, separate from ordinary editing; see `tracked_text_is_explicit_and_reviews_only_one_original_wrapper`, `tracked.docx`, `reviewed.docx`, `moved.docx` and `moveAccepted.docx`. | Inline cluster adds paragraph insert/delete and bold proposal/review, not arbitrary block/property contexts. |
-| 5. Controls | Physical block/inline/row/cell metadata, guarded text/tag/alias updates; `controlEdits.docx` and `control_targets_refuse_active_ranges_nested_wrappers_and_ambiguous_properties`. | Inline cluster adds guarded wrappers, rich replacements and choices. Custom XML binding mutation is a separate extension per the issue, not evidence of missing current package preservation. |
+| 3. Structured editing | Immutable anchored preview with original coordinates, duplicate/conflict rejection and guarded replacement. `structuralResources` stages a table style and numbering across a removed table. `test_rich_cli_batch_uses_staged_resources_and_shared_reference_guards` combines paragraph replacement, wrapper, drawing, formatting, field cache, bookmark and resources; rejected requests leave no destination. | See the operation map. Scoped operations do not all participate in the ordinary mixed batch. |
+| 4. Tracked revisions | Standalone text and move proposals/review, direct bold revisions, and simple paragraph insert/delete including the mark. `tracked`, `reviewed`, `moved`, `moveAccepted`, `boldChange`, `boldAccepted`, `boldRejected` and `paraInsert*`/`paraDelete*` exercise both dispositions. | No arbitrary block/property contexts or combined proposal and ordinary batches. A disjoint ordinary edit can preserve a pending revision; an edit that changes the pending paragraph mark's property envelope is refused. |
+| 5. Controls | Physical block/inline/row/cell metadata, guarded wrappers, rich block/inline payload replacement, text/tag/alias updates and ordered choices. `.controls`, `controlEdits`, `controlWrapped`, `controlUnwrapped`, `richControls`, `richUnwrapped` and `guardedWorkflow`. | Story-owned controls are inspectable, not editable. Specialized, nested and bound mutation remains outside scope. |
 | 6. Import/preservation | [Editor contract](EDITOR-PARITY.md#operation-contract), [compatibility](../COMPATIBILITY.md), `test_editor_preservation_probes.py`, independent python-docx fixtures and package-payload checks. | Schema/OPC, byte parity, typed readback, untouched payloads and viewer observations are different claims. No general lossless imported rewrite or Word rendering claim. |
 
-## Operation groups at `c1b6627`
+## Combined operation inventory
 
 Names and desired targets follow the [operation contract](EDITOR-PARITY.md#operation-contract).
 Catalog filenames below omit the `all_features-<binding>` prefix. Named editor
@@ -31,61 +33,24 @@ fields or target combinations.
 
 | Operation group | Implemented and exercised | Uncovered relative to the operation contract |
 | --- | --- | --- |
-| Document and sections | Ordered section ranges, explicit break type, direct page/line numbering, page geometry, grid, equal columns, border/flags, replace supported section contents and separate anchored split/merge. Catalog `.docx`; `layout`, `sectionSplit`, `sectionMerge`; `section_lifecycle_guards_protected_gaps_and_opaque_donors`. | Unequal columns, art/theme borders and other unmodeled geometry; insert/remove of arbitrary rich sections and integrating section lifecycle with ordinary batches. |
-| Stories | Six inherited/explicit header/footer slots; shared and section-local images; create/link/remove slot refs, guarded block splice and physical text; ordinary entry inlines/plain paragraph edits and base comment metadata. `.header-*`, `.footer-even`, `.story-blocks`, `.entry-*`; `storyShared`; `test_base_comment_metadata_and_block_patches_on_independent_document`. | General typed non-paragraph story blocks, editing tables in these stories, local text forks, rich entry-block replacements, deletion of physical OPC story parts and modern comment metadata. |
+| Document and sections | Ordered ranges, explicit break type, direct page/line numbering, page geometry, grid, equal columns, border/flags, replace supported section contents and anchored split/merge. `.docx`, `layout`, `sectionSplit`, `sectionMerge`. | Unequal columns, art/theme borders, arbitrary rich section replacement and unmodeled geometry. Layout requests are scoped. Section lifecycle rejects combinations with story images, control/field/range and resource operations. |
+| Stories | Six inherited/explicit header/footer slots; shared and section-local images; create/link/remove slot refs, guarded block splice and physical text/tables; ordinary entry inlines/plain paragraph edits and base comment metadata. `.header-*`, `.footer-even`, `.story-blocks`, `.entry-*`; `storyShared`, `physicalTables`. | General typed non-paragraph story blocks, local text forks, rich entry-block replacements, deletion of physical OPC story parts and modern comment metadata. Use physical table inventory for nested and story tables. |
 | Blocks and paragraphs | Direct body insert/replace/remove, property patches with omission distinct from explicit false/clear; `.edited`, `blocks`, `mixedBody`, `layout`; `patch_preserves_other_markup_and_parts_and_preview_is_non_mutating`. | General block edits and direct layout in nested/control/story paragraphs, unmodeled imported spacing/indents, and rich separate layout patches in the ordinary batch. |
-| Text and inline formatting | Ordered runs, text/tabs/breaks; direct properties; guarded body insert/replace/remove, disjoint formatting patches and Unicode scalar range/point edits. `.docx`, `.run-text`; `inline`, `range`, `points`, `runFormatting`; `test_disjoint_run_format_updates_clears_and_rollbacks`. | Offsets in mixed content, other stories and across paragraphs; broader inline target contexts, themed/split font choices, and destruction of unsupported properties. |
-| Tables | Direct body physical grid/spans/merges, ordered rows/cells with opaque children; insert/remove rows/cells/logical columns, replace supported cell content or table/row/cell nodes, remove table, patch selected direct properties. `.docx`, `.edited`; `tableStructure`, `tableNodes`, `structuralResources`; `test_editor_table_properties.py`. | Editing existing nested tables, story tables, controlled rows/cells as table targets and splitting protected merge chains; guarded rather than arbitrary opaque-node destruction. |
+| Text and inline formatting | Ordered runs with disjoint direct format patches; body insert/replace/remove and scalar ranges. Owner-scoped formatting also targets eligible run and hyperlink children in body cells, section stories and ordinary notes/comments. `.docx`, `.run-text`, `.entry-text`; `inline`, `range`, `points`, `runFormatting`, `formatOwners`. | Scalar offsets in mixed content, other stories and across paragraphs; arbitrary nested formatting, themed/split font choices, and destruction of unsupported properties. |
+| Tables | Physical grid/spans/merges; insert/remove rows/cells/logical columns; replace supported cell content and patch direct properties. Direct body whole-node replacement/removal; physical-owner edits also cover nested and story tables. `.docx`, `.edited`; `tableStructure`, `tableNodes`, `structuralResources`, `physicalTables`. | Controlled rows/cells, protected merge splits, whole-node edits outside direct body, owner-local forks and cross-owner batches. |
 | Styles | Direct identity, kind, base/next/linked and property groups, all four style kinds, scalar and 13 conditional region edits, replace/remove unused custom definitions. `.docx`, `.run-text`; `styleEdits`; `test_imported_style_edits.py`. | Typed interpretation of every property carrier, non-scalar per-field changes and retargeting existing live users. |
 | Numbering | Inspect abstract starts, concrete instances/override indexes and direct body references; add/remove abstract/instance, patch abstract start and concrete start/replacement level, change body paragraph reference. `.run-text`; `numberingEdits`, `structuralResources`; `test_imported_numbering_edits.py`. | Full typed imported abstract levels/override payloads and style links; general independent abstract-level edits, numbering reference changes in other contexts. No viewer-computed counters. |
 | Defaults | Typed run/paragraph defaults and document switches, note formats, placement, start and restart; independent patch/clear. `.docx`, `.run-text`; `test_imported_defaults.py`, `test_mixed_resource_edit.py`. | Unmodeled imported default leaves or unsafe destructive replacement, rather than inferred effective formatting. |
 | Metadata | Core scalars/timestamps, extended company/manager, named string and boolean custom properties; base comments as above. `.docx`, `.run-text`, `.entry-edits`; `test_mixed_resource_edit.py`, `test_resource_and_style_transport`. | Other extended values, linked or other custom types, modern comment metadata. |
-| Links and ranges | Typed link children, bookmark and relationship ID; links insert/replace in eligible direct body/entry content. Catalog `.docx`, `.entry-text`; `inserted_external_hyperlink_uses_document_relationship`; owner-local ZIP checks. | Original target URL is not the raw relationship ID. Pair/tooltip/history editing and direct marker inspection require the inline cluster. Non-body pairs, rich or unsafe removal and unmodeled ranges remain after that slice. |
+| Links and ranges | Typed link children, bookmark, relationship ID, tooltip/history; guarded link edits and direct body bookmark/comment pair insertion, relocation/removal. `.docx`, `.entry-text`, `fieldsRanges`, `fieldBatch`, `guardedWorkflow`; owner-local ZIP checks. | The relationship ID is not the URL. Non-body endpoints, creating/removing comment definitions through range edits, and unmodeled ranges are not supported. |
 | Notes | Typed source kind and lexical ID, distinct part owners, simple note create/attach/detach/retarget/renumber/delete and entry content/settings. `.entry-edits` ties the new reference to its definition; `test_first_note_lifecycle_on_independent_document`. | Shared references, custom marks, nested targets, special entries and rich story lifecycle. |
-| Fields | Opaque field node classification; ordinary replacement guards field boundaries. `.docx`; `whole_inline_edits_respect_cross_paragraph_fields_and_keep_opaque_formatting`. | Typed instruction/cache editing requires the inline cluster; general non-body/opaque constructs and evaluation are not implemented by it. |
-| Controls and revisions | Four-context body control metadata and locked edit rejection; simple direct run revision insertion/deletion/replacement, paired moves and eligible review. `.docx`, `.run-text`; `controlEdits`, `tracked`, `reviewed`, `moved`, `moveAccepted`; `revision_inspection_keeps_boundaries_metadata_and_read_only_anchors`. | See cluster delta for typed wraps/choices, tracked paragraphs and bold. Other property and block changes, rich/nested revisions, general combined proposal and ordinary batches, and nested/bound/specialized wrapper mutation remain. |
-| Images | Insert images into all six effective header/footer slots with explicit shared/local intent and relationship ownership. `.header-*`, `.footer-even`; `shared_header_edit_reports_all_consumers_and_owns_image_relationship`. Opaque body/story image readback at this baseline. | Typed occurrence/asset/geometry inspection and rich mutations require inline cluster. Even with it, not every placement, source part, opaque drawing or asset operation is supported. |
-| Drawings, charts and math | Authoring and resolved fragment insertion of some objects; imported body objects remain opaque. `.docx` XML checks compare shape/chart/fraction payloads; `inserts_formatted_content_nested_table_and_fraction`. | Typed occurrence/series/fraction editing requires inline cluster, still restricted to the supported drawing/math profiles. |
-| Inputs and transport | Resolved callbacks, async dependencies, refs and conditions are tested on authoring inputs, not reconstructed from DOCX. JSON CLI inspect, digest-bound preview and exclusive save-copy; `tests/cli.rs`, `test_cli_mixed.py` (including extended mixed rollback and resource/style batch). | [CLI declarations and operation set](CLI.md) are a subset; in particular rich formatting/layout, section lifecycle, story references/splices, entry lifecycle and table property/node changes are not transported in this baseline. MCP #52 is separate, not an original #3 requirement. |
+| Fields | A field can be opaque in ordinary sequence inspection and still have dedicated typed instruction/flag/span readback. Guarded direct body field insertion, instruction/flag/cache patch, whole replacement/removal and balanced cross-paragraph complex-field cache edits. `.docx`, `fieldsRanges`, `fieldBatch`. | Field evaluation, opaque caches, and non-body targets. |
+| Controls and revisions | See requirements 4–5. Same-block wrapper/paragraph-property conflicts and field/wrapper versus structural replacement are rejected; a staged bookmark can block revision proposals after reopening. | Nested/bound/specialized mutation, general rich tracked property edits, paragraph-mark merges with protected successors and mixed revision proposals are unsupported. |
+| Images | Typed occurrence/asset/geometry inspection, selected edits for eligible body/entry pictures and explicit shared/local insertion into all six header/footer slots. `.objects`, `.header-*`, `.footer-even`, `richControls`; `test_editor_drawings.py`. | Not general shape/drawing replacement in every story; linked/opaque targets and unsupported placements still have guards. |
+| Drawings, charts and math | Typed image/shape/chart occurrences and simple fraction operands. Guarded body insertion/replacement/removal, selected property patches and copy-on-write literal chart series. `.objects`; `test_editor_drawings.py`; drawing and chart `ProcessContent` probes. | General math, rich text-box stories, workbook-backed/multi-series chart edits and arbitrary opaque-node mutations. |
+| Inputs and transport | Resolved authoring inputs are not reconstructed from DOCX. [CLI](CLI.md) exposes digest-bound inspect/preview/save-copy, mixed body rich and resource edits, direct layout, section lifecycle, physical tables, story splice/reference operations and scoped revision proposal/review. `tests/cli.rs`, `test_cli_mixed.py`. | CLI declarations are a subset, and physical-owner rich formatting and entry/note lifecycle have no CLI transport. MCP #52 is separate. |
 
-## Inline cluster (`981d798`), not part of the structural baseline
-
-Standalone evidence comes from the [plan at that commit](https://github.com/ReinderVosDeWael/rocx/blob/981d798/docs/PLAN.md),
-not from a combined run with this audit. Preserve the structural capabilities and
-evidence above when integrating the changes; `git diff c1b6627..981d798`
-compares divergent branches, not an additive patch.
-
-| Operation groups | Cluster evidence and scope |
-| --- | --- |
-| Links/ranges and fields | `fieldsRanges`, `fieldBatch`, `guardedWorkflow`; `test_imported_fields_ranges.py`; direct body paired markers and paired edits, link tooltip/history and replacement, simple/complex fields and balanced cache changes across eligible paragraphs. Comment range edits select an existing definition; creating/removing the definition is not implied. No general non-body endpoints, cached evaluation or opaque cache rewrites. |
-| Inline formatting | `formatOwners` verifies edits to eligible physical cell, header/footer and note/comment runs including hyperlink children. It does not widen scalar offsets or permit arbitrary nesting. |
-| Controls | `.controls`, `controlWrapped`, `controlUnwrapped`, `richControls`, `richUnwrapped`. Wrap/unwrap supported main-story inline/block/row/cell targets, guarded rich content replacement and drop-down choices. Physical owners can be inspected; other-story/bound/nested mutation is not implied. |
-| Revisions | [Revision contexts at the cluster tip](https://github.com/ReinderVosDeWael/rocx/blob/981d798/docs/REVISIONS.md): proposal and review of direct bold and simple paragraph insert/delete including paragraph-mark metadata. No block moves, tracked table edits, rich revisions or general tracked property editing. |
-| Images/drawings/charts/math | `.objects`, `test_editor_drawings.py` and drawing operations inside `richControls`: typed picture/shape/chart occurrence and fraction, guarded insertion/replacement/removal, selected property, fraction and single-series chart edits. Rich text-box stories, workbook/general charts and general math are outside scope. |
-
-Add typed readback for the `.controls` and `.objects` variants in the
-combined checkout. Where formerly opaque values become typed, assert the
-actual properties (for example fraction operands and drawing description);
-retain independently unsupported examples as opaque. The field node can
-still be opaque in the flat inline view even where a dedicated field
-inspector decodes it. Recheck projection/anchor semantics on the merged API,
-not just that the generated bytes compare across bindings.
-
-## Later structural integration (`c3ea09d`)
-
-The [qualification record at `c3ea09d`](https://github.com/ReinderVosDeWael/rocx/blob/c3ea09d/docs/PLAN.md)
-records a 33rd editor oracle (`physicalTables`) and the same 13 catalog
-packages. Guarded nested and physical header/footer/note/comment table
-property, geometry and cell-content edits now have installed-consumer
-evidence, including owner-local links. Whole-node replacement/removal outside
-direct body targets, controlled rows/cells, section-local table forks and
-cross-owner batches still lack implementation. The CLI delta transports
-direct layout, section lifecycle, story references/splices, and structural
-table edits (including owner-scoped table paths); it does not establish
-transport for every editor or declaration. This is separate from the inline
-artifact qualification.
-
-## Acceptance evidence and closure
+## Acceptance evidence
 
 1. **Architecture / independent imports:** `tests/fixtures/imported-editor.docx`
    was generated with python-docx. `inserts_exactly_after_anchor_in_mixed_batch_and_preserves_untouched_parts`,
@@ -99,10 +64,16 @@ artifact qualification.
    `test_all_features.py` and `catalog_readback.py` assert the generated
    installed Python artifacts; `catalog-contract.mjs` and
    `catalog-readback.mjs` assert the generated artifacts in installed Node and
-   Chromium. Each structural catalog suffix is read back via its own binding.
-   These are targeted semantic assertions (layout, formatting, story
-   aliases, styles/defaults/numbering, notes, revisions, controls and opaque
-   classifications), not exhaustive field-level typed import coverage.
+   Chromium. The same 15 catalog suffixes have typed readback in all three
+   bindings. In the new checks, `.controls` asserts the selected value and
+   display label, block plain-text kind, explicit `multiLine=0`, and
+   foreign-anchor rejection. `.objects` asserts picture description and
+   relationship ID, ellipse geometry and text, chart labels/values, fraction
+   operands, the sibling wrapper context and both footnote image relationship
+   IDs across physical paragraphs. `.entry-text` checks 13.5-point linked
+   runs in each ordinary entry; `.docx` checks the dedicated PAGE field
+   view alongside the opaque inline node and the typed fraction operands.
+   These are selected properties, not exhaustive field-level import coverage.
 3. **Other independent gates:** `tools/check_examples.py` and
    `tools/check_javascript.py` verify authoring coverage, exact ZIP byte
    parity, and python-docx/OOXML package readback as separate checks.
@@ -110,15 +81,19 @@ artifact qualification.
    separately check unsafe edits and untouched payloads; the typed catalog
    retry checks rollback and stale anchors, not package byte preservation.
 
-**Tracker status is not a qualification result.** GitHub already records #3
-as closed; this audit does not change its state. To meet the active plan as
-written, qualify the combined structural + inline artifact set from the same
-revision in all installed consumers and on hosted gates; the separate branch
-runs are not a substitute. Complete or explicitly rescope the
-remaining modeled-operation inventory: general nested/story and rich
-structure edits, richer typed style/numbering views and per-field edits,
-remaining revision/control contexts, and CLI exposure of the supported editor
-scope. Decide what #3 demands where the original issue says “supported” and
-“incrementally” but the repository plan asks for declarative parity. Keep
-durable IDs, custom XML binding, and MCP distinct from accidental closure
-criteria; only a documented decision can change the currently stated plan.
+4. **Mixed conflicts and preservation:** the rich CLI fixture checks exact
+   installed-Python bytes, stale/unsafe target checks elsewhere in the CLI
+   suite, and unchanged ZIP parts. It rejects a structural replacement that
+   overlaps a staged wrapper or field cache, a section boundary request mixed
+   with staged rich operations, and destructive replacement of a pending
+   paragraph revision. The disjoint structural replacement succeeds in the
+   original batch and the pending revision remains reviewable after the failed
+   replacement. `test_destructive_resources_recheck_new_rich_content` proves
+   finished-package style/numbering reference checks; matched
+   `ProcessContent` wrappers in Word and DrawingML are rejected separately
+   from unrelated opaque extensions.
+
+**Tracker status is not a qualification result.** #3 is closed and #65 remains
+draft. The unsupported cases above are scope limits, not claims of hidden
+coverage. Local results are recorded in [the active plan](PLAN.md); hosted
+qualification on the combined head is separate.

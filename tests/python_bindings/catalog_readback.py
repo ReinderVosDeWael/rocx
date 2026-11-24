@@ -164,7 +164,8 @@ def verify_catalog(stem, suffixes):
     fraction = paragraph(objects, "Inline equation:").inline_structure[1]
     assert isinstance(fraction, e.ImportedFraction)
     assert (fraction.numerator, fraction.denominator) == ("3", "7")
-    images = [r.drawing.relationship_id for r in entry(objects, "footnote", "0").blocks[0].inline_structure
+    images = [r.drawing.relationship_id for b in entry(objects, "footnote", "0").blocks
+              if hasattr(b, "inline_structure") for r in b.inline_structure
               if isinstance(r, e.ImportedRun) and r.drawing and r.drawing.kind == "image"]
     assert len(images) == 2 and images[0] and images[0] == images[1]
     assert any(c.tag == "object-sibling" and c.context == "block" for c in objects.controls)

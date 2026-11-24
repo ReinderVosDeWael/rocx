@@ -879,6 +879,11 @@ async def test_rich_cli_batch_uses_staged_resources_and_shared_reference_guards(
         failure = call(cli, "save-copy", source, success=False, output=str(output),
                        snapshot=inspected["snapshot"], edits=[*edits, overlap])
         assert "conflicting" in str(failure) and not output.exists()
+    split = dict(kind="split-section", target=0, offset=2)
+    for operation in (e for e in edits if e["kind"] in {"control-wrapper", "field", "paired-range"}):
+        failure = call(cli, "save-copy", source, success=False, output=str(output),
+                       snapshot=inspected["snapshot"], edits=[split, operation])
+        assert "section boundary edits conflict" in str(failure) and not output.exists()
     changed = checked_copy(cli, source, output, edits)
     imported = ImportedDocument.open(source.read_bytes())
     a, b, _, _, successor = imported.body

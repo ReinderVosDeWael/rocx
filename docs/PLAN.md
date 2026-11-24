@@ -4,6 +4,15 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+The owner closed #3 manually; [PR #65](https://github.com/ReinderVosDeWael/rocx/pull/65)
+remains draft. The primary branch now merges `1fda978` onto `5be07b3`.
+The [acceptance map](EDITOR-ACCEPTANCE.md) records the combined operation
+inventory and evidence without changing tracker state. Its typed catalog
+checks now include the rich `.controls`, `.objects` and `.entry-text` results
+in all three bindings. The mixed CLI/Python fixture adds a disjoint structural
+replacement and rejects overlapping field/control replacements, a pending
+paragraph revision replacement, and incompatible section boundary requests.
+
 The merge of `f269508` into `c1b6627` combines the resource/style and structural
 CLI variants, including both inspection selectors in one request. Physical
 table operations remain owner-scoped; body table replacements can use a style
@@ -128,8 +137,8 @@ readback and untouched-payload checks passed, as did strict installed
 TypeScript and offline Wasm/glue replay from the packed source archive.
 The stale table inspection expectation on the hosted PR head is corrected
 and passes locally on Node 22 and 24 with Chromium. Hosted checks must rerun
-on the updated PR head. Keep #3 open for the remaining editor and transport
-inventory.
+on the updated PR head. The remaining editor and transport limits are recorded
+in the acceptance map.
 
 **#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
 `ProcessContent` wrappers before treating a property as absent or a bookmark
@@ -237,9 +246,9 @@ The direct layout API addresses each inspected section independently of its
 first block, including empty implicit finals. The [layout contract](EDITOR-PARITY.md#direct-paragraph-and-section-layout)
 lists fields, units, clear semantics and unsupported imported forms.
 
-The ten topic branches start from `fad29a9` and are combined in
-[#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
-open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
+The ten topic branches start from `fad29a9` and were first combined in
+[#63](https://github.com/ReinderVosDeWael/rocx/pull/63). The
+[editor inventory](EDITOR-PARITY.md) describes the available calls
 and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#operation-contract).
 
 | Ticket | Supported in the candidate | Still outside the implementation |
