@@ -15,10 +15,17 @@ Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 JavaScript. The optional result identifies the source part and lists direct
 style IDs, kinds, names, base/next/linked references and property-group XML.
 Missing kinds and unknown kind values are distinct. An in-memory sample clears
-a first-row bold toggle, replaces last-row formatting and adds a numbering style
+a first-row bold toggle, patches just the `lang.eastAsia` attribute in the
+same region, replaces last-row formatting and adds a numbering style
 for the existing list 60. These use Rust `StyleEdit::{Field,Region,Add}`,
 Python `StyleEdit.field/region/add`, and JavaScript `field`/`region`/`add`
 style edits. Inspection reports direct stored markup, not inherited formatting.
+The [editor oracle](javascript_editor_oracle.rs) and installed Python/JS parity
+samples additionally create a missing catalog and migrate a header, body, and
+derived style using `StyleEdit::Retarget` / `StyleEdit.retarget` / `op: "retarget"`.
+The mixed run-text output creates numbering style `Reviewed List`,
+its instance 9049, abstract 9048, concrete start and replacement level in one
+preview. Readback checks the style binding and the reciprocal `styleLink`.
 
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:
@@ -256,6 +263,13 @@ The Rust `NumberingEdit::{AddAbstract, AddInstance, InstanceLevel, InstanceStart
 Python `ResourceEdit.{add_abstract, add_instance, instance_level, instance_start, paragraph_numbering}`
 and JavaScript `addAbstract`, `addInstance`, `instanceLevel`, `instanceStart`,
 `paragraphNumbering` forms produce the same `.run-text.docx`.
+The same artifact replaces the levels in abstract 0, updates level 0 in
+abstract 1, relinks instance 8, and replaces instance 9 and its overrides.
+It also assigns the list to a direct comment paragraph. The spellings are
+Rust `ReplaceAbstract`, `AbstractLevel`, `RelinkInstance`, `ReplaceInstance`,
+`StoryParagraph`; Python `replace_abstract`, `abstract_level`, `relink_instance`,
+`replace_instance`, `story_paragraph_numbering`; and JavaScript `replaceAbstract`,
+`abstractLevel`, `relinkInstance`, `replaceInstance`, `storyParagraphNumbering`.
 
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python

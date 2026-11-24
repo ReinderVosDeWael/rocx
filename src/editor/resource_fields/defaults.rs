@@ -142,6 +142,9 @@ fields! {
 fn bad() -> crate::Error {
     unsupported("invalid or unsupported document default")
 }
+fn xml_integer(text: &str) -> &str {
+    text.trim_matches([' ', '\t', '\r', '\n'])
+}
 fn parse(kind: Kind, text: &str) -> Result<DefaultValue> {
     Ok(match kind {
         Toggle => DefaultValue::Bool(match text {
@@ -150,7 +153,8 @@ fn parse(kind: Kind, text: &str) -> Result<DefaultValue> {
             _ => return Err(bad()),
         }),
         Integer(lo, hi) => DefaultValue::Integer(
-            text.parse()
+            xml_integer(text)
+                .parse()
                 .ok()
                 .filter(|n| (lo..=hi).contains(n))
                 .ok_or_else(bad)?,
@@ -215,7 +219,7 @@ fn read(root: &Node, f: DefaultField) -> Result<Option<DefaultValue>> {
             tabs.push(DefaultTab {
                 position_twips: n
                     .get("w:pos")
-                    .and_then(|s| s.parse().ok())
+                    .and_then(|s| xml_integer(s).parse().ok())
                     .ok_or_else(bad)?,
                 alignment: n.get("w:val").ok_or_else(bad)?.into(),
                 leader: n.get("w:leader").map(str::to_owned),

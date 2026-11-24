@@ -570,7 +570,7 @@ All operations are subject to structural validity and reference integrity: remov
 | Text and inline formatting: `TextRun`, `RunLanguage`, `Tab`, `Break` | Ordered inline nodes and text, formatting, script/language slots, style and revision metadata; explicit tab and break variants. | Insert/replace/remove inline nodes or text; patch/clear individual run properties without discarding unrelated markup. Preserve whitespace and distinguish literal tab/newline from explicit nodes. |
 | Tables: `Table`, `TableRow`, `TableCell`, `TableLook`, borders, margins, `RowHeight` | Table grid, layout, alignment, style, look and borders; rows, cells, spans/merges, shading, margins, alignment, direction and nested blocks. | Insert/replace/remove tables, rows, cells and nested blocks where valid; patch/clear their individual properties and border sides. Maintain valid grids, merges, cell contents and required trailing paragraphs; row/cell control wrappers are separate targets. |
 | Styles: paragraph, character, table and numbering style definitions; `TableSectionFormat` | Named style definitions, kind, base/next/linked references, direct properties and 13 table regions. | Add named styles, patch/clear selected fields or regions, replace/remove definitions subject to references. Preserve unspecified properties, including on template-origin styles; do not claim computed effective formatting or viewer conditional precedence. |
-| Numbering: `NumberingDefinition`, `NumberingLevel`, overrides, `NumberingReference`, numbering styles | Abstract and concrete identities, levels, style links, starts and level overrides, and paragraph references. | Add/replace/remove definitions, instances, levels and overrides where valid; patch/clear their fields and paragraph references. Preserve shared abstracts and other consumers; validate IDs and links. Labels and counters are viewer-computed, not stored evaluated text. |
+| Numbering: `NumberingDefinition`, `NumberingLevel`, overrides, `NumberingReference`, numbering styles | Physical abstract level starts, concrete IDs and override indices/starts, and direct body, cell and story paragraph references. Full typed level bodies and abstract style links are not yet exposed. | [Add/replace/remove definitions, instances, levels and overrides](EDITOR-RESOURCES.md#numbering-definitions-instances-and-paragraph-references) where valid; patch/clear direct starts and paragraph references. Retain level addresses of surviving instances and reject opaque destructive edits or style-linked abstract replacements/relinks. Labels and counters are viewer-computed. |
 | Defaults: `DocumentDefaults`, `RunDefaults`, `ParagraphDefaults`, `NoteNumbering` | Run/paragraph defaults and document-wide note numbering/placement, mirror margins, top gutter and revision tracking. | Add/set, patch, replace or clear individual default properties independently of direct formatting. Preserve unspecified values and distinctions between omitted and explicit false. |
 | Metadata: document core, extended and custom properties | Creator, title, subject, description, keywords, category, comments, version, timestamps, company, manager, comment author and typed custom properties. | Add/set, patch, replace or remove supported properties by name/type; retain unrelated properties and shared package metadata. Snapshot/render timestamps are inputs, not necessarily reconstructible authoring intent. |
 | Links and ranges: `Hyperlink`, `BookmarkTarget`, `RangeStart`, `RangeEnd`, `Comment` | Link targets, children, tooltip/history; bookmark and comment ranges, including cross-paragraph/overlapping endpoints and comment story/metadata. | Insert/replace/remove links and paired ranges, patch link/comment properties and content. Keep endpoints and references consistent; external links use owner-local relationships and are not fetched. Removing a range must not leave orphaned endpoints or comment references. |
@@ -712,10 +712,16 @@ references and structural section insertion/removal are outside this layout API.
 | Set or clear an entire physical conditional region | `StyleEdit::Region {target, region, format}` | `StyleEdit.region(target, region, format)` | `{op: "region", target, region, format}` |
 | Replace an unused definition | `StyleEdit::Replace {target, definition}` | `StyleEdit.replace(target, definition)` | `{op: "replace", target, definition}` |
 | Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
+| Migrate stored references and remove source | `StyleEdit::Retarget {target, replacement}` | `StyleEdit.retarget(target, replacement)` | `{op: "retarget", target, replacement}` |
 | Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
 
 Add paragraph, character, table or numbering declarations to the relationship-selected
-styles part. An addition can create a missing part. Names, source aliases, and generated IDs must be unambiguous
+styles part. If its relationship is absent, an add-only batch creates a
+minimal `w:styles` part beside the actual main document, registers its content
+type, and adds the relationship. An orphan at `styles.xml` (even with a
+different name case) is retained; the new part receives an available numbered
+name. No default style definitions are invented, so bases must exist in the
+new batch. Names, source aliases, and generated IDs must be unambiguous
 across styles under ASCII case-insensitive comparison. The authoring codec
 resolves forward references and checks their types and inheritance cycles.
 Patches address direct paragraph/character run properties, including explicit
@@ -728,7 +734,28 @@ paragraph justification tokens (e.g. `center`, `both`). The run flags
 and paragraph flags `keepNext`, `keepLines`, `pageBreakBefore`, `widowControl`,
 `bidi`, `contextualSpacing`, `mirrorIndents`, `snapToGrid` take OOXML on/off
 strings. `None`/`null` removes the field; clearing an annotated leaf is refused.
-A character style cannot carry paragraph fields. One edit per style ID per batch.
+A character style cannot carry paragraph fields. Multiple distinct `Field`
+edits may address the same style, in list order. A duplicate field/region
+or mixing a field edit with a whole-definition operation on that ID is rejected.
+
+Composite fields use `element.attribute` in all three bindings, with OOXML
+wire units and exact physical slots. For example, `spacing.before="120"` sets
+six points without disturbing `spacing.after`, `lineRule`, or extension
+attributes. `None`/`null` removes only that attribute. Required `val` fields
+cannot be discarded if doing so would lose annotations or sibling properties.
+These edits do not clear theme or character-unit settings implicitly.
+
+| Group | Fields |
+| --- | --- |
+| Run | `rFonts.{ascii,hAnsi,eastAsia,cs,asciiTheme,hAnsiTheme,eastAsiaTheme,cstheme}`, `lang.{val,eastAsia,bidi}`, `sz.val`, `szCs.val` (half-points), `vertAlign.val`, `runSnapToGrid.val` |
+| Color/underline | `color.{val,themeColor,themeTint,themeShade}`, `u.{val,color,themeColor,themeTint,themeShade}` |
+| Paragraph | `spacing.{before,after,line,lineRule,beforeLines,afterLines,beforeAutospacing,afterAutospacing}`, `ind.{left,right,start,end,firstLine,hanging,leftChars,rightChars,startChars,endChars,firstLineChars,hangingChars}`, `suppressLineNumbers` |
+| Tab stop | `tab.<signed-twips>.val` (alignment) or `.leader`; clearing `.val` removes that single physical stop, rejecting opaque discarded markup |
+| Table cell shading | `shd.{val,color,fill,themeColor,themeTint,themeShade,themeFill,themeFillTint,themeFillShade}` |
+
+Where the schema requires a companion value, creating a color, shading, or
+tab with an optional attribute supplies `auto`, `clear`, or `left`, respectively.
+The same formatting selectors work in conditional regions.
 
 Omitting the region addresses the style's direct properties, including the
 base formatting of a table style. A region name addresses an actual
@@ -739,7 +766,8 @@ in Rust) or `None`/`null` to clear the wrapper. Replacement discards **all**
 formatting inside that wrapper; use `Field` to retain its siblings. Duplicate
 wrappers or opaque markup that would be discarded reject the operation.
 
-Adding `NumberingStyleDefinition` requires a nonzero concrete ID (existing or added in the same preview)
+Adding `NumberingStyleDefinition` requires a nonzero concrete ID present
+in the staged numbering part (including an instance added by the same batch)
 whose abstract has local levels and no existing style owner. The edit writes
 the style's `numId` and the abstract's reciprocal `styleLink`. It allocates
 no numbering IDs and leaves levels, overrides and paragraph references intact.
@@ -749,8 +777,15 @@ Replace and remove require a nondefault custom style with recognized markup
 its type, ID, display name and source slot. Both operations reject potential
 references elsewhere in the package, including other styles, settings, stories,
 numbering and fields, and reject unsupported markup or parts when usage cannot
-be established. Live references are not retargeted. Linked numbering styles
-cannot be replaced or removed.
+be established. `Retarget` explicitly migrates a recognized custom paragraph,
+character or table style to a different, same-kind snapshot anchor. It rewrites
+exact stored style IDs in paragraphs, runs, tables, numbering levels and other
+style definitions (including base, next and link), checks changed inheritance
+chains and the complete package for residual users, then removes the source.
+Fields, protected wrappers and ambiguous/opaque references reject the transaction.
+Retarget is the only style operation in its batch; other supported edit
+families stage first. There is no rewriting of field instructions, display
+names or linked numbering-style owners.
 
 ## Section boundaries and header/footer blocks
 

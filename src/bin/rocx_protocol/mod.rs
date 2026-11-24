@@ -12,6 +12,7 @@ mod resources;
 mod scoped;
 mod structure;
 use declarations::*;
+pub(super) use resources::NumberingSite;
 use resources::*;
 use scoped::*;
 use structure::*;
@@ -188,12 +189,29 @@ pub(super) enum Edit {
         abstract_id: u32,
         levels: Vec<Level>,
     },
+    ReplaceAbstract {
+        abstract_id: u32,
+        levels: Vec<Level>,
+    },
+    AbstractLevel {
+        abstract_id: u32,
+        level: u8,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<Level>,
+    },
     RemoveAbstract {
         abstract_id: u32,
     },
     AddInstance {
         num_id: u32,
         abstract_id: u32,
+    },
+    RelinkInstance {
+        num_id: u32,
+        abstract_id: u32,
+    },
+    ReplaceInstance {
+        definition: Concrete,
     },
     RemoveInstance {
         num_id: u32,
@@ -212,6 +230,11 @@ pub(super) enum Edit {
     },
     ParagraphNumbering {
         target: usize,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<ListRef>,
+    },
+    StoryParagraphNumbering {
+        target: NumberingSite,
         #[serde(deserialize_with = "Deserialize::deserialize")]
         value: Option<ListRef>,
     },
@@ -242,6 +265,10 @@ pub(super) enum Edit {
     },
     StyleRemove {
         id: String,
+    },
+    StyleRetarget {
+        id: String,
+        replacement_id: String,
     },
     Control {
         target: usize,
@@ -377,6 +404,7 @@ pub(super) fn inspect(
     names: Vec<String>,
     table_owner: Option<&str>,
     numbering_targets: Vec<usize>,
+    numbering_story_targets: Vec<NumberingSite>,
 ) -> Result<Value, String> {
     let body: Vec<_> = doc.body().iter().enumerate().map(inspect_block).collect();
     let mut result = json!({"snapshot":snapshot,"body":body});
@@ -388,6 +416,18 @@ pub(super) fn inspect(
             .map_err(|e| e.to_string())?;
         result["paragraph_numbering"][target.to_string()] =
             json!(reference.map(|r| json!({"id":r.id,"level":r.level})));
+    }
+    if !numbering_story_targets.is_empty() {
+        let references = numbering_story_targets
+            .iter()
+            .map(|site| {
+                let target = site.resolve(doc)?;
+                doc.story_paragraph_numbering(&target)
+                    .map(|v| v.map(|r| json!({"id":r.id,"level":r.level})))
+                    .map_err(|e| e.to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        result["story_paragraph_numbering"] = json!(references);
     }
     for field in fields {
         let key = field.parse().map_err(|e: rocx::Error| e.to_string())?;
@@ -622,6 +662,22 @@ pub(super) fn preview(
                 abstract_id,
                 levels: levels.into_iter().map(Into::into).collect(),
             })),
+            Edit::ReplaceAbstract {
+                abstract_id,
+                levels,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::ReplaceAbstract {
+                abstract_id,
+                levels: levels.into_iter().map(Into::into).collect(),
+            })),
+            Edit::AbstractLevel {
+                abstract_id,
+                level,
+                value,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::AbstractLevel {
+                abstract_id,
+                level,
+                value: value.map(|v| Box::new(v.into())),
+            })),
             Edit::RemoveAbstract { abstract_id } => {
                 resources.push(ResourceEdit::Numbering(NumberingEdit::RemoveAbstract {
                     abstract_id,
@@ -634,6 +690,16 @@ pub(super) fn preview(
                 num_id,
                 abstract_id,
             })),
+            Edit::RelinkInstance {
+                num_id,
+                abstract_id,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::RelinkInstance {
+                num_id,
+                abstract_id,
+            })),
+            Edit::ReplaceInstance { definition } => resources.push(ResourceEdit::Numbering(
+                NumberingEdit::ReplaceInstance(Box::new(definition.into())),
+            )),
             Edit::RemoveInstance { num_id } => {
                 resources.push(ResourceEdit::Numbering(NumberingEdit::RemoveInstance {
                     num_id,
@@ -660,10 +726,13 @@ pub(super) fn preview(
             Edit::ParagraphNumbering { target, value } => {
                 resources.push(ResourceEdit::Numbering(NumberingEdit::Paragraph {
                     target: paragraph(doc, target)?.anchor.clone(),
-                    value: value.map(|r| rocx::NumberingReference {
-                        id: r.id,
-                        level: r.level,
-                    }),
+                    value: value.map(Into::into),
+                }))
+            }
+            Edit::StoryParagraphNumbering { target, value } => {
+                resources.push(ResourceEdit::Numbering(NumberingEdit::StoryParagraph {
+                    target: target.resolve(doc)?,
+                    value: value.map(Into::into),
                 }))
             }
             Edit::StyleReplace { id, definition } => styles.push(StyleEdit::Replace {
@@ -673,6 +742,12 @@ pub(super) fn preview(
             Edit::StyleRemove { id } => styles.push(StyleEdit::Remove(
                 doc.style_anchor(&id).map_err(|e| e.to_string())?,
             )),
+            Edit::StyleRetarget { id, replacement_id } => styles.push(StyleEdit::Retarget {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                replacement: doc
+                    .style_anchor(&replacement_id)
+                    .map_err(|e| e.to_string())?,
+            }),
             Edit::StylePatch { id, bold, italic } => styles.push(StyleEdit::Patch {
                 target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
                 bold,

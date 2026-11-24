@@ -515,9 +515,28 @@ export async function run(fixtures: Fixtures) {
   ]}).toDocx();
   const numbers = await openDocx(numberingEdits);
   const numbered = paragraph(numbers, 0).anchor;
+  const styleOwnedList = catalog.preview({styleEdits:[{op:"add",definition:{kind:"numbering",name:"Owned List",numberingId:91}}],
+    resources:[{kind:"addInstance",numId:91,abstractId:90}, {kind:"addAbstract",abstractId:90,levels:[{level:0,start:1,format:"decimal",text:"%1."}]},
+      {kind:"instanceStart",numId:91,level:0,value:6}]}).toDocx();
+  const owned = await openDocx(styleOwnedList);
+  check(!owned.paragraphNumbering(paragraph(owned,0).anchor) && owned.styles()?.styles.some(s=>s.id==="OwnedList"),"only style still owns list");
+  rejects(()=>owned.preview({resources:[{kind:"removeInstance",numId:91}]}), /references/);
   rejects(() => numbers.paragraphNumbering(listTarget), /snapshot/);
   rejects(() => numbers.preview({resources: [{kind: "removeInstance", numId: 91}]}), /references/);
   same(numbers.paragraphNumbering(numbered), {id: 91, level: 0}, "direct reference");
+  const decimal = {level: 0, start: 1, format: "decimal", text: "%1."};
+  bytesEqual(numbers.preview({resources: [
+    {kind:"replaceAbstract", abstractId:90, levels:[decimal]},
+    {kind:"replaceInstance", definition:{id:91, abstractId:90}},
+    {kind:"paragraphNumbering", target:numbered, value:{id:91,level:0}},
+  ]}).toDocx(), numbers.preview({}).toDocx(), "equivalent modeled numbering leaves all bytes alone");
+  rejects(() => numbers.preview({resources: [
+    {kind:"replaceAbstract", abstractId:90, levels:[decimal]},
+    {kind:"abstractLevel", abstractId:90, level:0, value:decimal},
+  ]}), /conflicting/);
+  rejects(() => numbers.preview({resources: [
+    {kind:"abstractLevel", abstractId:2, level:0, value:decimal},
+  ]}), /unmodeled|style-linked/);
   const removed = await openDocx(numbers.preview({resources: [
     {kind: "removeAbstract", abstractId: 90}, {kind: "removeInstance", numId: 91},
     {kind: "paragraphNumbering", target: numbered, value: null},
@@ -530,6 +549,8 @@ export async function run(fixtures: Fixtures) {
     { op: "remove", target: catalog.styleAnchor("MemoDrop") },
     { op: "field", target: catalog.styleAnchor("Heading1"), field: "next", value: "MemoAdded" },
     { op: "region", target: catalog.styleAnchor("TableGrid"), region: "nwCell", format: {bold: true, background: [10,20,30]} },
+    { op: "field", target: catalog.styleAnchor("LightShading"), region: "firstRow", field: "shd.fill", value: "BADACE" },
+    { op: "field", target: catalog.styleAnchor("LightShading"), region: "firstRow", field: "spacing.after", value: "180" },
     { op: "add", definition: {kind: "numbering", name: "Memo List", numberingId: 1} },
     { op: "patch", target: active, italic: true },
   ] };
@@ -537,6 +558,13 @@ export async function run(fixtures: Fixtures) {
   rejects(() => catalog.preview({styleEdits: [{op: "remove", target: active}]}), /references/);
   const styleEdits = catalog.preview(batch).toDocx();
   const reopened = await openDocx(styleEdits);
+  const missing = await openDocx(fixtures["styles-missing"]);
+  const styleCreate = missing.preview({styleEdits:[{op:"add",definition:{kind:"paragraph",name:"First Style"}}]}).toDocx();
+  check((await openDocx(styleCreate)).styles()?.styles[0].id === "FirstStyle" && !missing.styles(), "create new style catalog");
+  const replacement=catalog.styleAnchor("MemoReplace");
+  rejects(() => reopened.preview({styleEdits:[{op:"retarget", target:active, replacement}]}), /snapshot/);
+  const styleRetarget=catalog.preview({styleEdits:[{op:"retarget", target:active, replacement}]}).toDocx();
+  check(!(await openDocx(styleRetarget)).styles()?.styles.some(s=>s.id==="MemoActive"),"migrated style");
   check(reopened.styles()?.styles.find(s => s.id === "Heading1")?.nextStyle === "MemoAdded", "changed next reference");
   check(reopened.styles()?.styles.find(s => s.id === "TableGrid")?.propertyXml.some(x => x.includes("nwCell") && x.includes("0A141E")), "conditional format");
   rejects(() => catalog.preview({styleEdits: [{op:"field",target:active,field:"basedOn",value:"MemoActive"}]}), /cycle/);
@@ -721,7 +749,8 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, numberingEdits, tableNodes, physicalTables, layout,
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, styleCreate, styleRetarget,
+    runFormatting, numberingEdits, styleOwnedList, tableNodes, physicalTables, layout,
     sectionSplit, sectionMerge, storyShared, structuralResources, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),

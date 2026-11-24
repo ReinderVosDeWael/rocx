@@ -594,6 +594,42 @@ fn main() {
             })
             .unwrap();
         write("native-numberingEdits.docx", numbers.to_docx().unwrap());
+        let owned = catalog
+            .preview_edits(EditBatch {
+                styles: &[StyleEdit::Add(
+                    rocx::NumberingStyleDefinition {
+                        name: "Owned List".into(),
+                        numbering_id: 91,
+                    }
+                    .into(),
+                )],
+                resources: &[
+                    Numbering(N::AddInstance {
+                        num_id: 91,
+                        abstract_id: 90,
+                    }),
+                    Numbering(N::AddAbstract {
+                        abstract_id: 90,
+                        levels: vec![rocx::NumberingLevel {
+                            level: 0,
+                            start: 1,
+                            format: "decimal".into(),
+                            text: "%1.".into(),
+                            ..Default::default()
+                        }],
+                    }),
+                    Numbering(N::InstanceStart {
+                        num_id: 91,
+                        level: 0,
+                        start: Some(6),
+                    }),
+                ],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        write("native-styleOwnedList.docx", owned);
         let style = |name: &str| ParagraphStyleDefinition::default().with_name(name);
         let changes = [
             StyleEdit::Add(style("Memo Added").with_base_style("Memo Active").into()),
@@ -617,6 +653,18 @@ fn main() {
                     ..Default::default()
                 })),
             },
+            StyleEdit::Field {
+                target: catalog.style_anchor("LightShading").unwrap(),
+                region: Some("firstRow".into()),
+                field: "shd.fill".into(),
+                value: Some("BADACE".into()),
+            },
+            StyleEdit::Field {
+                target: catalog.style_anchor("LightShading").unwrap(),
+                region: Some("firstRow".into()),
+                field: "spacing.after".into(),
+                value: Some("180".into()),
+            },
             StyleEdit::Add(
                 rocx::NumberingStyleDefinition {
                     name: "Memo List".into(),
@@ -637,6 +685,32 @@ fn main() {
                 .unwrap()
                 .to_docx()
                 .unwrap(),
+        );
+        let preview = |doc: &ImportedDocument, edits: &[StyleEdit]| {
+            doc.preview_edits(rocx::editor::EditBatch {
+                styles: edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap()
+        };
+        write(
+            "native-styleRetarget.docx",
+            preview(
+                &catalog,
+                &[StyleEdit::Retarget {
+                    target: catalog.style_anchor("MemoActive").unwrap(),
+                    replacement: catalog.style_anchor("MemoReplace").unwrap(),
+                }],
+            ),
+        );
+        let missing =
+            ImportedDocument::open(&fs::read(directory.join("styles-missing.docx")).unwrap())
+                .unwrap();
+        write(
+            "native-styleCreate.docx",
+            preview(&missing, &[StyleEdit::Add(style("First Style").into())]),
         );
     }
     {

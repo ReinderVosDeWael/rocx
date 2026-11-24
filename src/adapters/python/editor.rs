@@ -29,6 +29,10 @@ fn alignment_name(value: crate::Alignment) -> &'static str {
 struct PyParagraphAnchor {
     inner: editor::ParagraphAnchor,
 }
+#[pyclass(name = "StoryParagraphAnchor", frozen, module = "rocx.editor")]
+struct PyStoryParagraphAnchor {
+    inner: editor::StoryParagraphAnchor,
+}
 
 #[pyclass(name = "SectionAnchor", frozen, module = "rocx.editor")]
 struct PySectionAnchor {
@@ -1675,6 +1679,15 @@ struct PyStyleEdit {
 #[pymethods]
 impl PyStyleEdit {
     #[staticmethod]
+    fn retarget(target: PyRef<'_, PyStyleAnchor>, replacement: PyRef<'_, PyStyleAnchor>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Retarget {
+                target: target.inner.clone(),
+                replacement: replacement.inner.clone(),
+            },
+        }
+    }
+    #[staticmethod]
     #[pyo3(signature=(target, field, value, *, region=None))]
     fn field(
         target: PyRef<'_, PyStyleAnchor>,
@@ -1911,6 +1924,64 @@ impl PyResourceEdit {
         }
     }
     #[staticmethod]
+    fn replace_abstract(abstract_id: u32, levels: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::ReplaceAbstract {
+                abstract_id,
+                levels: super::list(levels, super::numbering_level)?,
+            }),
+        })
+    }
+    #[staticmethod]
+    fn replace_instance(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::ReplaceInstance(
+                Box::new(super::numbering_definition(definition)?),
+            )),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(abstract_id,level,value))]
+    fn abstract_level(
+        abstract_id: u32,
+        level: u8,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AbstractLevel {
+                abstract_id,
+                level,
+                value: value
+                    .map(super::numbering_level)
+                    .transpose()?
+                    .flatten()
+                    .map(Box::new),
+            }),
+        })
+    }
+    #[staticmethod]
+    fn relink_instance(num_id: u32, abstract_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::RelinkInstance {
+                num_id,
+                abstract_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,value))]
+    fn story_paragraph_numbering(
+        target: PyRef<'_, PyStoryParagraphAnchor>,
+        value: Option<(u32, u8)>,
+    ) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::StoryParagraph {
+                target: target.inner.clone(),
+                value: value.map(|(id, level)| crate::NumberingReference { id, level }),
+            }),
+        }
+    }
+    #[staticmethod]
     fn add_instance(num_id: u32, abstract_id: u32) -> Self {
         Self {
             inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
@@ -1952,6 +2023,50 @@ impl PyResourceEdit {
 
 #[pymethods]
 impl PyImportedDocument {
+    fn cell_paragraph_anchor(
+        &self,
+        target: PyRef<'_, PyTableAnchor>,
+        row_index: usize,
+        cell_index: usize,
+        block_index: usize,
+    ) -> PyResult<PyStoryParagraphAnchor> {
+        Ok(PyStoryParagraphAnchor {
+            inner: self
+                .inner
+                .lock()
+                .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+                .cell_paragraph_anchor(&target.inner, row_index, cell_index, block_index)
+                .map_err(rust_error)?,
+        })
+    }
+    #[pyo3(signature=(owner_part,block_index,entry_id=None))]
+    fn story_paragraph_anchor(
+        &self,
+        owner_part: &str,
+        block_index: usize,
+        entry_id: Option<&str>,
+    ) -> PyResult<PyStoryParagraphAnchor> {
+        Ok(PyStoryParagraphAnchor {
+            inner: self
+                .inner
+                .lock()
+                .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+                .story_paragraph_anchor(owner_part, block_index, entry_id)
+                .map_err(rust_error)?,
+        })
+    }
+    fn story_paragraph_numbering(
+        &self,
+        target: PyRef<'_, PyStoryParagraphAnchor>,
+    ) -> PyResult<Option<(u32, u8)>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .story_paragraph_numbering(&target.inner)
+            .map_err(rust_error)?
+            .map(|r| (r.id, r.level)))
+    }
     fn style_anchor(&self, id: &str) -> PyResult<PyStyleAnchor> {
         let doc = self
             .inner
@@ -2733,6 +2848,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedNumberingInstance>()?;
     module.add_class::<PyResourceEdit>()?;
     module.add_class::<PyStyleAnchor>()?;
+    module.add_class::<PyStoryParagraphAnchor>()?;
     module.add_class::<PyStyleEdit>()?;
     module.add_class::<PyControlAnchor>()?;
     module.add_class::<PyControlEdit>()?;

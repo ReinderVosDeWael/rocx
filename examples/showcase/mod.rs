@@ -563,6 +563,12 @@ pub async fn generate(output: &Path) -> Result<()> {
                     ..Default::default()
                 })),
             },
+            editor::StyleEdit::Field {
+                target: imported.style_anchor("Regionfirst_row")?,
+                region: Some("firstRow".into()),
+                field: "lang.eastAsia".into(),
+                value: Some("ko-KR".into()),
+            },
             editor::StyleEdit::Add(
                 NumberingStyleDefinition {
                     name: "Catalog Imported List".into(),
@@ -853,6 +859,46 @@ pub async fn generate(output: &Path) -> Result<()> {
             text: " + point".into(),
         }],
         resources: &[
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::ReplaceAbstract {
+                abstract_id: 0,
+                levels: vec![rocx::NumberingLevel {
+                    level: 0,
+                    start: 3,
+                    format: "upperLetter".into(),
+                    text: "%1)".into(),
+                    ..Default::default()
+                }],
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AbstractLevel {
+                abstract_id: 1,
+                level: 0,
+                value: Some(Box::new(rocx::NumberingLevel {
+                    level: 0,
+                    start: 4,
+                    format: "upperRoman".into(),
+                    text: "%1.".into(),
+                    ..Default::default()
+                })),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::RelinkInstance {
+                num_id: 8,
+                abstract_id: 0,
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::ReplaceInstance(Box::new(
+                rocx::NumberingDefinition {
+                    id: 9,
+                    abstract_id: Some(1),
+                    start_overrides: vec![rocx::NumberingStartOverride {
+                        level: 0,
+                        start: 12,
+                    }],
+                    ..Default::default()
+                },
+            ))),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::StoryParagraph {
+                target: imported.story_paragraph_anchor(&review.part_name, 0, Some(&review.id))?,
+                value: Some(rocx::NumberingReference { id: 9049, level: 0 }),
+            }),
             editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
                 abstract_id: 9048,
                 levels: vec![rocx::NumberingLevel {

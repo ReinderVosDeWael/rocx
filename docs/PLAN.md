@@ -24,6 +24,36 @@ the new combined oracle. Strict installed TypeScript and offline Wasm/glue
 replay passed. The 12 catalogs and 26 editor outputs from
 `7d5d08b` are byte-identical to their qualified baselines.
 
+**#48 / style recovery atop `7d5d08b`:** recover the pending numbering work,
+compound style changes from `e7c7696`, and the pending numbering-style
+ownership regression in a separate worktree. The transaction stages abstract
+and instance replacements before styles and payloads, and rechecks removals
+against the finished package. Direct footer/header, ordinary note/comment
+and physical table-cell paragraphs can take numbering references. The CLI
+resolves those addresses against the digest-bound source and exposes abstract
+and instance replacement, level edits, relinking and explicit style retargeting.
+Equivalent level payloads and compatible default/metadata scalar lexemes
+remain untouched.
+
+Qualification: 341 Rust all-feature/all-target tests, three doctests, and
+974 schema-required tests against the installed Python 3.12 wheel passed.
+Rust 1.88, native/Wasm Clippy, strict installed TypeScript, offline Wasm/glue
+replay and the 632-page strict docs build passed. All 12 catalogs matched
+exactly across Rust, installed Python, packed Node 22/24/26 and Chromium 159
+development/production. All 29 editor outputs matched Rust in those packed
+consumers and passed schema/OPC checks. An independent footer/cell fixture
+matched Rust CLI, installed Python and packed Node byte for byte, including
+no-op, stale-anchor, duplicate, live-reference and opaque-markup probes.
+
+Keep #48 open. The direct readers do not reconstruct full abstract/override
+level bodies or expose their abstract style links; edits cannot change levels
+of style-linked abstracts, relink across them, or drop a level address of a
+surviving instance. Nested or protected paragraph targets aren't supported.
+Unmodeled defaults, extended metadata and non-string/non-boolean custom
+variants are retained but not editable; the CLI still uses declaration
+shorthands. Style retargeting is restricted to provable, same-kind stored IDs;
+unknown references and lexical alias collisions remain conservative blockers.
+
 Primary integration ([#65](https://github.com/ReinderVosDeWael/rocx/pull/65)):
 the point, section, formatting, story and lifecycle work from `a30c516` is
 combined with `ea1c023` and the preservation guards from `ee4f8f5`. The merge
@@ -133,6 +163,18 @@ The direct layout API addresses each inspected section independently of its
 first block, including empty implicit finals. The [layout contract](EDITOR-PARITY.md#direct-paragraph-and-section-layout)
 lists fields, units, clear semantics and unsupported imported forms.
 
+The recovered numbering increment allocates missing parts beside the main
+document, replaces supported levels and relinks instances without breaking
+consumer level addresses, and edits direct story paragraphs through their
+original physical owner.
+ The standalone #3 style increment adds attribute-level formatting and tab edits,
+collision-safe creation of an absent styles relationship, and explicit guarded
+style-reference migration. The three style oracles matched complete Rust,
+installed Python, packed Node 26 and Chromium 159 output and passed schema/OPC
+validation. All eleven catalog files matched Rust/Python/Node. The installed
+consumer suite compared 25 editor outputs. Exercise style ownership with the
+#48 instance/override editor (`c1a8fac`) in a combined checkout.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -145,8 +187,8 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content or guarded direct-body table/row/cell nodes; remove eligible direct tables; inspect and patch modeled direct properties in body, nested and physical story tables. | Splitting protected merges, unsafe destructive changes, whole-node replacement/removal outside direct-body scope and cross-owner batches. |
 | #46 Stories | Shared/local images and guarded block splices in all six header/footer slots; create/link/remove explicit story references; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Deleting OPC story parts, custom note marks, shared or nested note reference edits, destructive rich block edits, modern comment metadata and reserved entries. |
-| #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits and retargeting live users. |
-| #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
+| #47 Styles | Inspect direct properties and regions; add all four kinds and create an absent catalog; patch direct formatting attributes and tabs, set/clear conditional wrappers, and migrate provable typed ID references. | Rewriting field instructions or opaque users, arbitrary unmodeled XML edits, and migrating linked numbering styles. |
+| #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering replacement and overrides, and direct body/cell/story paragraph numbering. | Rich destructive edits, nested/control targets, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
 | #51 JSON CLI / #3 follow-up | Digest-bound transport for baseline batches plus direct layout, section lifecycle, story references/splices, table edits (including physical owners), metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declaration payloads remain a subset of authoring; rich run formatting and entry/note lifecycle are not exposed over the CLI. See [CLI contract](CLI.md). |

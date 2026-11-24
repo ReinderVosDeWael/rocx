@@ -137,12 +137,17 @@ compute displayed labels.
 | Operation | Rust variant | Python factory | JavaScript `kind` and fields |
 | --- | --- | --- | --- |
 | Add abstract levels | `AddAbstract { abstract_id, levels }` | `add_abstract(abstract_id, levels)` | `addAbstract`: `abstractId`, `levels` |
+| Replace the levels of an existing abstract | `ReplaceAbstract { abstract_id, levels }` | `replace_abstract(abstract_id, levels)` | `replaceAbstract`: `abstractId`, `levels` |
+| Set/clear one physical abstract level | `AbstractLevel { abstract_id, level, value }` | `abstract_level(abstract_id, level, value)` | `abstractLevel`: `abstractId`, `level`, `value` |
 | Remove unused abstract | `RemoveAbstract { abstract_id }` | `remove_abstract(abstract_id)` | `removeAbstract`: `abstractId` |
 | Add concrete instance of an abstract | `AddInstance { num_id, abstract_id }` | `add_instance(num_id, abstract_id)` | `addInstance`: `numId`, `abstractId` |
+| Relink an existing concrete instance | `RelinkInstance { num_id, abstract_id }` | `relink_instance(num_id, abstract_id)` | `relinkInstance`: `numId`, `abstractId` |
+| Replace a concrete link and all its overrides | `ReplaceInstance(Box<NumberingDefinition>)` | `replace_instance(definition)` | `replaceInstance`: `definition` |
 | Remove unused instance | `RemoveInstance { num_id }` | `remove_instance(num_id)` | `removeInstance`: `numId` |
 | Set/clear concrete start | `InstanceStart { num_id, level, start }` | `instance_start(num_id, level, start)` | `instanceStart`: `numId`, `level`, `value` |
 | Set/clear concrete level replacement | `InstanceLevel { num_id, level, value }` | `instance_level(num_id, level, value)` | `instanceLevel`: `numId`, `level`, `value` |
 | Assign/clear a direct body paragraph's list | `Paragraph { target, value }` | `paragraph_numbering(target, value)` | `paragraphNumbering`: `target`, `value` |
+| Assign/clear a direct cell or story paragraph's list | `StoryParagraph { target, value }` | `story_paragraph_numbering(target, value)` | `storyParagraphNumbering`: `target`, `value` |
 
 Add a nonempty list of distinct `NumberingLevel` declarations (indices 0–8).
 Supported `format` tokens are `decimal`, `decimalZero`, `upperRoman`, `lowerRoman`,
@@ -150,6 +155,13 @@ Supported `format` tokens are `decimal`, `decimalZero`, `upperRoman`, `lowerRoma
 must match its target. Level declarations cannot link paragraph styles. A
 replacement and a start override may coexist; clearing either retains the other.
 Pass `None`/`null` to clear. Omit an edit to retain that property.
+Replace or clear only modeled level content. Whole abstract replacement
+retains the abstract ID, metadata and unrelated siblings; reapplying the same
+modeled level payload is a no-op. A surviving instance must keep its old level addresses. A
+linked numbering style prevents abstract level replacement or relinking across
+that abstract. Concrete replacement takes an explicit abstract ID and may
+specify start and level overrides, but cannot declare abstract levels or
+inherited styles. It conflicts with separate instance changes at the same ID.
 
 Rust `numbering_instances()`, Python `numbering_instances`, and JavaScript
 `numberingInstances()` list the physical instance ID, abstract ID, direct
@@ -159,6 +171,15 @@ pairs. Rust/Python `paragraph_numbering(anchor)` and JavaScript
 The value is Rust `NumberingReference`, Python `(num_id, level)` or JavaScript
 `{id, level}`. A partial, annotated or revision-bearing `numPr` is unsupported;
 inherited numbering is not returned. Paragraph anchors expire on reopen.
+
+`story_paragraph_anchor` / `storyParagraphAnchor` selects a direct physical
+header/footer paragraph or an ordinary note/comment paragraph by owner, original
+block index and, for an entry, its decimal ID. Two slots sharing a part target
+the same paragraph. `cell_paragraph_anchor` / `cellParagraphAnchor` selects a
+direct paragraph in a direct body table by table anchor and physical row, cell
+and block indices. `story_paragraph_numbering` / `storyParagraphNumbering`
+reads either anchor. Nested, protected, opaque and merge-continuation targets
+are not supported.
 
 Adds, overrides and paragraph assignments can share a batch, including forward
 references. A reference or override must point to a direct level of a surviving
@@ -170,9 +191,10 @@ parts, including styles, note stories and headers; fields, opaque extensions or
 uninspectable parts can prevent removal even without a known direct reference.
 Duplicate edits and dangling targets fail the entire preview.
 
-There is no general whole-definition replacement, instance relinking, in-place
-abstract level insertion/removal, relinking an existing numbering style, or direct reference
-editing in other stories.
+Full typed level bodies and abstract style links are not exposed by the
+inspection API. Level declarations that link paragraph styles, changes to
+style-linked abstract levels, and rewriting existing numbering-style ownership
+remain unsupported. The editor does not compute inherited numbering.
 
 A new numbering style may bind a concrete instance created in the same
 preview. The style stores its `numId`, and the abstract gets a reciprocal

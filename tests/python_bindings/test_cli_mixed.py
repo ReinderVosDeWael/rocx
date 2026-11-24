@@ -762,3 +762,96 @@ def test_resource_and_style_transport(cli, tmp_path):
     assert all(a["abstract_id"] != 704 for a in cleared["abstract_starts"])
     assert call(cli, "inspect", target, numbering_targets=[0])["paragraph_numbering"] == {"0": None}
     assert source.read_bytes() == original and output.read_bytes() == output_bytes
+
+
+def test_recovered_numbering_round_trips_and_rejects_opaque_edits(cli, tmp_path):
+    from lxml import etree
+    from rocx.editor import ResourceEdit as R
+    from test_resource_fields import pack
+
+    source, added, edited = [tmp_path / f"{stem}.docx" for stem in ("source", "added", "edited")]
+    word = independent_document()
+    word.add_paragraph("Body")
+    word.add_table(rows=1, cols=1).cell(0, 0).text = "Cell"
+    word.sections[0].footer.paragraphs[0].text = "Footer"
+    word.save(source)
+    level = dict(level=0, start=1, format="decimal", text="%1.")
+    custom = level | dict(start=4, format="upperRoman")
+    seen = checked_copy(cli, source, added, [
+        dict(kind="add-abstract", abstract_id=701, levels=[level]),
+        dict(kind="add-abstract", abstract_id=702, levels=[level]),
+        dict(kind="add-instance", num_id=703, abstract_id=701),
+    ])
+    footer, = [s for s in seen["stories"] if s["target"]["kind"] == "footer"]
+    story = dict(kind="story", part=footer["part"], block_index=0)
+    cell = dict(kind="cell", target=1, row_index=0, cell_index=0, block_index=0)
+    numbering = dict(id=703, level=0)
+    edits = [
+        dict(kind="replace-abstract", abstract_id=701, levels=[custom]),
+        dict(kind="abstract-level", abstract_id=702, level=0, value=custom),
+        dict(kind="replace-instance", definition=dict(id=703, abstract_id=702)),
+        *[dict(kind="story-paragraph-numbering", target=site, value=numbering) for site in (story, cell)],
+        dict(kind="document-default", field="bold", value=False),
+        dict(kind="metadata", field="title", value="Recovery"),
+    ]
+    readback = checked_copy(cli, added, edited, edits)
+    result = call(cli, "inspect", edited, numbering_story_targets=[story, cell])
+    assert result["story_paragraph_numbering"] == [numbering, numbering]
+    assert readback["document_defaults"]["bold"] is False and readback["core_title"] == "Recovery"
+    imported = ImportedDocument.open(added.read_bytes())
+    anchor = imported.story_paragraph_anchor(story["part"], 0)
+    cell_anchor = imported.cell_paragraph_anchor(imported.body[1].anchor, 0, 0, 0)
+    assert edited.read_bytes() == imported.preview([], resources=[
+        R.replace_abstract(701, [d.NumberingLevel(**custom)]),
+        R.abstract_level(702, 0, d.NumberingLevel(**custom)),
+        R.replace_instance(d.NumberingDefinition(703, abstract_id=702)),
+        R.story_paragraph_numbering(anchor, (703, 0)),
+        R.story_paragraph_numbering(cell_anchor, (703, 0)),
+        R.document_default("bold", False), R.metadata("title", "Recovery"),
+    ]).to_docx()
+    untouched = call(cli, "preview", edited, snapshot=result["snapshot"], edits=[])
+    assert call(cli, "preview", edited, snapshot=result["snapshot"], edits=edits) == untouched
+    rejected = tmp_path / "rejected.docx"
+    for batch in ([dict(kind="remove-instance", num_id=703)], [edits[3], edits[3]],
+                  [edits[0], dict(kind="abstract-start", abstract_id=701, level=0, value=None)]):
+        call(cli, "save-copy", edited, success=False, snapshot=result["snapshot"],
+             output=str(rejected), edits=batch)
+        assert not rejected.exists()
+    state = parts(edited)
+    root = etree.fromstring(state["word/numbering.xml"])
+    root.find("{*}abstractNum[@{http://schemas.openxmlformats.org/wordprocessingml/2006/main}abstractNumId='701']/{*}lvl").append(
+        etree.Comment("keep opaque formatting"))
+    state["word/numbering.xml"] = etree.tostring(root)
+    opaque = tmp_path / "opaque.docx"
+    opaque.write_bytes(pack(state))
+    seen = call(cli, "inspect", opaque)
+    assert "unmodeled" in call(cli, "save-copy", opaque, success=False, snapshot=seen["snapshot"],
+                               output=str(rejected), edits=[edits[0]])
+    assert not rejected.exists()
+
+
+def test_style_retarget_transport(cli, tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+    from rocx.editor import StyleEdit
+
+    source, target = tmp_path / "styles.docx", tmp_path / "retargeted.docx"
+    word = independent_document()
+    word.styles.add_style("Migration Source Test", WD_STYLE_TYPE.PARAGRAPH)
+    word.styles.add_style("Migration Destination Test", WD_STYLE_TYPE.PARAGRAPH)
+    word.add_paragraph("Keep body", "Migration Source Test")
+    word.sections[0].header.paragraphs[0].style = "Migration Source Test"
+    word.save(source)
+    edit = dict(kind="style-retarget", id="MigrationSourceTest", replacement_id="MigrationDestinationTest")
+    snapshot = call(cli, "inspect", source)["snapshot"]
+    call(cli, "save-copy", source, success=False, snapshot=snapshot, output=str(target),
+         edits=[edit, dict(kind="style-field", id=edit["replacement_id"], field="b", value="1")])
+    assert not target.exists()
+    checked_copy(cli, source, target, [edit])
+    api = ImportedDocument.open(source.read_bytes())
+    assert api.preview([], style_edits=[
+        StyleEdit.retarget(api.style_anchor(edit["id"]), api.style_anchor(edit["replacement_id"])),
+    ]).to_docx() == target.read_bytes()
+    readback = docx.Document(target)
+    assert readback.paragraphs[0].style.name == "Migration Destination Test"
+    assert readback.sections[0].header.paragraphs[0].style.name == "Migration Destination Test"
+    assert "Migration Source Test" not in readback.styles

@@ -25,8 +25,9 @@ PORTABLE_ORACLES = (
 )
 EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
-                  "blocks", "inline", "runFormatting", "tableStructure", "tableNodes", "physicalTables", "styleEdits", "controlEdits",
-                  "tracked", "reviewed", "moved", "moveAccepted", "combined", "numberingEdits", "layout",
+                  "blocks", "inline", "runFormatting", "tableStructure", "tableNodes", "physicalTables",
+                  "styleEdits", "styleCreate", "styleRetarget", "controlEdits", "tracked", "reviewed",
+                  "moved", "moveAccepted", "combined", "numberingEdits", "styleOwnedList", "layout",
                   "sectionSplit", "sectionMerge", "storyShared", "structuralResources")
 
 

@@ -21,6 +21,8 @@ enum Request {
         table_owner: Option<String>,
         #[serde(default)]
         numbering_targets: Vec<usize>,
+        #[serde(default)]
+        numbering_story_targets: Vec<rocx_protocol::NumberingSite>,
     },
     Preview {
         source: String,
@@ -50,6 +52,7 @@ fn execute(request: Request) -> Result<Value, String> {
             custom_properties,
             table_owner,
             numbering_targets,
+            numbering_story_targets,
             ..
         } => {
             return rocx_protocol::inspect(
@@ -59,6 +62,7 @@ fn execute(request: Request) -> Result<Value, String> {
                 custom_properties,
                 table_owner.as_deref(),
                 numbering_targets,
+                numbering_story_targets,
             );
         }
         Request::Preview {

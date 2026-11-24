@@ -183,6 +183,8 @@ def generate(directory):
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
         catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
     catalog.sections[0].header.paragraphs[0].style = "Memo Active"
+    catalog.add_paragraph("Style migration", style="Memo Active")
+    catalog.styles.add_style("Memo Follower", WD_STYLE_TYPE.PARAGRAPH).base_style = catalog.styles["Memo Active"]
     catalog.save(directory / "styles-source.docx")
     doc = Document()
     # python-docx's bundled template omits this required Transitional attribute.
@@ -515,6 +517,24 @@ def verify(directory):
     ]).to_docx() == numbered.read_bytes()
     untouched(parts(source_path), parts(numbered), (MAIN, "word/numbering.xml"))
     assert Document(numbered).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
+    owned = styles_source.preview([],style_edits=[StyleEdit.add(d.NumberingStyleDefinition(name="Owned List",numbering_id=91))],
+                          resources=[ResourceEdit.add_instance(91,90),ResourceEdit.add_abstract(90,[d.NumberingLevel()]),
+                                     ResourceEdit.instance_start(91,0,6)]).to_docx()
+    assert owned == (directory/"styleOwnedList.docx").read_bytes()
+    untouched(parts(source_path),parts(io.BytesIO(owned)),("word/styles.xml","word/numbering.xml"))
+    word = Document(io.BytesIO(owned))
+    assert not word.paragraphs[0]._p.xpath("w:pPr/w:numPr")
+    assert word.styles["Owned List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
+    nums = word.part.numbering_part.element
+    assert nums.xpath("w:abstractNum[@w:abstractNumId='90']/w:styleLink/@w:val") == ["OwnedList"]
+    assert nums.xpath("w:num[@w:numId='91']/w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val") == ["6"]
+    reopened = ImportedDocument.open(owned)
+    try:
+        reopened.preview([],resources=[ResourceEdit.remove_instance(91)])
+    except ValueError as error:
+        assert "references" in str(error)
+    else:
+        raise AssertionError("removed style-owned concrete instance")
     edit = styles_source.preview([], style_edits=[
         StyleEdit.add(d.ParagraphStyleDefinition(name="Memo Added", base_style="Memo Active")),
         StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
@@ -522,10 +542,25 @@ def verify(directory):
         StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
         StyleEdit.field(styles_source.style_anchor("Heading1"), "next", "MemoAdded"),
         StyleEdit.region(styles_source.style_anchor("TableGrid"), "nwCell", d.TableSectionFormat(bold=True, background=(10,20,30))),
+        StyleEdit.field(styles_source.style_anchor("LightShading"), "shd.fill", "BADACE", region="firstRow"),
+        StyleEdit.field(styles_source.style_anchor("LightShading"), "spacing.after", "180", region="firstRow"),
         StyleEdit.add(d.NumberingStyleDefinition(name="Memo List", numbering_id=1)),
         StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
     ])
     assert edit.to_docx() == style_path.read_bytes()
+    missing = ImportedDocument.open((directory/"styles-missing.docx").read_bytes())
+    created = missing.preview([], style_edits=[StyleEdit.add(d.ParagraphStyleDefinition(name="First Style"))]).to_docx()
+    assert created == (directory/"styleCreate.docx").read_bytes()
+    assert missing.styles is None and "First Style" in Document(io.BytesIO(created)).styles
+    untouched(parts(directory/"styles-missing.docx"), parts(io.BytesIO(created)), (MAIN_RELS,TYPES))
+    migrated = styles_source.preview([], style_edits=[StyleEdit.retarget(styles_source.style_anchor("MemoActive"),
+                                                                          styles_source.style_anchor("MemoReplace"))]).to_docx()
+    assert migrated == (directory/"styleRetarget.docx").read_bytes()
+    target = Document(io.BytesIO(migrated))
+    assert "Memo Active" not in target.styles and next(p for p in target.paragraphs if p.text=="Style migration").style.name == "Memo Replace"
+    assert target.sections[0].header.paragraphs[0].style.name == "Memo Replace"
+    assert target.styles["Memo Follower"].base_style.name == "Memo Replace"
+    untouched(parts(source_path), parts(io.BytesIO(migrated)), ("word/styles.xml",MAIN,HEADER))
     before, after = parts(source_path), parts(style_path)
     assert before.keys() == after.keys()
     untouched(before, after, ("word/styles.xml","word/numbering.xml"))

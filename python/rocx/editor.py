@@ -26,7 +26,10 @@ Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
 accepts paragraph, character, table and numbering declarations. A numbering
 style binds an existing concrete list. ``StyleEdit.field`` sets or clears a
 direct scalar field; ``StyleEdit.region`` sets or clears a conditional table
-region. ``replace`` and ``remove`` require unused, recognized custom definitions.
+region. Dotted fields such as ``spacing.after`` and ``lang.eastAsia`` patch
+one stored attribute. Adding styles can create a missing styles part.
+``replace`` and ``remove`` require unused, recognized custom definitions;
+``retarget(source, replacement)`` migrates provable same-kind uses first.
 Each ``ImportedStyle.property_xml`` entry contains one direct property group
 or table region, with its namespace declarations.
 
@@ -56,6 +59,7 @@ from ._native import (
     ImportedNumberingInstance,
     ResourceEdit,
     StyleAnchor,
+    StoryParagraphAnchor,
     StyleEdit,
     ControlAnchor,
     ControlEdit,
@@ -115,6 +119,7 @@ __all__ = [
     "ImportedNumberingInstance",
     "ResourceEdit",
     "StyleAnchor",
+    "StoryParagraphAnchor",
     "StyleEdit",
     "ControlAnchor",
     "ControlEdit",

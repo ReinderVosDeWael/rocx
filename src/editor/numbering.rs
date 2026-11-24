@@ -15,6 +15,26 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug)]
 pub enum NumberingEdit {
+    /// Replace a concrete link and its complete set of direct overrides.
+    ReplaceInstance(Box<crate::NumberingDefinition>),
+    /// Replace the physical levels while retaining abstract identity and metadata.
+    ReplaceAbstract {
+        abstract_id: u32,
+        levels: Vec<crate::NumberingLevel>,
+    },
+    AbstractLevel {
+        abstract_id: u32,
+        level: u8,
+        value: Option<Box<crate::NumberingLevel>>,
+    },
+    RelinkInstance {
+        num_id: u32,
+        abstract_id: u32,
+    },
+    StoryParagraph {
+        target: StoryParagraphAnchor,
+        value: Option<NumberingReference>,
+    },
     AddAbstract {
         abstract_id: u32,
         levels: Vec<crate::NumberingLevel>,
@@ -200,12 +220,47 @@ pub(super) fn paragraph_targets<'a>(
     edits: &'a [ResourceEdit],
 ) -> Result<Targets<'a>> {
     let mut targets = BTreeMap::new();
+    let mut new_abstracts = BTreeSet::new();
+    let mut new_instances = BTreeSet::new();
     for edit in edits {
+        match edit {
+            ResourceEdit::Numbering(NumberingEdit::AddAbstract { abstract_id, .. }) => {
+                new_abstracts.insert(*abstract_id);
+            }
+            ResourceEdit::Numbering(NumberingEdit::AddInstance { num_id, .. }) => {
+                new_instances.insert(*num_id);
+            }
+            _ => {}
+        }
         if let ResourceEdit::Numbering(NumberingEdit::Paragraph { target, value }) = edit {
             doc.validate_snapshot(&target.snapshot)?;
             if targets.insert(target.body_index, value).is_some() {
                 return Err(unsupported("duplicate paragraph numbering edit"));
             }
+        }
+    }
+    // An unallocated identity may already have a dangling consumer. Do not
+    // silently activate that consumer when creating a definition or part.
+    if !new_abstracts.is_empty() || !new_instances.is_empty() {
+        let mut claimed = false;
+        doc.package.visit_source_xml(|n| {
+            let ids = match n.name.as_str() {
+                "w:abstractNumId" => &new_abstracts,
+                "w:numId" => &new_instances,
+                _ => return,
+            };
+            if !ids.is_empty()
+                && n.get("w:val")
+                    .and_then(unsigned_decimal)
+                    .is_none_or(|v| ids.contains(&v))
+            {
+                claimed = true;
+            }
+        })?;
+        if claimed {
+            return Err(unsupported(
+                "numbering identity already referenced in source",
+            ));
         }
     }
     Ok(targets)
@@ -222,26 +277,256 @@ pub(super) fn patch_paragraphs(body: &mut Node, targets: &Targets<'_>) -> Result
         .enumerate()
     {
         let Some(&v) = targets.get(&i) else { continue };
-        if p.name != "w:p" {
-            return Err(unsupported("not a paragraph"));
-        }
-        if &paragraph_reference(p)? == v {
-            continue;
-        }
-        changed = true;
-        if p.child("w:pPr").is_none() {
-            p.children.insert(0, Content::Element(Node::new("w:pPr")));
-        }
-        let props = p.child_mut("w:pPr").unwrap();
-        if let Some(r) = v {
-            let num = props.ensure("w:numPr");
-            num.ensure("w:ilvl").set("w:val", r.level);
-            num.ensure("w:numId").set("w:val", r.id);
-        } else {
-            props.remove("w:numPr");
-        }
+        changed |= patch_paragraph(p, v)?;
     }
     Ok(changed)
+}
+
+fn patch_paragraph(p: &mut Node, v: &Option<NumberingReference>) -> Result<bool> {
+    if p.name != "w:p" {
+        return Err(unsupported("not a paragraph"));
+    }
+    if &paragraph_reference(p)? == v {
+        return Ok(false);
+    }
+    if p.child("w:pPr").is_none() {
+        p.children.insert(0, Content::Element(Node::new("w:pPr")));
+    }
+    let props = p.child_mut("w:pPr").unwrap();
+    if let Some(r) = v {
+        let num = props.ensure("w:numPr");
+        num.ensure("w:ilvl").set("w:val", r.level);
+        num.ensure("w:numId").set("w:val", r.id);
+    } else {
+        props.remove("w:numPr");
+    }
+    Ok(true)
+}
+
+type CellPath = (usize, usize, usize, usize);
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum StorySite {
+    Part(String, Option<usize>, usize),
+    Cell(CellPath),
+}
+#[derive(Clone, Debug)]
+pub struct StoryParagraphAnchor {
+    snapshot: std::sync::Arc<()>,
+    site: StorySite,
+}
+impl ImportedDocument {
+    /// Select a direct paragraph in one physical header/footer or ordinary entry.
+    pub fn story_paragraph_anchor(
+        &self,
+        owner_part: &str,
+        block_index: usize,
+        entry_id: Option<&str>,
+    ) -> Result<StoryParagraphAnchor> {
+        let entry = if let Some(raw) = entry_id {
+            let id = crate::ooxml::decimal_id(raw)
+                .ok_or_else(|| unsupported("invalid story entry ID"))?;
+            let mut matches = self.entry_stories()?.iter().filter(|e| {
+                e.part_name == owner_part && crate::ooxml::decimal_id(&e.id).as_ref() == Some(&id)
+            });
+            let e = matches
+                .next()
+                .ok_or_else(|| unsupported("missing story entry"))?;
+            if matches.next().is_some()
+                || e.kind != super::EntryKind::Comment
+                    && (id.starts_with('-')
+                        || !matches!(e.note_type.as_deref(), None | Some("normal")))
+            {
+                return Err(unsupported("ambiguous or reserved story entry"));
+            }
+            Some(e.element_index)
+        } else {
+            if !self.stories()?.iter().any(|s| s.part_name == owner_part) {
+                return Err(unsupported("missing effective header/footer owner"));
+            }
+            None
+        };
+        let mut root = self.package.word(owner_part)?;
+        story_paragraph(&mut root, entry, block_index)?;
+        Ok(StoryParagraphAnchor {
+            snapshot: self.snapshot.clone(),
+            site: StorySite::Part(owner_part.to_owned(), entry, block_index),
+        })
+    }
+    pub fn cell_paragraph_anchor(
+        &self,
+        target: &super::TableAnchor,
+        row_index: usize,
+        cell_index: usize,
+        block_index: usize,
+    ) -> Result<StoryParagraphAnchor> {
+        self.validate_snapshot(&target._snapshot)?;
+        let site = (target._body_index, row_index, cell_index, block_index);
+        let mut root = self.package.word(&self.main)?;
+        cell_paragraph(
+            root.child_mut("w:body").ok_or_else(super::missing_body)?,
+            site,
+        )?;
+        Ok(StoryParagraphAnchor {
+            snapshot: self.snapshot.clone(),
+            site: StorySite::Cell(site),
+        })
+    }
+    pub fn story_paragraph_numbering(
+        &self,
+        target: &StoryParagraphAnchor,
+    ) -> Result<Option<NumberingReference>> {
+        self.validate_snapshot(&target.snapshot)?;
+        match &target.site {
+            StorySite::Part(owner, entry, block) => paragraph_reference(story_paragraph(
+                &mut self.package.word(owner)?,
+                *entry,
+                *block,
+            )?),
+            StorySite::Cell(site) => paragraph_reference(cell_paragraph(
+                self.package
+                    .word(&self.main)?
+                    .child_mut("w:body")
+                    .ok_or_else(super::missing_body)?,
+                *site,
+            )?),
+        }
+    }
+    pub(super) fn stage_story_numbering(
+        &self,
+        pkg: &mut Package,
+        edits: &[ResourceEdit],
+    ) -> Result<()> {
+        let mut seen = BTreeSet::new();
+        let mut groups = BTreeMap::<String, Vec<_>>::new();
+        for r in edits {
+            if let ResourceEdit::Numbering(NumberingEdit::StoryParagraph { target, value }) = r {
+                self.validate_snapshot(&target.snapshot)?;
+                let StorySite::Part(owner, entry, block) = &target.site else {
+                    continue;
+                };
+                if !seen.insert(target.site.clone()) {
+                    return Err(unsupported(
+                        "duplicate or mismatched physical story paragraph",
+                    ));
+                }
+                groups
+                    .entry(owner.clone())
+                    .or_default()
+                    .push((*entry, *block, value));
+            }
+        }
+        for (owner, sites) in groups {
+            let mut root = pkg.word(&owner)?;
+            let mut changed = false;
+            for (entry, block, value) in sites {
+                changed |= patch_paragraph(story_paragraph(&mut root, entry, block)?, value)?;
+            }
+            if changed {
+                pkg.put_word(owner, root)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub(super) type CellTargets<'a> = BTreeMap<CellPath, &'a Option<NumberingReference>>;
+pub(super) fn cell_targets<'a>(
+    doc: &ImportedDocument,
+    resources: &'a [ResourceEdit],
+    structural: &[super::TableStructureEdit],
+) -> Result<CellTargets<'a>> {
+    let mut targets = BTreeMap::new();
+    for r in resources {
+        if let ResourceEdit::Numbering(NumberingEdit::StoryParagraph { target, value }) = r
+            && let StorySite::Cell(site) = target.site
+        {
+            doc.validate_snapshot(&target.snapshot)?;
+            if structural.iter().any(|e| e.target._body_index == site.0)
+                || targets.insert(site, value).is_some()
+            {
+                return Err(unsupported(
+                    "conflicting cell paragraph or table structure edit",
+                ));
+            }
+        }
+    }
+    Ok(targets)
+}
+pub(super) fn patch_cells(body: &mut Node, targets: &CellTargets<'_>) -> Result<bool> {
+    let mut changed = false;
+    for (&site, value) in targets {
+        changed |= patch_paragraph(cell_paragraph(body, site)?, value)?;
+    }
+    Ok(changed)
+}
+fn cell_paragraph(body: &mut Node, (table, row, cell, block): CellPath) -> Result<&mut Node> {
+    fn select<'a>(
+        parent: &'a mut Node,
+        skip: &[&str],
+        tag: &str,
+        i: usize,
+        state: &mut super::BoundaryState,
+    ) -> Result<&'a mut Node> {
+        let mut index = 0;
+        for n in parent.elements_mut() {
+            if !skip.contains(&n.name.as_str()) {
+                if index == i {
+                    if n.name != tag {
+                        return Err(unsupported("cell paragraph target is opaque"));
+                    }
+                    return Ok(n);
+                }
+                index += 1;
+            }
+            state.advance(n);
+        }
+        Err(unsupported("missing cell paragraph"))
+    }
+    let mut state = super::BoundaryState::default();
+    let t = select(body, &["w:sectPr"], "w:tbl", table, &mut state)?;
+    super::tables::validate(t, false)?;
+    let r = select(t, &["w:tblPr", "w:tblGrid"], "w:tr", row, &mut state)?;
+    if r.child("w:trPr")
+        .is_some_and(|n| n.child("w:ins").is_some() || n.child("w:del").is_some())
+    {
+        return Err(unsupported("tracked row paragraph"));
+    }
+    let c = select(r, &["w:trPr"], "w:tc", cell, &mut state)?;
+    if c.child("w:tcPr")
+        .and_then(|n| n.child("w:vMerge"))
+        .is_some_and(|n| n.get("w:val") != Some("restart"))
+    {
+        return Err(unsupported("vertical merge continuation paragraph"));
+    }
+    let p = select(c, &["w:tcPr"], "w:p", block, &mut state)?;
+    let before = state.safe();
+    state.advance(p);
+    if !before || !state.safe() {
+        return Err(unsupported("protected cell paragraph"));
+    }
+    Ok(p)
+}
+
+fn story_paragraph(root: &mut Node, entry: Option<usize>, block: usize) -> Result<&mut Node> {
+    let container = if let Some(i) = entry {
+        root.elements_mut()
+            .nth(i)
+            .ok_or_else(|| unsupported("missing story entry"))?
+    } else {
+        root
+    };
+    let mut boundary = super::BoundaryState::default();
+    for (i, n) in container.elements_mut().enumerate() {
+        let safe = boundary.safe();
+        boundary.advance(n);
+        if i == block {
+            if !safe || !boundary.safe() || n.name != "w:p" {
+                return Err(unsupported("protected or missing story paragraph"));
+            }
+            return Ok(n);
+        }
+    }
+    Err(unsupported("missing story paragraph"))
 }
 
 fn named<'a>(n: &'a mut Node, tag: &str, attr: &str, key: u32) -> Option<&'a mut Node> {
@@ -262,17 +547,120 @@ fn discardable(n: &Node) -> bool {
                 "w:isLgl",
                 "w:suff",
                 "w:lvlJc",
+                "w:pPr",
+                "w:rPr",
             ],
         ),
         "w:num" => (&["w:numId"], &["w:abstractNumId", "w:lvlOverride"]),
         "w:lvlOverride" => (&["w:ilvl"], &["w:startOverride", "w:lvl"]),
+        "w:pPr" => (
+            &[],
+            &[
+                "w:bidi",
+                "w:keepNext",
+                "w:keepLines",
+                "w:pageBreakBefore",
+                "w:widowControl",
+                "w:suppressLineNumbers",
+                "w:contextualSpacing",
+                "w:mirrorIndents",
+                "w:snapToGrid",
+                "w:spacing",
+                "w:ind",
+                "w:tabs",
+                "w:jc",
+            ],
+        ),
+        "w:rPr" => (
+            &[],
+            &[
+                "w:rFonts",
+                "w:b",
+                "w:i",
+                "w:bCs",
+                "w:iCs",
+                "w:rtl",
+                "w:cs",
+                "w:caps",
+                "w:smallCaps",
+                "w:snapToGrid",
+                "w:strike",
+                "w:color",
+                "w:sz",
+                "w:szCs",
+                "w:lang",
+                "w:u",
+                "w:vertAlign",
+            ],
+        ),
+        "w:rFonts" => (&["w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"], &[]),
+        "w:color" => (
+            &["w:val", "w:themeColor", "w:themeTint", "w:themeShade"],
+            &[],
+        ),
+        "w:lang" => (&["w:val", "w:eastAsia", "w:bidi"], &[]),
+        "w:spacing" => (&["w:before", "w:after", "w:line", "w:lineRule"], &[]),
+        "w:ind" => (&["w:left", "w:right", "w:firstLine", "w:hanging"], &[]),
+        "w:tabs" => (&[], &["w:tab"]),
+        "w:tab" => (&["w:val", "w:pos", "w:leader"], &[]),
+        "w:bidi"
+        | "w:keepNext"
+        | "w:keepLines"
+        | "w:pageBreakBefore"
+        | "w:widowControl"
+        | "w:suppressLineNumbers"
+        | "w:contextualSpacing"
+        | "w:mirrorIndents"
+        | "w:snapToGrid"
+        | "w:jc"
+        | "w:b"
+        | "w:i"
+        | "w:bCs"
+        | "w:iCs"
+        | "w:rtl"
+        | "w:cs"
+        | "w:caps"
+        | "w:smallCaps"
+        | "w:strike"
+        | "w:sz"
+        | "w:szCs"
+        | "w:u"
+        | "w:vertAlign" => (&["w:val"], &[]),
         "w:abstractNumId" | "w:multiLevelType" | "w:start" | "w:numFmt" | "w:lvlText"
         | "w:startOverride" | "w:lvlRestart" | "w:isLgl" | "w:suff" | "w:lvlJc" => {
             (&["w:val"], &[])
         }
         _ => return false,
     };
-    simple(n, attrs, children) && n.elements().all(discardable)
+    let mut singleton = BTreeSet::new();
+    simple(n, attrs, children)
+        && n.elements().all(|c| {
+            matches!(c.name.as_str(), "w:lvl" | "w:lvlOverride" | "w:tab")
+                || singleton.insert(c.name.as_str())
+        })
+        && n.elements().all(discardable)
+}
+
+// Compare the modeled infoset, not serializer state, surrounding indentation
+// or namespace declaration spelling. The caller has already rejected opaque
+// content, so this never makes a destructive unknown edit into a no-op.
+fn same_level(a: &Node, b: &Node) -> bool {
+    let attrs = |n: &Node| {
+        n.attrs
+            .iter()
+            .filter(|(k, _)| k.declaration().is_none())
+            .count()
+    };
+    a.name == b.name
+        && attrs(a) == attrs(b)
+        && a.attrs
+            .iter()
+            .filter(|(k, _)| k.declaration().is_none())
+            .all(|(k, v)| b.attrs.iter().any(|(key, value)| k == key && v == value))
+        && a.elements().count() == b.elements().count()
+        && a.elements()
+            .zip(b.elements())
+            .all(|(a, b)| same_level(a, b))
 }
 
 fn prune_empty_override(num: &mut Node, level: u8) {
@@ -327,13 +715,259 @@ impl RemovedIdentities {
     }
 }
 
+type Levels = BTreeMap<u32, BTreeSet<u32>>;
+fn editable_abstract<'a>(
+    root: &'a mut Node,
+    aid: u32,
+    source: &Levels,
+    removed: &BTreeSet<u32>,
+) -> Result<&'a mut Node> {
+    if removed.contains(&aid) || !source.contains_key(&aid) {
+        return Err(unsupported("unknown or conflicting abstract identity"));
+    }
+    let n = named(root, "w:abstractNum", "w:abstractNumId", aid).unwrap();
+    if n.child("w:numStyleLink").is_some() || n.child("w:styleLink").is_some() {
+        return Err(unsupported("style-linked abstract level edit"));
+    }
+    Ok(n)
+}
+
+// Rebuild the affected address sets before checking consumers, so a batch can
+// remove an unused level and move its old instances together.
+#[allow(clippy::too_many_arguments)]
+fn edit_identities(
+    edits: &[&NumberingEdit],
+    resources: &[ResourceEdit],
+    root: &mut Node,
+    defs: &mut Levels,
+    nums: &mut BTreeMap<u32, u32>,
+    source_defs: &Levels,
+    source_nums: &BTreeMap<u32, u32>,
+    removed_defs: &BTreeSet<u32>,
+    removed_nums: &BTreeSet<u32>,
+) -> Result<bool> {
+    use NumberingEdit::*;
+    let mut whole = BTreeSet::new();
+    let mut touched = BTreeSet::new();
+    let mut relinked = BTreeSet::new();
+    let mut changed = false;
+    for e in edits {
+        match *e {
+            ReplaceAbstract {
+                abstract_id: a,
+                levels,
+            } => {
+                if levels.is_empty()
+                    || !whole.insert(*a)
+                    || touched.iter().any(|(id, _)| id == a)
+                    || resources
+                        .iter()
+                        .any(|r| matches!(r,ResourceEdit::AbstractStart(s) if s.abstract_id==*a))
+                {
+                    return Err(unsupported("empty or conflicting abstract replacement"));
+                }
+                let def = editable_abstract(root, *a, source_defs, removed_defs)?;
+                let mut new = BTreeMap::new();
+                for l in levels {
+                    if new.insert(u32::from(l.level), encode_level(l)?).is_some() {
+                        return Err(unsupported("duplicate abstract replacement level"));
+                    }
+                }
+                defs.insert(*a, new.keys().copied().collect());
+                for l in def.elements().filter(|n| n.name == "w:lvl") {
+                    if !discardable(l) {
+                        return Err(unsupported(
+                            "cannot discard unmodeled abstract level markup",
+                        ));
+                    }
+                }
+                // Keep comments, extension nodes, names/IDs and other siblings
+                // in their original slots for every surviving level.
+                def.children.retain_mut(|c| {
+                    if let Content::Element(n) = c
+                        && n.name == "w:lvl"
+                    {
+                        if let Some(v) = new.remove(&id(n, "w:ilvl").unwrap()) {
+                            if !same_level(n, &v) {
+                                *n = v;
+                                changed = true;
+                            }
+                            true
+                        } else {
+                            changed = true;
+                            false
+                        }
+                    } else {
+                        true
+                    }
+                });
+                for n in new.into_values() {
+                    def.push(n);
+                    changed = true;
+                }
+            }
+            AbstractLevel {
+                abstract_id: a,
+                level,
+                value,
+            } => {
+                if *level>8 || whole.contains(a)||!touched.insert((*a,*level))||resources.iter().any(|r|matches!(r,ResourceEdit::AbstractStart(s) if (s.abstract_id,s.level)==(*a,*level))){return Err(unsupported("invalid or conflicting abstract level edit"))}
+                let def = editable_abstract(root, *a, source_defs, removed_defs)?;
+                let indices = defs.get_mut(a).unwrap();
+                let old = named(def, "w:lvl", "w:ilvl", (*level).into());
+                if old.as_deref().is_some_and(|l| !discardable(l)) {
+                    return Err(unsupported(
+                        "cannot discard unmodeled abstract level markup",
+                    ));
+                }
+                if let Some(l) = value {
+                    if l.level != *level {
+                        return Err(unsupported("mismatched abstract level"));
+                    }
+                    let new = encode_level(l)?;
+                    if let Some(old) = old {
+                        if !same_level(old, &new) {
+                            *old = new;
+                            changed = true;
+                        }
+                    } else {
+                        def.push(new);
+                        changed = true;
+                    }
+                    indices.insert((*level).into());
+                } else if old.is_some() {
+                    remove(def, "w:lvl", "w:ilvl", (*level).into())?;
+                    indices.remove(&u32::from(*level));
+                    changed = true;
+                }
+            }
+            RelinkInstance {
+                num_id: i,
+                abstract_id: a,
+            } => {
+                if !source_nums.contains_key(i)
+                    || !relinked.insert(*i)
+                    || removed_nums.contains(i)
+                    || removed_defs.contains(a)
+                    || !defs.contains_key(a)
+                {
+                    return Err(unsupported("missing or conflicting instance relink"));
+                }
+                if nums.insert(*i, *a) != Some(*a) {
+                    named(root, "w:num", "w:numId", *i)
+                        .unwrap()
+                        .child_mut("w:abstractNumId")
+                        .unwrap()
+                        .set("w:val", a);
+                    changed = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    for (&num, &old_a) in source_nums {
+        if removed_nums.contains(&num) {
+            continue;
+        }
+        let new_a = nums[&num];
+        if old_a != new_a || whole.contains(&new_a) || touched.iter().any(|(id, _)| *id == new_a) {
+            let old = source_defs
+                .get(&old_a)
+                .ok_or_else(|| unsupported("unresolved source abstract"))?;
+            let new = &defs[&new_a];
+            if old.is_empty() || !old.is_subset(new) {
+                return Err(unsupported(
+                    "would lose numbering levels of a surviving instance",
+                ));
+            }
+            let src = named(root, "w:abstractNum", "w:abstractNumId", old_a).unwrap();
+            if src.child("w:numStyleLink").is_some() || src.child("w:styleLink").is_some() {
+                return Err(unsupported("cannot relink a style-linked abstract"));
+            }
+            let dest = named(root, "w:abstractNum", "w:abstractNumId", new_a).unwrap();
+            if dest.child("w:numStyleLink").is_some() || dest.child("w:styleLink").is_some() {
+                return Err(unsupported("cannot relink to a style-linked abstract"));
+            }
+            if named(root, "w:num", "w:numId", num)
+                .unwrap()
+                .elements()
+                .filter(|o| o.name == "w:lvlOverride")
+                .any(|o| !new.contains(&id(o, "w:ilvl").unwrap()))
+            {
+                return Err(unsupported("instance override would lose its level"));
+            }
+        }
+    }
+    Ok(changed)
+}
+
+fn concrete_replacements(edits: &[&NumberingEdit], root: &Node) -> Result<Vec<NumberingEdit>> {
+    use NumberingEdit::*;
+    let mut replacements = Vec::new();
+    let mut targets = BTreeSet::new();
+    let instances = instances(root)?;
+    for e in edits {
+        let ReplaceInstance(d) = e else { continue };
+        let id = d.id;
+        let Some(a) = d.abstract_id else {
+            return Err(unsupported("concrete replacement needs an abstract ID"));
+        };
+        if !d.levels.is_empty() || d.inherit_style.is_some() {
+            return Err(unsupported(
+                "concrete replacement cannot redefine abstract levels or styles",
+            ));
+        }
+        if !targets.insert(id)||edits.iter().any(|e|matches!(e, RelinkInstance{num_id,..}|RemoveInstance{num_id}|AddInstance{num_id,..}|InstanceStart{num_id,..}|InstanceLevel{num_id,..} if *num_id==id)){
+            return Err(unsupported("conflicting concrete replacement"));
+        }
+        let instance = instances
+            .iter()
+            .find(|n| n.num_id == id)
+            .ok_or_else(|| unsupported("missing concrete instance"))?;
+        replacements.push(RelinkInstance {
+            num_id: id,
+            abstract_id: a,
+        });
+        let mut starts: BTreeMap<_, _> = d
+            .start_overrides
+            .iter()
+            .map(|s| (s.level, Some(s.start)))
+            .collect();
+        let mut levels: BTreeMap<_, _> = d
+            .level_overrides
+            .iter()
+            .map(|l| (l.level, Some(Box::new(l.clone()))))
+            .collect();
+        if starts.len() != d.start_overrides.len() || levels.len() != d.level_overrides.len() {
+            return Err(unsupported("duplicate concrete replacement override"));
+        }
+        for o in &instance.start_overrides {
+            starts.entry(o.level).or_insert(None);
+        }
+        for o in &instance.replacement_levels {
+            levels.entry(*o).or_insert(None);
+        }
+        replacements.extend(starts.into_iter().map(|(level, start)| InstanceStart {
+            num_id: id,
+            level,
+            start,
+        }));
+        replacements.extend(levels.into_iter().map(|(level, value)| InstanceLevel {
+            num_id: id,
+            level,
+            value,
+        }));
+    }
+    Ok(replacements)
+}
+
 pub(super) fn stage(
     pkg: &mut Package,
     main: &str,
     resources: &[ResourceEdit],
 ) -> Result<Option<RemovedIdentities>> {
     use NumberingEdit::*;
-    let edits: Vec<_> = resources
+    let mut edits: Vec<_> = resources
         .iter()
         .filter_map(|r| {
             if let ResourceEdit::Numbering(e) = r {
@@ -343,10 +977,12 @@ pub(super) fn stage(
             }
         })
         .collect();
-    if edits
-        .iter()
-        .all(|e| matches!(e, Paragraph { value: None, .. }))
-    {
+    if edits.iter().all(|e| {
+        matches!(
+            e,
+            Paragraph { value: None, .. } | StoryParagraph { value: None, .. }
+        )
+    }) {
         return Ok(None);
     }
     let (path, mut root) = match Part::Numbers.load(pkg, main)? {
@@ -356,6 +992,12 @@ pub(super) fn stage(
         }
         None => return Err(unsupported("missing numbering part")),
     };
+    let expanded = if edits.iter().any(|e| matches!(e, ReplaceInstance(_))) {
+        concrete_replacements(&edits, &root)?
+    } else {
+        Vec::new()
+    };
+    edits.extend(expanded.iter());
     let mut defs = BTreeMap::<u32, BTreeSet<u32>>::new();
     for n in root.elements().filter(|n| n.name == "w:abstractNum") {
         let aid = id(n, "w:abstractNumId")?;
@@ -378,6 +1020,8 @@ pub(super) fn stage(
     let mut removed_defs = BTreeSet::new();
     let mut removed_nums = BTreeSet::new();
     let mut override_keys = BTreeSet::new();
+    let source_defs = defs.clone();
+    let source_nums = nums.clone();
     for e in &edits {
         match **e {
             AddAbstract {
@@ -428,6 +1072,17 @@ pub(super) fn stage(
             _ => {}
         }
     }
+    changed |= edit_identities(
+        &edits,
+        resources,
+        &mut root,
+        &mut defs,
+        &mut nums,
+        &source_defs,
+        &source_nums,
+        &removed_defs,
+        &removed_nums,
+    )?;
     let valid_level = |num_id: u32, level: u8| {
         if !removed_nums.contains(&num_id)
             && nums.get(&num_id).is_some_and(|a| {
@@ -455,6 +1110,9 @@ pub(super) fn stage(
                 return Err(unsupported("conflicting or missing numbering identity"));
             }
             Paragraph {
+                value: Some(ref r), ..
+            }
+            | StoryParagraph {
                 value: Some(ref r), ..
             } => valid_level(r.id, r.level)?,
             InstanceStart {
@@ -508,6 +1166,9 @@ pub(super) fn stage(
                             return Err(unsupported(
                                 "cannot discard rich or mismatched replacement level",
                             ));
+                        }
+                        if new.as_ref().is_some_and(|n| same_level(existing, n)) {
+                            continue;
                         }
                     } else if new.is_none() {
                         continue;
