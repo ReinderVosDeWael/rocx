@@ -93,7 +93,13 @@ fields or target combinations.
    `ProcessContent` wrappers in Word and DrawingML are rejected separately
    from unrelated opaque extensions.
 
+On `272e3c6`, local packed Node 22/24 and Chromium 159 development/production
+checked 50 editor outputs and 15 catalog packages against exact Rust bytes.
+The installed Python catalog matched the 15 artifacts as well. Type checking,
+offline package replay, independent readback, schema/OPC and untouched
+payload verification passed as distinct gates. The
+[active plan](PLAN.md) records the native, wheel and docs runs.
+
 **Tracker status is not a qualification result.** #3 is closed and #65 remains
-draft. The unsupported cases above are scope limits, not claims of hidden
-coverage. Local results are recorded in [the active plan](PLAN.md); hosted
-qualification on the combined head is separate.
+draft. The unsupported cases above are scope limits. Hosted qualification
+on the combined head is separate.

@@ -13,6 +13,15 @@ in all three bindings. The mixed CLI/Python fixture adds a disjoint structural
 replacement and rejects overlapping field/control replacements, a pending
 paragraph revision replacement, and incompatible section boundary requests.
 
+Local qualification includes 348 Rust tests and three doctests, Rust 1.88
+Clippy, stable native/Wasm Clippy, 1,001 schema-required installed Python
+tests, and a strict 683-page docs build. Full packed Node 22/24 and Chromium
+159 development/production passed: 50 editor outputs and 15 catalog packages
+matched Rust byte for byte, and installed Python also matched the catalog.
+The 14 catalogs inherited from `1fda978` retained their exact bytes. Strict
+TypeScript, offline source replay, schema/OPC and untouched-payload checks
+passed separately from typed readback.
+
 The merge of `f269508` into `c1b6627` combines the resource/style and structural
 CLI variants, including both inspection selectors in one request. Physical
 table operations remain owner-scoped; body table replacements can use a style
@@ -456,7 +465,8 @@ nine catalog outputs. A mixed paragraph insertion, cell patch and run removal
 produced identical DOCX bytes in Rust, Python, Node and both browser builds.
 Readback verified target placement and unchanged part payloads; a conflicting
 batch was rejected and the original anchors remained usable. Earlier branch
-results below describe their own checkpoints. #3 and release preflight remain open.
+results below describe their own checkpoints. #3 and release preflight were
+open at this checkpoint.
 
 Standalone evidence is available at the topic tips: addressing `b03a230`,
 CLI `c8bbaff`, controls `bdd2da5`, inlines `ce92fed`, paragraphs `21954ab`,
