@@ -71,6 +71,86 @@ def test_numbering_cannot_shadow_unwrapped_start(value):
     assert parts(doc.preview([]).to_docx()) == parts(data)
 
 
+@pytest.mark.parametrize("container", ["picture", "chart", "numbering"])
+async def test_process_content_rejects_rich_and_resource_batch(container):
+    from pathlib import Path
+    from rocx import declarative as d
+
+    word = docx.Document()
+    p = word.add_paragraph("Keep")
+    picture = Path(__file__).parents[1] / "fixtures/images/sample.png"
+    p.add_run().add_picture(str(picture))
+    original = save(word)
+    if container == "picture":
+        guarded = rewrite(original, "word/document.xml", lambda n: wrap_property(n, "a:xfrm"))
+        with pytest.raises(ValueError, match="ProcessContent"):
+            ImportedDocument.open(guarded)
+        # An unrelated extension with a nonmatching rule stays opaque.
+        def unrelated(root):
+            prop = root.find(".//" + qn("a:xfrm"))
+            prop.addprevious(wrapper(etree.Element(f"{{{EXT}}}marker"), rule="ext:other"))
+        plain = rewrite(original, "word/document.xml", unrelated)
+        opened = ImportedDocument.open(plain)
+        result = opened.preview([], resources=[ResourceEdit.core_subject("allowed")],
+                                inline_edits=[InlineEdit.set_drawing_description(
+                                    opened.body[0].inline_structure[1].anchor, "kept")]).to_docx()
+        root = etree.fromstring(parts(result)["word/document.xml"])
+        assert root.find(f".//{{{EXT}}}marker") is not None
+        return
+
+    if container == "chart":
+        base = ImportedDocument.open(original)
+        chart = await d.ColumnChartRun(100, 75, ["A", "B"], [1, 2]).resolve()
+        original = base.preview([], inline_edits=[
+            InlineEdit.insert_after(base.body[0].inline_structure[0].anchor, chart),
+        ]).to_docx()
+        chart_part, = [p for p in parts(original) if p.startswith("word/charts/")]
+        original = rewrite(original, chart_part, lambda n: wrap_property(n, "c:pt"))
+        doc = ImportedDocument.open(original)
+        target = next(r.anchor for r in doc.body[0].inline_structure if r.drawing and r.drawing.kind == "chart")
+        with pytest.raises(ValueError, match="ProcessContent"):
+            doc.preview([], inline_edits=[InlineEdit.patch_drawing(target, "chartSeries", chart)],
+                        resources=[ResourceEdit.core_subject("not staged")])
+    else:
+        original = rewrite(original, "word/numbering.xml", lambda n: wrap_property(n, "w:start"))
+        doc = ImportedDocument.open(original)
+        target = doc.body[0].inline_structure[1].anchor
+        with pytest.raises(ValueError, match="ProcessContent"):
+            doc.preview([], inline_edits=[InlineEdit.set_drawing_description(target, "not staged")],
+                        resources=[ResourceEdit.abstract_start(0, 0, 3)])
+    assert parts(doc.preview([]).to_docx()) == parts(original)
+
+
+async def test_destructive_resources_recheck_new_rich_content():
+    from docx.enum.style import WD_STYLE_TYPE
+    from rocx import declarative as d
+
+    source = docx.Document()
+    source.add_paragraph("Original")
+    source.styles.add_style("Unused Local", WD_STYLE_TYPE.CHARACTER)
+    doc = ImportedDocument.open(save(source))
+    doc = ImportedDocument.open(doc.preview([], resources=[
+        ResourceEdit.add_abstract(701, [d.NumberingLevel(level=0, start=1, format="decimal", text="%1.")]),
+        ResourceEdit.add_instance(702, 701),
+    ]).to_docx())
+    style = StyleEdit.remove(doc.style_anchor("UnusedLocal"))
+    number = ResourceEdit.remove_instance(702)
+    doc.preview([], style_edits=[style], resources=[number])
+    field = await d.Field(d.FieldInstruction.page(), [d.TextRun("1")]).resolve()
+    edit = InlineEdit.insert_after(doc.body[0].inline_structure[0].anchor, field)
+    for batch in (dict(style_edits=[style]), dict(resources=[number])):
+        with pytest.raises(ValueError, match="live or uninspectable"):
+            doc.preview([], inline_edits=[edit], **batch)
+    replacement = StyleEdit.replace(doc.style_anchor("UnusedLocal"), d.CharacterStyleDefinition("Unused Local", bold=True))
+    doc.preview([], style_edits=[replacement])
+    with pytest.raises(ValueError, match="live or uninspectable"):
+        doc.preview([], style_edits=[replacement], inline_edits=[
+            InlineEdit.patch_format(doc.body[0].inline_structure[0].anchor, style="UnusedLocal"),
+        ])
+    reopened = ImportedDocument.open(doc.preview([], inline_edits=[edit]).to_docx())
+    assert reopened.field_at(reopened.body[0].anchor, 1).instruction == " PAGE "
+
+
 def bookmark(suffix, id_):
     node = etree.Element(qn("w:bookmark" + suffix))
     node.set(qn("w:id"), id_)

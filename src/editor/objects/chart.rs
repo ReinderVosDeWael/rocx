@@ -5,6 +5,7 @@ use crate::editor::{
 };
 use crate::{
     ColumnChartProperties, Result,
+    ooxml::WordParts,
     opc::Package,
     xml::{Content, Node},
 };
@@ -76,7 +77,7 @@ fn load(package: &Package, main: &str, id: &str) -> Result<(String, Node)> {
     if package.content_type_for(&part)?.as_deref() != Some(MIME) {
         return Err(bad());
     }
-    let root = package.xml(&part)?;
+    let root = package.word(&part)?;
     let plot = path(&root, &["chart", "plotArea"])?;
     if root.name != tag("chartSpace")
         || root.child(&tag("externalData")).is_some()

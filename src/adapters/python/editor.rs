@@ -474,6 +474,7 @@ impl PyHeaderImagePreview {
 struct PyBodyParagraph {
     #[pyo3(get)]
     mark_revision: Option<Py<PyImportedPropertyRevision>>,
+    #[pyo3(get)]
     flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     anchor: Py<PyParagraphAnchor>,
@@ -2496,63 +2497,6 @@ impl PyImportedDocument {
         ))
     }
 
-    fn edit_entry_inlines<'py>(
-        &self,
-        py: Python<'py>,
-        owner_part: &str,
-        edits: Vec<PyRef<'_, PyInlineEdit>>,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        let doc = self
-            .inner
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
-        Ok(PyBytes::new(
-            py,
-            &doc.edit_entry_inlines(owner_part, &edits)
-                .map_err(rust_error)?,
-        ))
-    }
-
-    #[getter]
-    fn body_range_markers(&self) -> PyResult<Vec<PyBodyRangeMarker>> {
-        let doc = self
-            .inner
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        Ok(doc
-            .body_range_markers()
-            .map_err(rust_error)?
-            .into_iter()
-            .map(|m| PyBodyRangeMarker {
-                body_index: m.body_index,
-                inline_index: m.inline_index,
-                kind: m.kind,
-                id: m.id,
-                name: m.name,
-            })
-            .collect())
-    }
-    fn field_at(
-        &self,
-        target: PyRef<'_, PyParagraphAnchor>,
-        inline_index: usize,
-    ) -> PyResult<PyImportedField> {
-        let doc = self
-            .inner
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        let f = doc
-            .field_at(&target.inner, inline_index)
-            .map_err(rust_error)?;
-        Ok(PyImportedField {
-            complex: f.complex,
-            instruction: f.instruction,
-            dirty_xml: f.dirty_xml,
-            locked_xml: f.locked_xml,
-            inline_count: f.inline_count,
-        })
-    }
     #[pyo3(signature = (owner_part, target, kind, *, id=None, text=None))]
     fn edit_note_reference<'py>(
         &self,
