@@ -815,9 +815,11 @@ impl super::ImportedDocument {
         use crate::ooxml::WordParts;
         if !edits.is_empty()
             && edits.iter().all(|e| {
-                !matches!(
+                matches!(
                     e.action,
-                    InlineAction::InsertAfter(_) | InlineAction::Replace(_)
+                    InlineAction::SetBold(_)
+                        | InlineAction::SetToggle(_, _)
+                        | InlineAction::PatchFormat { .. }
                 )
             })
         {
@@ -858,17 +860,11 @@ impl super::ImportedDocument {
                     "chart series patches require a direct body occurrence",
                 ));
             }
-            if matches!(
-                self.inline_at(&edit.target)?,
-                super::ImportedInlineNode::Fraction { .. }
-                    | super::ImportedInlineNode::Run(super::ImportedRun {
-                        drawing: Some(super::DrawingOccurrence {
-                            kind: "chart" | "shape",
-                            ..
-                        }),
-                        ..
-                    })
-            ) {
+            let node = self.inline_at(&edit.target)?;
+            if matches!(node, super::ImportedInlineNode::Fraction { .. })
+                || matches!(node, super::ImportedInlineNode::Run(run)
+                    if run.drawing.as_ref().is_some_and(|drawing| matches!(drawing.kind, "chart" | "shape")))
+            {
                 return Err(unsupported(
                     "only picture occurrences are editable in entry stories",
                 ));

@@ -310,7 +310,8 @@ def verify_controls(directory):
     assert xml.xpath("//w:sdt[w:sdtPr/w:lock/@w:val='sdtLocked']/w:sdtContent/w:p/w:r/w:t/text()") == ["A","B"]
     readback = Document(io.BytesIO(mixed))
     assert [p.text for p in readback.paragraphs[:2]] == ["ordinary","adjacent"]
-    assert len(readback.inline_shapes)==2
+    assert len(readback.inline_shapes)==1  # python-docx omits drawings inside inline controls.
+    assert len(xml.xpath(".//w:sdtContent//wp:docPr")) == 1
     header=readback.sections[0].header._element
     ids = header.xpath(".//wp:docPr/@id") + xml.xpath(".//wp:docPr/@id")
     assert len(ids) == len(set(ids)) == 3

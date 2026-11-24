@@ -466,8 +466,8 @@ async function editControls(fixtures: Fixtures) {
   check(!proposal.controlSites().some(s=>s.text==="block"),"control site over pending revision");
   rejects(()=>proposal.setPairedRange({id:Number(revised.propertyRevision!.id),bookmark:"Other",endpoints:[other,other]}),/collides/);
   const accepted=await openDocx(proposal.previewRevision({target:revised.anchor,action:"accept"}).toDocx());
-  const site=accepted.controlSites().find(s=>s.context==="block" && s.text==="block")!;
-  const guardedWorkflow=accepted.previewWrapControl({target:site.anchor,tag:"reviewed"}).toDocx();
+  const reviewedSite=accepted.controlSites().find(s=>s.context==="block" && s.text==="block")!;
+  const guardedWorkflow=accepted.previewWrapControl({target:reviewedSite.anchor,tag:"reviewed"}).toDocx();
   const rich = await openDocx(fixtures["rich-control-source"]);
   const stories = rich.storyControls();
   same(stories.map(c => c.ownerPart).sort(), ["word/comments.xml","word/endnotes.xml","word/footer1.xml","word/footnotes.xml","word/header1.xml"],"physical story controls");
@@ -494,7 +494,7 @@ async function editControls(fixtures: Fixtures) {
   const mixed = rich.preview({wrappers,fields,pairedRanges,paragraphInsertions:[{target:paragraph(rich,0).anchor,paragraph:adjacent}],
     inlineEdits:[{kind:"insertAfter",target:run(rich,0,0).anchor,inline:picture},
       {kind:"patchFormat",target:run(rich,fieldIndex,0).anchor,format:{size:13.5}}],
-    headerImages:[{target:rich.defaultHeaders()[0].anchor,mode:"shared",image:picture.view.image}]}).toDocx();
+    headerImages:[{target:rich.defaultHeaders()[0].view.anchor,mode:"shared",image:picture.view.image}]}).toDocx();
   const promoted = await openDocx(mixed);
   const protectedIndex = promoted.body().findIndex(p=>p.kind==="paragraph" && p.text.startsWith("mixed-field left"));
   rejects(()=>promoted.previewTrackedBold({target:run(promoted,protectedIndex,1).anchor,bold:false,author:"Reviewer"}),/protected/);

@@ -362,7 +362,7 @@ pub struct ImportedRevision {
 #[non_exhaustive]
 pub struct ImportedRun {
     pub anchor: InlineAnchor,
-    pub drawing: Option<DrawingOccurrence>,
+    pub drawing: Option<Box<DrawingOccurrence>>,
     /// Direct toggles only. Absent or ambiguous properties are None.
     pub bold: Option<bool>,
     pub italic: Option<bool>,
@@ -1260,7 +1260,7 @@ fn read_inline_nodes<'a>(
                     let (format, hidden, has_opaque_formatting) = run_format::inspect(node);
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
-                        drawing: objects::drawing(node),
+                        drawing: objects::drawing(node).map(Box::new),
                         bold: format.bold,
                         italic: format.italic,
                         strike: format.strike,

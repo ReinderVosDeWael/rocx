@@ -4,6 +4,14 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+The isolated inline integration starts at `ae0cefd` and merges `ec54da1`,
+`f4c9ac6` and snapshots of the outstanding controls, fields and drawings work.
+The `richControls` oracle combines rich wrappers, three drawing insertions,
+a field flag, a paired bookmark, a run-format patch and paragraph insertion.
+It rejects a wrapper crossing a staged bookmark and tracked formatting in that
+bookmark after reopen. `fieldBatch` covers a cache spanning body paragraphs;
+`formatOwners` covers linked runs in cells and physical header/footer parts.
+
 Integrate fields and paired ranges with the inline, control and revision
 workstreams. The combined `guardedWorkflow` oracle covers bookmark boundaries,
 unique revision IDs, control-site eligibility before and after review, and
@@ -54,18 +62,11 @@ patches, whole-field replacement/removal, hyperlink targets/properties, and
 cross-paragraph bookmark/comment pairs are implemented on the topic branch.
 `fieldsRanges.docx` matched in Rust, installed Python and packed Node; the
 package passed schema/OPC validation and independent python-docx readback.
-Opaque caches, cross-paragraph complex fields, non-body endpoints and combining
-standalone field/range edits in a mixed preview remain outside this slice.
+That first result predated mixed field/range batches and balanced
+cross-paragraph complex-field cache edits. Non-body range endpoints and
+opaque caches remain outside the implementation.
 See [fields](FIELDS.md#editing-an-imported-field-or-link) and
 [ranges](RANGES.md#imported-body-ranges).
-Next controls increment: retain rich sibling runs and block/table payloads
-when wrapping or unwrapping, compose disjoint wrapper operations with ordinary
-edits on original anchors, and inspect relationship-selected stories by
-physical owner. Bound controls stay opaque.
-
-Next on this topic: plan fields, links and paired ranges against one immutable
-snapshot, preserving source slots and relationship owners. Qualify rich cached
-runs and balanced complex fields spanning direct body paragraphs.
 
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
