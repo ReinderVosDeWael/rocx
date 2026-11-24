@@ -4,6 +4,14 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+#48 metadata worktree: core scalars and timestamps, company/manager, and named
+string/boolean custom-property edits passed standalone qualification: 55 Rust
+editor/showcase tests, nine installed-wheel resource tests, native Clippy and
+strict TypeScript declarations. All eleven catalog outputs matched byte for
+byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
+passed independent readback and schema/OPC checks (20 covered parts).
+See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -17,7 +25,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text edits in one physical story part. Ordinary note/comment entries also support direct inline insertion/replacement and run bold. | Entry/reference lifecycle, comment metadata changes, block editing, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
-| #48 Resources | Inspect and set/clear core title, paragraph-default alignment and shared abstract numbering level start. | Creating missing parts, editing instances/overrides or paragraph numbering references, other defaults and metadata. |
+| #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
 | #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
@@ -43,10 +51,10 @@ aliases, protected move and bound-control template edits, proofing ranges
 across cells, and sharing a staged style catalog across operations.
 Keep #48 open for the remaining resource inventory; #52 is separate.
 
-The follow-up to #48 adds independent set/clear/readback of the package core
-subject. Numbering, document defaults and remaining metadata are being worked
-on in parallel; #3 closure requires reconciling the individual slices against
-the editor inventory and qualifying their combined behavior.
+The #48 integration combines core subject and the package metadata work.
+Numbering and document defaults remain separate workstreams; #3 closure
+requires reconciling the individual slices against the editor inventory and
+qualifying their combined behavior.
 
 The #42 follow-up adds `TextInsertion` alongside nonempty `TextRangeEdit`.
 The python-docx fixture exercises run-boundary formatting, paragraph end and a

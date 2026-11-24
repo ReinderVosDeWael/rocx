@@ -857,6 +857,7 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     assert edited_doc.element.xpath("//w:sdtPr[w:id/@w:val='5001']/w:alias/@w:val") == ["Imported editor caption"]
     assert edited_doc.core_properties.title == "Edited resource sample"
     assert edited_doc.core_properties.subject == "Imported resource edits"
+    assert edited_doc.core_properties.author == "Review team"
     paragraphs = [p.text for p in edited_doc.paragraphs]
     assert "Ranged 📝 + point" + EDIT_LABEL[8:] in paragraphs
     anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
@@ -864,6 +865,11 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
         assert set(source.namelist()) == set(changed.namelist())
         mutable = {"word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml"}
+        mutable.update({"docProps/app.xml", "docProps/custom.xml"})
+        app = etree.fromstring(changed.read("docProps/app.xml"))
+        custom = etree.fromstring(changed.read("docProps/custom.xml"))
+        assert app.findtext("{*}Manager") == "Review lead"
+        assert custom.findtext("{*}property[@name='Reviewed']/{*}bool") == "false"
         assert {n for n in source.namelist() if source.read(n) != changed.read(n)} == mutable
         styles = etree.fromstring(changed.read("word/styles.xml"))
         assert styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:jc/@w:val", namespaces=NS) == ["center"]

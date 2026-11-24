@@ -228,6 +228,10 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   with `value` (`null` clears). Abstract starts also require `abstractId` and
   `level`. Inspect direct values with `coreTitle()`, `coreSubject()`, `defaultAlignment()` and
   `abstractStarts()`.
+- `metadataField(field)` reads a core or extended string, and
+  `customProperty(name)` reads a named string or boolean. Missing properties
+  return `undefined`. Pass `{kind: "metadata", field, value}` or
+  `{kind: "customProperty", name, value}` in `resources`; `null` removes the property.
 
 ```javascript
 import { openDocx } from "rocx-docx";

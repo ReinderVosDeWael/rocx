@@ -513,6 +513,9 @@ async def generate(output: pathlib.Path) -> bytes:
                                text_insertions=[TextInsertion(targets[0].anchor, 8, " + point")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
                                           ResourceEdit.core_subject("Imported resource edits"),
+                                          ResourceEdit.metadata("creator", "Review team"),
+                                          ResourceEdit.metadata("manager", "Review lead"),
+                                          ResourceEdit.custom_property("Reviewed", False),
                                           ResourceEdit.default_alignment("center"),
                                           ResourceEdit.abstract_start(100, 0, 7)],
                                controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
@@ -529,7 +532,10 @@ async def generate(output: pathlib.Path) -> bytes:
     assert whole.inline_changes[-1][1] == 1
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
-    output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
+    edited_bytes = preview.to_docx()
+    resource_result = ImportedDocument.open(edited_bytes)
+    assert resource_result.metadata_field("manager") == "Review lead" and resource_result.custom_property("Reviewed") is False
+    output.with_suffix(".run-text.docx").write_bytes(edited_bytes)
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
     assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]
     assert inline_link.bookmark == "CatalogBookmark" and inline_link.relationship_id is None

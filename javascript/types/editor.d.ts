@@ -92,6 +92,8 @@ export type StyleEdit =
   | { readonly op: "remove"; readonly target: StyleAnchor };
 
 export type ResourceEdit =
+  | { readonly kind: "metadata"; readonly field: import("./inspection.js").MetadataField; readonly value: string | null }
+  | { readonly kind: "customProperty"; readonly name: string; readonly value: string | boolean | null }
   | { readonly kind: "coreTitle"; readonly value: string | null }
   | { readonly kind: "coreSubject"; readonly value: string | null }
   | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }

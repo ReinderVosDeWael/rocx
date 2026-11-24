@@ -2,6 +2,7 @@
 use std::sync::Mutex;
 
 use pyo3::{
+    IntoPyObjectExt,
     exceptions::{PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
     types::{PyBytes, PyModule},
@@ -1273,6 +1274,31 @@ struct PyResourceEdit {
 #[pymethods]
 impl PyResourceEdit {
     #[staticmethod]
+    #[pyo3(signature=(field, value))]
+    fn metadata(field: &str, value: Option<String>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Metadata(field.parse().map_err(rust_error)?, value),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(name, value))]
+    fn custom_property(name: String, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let value = value
+            .map(|v| {
+                if v.is_instance_of::<pyo3::types::PyBool>() {
+                    Ok(editor::CustomValue::Boolean(v.extract()?))
+                } else if v.is_instance_of::<pyo3::types::PyString>() {
+                    Ok(editor::CustomValue::Text(v.extract()?))
+                } else {
+                    Err(PyTypeError::new_err("expected a string, boolean or None"))
+                }
+            })
+            .transpose()?;
+        Ok(Self {
+            inner: editor::ResourceEdit::CustomProperty(name, value),
+        })
+    }
+    #[staticmethod]
     #[pyo3(signature=(value))]
     fn core_title(value: Option<String>) -> Self {
         Self {
@@ -1316,6 +1342,26 @@ impl PyImportedDocument {
         Ok(PyStyleAnchor {
             inner: doc.style_anchor(id).map_err(rust_error)?,
         })
+    }
+    fn metadata_field(&self, field: &str) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .metadata_field(field.parse().map_err(rust_error)?)
+            .map_err(rust_error)
+    }
+    fn custom_property(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+        match self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .custom_property(name)
+            .map_err(rust_error)?
+        {
+            Some(editor::CustomValue::Text(s)) => s.into_py_any(py),
+            Some(editor::CustomValue::Boolean(v)) => v.into_py_any(py),
+            None => Ok(py.None()),
+        }
     }
     #[getter]
     fn core_title(&self) -> PyResult<Option<String>> {

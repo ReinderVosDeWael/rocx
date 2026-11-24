@@ -438,11 +438,19 @@ fn control_edit(input: &Wire, path: &str) -> Result<rocx::editor::ControlEdit> {
 
 fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit> {
     use rocx::editor::{AbstractStart, ResourceEdit};
-    let edit = Record::new(input, path, &["kind", "value", "abstractId", "level"])?;
+    let edit = Record::new(
+        input,
+        path,
+        &["kind", "value", "abstractId", "level", "field", "name"],
+    )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
-    if kind != "abstractStart" {
-        Record::new(input, path, &["kind", "value"])?;
-    }
+    let keys: &[&str] = match kind.as_str() {
+        "metadata" => &["kind", "field", "value"],
+        "customProperty" => &["kind", "name", "value"],
+        "abstractStart" => &["kind", "abstractId", "level", "value"],
+        _ => &["kind", "value"],
+    };
+    Record::new(input, path, keys)?;
     let v = edit.get("value")?;
     let clear = v.js().is_null();
     let vp = edit.path("value");
@@ -464,6 +472,24 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
                 ResourceEdit::CoreSubject(value)
             }
         }
+        "metadata" => ResourceEdit::Metadata(
+            b::string(&edit.get("field")?, &edit.path("field"))?.parse()?,
+            if clear {
+                None
+            } else {
+                Some(b::string(&v, &vp)?)
+            },
+        ),
+        "customProperty" => ResourceEdit::CustomProperty(
+            b::string(&edit.get("name")?, &edit.path("name"))?,
+            if clear {
+                None
+            } else if let Some(b) = v.js().as_bool() {
+                Some(rocx::editor::CustomValue::Boolean(b))
+            } else {
+                Some(rocx::editor::CustomValue::Text(b::string(&v, &vp)?))
+            },
+        ),
         "defaultAlignment" => ResourceEdit::DefaultAlignment(if clear {
             None
         } else {

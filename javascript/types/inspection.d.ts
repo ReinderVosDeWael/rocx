@@ -2,6 +2,9 @@ import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 import type { TableLayout } from "./tables.js";
 
 declare const anchor: unique symbol;
+export type MetadataField = "creator" | "description" | "category" | "keywords" | "version"
+  | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
+  | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
 export interface ControlAnchor { readonly [anchor]: "control" }
 export interface ImportedControl {
@@ -226,6 +229,8 @@ export interface ImportedDocument {
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;
   coreSubject(): string | undefined;
+  metadataField(field: MetadataField): string | undefined;
+  customProperty(name: string): string | boolean | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
   abstractStarts(): readonly AbstractStart[];
 }

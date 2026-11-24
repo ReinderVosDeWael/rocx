@@ -51,6 +51,7 @@ mod field;
 pub use field::{FieldForm, FieldInstruction, FieldProperties, RawFieldInstruction, ResolvedField};
 mod hyperlink;
 mod notes;
+pub(crate) use notes::validate_utc_date;
 mod range;
 mod revision;
 pub use hyperlink::{HyperlinkProperties, HyperlinkTarget, ResolvedHyperlink, inline_text};
