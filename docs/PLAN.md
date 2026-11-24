@@ -2,7 +2,18 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
-## Current milestone: qualify the combined #3 editor
+## Current milestone: implement the remaining editor capabilities
+
+Ten parallel worktrees start from `fad29a9`. Track their acceptance separately
+under #3: text ranges (#42), paragraph and section edits (#43), inline edits
+(#44), row and cell edits (#45), story edits (#46), styles (#47), numbering,
+defaults and metadata (#48), revisions (#49), controls (#50), and CLI coverage
+of the seven previously integrated edit kinds (#51). A partial implementation
+leaves its ticket open. Before closing the umbrella, reconcile these results
+with the [operation inventory](EDITOR-PARITY.md#operation-contract) and
+verify combined batches, preservation and exact cross-binding output again.
+
+## Previous milestone: qualify the combined #3 editor
 
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
