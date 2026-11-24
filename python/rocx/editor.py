@@ -1,24 +1,29 @@
 """Inspect and edit an imported DOCX using snapshot-scoped anchors.
 
 Direct paragraphs in body table cells expose ``inline_items`` and
-``inline_structure``. Use ``ImportedDocument.inline_at`` to resolve a run or
-hyperlink anchor in the same snapshot. These anchors are read-only.
+``inline_structure``. Use ``ImportedDocument.inline_at`` to resolve a run,
+hyperlink, or revision anchor in the same snapshot. Supported direct-body run anchors may
+also be used for text replacement or whole-run removal.
 
-Pass table insertions and header image edits to ``ImportedDocument.preview``
-with ``table_insertions=`` and ``header_images=`` to stage them alongside
-paragraph alignment edits in one transaction. ``EditPreview.header_changes``
-reports the effects on shared and section-local headers.
+``ImportedDocument.preview`` stages paragraph alignments together with any of
+``table_insertions=``, ``paragraph_insertions=``, ``cell_alignments=``,
+``header_images=``, ``run_text=``, and ``run_removals=`` in one transaction.
+All targets refer to the original snapshot.
 
 ``ImportedDocument.stories`` inspects effective default, first, and even header
-and footer references without simulating page selection. Existing default-header
-image edits still use anchors from ``ImportedDocument.default_headers``.
+and footer references without simulating page selection. Default and first-page
+header stories expose image-edit anchors; ``ImportedDocument.default_headers``
+also exposes the default-header targets.
 """
 
 from ._native import (
     AlignmentChange,
     BodyOpaque,
+    BodyContentControl,
     BodyParagraph,
     BodyTable,
+    CellAlignmentEdit,
+    CellAlignmentChange,
     EditPreview,
     HeaderAnchor,
     HeaderImageChange,
@@ -26,13 +31,17 @@ from ._native import (
     HeaderImagePreview,
     ImportedDocument,
     ImportedEntry,
+    ImportedStyle,
+    ImportedStyles,
     RunTextEdit,
+    RunRemovalChange,
     RunTextChange,
     ImportedCellParagraph,
     ImportedHeader,
     ImportedHeaderParagraph,
     ImportedHyperlink,
     ImportedInline,
+    ImportedRevision,
     ImportedRun,
     ImportedSection,
     ImportedStory,
@@ -40,6 +49,7 @@ from ._native import (
     ImportedTableRow,
     InlineAnchor,
     ParagraphAlignmentEdit,
+    ParagraphInsertion,
     ParagraphAnchor,
     TableInsertion,
     TableAnchor,
@@ -52,8 +62,11 @@ ImportedStoryParagraph = ImportedHeaderParagraph
 __all__ = [
     "AlignmentChange",
     "BodyOpaque",
+    "BodyContentControl",
     "BodyParagraph",
     "BodyTable",
+    "CellAlignmentEdit",
+    "CellAlignmentChange",
     "EditPreview",
     "HeaderAnchor",
     "HeaderImageChange",
@@ -61,13 +74,17 @@ __all__ = [
     "HeaderImagePreview",
     "ImportedDocument",
     "ImportedEntry",
+    "ImportedStyle",
+    "ImportedStyles",
     "RunTextEdit",
+    "RunRemovalChange",
     "RunTextChange",
     "ImportedCellParagraph",
     "ImportedHeader",
     "ImportedHeaderParagraph",
     "ImportedHyperlink",
     "ImportedInline",
+    "ImportedRevision",
     "ImportedRun",
     "ImportedSection",
     "ImportedStory",
@@ -76,6 +93,7 @@ __all__ = [
     "ImportedTableRow",
     "InlineAnchor",
     "ParagraphAlignmentEdit",
+    "ParagraphInsertion",
     "ParagraphAnchor",
     "TableInsertion",
     "TableAnchor",

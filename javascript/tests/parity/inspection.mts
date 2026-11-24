@@ -29,6 +29,7 @@ function structure(node: ImportedInlineNode): readonly (string | undefined)[] {
   switch (node.kind) {
     case "run": return run(node);
     case "hyperlink": return link(node);
+    case "revision": return [node.revisionKind, node.id, node.author, node.date, ...node.children.map(structure).flat()];
     case "opaque": return [node.name];
     default: return node satisfies never;
   }
@@ -93,6 +94,10 @@ function bodyBlock(node: BodyBlock, doc: ImportedDocument) {
   switch (node.kind) {
     case "paragraph": return paragraph(node, doc);
     case "table": return table(node, doc);
+    case "contentControl":
+      // @ts-expect-error Controls are inspection-only and have no edit anchor.
+      doc.inlineAt(node.anchor);
+      return [node.tag, node.alias, node.lock];
     case "opaque": return node.name;
     default: return node satisfies never;
   }

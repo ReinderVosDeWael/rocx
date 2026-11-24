@@ -528,6 +528,43 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(bytes, plan.to_bytes()?);
     snapshot.save_with_template_and_options(output, &template, &options)?;
     let imported = editor::ImportedDocument::open(&bytes)?;
+    let styles = imported.styles()?.expect("catalog styles part");
+    assert!(
+        styles
+            .styles
+            .iter()
+            .any(|style| style.name.as_deref() == Some("Catalog Bullets")
+                && style.kind == editor::StyleKind::Numbering
+                && style.id.is_some())
+    );
+    let revisions: Vec<_> = imported
+        .body()
+        .iter()
+        .filter_map(|block| match block {
+            editor::BodyBlock::Paragraph(p) => Some(p.inline_structure.iter()),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|node| match node {
+            editor::ImportedInlineNode::Revision(r)
+                if r.author.as_deref() == Some("Catalog editor") =>
+            {
+                Some(r)
+            }
+            _ => None,
+        })
+        .collect();
+    for (kind, text) in [
+        ("insertion", "inserted wording"),
+        ("deletion", "old wording"),
+    ] {
+        assert!(
+            revisions.iter().any(|revision| revision.kind == kind
+                && matches!(revision.children.as_slice(), [editor::ImportedInlineNode::Run(run)]
+                if run.items == [editor::ImportedInline::Text(text.into())] &&
+                matches!(imported.inline_at(&run.anchor), Ok(editor::ImportedInlineNode::Run(_)))))
+        );
+    }
     let entries = imported.entry_stories()?;
     for kind in [editor::EntryKind::Footnote, editor::EntryKind::Endnote] {
         assert!(entries.iter().any(|e| e.kind == kind && e.id == "0"));
@@ -546,6 +583,12 @@ pub async fn generate(output: &Path) -> Result<()> {
         if matches!(found.items.first(), Some(editor::ImportedInline::Text(text)) if text.starts_with("Structured comment:")))
     );
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
+    assert!(imported.body().iter().any(|block| matches!(
+        block, editor::BodyBlock::ContentControl(control)
+            if control.tag.as_deref() == Some("review-block")
+                && control.alias.as_deref() == Some("Review block")
+                && control.lock.as_deref() == Some("sdtLocked")
+    )));
     let (paragraph_index, paragraph) = imported
         .body()
         .iter()
@@ -562,7 +605,19 @@ pub async fn generate(output: &Path) -> Result<()> {
         panic!("expected a standalone run and hyperlink");
     };
     let replacement = "Imported editor: replaced this run by its anchor. ";
-    let preview = imported.preview_with_text(
+    let paragraph_payload = Document::new(vec![
+        Section::new(vec![
+            Paragraph::new("Imported editor: inserted paragraph.").into(),
+        ])
+        .into(),
+    ])
+    .resolve()
+    .await?;
+    let ResolvedBlock::Paragraph(inserted_paragraph) = &paragraph_payload.sections()[0].blocks()[0]
+    else {
+        panic!("expected paragraph payload");
+    };
+    let preview = imported.preview_with_paragraphs(
         &[],
         &[],
         &[],
@@ -570,8 +625,21 @@ pub async fn generate(output: &Path) -> Result<()> {
             target: label.anchor.clone(),
             text: replacement.into(),
         }],
+        &[editor::ParagraphInsertion {
+            target: paragraph.anchor.clone(),
+            paragraph: inserted_paragraph.clone(),
+        }],
     )?;
+    assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);
     assert_eq!(preview.run_text_changes()[0].before, INLINE_LABEL);
+    let removal = imported.preview_with_run_removals(
+        &[],
+        &[],
+        &[],
+        &[],
+        std::slice::from_ref(&label.anchor),
+    )?;
+    assert_eq!(removal.run_removals()[0].before, INLINE_LABEL);
     std::fs::write(output.with_extension("run-text.docx"), preview.to_docx()?)?;
     assert_eq!(
         label.items,
@@ -688,7 +756,23 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_ne!(first.anchor, prefix.anchor);
     assert!(matches!(reopened.inline_at(&suffix.anchor)?, Run(run) if run.anchor == suffix.anchor));
     assert!(imported.inline_at(&suffix.anchor).is_err());
-    std::fs::write(output.with_extension("edited.docx"), edited)?;
+    let cell_preview = reopened.preview_with_cells(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[editor::CellAlignmentEdit {
+            target: table.anchor.clone(),
+            row_index: 0,
+            cell_index: 0,
+            alignment: VerticalAlignment::Center,
+        }],
+    )?;
+    assert_eq!(cell_preview.cell_alignment_changes().len(), 1);
+    std::fs::write(
+        output.with_extension("edited.docx"),
+        cell_preview.to_docx()?,
+    )?;
 
     // Both previews start from the same snapshot: two sections share one header part.
     let mut first = Section::new(vec![p(HEADER_BATCH_LABEL)]);
@@ -808,6 +892,36 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(body_target.text, HEADER_BATCH_LABEL);
     let target = &headers[1];
     let resolved = image("png", None).await?.expect("showcase image");
+    let first_page = stories
+        .iter()
+        .find(|story| {
+            story.section_index == 1
+                && story.kind == editor::SectionStoryKind::Header
+                && story.variant == HeaderFooterType::First
+        })
+        .expect("first-page header");
+    for (mode, suffix) in [
+        (editor::HeaderEditMode::Shared, "header-first-shared.docx"),
+        (
+            editor::HeaderEditMode::SectionLocal,
+            "header-first-local.docx",
+        ),
+    ] {
+        let preview = imported.preview_header_image(&editor::HeaderImageEdit {
+            target: first_page.anchor.clone().expect("first-page edit anchor"),
+            mode,
+            image: resolved.image().expect("resolved image").clone(),
+        })?;
+        assert_eq!(
+            preview.change().affected_sections,
+            if mode == editor::HeaderEditMode::Shared {
+                &[0, 1][..]
+            } else {
+                &[1][..]
+            }
+        );
+        std::fs::write(output.with_extension(suffix), preview.to_docx()?)?;
+    }
     for (mode, suffix) in [
         (editor::HeaderEditMode::Shared, "header-shared.docx"),
         (editor::HeaderEditMode::SectionLocal, "header-local.docx"),

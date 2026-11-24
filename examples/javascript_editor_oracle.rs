@@ -112,6 +112,19 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    let BodyBlock::Paragraph(first) = &doc.body()[0] else {
+        panic!("paragraph")
+    };
+    let rocx::editor::ImportedInlineNode::Run(run) = &first.inline_structure[0] else {
+        panic!("run")
+    };
+    write(
+        "native-removal.docx",
+        doc.preview_with_run_removals(&[], &[], &[], &[], std::slice::from_ref(&run.anchor))
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     for (name, a, t, h) in [
         ("native-noop.docx", &[][..], &[][..], &[][..]),
         (
@@ -138,6 +151,57 @@ fn main() {
             doc.preview_transaction(a, t, h).unwrap().to_docx().unwrap(),
         );
     }
+    let body = doc
+        .preview_transaction(&alignments, &insertions, &[])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let reopened = ImportedDocument::open(&body).unwrap();
+    let rocx::editor::BodyBlock::Table(table) = &reopened.body()[5] else {
+        panic!("expected second inserted table")
+    };
+    let cell = rocx::editor::CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: rocx::VerticalAlignment::Center,
+    };
+    write(
+        "native-cell.docx",
+        reopened
+            .preview_with_cells(&[], &[], &[], &[], std::slice::from_ref(&cell))
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
+    let BodyBlock::Paragraph(later) = &reopened.body()[2] else {
+        panic!("expected removable body run")
+    };
+    let rocx::editor::ImportedInlineNode::Run(removed) = &later.inline_structure[0] else {
+        panic!("expected removable body run")
+    };
+    let insertion = rocx::editor::ParagraphInsertion {
+        target: anchor(&reopened, 0),
+        paragraph: immediate(Component::resolve(Paragraph::new("inserted paragraph")))
+            .unwrap()
+            .unwrap(),
+    };
+    write(
+        "native-mixedBody.docx",
+        reopened
+            .preview_mixed(
+                &[],
+                &[],
+                &[],
+                &[],
+                &[insertion],
+                &[cell],
+                std::slice::from_ref(&removed.anchor),
+            )
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     for (name, e) in [
         ("native-shared.docx", &shared),
         ("native-local.docx", &local[1]),
@@ -145,6 +209,31 @@ fn main() {
         write(
             name,
             doc.preview_header_image(e).unwrap().to_docx().unwrap(),
+        );
+    }
+    let stories = doc.stories().unwrap();
+    let first_page = stories
+        .iter()
+        .find(|s| {
+            s.section_index == 3
+                && s.kind == rocx::editor::SectionStoryKind::Header
+                && s.variant == rocx::HeaderFooterType::First
+        })
+        .unwrap();
+    for (name, mode) in [
+        ("native-firstShared.docx", HeaderEditMode::Shared),
+        ("native-firstLocal.docx", HeaderEditMode::SectionLocal),
+    ] {
+        write(
+            name,
+            doc.preview_header_image(&HeaderImageEdit {
+                target: first_page.anchor.clone().unwrap(),
+                mode,
+                image: image.clone(),
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
         );
     }
     let relocated =

@@ -62,6 +62,8 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
         "header-source.docx",
         "header-shared.docx",
         "header-local.docx",
+        "header-first-shared.docx",
+        "header-first-local.docx",
     ] {
         let bytes = std::fs::read(path.with_extension(suffix)).unwrap();
         rocx::editor::ImportedDocument::open(&bytes).unwrap();

@@ -12,6 +12,9 @@ export interface Fixtures {
   ambiguous: Uint8Array;
   drawing: Uint8Array;
   relocated: Uint8Array;
+  "styles-edge": Uint8Array;
+  "styles-missing": Uint8Array;
+  "styles-invalid": Uint8Array;
   image: Uint8Array;
 }
 
@@ -98,7 +101,43 @@ type Payloads = Awaited<ReturnType<typeof payloads>>;
 
 export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, { rich, auto }: Payloads) {
   const doc = await openDocx(input.base);
+  const styles = doc.styles();
+  check(styles?.partName === "word/styles.xml", "relationship-selected styles part");
+  const normal = styles.styles.find((style) => style.id === "Normal");
+  check(normal?.kind === "paragraph" && normal.kindXml === "paragraph"
+    && normal.name === "Normal", "typed Normal style metadata");
+  const edge = (await openDocx(input["styles-edge"])).styles();
+  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future" },
+    { kind: "missing" }], "unknown and missing style kinds");
+  check((await openDocx(input["styles-missing"])).styles() === undefined, "missing styles relationship");
+  const invalidStyles = await openDocx(input["styles-invalid"]);
+  rejects(() => invalidStyles.styles(), /invalid styles root/);
   const start = paragraph(doc, 0).anchor;
+  const insertedParagraph = await resolveComponent(text("inserted paragraph"));
+  check(insertedParagraph, "paragraph payload resolved");
+  const paragraphEdit = { target: start, paragraph: insertedParagraph };
+  const paragraphPreview = doc.preview({
+    alignments: [{ target: start, alignment: "center" }],
+    paragraphInsertions: [paragraphEdit],
+  });
+  same(paragraphPreview.paragraphInsertions(), [0], "paragraph insertion report");
+  const paragraphOutput = await openDocx(paragraphPreview.toDocx());
+  same(paragraph(paragraphOutput, 1).text, "inserted paragraph", "inserted paragraph readback");
+  rejects(() => doc.preview({ paragraphInsertions: [paragraphEdit, paragraphEdit] }), /multiple paragraph/);
+  const foreign = await openDocx(input.base);
+  rejects(() => foreign.preview({ paragraphInsertions: [paragraphEdit] }), /different document snapshot/);
+  const protectedSource = await openDocx(input.unsafe);
+  rejects(() => protectedSource.preview({ paragraphInsertions: [
+    { ...paragraphEdit, target: paragraph(protectedSource, 0).anchor },
+  ] }), /range/);
+  const firstRun = paragraph(doc, 0).inlineStructure[0];
+  check(firstRun?.kind === "run", "first body inline is a run");
+  const firstAnchor = firstRun.anchor;
+  check(paragraph(doc, 0).inlineStructure[0]?.kind === "run", "repeated inspection");
+  const repeated = paragraph(doc, 0).inlineStructure[0];
+  check(repeated.kind === "run" && repeated.anchor === firstAnchor, "same inline has same handle");
+  const otherRun = paragraph(doc, 1).inlineStructure[0];
+  check(otherRun?.kind === "run" && otherRun.anchor !== firstAnchor, "different runs have different handles");
   const unset = paragraph(doc, 1).anchor;
   const sectionEnd = paragraph(doc, 3).anchor;
   const align = { target: start, alignment: "center" } as const;
@@ -118,17 +157,58 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   same(preview.headerChanges(), [], "no header changes");
   const bytes = preview.toDocx();
   const reopened = await openDocx(bytes);
+  rejects(() => reopened.inlineAt(firstAnchor), /different document snapshot/);
+  check(doc.inlineAt(firstAnchor).kind === "run", "preview and reopen leave original anchor valid");
+  const fresh = paragraph(reopened, 0).inlineStructure[0];
+  check(fresh?.kind === "run" && fresh.anchor !== firstAnchor, "reopen issues fresh handles");
   same(reopened.body().map((block) => block.kind), [
     "paragraph", "table", "paragraph", "paragraph", "paragraph", "table", "paragraph", "paragraph", "paragraph",
   ], "table placement including immediately after section terminator");
   same(paragraph(reopened, 0).alignment, "center", "reopened first alignment");
   same(paragraph(reopened, 2).alignment, "right", "reopened second alignment");
+  const insertedTable = reopened.body()[5];
+  check(insertedTable?.kind === "table", "inserted table is inspectable");
+  const cellEdit = { target: insertedTable.anchor, rowIndex: 0, cellIndex: 0, alignment: "center" } as const;
+  const cellPreview = reopened.preview({ cellAlignments: [cellEdit] });
+  same(cellPreview.cellAlignmentChanges(), [{ bodyIndex: 5, rowIndex: 0, cellIndex: 0, after: "center" }],
+    "physical cell patch report");
+  rejects(() => reopened.preview({ cellAlignments: [cellEdit, cellEdit] }), /duplicate cell/);
+  rejects(() => reopened.preview({ cellAlignments: [{ ...cellEdit, rowIndex: 8 }] }), /not found/);
+  rejects(() => doc.preview({ cellAlignments: [cellEdit] }), /different document snapshot/);
+  const cellAfter = await openDocx(cellPreview.toDocx());
+  const patchedTable = cellAfter.body()[5];
+  check(patchedTable?.kind === "table", "patched table remains inspectable");
+  same(cellAfter.preview({ cellAlignments: [{ ...cellEdit, target: patchedTable.anchor }] }).cellAlignmentChanges(),
+    [], "unchanged cell alignment omitted");
+  const removed = paragraph(reopened, 2).inlineStructure[0];
+  check(removed?.kind === "run", "expected a removable run after the insertion point");
+  const combined = {
+    paragraphInsertions: [{ target: paragraph(reopened, 0).anchor, paragraph: insertedParagraph }],
+    cellAlignments: [cellEdit], runRemovals: [removed.anchor],
+  };
+  const mixed = reopened.preview(combined);
+  same(mixed.paragraphInsertions(), [0], "original paragraph insertion site");
+  same(mixed.cellAlignmentChanges(), cellPreview.cellAlignmentChanges(), "original table index");
+  same(mixed.runRemovals(), [{ bodyIndex: 2, inlineIndex: 0, before: "unset alignment" }], "original run indices");
+  const mixedBytes = mixed.toDocx();
+  const combinedResult = await openDocx(mixedBytes);
+  same(paragraph(combinedResult, 1).text, "inserted paragraph", "mixed paragraph insertion");
+  same(paragraph(combinedResult, 3).text, "", "run removed from shifted paragraph");
+  const shiftedTable = combinedResult.body()[6];
+  check(shiftedTable?.kind === "table", "mixed table moved one slot");
+  same(combinedResult.preview({ cellAlignments: [{ ...cellEdit, target: shiftedTable.anchor }] }).cellAlignmentChanges(),
+    [], "shifted table cell already has the requested alignment");
+  rejects(() => reopened.preview({ ...combined, runText: [{ target: removed.anchor, text: "conflict" }] }),
+    /duplicate|conflicting/);
+  bytesEqual(reopened.preview(combined).toDocx(), mixedBytes, "retry after conflict");
+  same(paragraph(reopened, 2).text, "unset alignment", "failed batch leaves original run intact");
   same(paragraph(doc, 0).alignmentXml, "start", "original alignment is unchanged");
   const noop = doc.preview({ alignments: [{ target: paragraph(doc, 4).anchor, alignment: "right" }] });
   same(noop.changes(), [], "unchanged alignment omitted");
   bytesEqual(noop.toDocx(), doc.preview({}).toDocx(), "unchanged and empty batches encode identically");
 
   const other = await openDocx(input.base);
+  rejects(() => other.inlineAt(firstAnchor), /different document snapshot/);
   rejects(() => doc.preview({ alignments: [{ ...align, target: paragraph(other, 0).anchor }] }), /different document snapshot/);
   rejects(() => doc.preview({ alignments: [align, align] }), /multiple alignment/);
   rejects(() => doc.preview({ tableInsertions: [insert, insert] }), /multiple table/);
@@ -138,12 +218,24 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   rejects(() => unsafe.preview({ tableInsertions: [{ ...insert, target: paragraph(unsafe, 0).anchor }] }), /range/);
   const ambiguous = await openDocx(input.ambiguous);
   rejects(() => ambiguous.preview({ alignments: [{ ...align, target: paragraph(ambiguous, 0).anchor }] }), /ambiguous/);
-  return { body: bytes, noop: noop.toDocx() };
+  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes };
 }
 
 export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {
   const doc = await openDocx(input.base);
-  const [first, inherited, later, distinct] = doc.defaultHeaders().map((header) => header.view);
+  const headers = doc.defaultHeaders();
+  const [first, inherited, later, distinct] = headers.map((header) => header.view);
+  const firstInline = headers[0].inlineStructure(0)?.[0];
+  const inheritedInline = headers[1].inlineStructure(0)?.[0];
+  check(firstInline?.kind === "run" && inheritedInline?.kind === "run", "header runs");
+  check(firstInline.anchor === inheritedInline.anchor, "header aliases share inline handle");
+  const story = doc.stories().find((s) => s.view.partName === first.partName);
+  const storyInline = story?.inlineStructure(0)?.[0];
+  check(storyInline?.kind === "run" && storyInline.anchor === firstInline.anchor,
+    "header and story views share inline handle");
+  const distinctInline = headers[3].inlineStructure(0)?.[0];
+  check(distinctInline?.kind === "run" && distinctInline.anchor !== firstInline.anchor,
+    "distinct physical headers have distinct handles");
   check(first.anchor !== inherited.anchor && first.partName === inherited.partName, "aliases have section-scoped targets");
   const sharedEdit: HeaderImageEdit = { target: inherited.anchor, mode: "shared", image };
   const shared: HeaderImagePreview = doc.previewHeaderImage(sharedEdit);
@@ -187,8 +279,19 @@ export async function headerImageScopesAndEffects(input: Fixtures, { image, floa
     /cannot be safely copied/);
   rejects(() => doc.previewHeaderImage({ ...sharedEdit, image: floating }), /requires an inline image/);
   rejects(() => relocated.previewHeaderImage(sharedEdit), /different document snapshot/);
+  const firstPage = doc.stories().find(({ view }) => view.sectionIndex === 3 && view.kind === "header" && view.variant === "first")?.view;
+  check(firstPage?.anchor, "first-page header exposes an edit anchor");
+  const firstShared = doc.previewHeaderImage({target: firstPage.anchor, mode: "shared", image});
+  const firstLocal = doc.previewHeaderImage({target: firstPage.anchor, mode: "sectionLocal", image});
+  same(firstShared.change().affectedSections, [0, 1, 2, 3], "first-page shared aliases");
+  same(firstLocal.change().affectedSections, [3], "first-page local scope");
+  rejects(() => relocated.previewHeaderImage({target: firstPage.anchor!, mode: "shared", image}), /different document snapshot/);
+  const reopenedFirst = (await openDocx(firstLocal.toDocx())).stories().find(
+    ({view}) => view.sectionIndex === 3 && view.kind === "header" && view.variant === "first")?.view;
+  same(reopenedFirst?.partName, firstLocal.change().outputPart, "first-page fork reopened");
   return {
     shared: shared.toDocx(), local: local.toDocx(), relocated: relocatedPreview.toDocx(),
+    firstShared: firstShared.toDocx(), firstLocal: firstLocal.toDocx(),
     reports: { shared: change, local: local.change(), relocated: relocatedPreview.change() },
   };
 }
@@ -275,7 +378,18 @@ export async function mixedTransactionAtomicityAndRepeatPreview(
 
 export async function run(fixtures: Fixtures) {
   const resolved = await payloads(fixtures.image);
+  const doc = await openDocx(fixtures.base);
+  const first = paragraph(doc, 0).inlineStructure[0];
+  check(first?.kind === "run", "expected removable run");
+  const removal = doc.preview({ runRemovals: [first.anchor] });
+  same(removal.runRemovals(), [{ bodyIndex: 0, inlineIndex: 0, before: "Source bold" }], "removal report");
+  rejects(() => doc.preview({ runRemovals: [first.anchor, first.anchor] }), /duplicate|conflicting/);
+  rejects(() => doc.preview({ runRemovals: [first.anchor], runText: [{ target: first.anchor, text: "x" }] }), /duplicate|conflicting/);
+  const other = await openDocx(fixtures.base);
+  rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
+  check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
   return {
+    removal: removal.toDocx(),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),
@@ -296,6 +410,7 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
   const run = p.inlineStructure[0];
   if (run?.kind === "run") {
     const text: string = doc.preview({runText: [{target: run.anchor, text: "New"}]}).runTextChanges()[0].after;
+    const before: string = doc.preview({runRemovals: [run.anchor]}).runRemovals()[0].before;
   }
   // @ts-expect-error text edits target runs, not whole paragraphs
   doc.preview({runText: [{target: p.anchor, text: "New"}]});

@@ -114,6 +114,22 @@ def generate(directory):
     assert base["word/media/image1.png"] == original_image
     assert HEADER in base and HEADER_RELS in base
 
+    edge = base.copy()
+    edge["word/styles.xml"] = (
+        b'<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:style w:type="future" w:styleId="X"/><w:style/></w:styles>')
+    save_parts(directory / "styles-edge.docx", edge)
+    missing = base.copy()
+    rels = etree.fromstring(missing[MAIN_RELS])
+    for rel in list(rels):
+        if rel.get("Type").endswith("/styles"):
+            rels.remove(rel)
+    missing[MAIN_RELS] = etree.tostring(rels)
+    save_parts(directory / "styles-missing.docx", missing)
+    invalid = base.copy()
+    invalid["word/styles.xml"] = b'<w:invalid xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'
+    save_parts(directory / "styles-invalid.docx", invalid)
+
     def body_variant(name, mutate):
         main = etree.fromstring(base[MAIN])
         mutate(xp(main, "./w:body/w:p"))
@@ -225,6 +241,17 @@ def verify(directory):
     image = (directory / "image.png").read_bytes()
     reports = json.loads((directory / "reports.json").read_text(encoding="utf8"))
     assert parts(directory / "noop.docx") == source
+    removal = parts(directory / "removal.docx")
+    untouched(source, removal, (MAIN,))
+    assert Document(directory / "removal.docx").paragraphs[0].text == ""
+    root = etree.fromstring(removal[MAIN])
+    assert root.find(".//" + qn("w:fldSimple")) is not None
+    from rocx.editor import ImportedDocument
+    imported = ImportedDocument.open((directory / "base.docx").read_bytes())
+    anchor = imported.body[0].inline_structure[0].anchor
+    python_preview = imported.preview([], run_removals=[anchor])
+    assert python_preview.run_removals[0].before == "Source bold"
+    assert python_preview.to_docx() == (directory / "removal.docx").read_bytes()
 
     body = parts(directory / "body.docx")
     untouched(source, body, (MAIN, MAIN_RELS))
@@ -234,6 +261,20 @@ def verify(directory):
     assert readback.tables[0].cell(0, 0).paragraphs[0].runs[0].bold
     assert readback.tables[0].cell(0, 0).tables[0].cell(0, 0).text == "nested A"
     assert len(readback.inline_shapes) == 1
+
+    cell_output = parts(directory / "cell.docx")
+    untouched(body, cell_output, (MAIN,))
+    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+    cell_readback = Document(directory / "cell.docx")
+    assert cell_readback.tables[1].cell(0, 0).vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert cell_readback.tables[1].cell(0, 0).text == "next A"
+
+    mixed_body = directory / "mixedBody.docx"
+    untouched(body, parts(mixed_body), (MAIN,))
+    combined = Document(mixed_body)
+    assert [p.text for p in combined.paragraphs[:3]] == [readback.paragraphs[0].text, "inserted paragraph", ""]
+    cell = combined.tables[1].cell(0, 0)
+    assert (cell.text, cell.vertical_alignment) == ("next A", WD_CELL_VERTICAL_ALIGNMENT.CENTER)
 
     shared = parts(directory / "shared.docx")
     untouched(source, shared, (HEADER, HEADER_RELS, TYPES))
@@ -246,6 +287,13 @@ def verify(directory):
     assert local_readback.sections[1].header.paragraphs[0].text == "Shared header kept link"
     assert len(local_readback.sections[1].header.paragraphs) == 2
     assert len(local_readback.sections[2].header.paragraphs) == 1
+
+    first_shared = Document(directory / "firstShared.docx")
+    first_local = Document(directory / "firstLocal.docx")
+    assert len(first_shared.sections[3].first_page_header._element.xpath(".//w:drawing")) == 1
+    assert len(first_local.sections[3].first_page_header._element.xpath(".//w:drawing")) == 1
+    assert len(first_local.sections[0].header._element.xpath(".//w:drawing")) == 0
+    assert parts(directory / "firstLocal.docx")[HEADER] == source[HEADER]
 
     relocated_source = parts(directory / "relocated.docx")
     relocated = parts(directory / "relocated-out.docx")

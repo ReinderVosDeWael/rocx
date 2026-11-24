@@ -8,20 +8,27 @@ use crate::ooxml::wordprocessing::run_child::RunChild;
 use crate::ooxml::{WordParts, open_word_source};
 use crate::opc::{Package, PackagePlan, ReadLimits};
 use crate::xml::{Content, Node};
-use crate::{Alignment, BreakType, Diagnostic, Error, ResolvedTable, Result, Rule, SectionType};
-use std::collections::BTreeMap;
+use crate::{
+    Alignment, BreakType, Diagnostic, Error, ResolvedParagraph, ResolvedTable, Result, Rule,
+    SectionType,
+};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
 mod entries;
 mod header;
 mod insertion;
+mod resources;
+mod tables;
 mod text;
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
-pub use text::{RunTextChange, RunTextEdit};
+pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
+pub use tables::{CellAlignmentChange, CellAlignmentEdit};
+pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -36,11 +43,38 @@ pub struct ParagraphAnchor {
 pub enum BodyBlock {
     Paragraph(ImportedParagraph),
     Table(ImportedTable),
+    /// Direct block content control; its contents remain opaque.
+    ContentControl(ImportedContentControl),
     /// An unsupported element, identified by expanded XML name.
     Opaque(String),
 }
 
-/// Snapshot-scoped identity for a direct body table. Not currently an edit target.
+/// Read-only direct body control properties. Values are source XML strings;
+/// absent elements or missing `w:val` attributes produce `None`.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedContentControl {
+    pub tag: Option<String>,
+    pub alias: Option<String>,
+    pub lock: Option<String>,
+}
+
+fn read_content_control(node: &Node) -> ImportedContentControl {
+    let props = node.child("w:sdtPr");
+    let value = |name| {
+        props
+            .and_then(|p| p.child(name))
+            .and_then(|p| p.get("w:val"))
+            .map(str::to_owned)
+    };
+    ImportedContentControl {
+        tag: value("w:tag"),
+        alias: value("w:alias"),
+        lock: value("w:lock"),
+    }
+}
+
+/// Snapshot-scoped identity for a direct body table.
 #[derive(Clone, Debug)]
 pub struct TableAnchor {
     _snapshot: Arc<()>,
@@ -191,8 +225,9 @@ pub enum ImportedInline {
     Opaque(String),
 }
 
-/// Read-only address of a run or hyperlink in a direct body, body table-cell,
-/// header, or footer paragraph.
+/// Address of a run, hyperlink, or revision in a direct body, body table-cell,
+/// header, footer, or entry paragraph. Revision addresses and their children
+/// are read-only.
 ///
 /// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
 /// bytes creates a different snapshot. Within a snapshot, section aliases of
@@ -239,8 +274,22 @@ impl Eq for InlineAnchor {}
 pub enum ImportedInlineNode {
     Run(ImportedRun),
     Hyperlink(ImportedHyperlink),
+    Revision(ImportedRevision),
     /// Unsupported element, retained in place without inspecting its contents.
     Opaque(String),
+}
+
+/// Inline insertion or deletion with literal source metadata and read-only children.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedRevision {
+    pub anchor: InlineAnchor,
+    /// `insertion` or `deletion`.
+    pub kind: &'static str,
+    pub id: Option<String>,
+    pub author: Option<String>,
+    pub date: Option<String>,
+    pub children: Vec<ImportedInlineNode>,
 }
 
 #[derive(Debug)]
@@ -289,6 +338,13 @@ pub struct TableInsertion {
     pub table: ResolvedTable,
 }
 
+/// Insert a resolved declarative paragraph immediately after a direct body paragraph.
+#[derive(Clone, Debug)]
+pub struct ParagraphInsertion {
+    pub target: ParagraphAnchor,
+    pub paragraph: ResolvedParagraph,
+}
+
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct TableInsertionChange {
@@ -312,13 +368,24 @@ pub struct AlignmentChange {
 #[derive(Debug)]
 pub struct EditPreview {
     run_text_changes: Vec<RunTextChange>,
+    run_removals: Vec<RunRemovalChange>,
+    cell_alignment_changes: Vec<CellAlignmentChange>,
     changes: Vec<AlignmentChange>,
     insertions: Vec<TableInsertionChange>,
+    paragraph_insertions: Vec<usize>,
     header_changes: Vec<HeaderImageChange>,
     output: PackagePlan,
 }
 
 impl EditPreview {
+    /// Changed physical cells in original document order.
+    pub fn cell_alignment_changes(&self) -> &[CellAlignmentChange] {
+        &self.cell_alignment_changes
+    }
+    /// Removed direct body runs, in original document order.
+    pub fn run_removals(&self) -> &[RunRemovalChange] {
+        &self.run_removals
+    }
     /// Changed direct body runs, in original document order.
     pub fn run_text_changes(&self) -> &[RunTextChange] {
         &self.run_text_changes
@@ -331,6 +398,11 @@ impl EditPreview {
     /// Table insertions in source document order.
     pub fn insertions(&self) -> &[TableInsertionChange] {
         &self.insertions
+    }
+
+    /// Original body indices after which paragraphs were inserted.
+    pub fn paragraph_insertions(&self) -> &[usize] {
+        &self.paragraph_insertions
     }
 
     /// Header image changes in target section order.
@@ -404,6 +476,7 @@ impl ImportedDocument {
                     })
                 }
                 "w:tbl" => BodyBlock::Table(read_table(node, &snapshot, body_index)),
+                "w:sdt" => BodyBlock::ContentControl(read_content_control(node)),
                 name => BodyBlock::Opaque(name.to_owned()),
             })
             .collect();
@@ -467,10 +540,11 @@ impl ImportedDocument {
         };
         let (last, parents) = target.path.split_last().ok_or_else(invalid)?;
         for &index in parents {
-            let Some(ImportedInlineNode::Hyperlink(link)) = nodes.get(index) else {
-                return Err(invalid());
+            nodes = match nodes.get(index) {
+                Some(ImportedInlineNode::Hyperlink(link)) => &link.children,
+                Some(ImportedInlineNode::Revision(revision)) => &revision.children,
+                _ => return Err(invalid()),
             };
-            nodes = &link.children;
         }
         nodes.get(*last).ok_or_else(invalid)
     }
@@ -492,8 +566,8 @@ impl ImportedDocument {
 
     /// Stage body and header edits in one independently writable preview.
     /// All targets refer to this original snapshot. One alignment and one table
-    /// insertion may target the same paragraph; each section may have one header
-    /// edit. A shared edit excludes other edits of the same physical source part.
+    /// insertion may target the same paragraph; each section header slot may
+    /// have one edit. A shared edit excludes other edits of the same physical source part.
     /// Local forks use the original part even when another section forks it in
     /// the same batch. No edits are published if any operation fails.
     pub fn preview_transaction(
@@ -514,12 +588,74 @@ impl ImportedDocument {
         header_images: &[HeaderImageEdit],
         run_text: &[RunTextEdit],
     ) -> Result<EditPreview> {
+        self.preview_with_run_removals(edits, tables, header_images, run_text, &[])
+    }
+
+    /// Stage removal of direct plain-text body runs together with other edits.
+    pub fn preview_with_run_removals(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        run_removals: &[InlineAnchor],
+    ) -> Result<EditPreview> {
+        self.preview_mixed(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            &[],
+            &[],
+            run_removals,
+        )
+    }
+
+    /// Stage paragraph insertions alongside text, alignment, table and header edits.
+    pub fn preview_with_paragraphs(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+    ) -> Result<EditPreview> {
+        self.preview_mixed(edits, tables, header_images, run_text, paragraphs, &[], &[])
+    }
+
+    /// Stage cell alignment alongside text, alignment, table and header edits.
+    pub fn preview_with_cells(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        cells: &[CellAlignmentEdit],
+    ) -> Result<EditPreview> {
+        self.preview_mixed(edits, tables, header_images, run_text, &[], cells, &[])
+    }
+
+    /// Stage all edit kinds atomically against their original snapshot addresses.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_mixed(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
             .chain(tables.iter().map(|insertion| &insertion.target.snapshot))
             .chain(header_images.iter().map(HeaderImageEdit::target_snapshot))
             .chain(run_text.iter().map(|edit| &edit.target.snapshot))
+            .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
+            .chain(cells.iter().map(|edit| &edit.target._snapshot))
+            .chain(run_removals.iter().map(|target| &target.snapshot))
         {
             self.validate_snapshot(snapshot)?;
         }
@@ -544,19 +680,40 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        let mut paragraph_targets = BTreeMap::new();
+        for insertion in paragraphs {
+            if paragraph_targets
+                .insert(insertion.target.body_index, &insertion.paragraph)
+                .is_some()
+            {
+                return Err(unsupported(
+                    "multiple paragraph insertions target one paragraph",
+                ));
+            }
+            if table_targets.contains_key(&insertion.target.body_index) {
+                return Err(unsupported("multiple insertions target one paragraph"));
+            }
+        }
+        let mut paragraph_insertions = Vec::new();
         let mut changes = Vec::new();
         let mut insertions = Vec::new();
         let mut header_changes = Vec::new();
         let mut run_text_changes = Vec::new();
+        let mut removed_runs = Vec::new();
+        let mut cell_alignment_changes = Vec::new();
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !run_text.is_empty()
+            || !run_removals.is_empty()
+            || !paragraph_targets.is_empty()
+            || !cells.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            run_text_changes = text::apply(body, run_text)?;
+            (run_text_changes, removed_runs) = text::apply(body, run_text, run_removals)?;
+            cell_alignment_changes = tables::apply(body, cells)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -584,10 +741,19 @@ impl ImportedDocument {
             } else {
                 insertion::table_sites(body, &table_targets)?
             };
+            let paragraph_sites = if paragraph_targets.is_empty() {
+                Vec::new()
+            } else {
+                insertion::paragraph_sites(
+                    body,
+                    &paragraph_targets.keys().copied().collect::<BTreeSet<_>>(),
+                )?
+            };
             // Header reference edits use original body slots, before splicing tables.
             let (staged, staged_headers) = headers.stage(package, &self.main, body)?;
             package = staged;
             header_changes = staged_headers;
+            let mut pending = Vec::new();
             if !sites.is_empty() {
                 let mut payloads = Vec::with_capacity(sites.len());
                 let mut slots = Vec::with_capacity(sites.len());
@@ -604,11 +770,27 @@ impl ImportedDocument {
                 let (staged, nodes) =
                     crate::ooxml::encode_editor_tables(package, &self.main, payloads)?;
                 package = staged;
+                pending.extend(slots.into_iter().zip(nodes));
+            }
+            if !paragraph_sites.is_empty() {
+                let mut payloads = Vec::new();
+                let mut slots = Vec::new();
+                for (index, slot) in paragraph_sites {
+                    paragraph_insertions.push(index);
+                    slots.push(slot);
+                    payloads.push(paragraph_targets[&index].clone());
+                }
+                let (staged, nodes) =
+                    crate::ooxml::encode_editor_paragraphs(package, &self.main, payloads)?;
+                package = staged;
+                pending.extend(slots.into_iter().zip(nodes));
+            }
+            if !pending.is_empty() {
+                pending.sort_by_key(|(slot, _)| *slot);
                 let original = std::mem::take(&mut body.children);
-                body.children.reserve(original.len() + slots.len());
                 let mut original = original.into_iter();
                 let mut offset = 0;
-                for (slot, node) in slots.into_iter().zip(nodes) {
+                for (slot, node) in pending {
                     body.children.extend(original.by_ref().take(slot - offset));
                     body.children.push(Content::Element(node));
                     offset = slot;
@@ -617,7 +799,10 @@ impl ImportedDocument {
             }
             if !changes.is_empty()
                 || !run_text_changes.is_empty()
+                || !removed_runs.is_empty()
+                || !cell_alignment_changes.is_empty()
                 || !insertions.is_empty()
+                || !paragraph_insertions.is_empty()
                 || header_changes
                     .iter()
                     .any(|change| change.mode == HeaderEditMode::SectionLocal)
@@ -627,8 +812,11 @@ impl ImportedDocument {
         }
         Ok(EditPreview {
             run_text_changes,
+            run_removals: removed_runs,
+            cell_alignment_changes,
             changes,
             insertions,
+            paragraph_insertions,
             header_changes,
             output: PackagePlan::new(package)?,
         })
@@ -687,6 +875,7 @@ fn read_paragraph_inlines(
         node.elements().filter(|child| child.name != "w:pPr"),
         &mut address,
         &mut flat,
+        None,
     );
     (flat, structure)
 }
@@ -695,6 +884,7 @@ fn read_inline_nodes<'a>(
     nodes: impl Iterator<Item = &'a Node>,
     address: &mut InlineAnchor,
     flat: &mut Vec<ImportedInline>,
+    revision: Option<&str>,
 ) -> Vec<ImportedInlineNode> {
     nodes
         .enumerate()
@@ -703,7 +893,7 @@ fn read_inline_nodes<'a>(
             let item = match node.name.as_str() {
                 "w:r" => {
                     let mut items = Vec::new();
-                    read_run(node, &mut items);
+                    read_run(node, &mut items, revision == Some("deletion"));
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
@@ -714,8 +904,29 @@ fn read_inline_nodes<'a>(
                     anchor: address.clone(),
                     relationship_id: node.get("r:id").map(str::to_owned),
                     bookmark: node.get("w:anchor").map(str::to_owned),
-                    children: read_inline_nodes(node.elements(), address, flat),
+                    children: read_inline_nodes(node.elements(), address, flat, revision),
                 }),
+                "w:ins" | "w:del" if revision.is_none() => {
+                    let kind = if node.name == "w:ins" {
+                        "insertion"
+                    } else {
+                        "deletion"
+                    };
+                    flat.push(ImportedInline::Opaque(node.name.to_string()));
+                    ImportedInlineNode::Revision(ImportedRevision {
+                        anchor: address.clone(),
+                        kind,
+                        id: node.get("w:id").map(str::to_owned),
+                        author: node.get("w:author").map(str::to_owned),
+                        date: node.get("w:date").map(str::to_owned),
+                        children: read_inline_nodes(
+                            node.elements(),
+                            address,
+                            &mut Vec::new(),
+                            Some(kind),
+                        ),
+                    })
+                }
                 name => {
                     flat.push(ImportedInline::Opaque(name.to_owned()));
                     ImportedInlineNode::Opaque(name.to_owned())
@@ -727,8 +938,23 @@ fn read_inline_nodes<'a>(
         .collect()
 }
 
-fn read_run(node: &Node, items: &mut Vec<ImportedInline>) {
+fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
     for item in node.elements() {
+        if deletion && item.name == "w:delText" {
+            let text = item
+                .children
+                .iter()
+                .filter_map(|child| match child {
+                    crate::xml::Content::Text(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect();
+            items.push(ImportedInline::Text(text));
+            if item.elements().next().is_some() {
+                items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
+            }
+            continue;
+        }
         match RunChild::classify(item) {
             RunChild::Properties => (),
             RunChild::Text(text) => {

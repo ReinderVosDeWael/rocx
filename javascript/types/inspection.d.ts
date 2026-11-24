@@ -4,11 +4,11 @@ declare const anchor: unique symbol;
 
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
-/** Read-only direct body table address. */
+/** Direct body table address for cell alignment edits. */
 export interface TableAnchor { readonly [anchor]: "table" }
-/** Snapshot-local run or hyperlink address; eligible direct body runs support text replacement. */
+/** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement or removal. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
-/** Section-scoped target for a default-header edit. */
+/** Section-scoped target for a default or first-page header image edit. */
 export interface HeaderAnchor { readonly [anchor]: "header" }
 
 export type ImportedAlignment =
@@ -44,7 +44,17 @@ export interface ImportedHyperlink {
   readonly children: readonly ImportedInlineNode[];
 }
 
-export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedOpaque;
+export interface ImportedRevision {
+  readonly kind: "revision";
+  readonly revisionKind: "insertion" | "deletion";
+  readonly anchor: InlineAnchor;
+  readonly id?: string;
+  readonly author?: string;
+  readonly date?: string;
+  readonly children: readonly ImportedInlineNode[];
+}
+
+export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque;
 
 export interface ImportedFlatParagraph {
   readonly kind: "paragraph";
@@ -90,7 +100,16 @@ export interface ImportedTable {
   readonly children: readonly ImportedTableChild[];
 }
 
-export type BodyBlock = ImportedParagraph | ImportedTable | ImportedOpaque;
+/** Direct body control metadata; its content is opaque and has no edit anchor.
+ * Values are source XML strings, including unrecognized lock values. */
+export interface ImportedContentControl {
+  readonly kind: "contentControl";
+  readonly tag?: string;
+  readonly alias?: string;
+  readonly lock?: string;
+}
+
+export type BodyBlock = ImportedParagraph | ImportedTable | ImportedContentControl | ImportedOpaque;
 
 /** Half-open body range with explicit section type only. */
 export interface ImportedSection {
@@ -121,6 +140,8 @@ export type ImportedStoryBlock = ImportedHeaderBlock;
 
 /** A section's effective reference to a physical header or footer part. */
 export interface ImportedStoryView {
+  /** Image-edit target for default and first-page headers; absent for other stories. */
+  readonly anchor?: HeaderAnchor;
   readonly sectionIndex: number;
   readonly kind: SectionStoryKind;
   /** The section reference slot, not a pagination result. */
@@ -151,6 +172,18 @@ export interface ImportedEntry {
   }))[];
 }
 
+/** Source metadata only; absent fields were not present in the source. */
+export interface ImportedStyle {
+  readonly id?: string;
+  readonly kind: "paragraph" | "character" | "table" | "numbering" | "missing" | "unsupported";
+  readonly kindXml?: string;
+  readonly name?: string;
+  readonly basedOn?: string;
+}
+export interface ImportedStyles {
+  readonly partName: string;
+  readonly styles: readonly ImportedStyle[];
+}
 export interface ImportedDocument {
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
@@ -166,6 +199,8 @@ export interface ImportedDocument {
    */
   stories(): readonly ImportedStory[];
   entryStories(): readonly ImportedEntry[];
+  /** Undefined when the document has no styles relationship. */
+  styles(): ImportedStyles | undefined;
 }
 
 export interface OpenDocxOptions {

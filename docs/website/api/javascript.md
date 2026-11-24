@@ -126,10 +126,15 @@ can be reserialized.
 `await openDocx(bytes, { readLimits })` opens an immutable, unsigned
 Transitional DOCX snapshot. Its methods are synchronous:
 
-- `body()` lists direct paragraphs, physical tables, and opaque blocks in
+- `body()` lists direct paragraphs, physical tables, content controls and opaque blocks in
   order. Tables show physical rows and cells without expanding merges;
   direct cell paragraphs expose flat inline items and `inlineStructure`
-  with read-only run and hyperlink anchors. Nested table blocks remain opaque.
+  with read-only inline anchors. Nested table blocks remain opaque.
+  A direct block control (`kind: "contentControl"`) exposes optional literal
+  `tag`, `alias` and `lock`; its contents are opaque and it has no edit anchor.
+- `styles()` returns `undefined` when the styles relationship is absent.
+  Otherwise it reports the physical part and direct style IDs, kinds, names
+  and `basedOn` references in source order, without resolving inheritance.
 - `sections()` gives half-open body ranges and explicit section types,
   with raw type values where present.
 - `stories()` lazily inspects effective default, first-page, and even-page
@@ -141,9 +146,12 @@ Transitional DOCX snapshot. Its methods are synchronous:
   are opaque. `noteType`, `author`, `date` and `initials` are optional.
 - `defaultHeaders()` inspects effective default headers and supplies
   edit targets. Both story and header handles expose
-  `inlineStructure(blockIndex)`: a run/link projection for a paragraph,
+  `inlineStructure(blockIndex)`: structured inline nodes for a paragraph,
   `[]` for an empty paragraph, or `undefined` for opaque or out-of-range blocks.
-- `inlineAt(anchor)` looks up a run or hyperlink. Hyperlinks expose the
+- `inlineAt(anchor)` looks up a run, hyperlink or inline revision. Insertion
+  and deletion wrappers expose `revisionKind`, literal optional `id`, `author`
+  and `date`, and ordered children. Nested revisions and moves remain opaque;
+  neither wrappers nor their children are editable. Hyperlinks expose the
   source relationship ID or bookmark, not a resolved URL. Inline anchors
   are snapshot-local: aliases of one physical story reuse the same inline
   addresses, but reopening identical bytes produces a distinct snapshot.
@@ -155,8 +163,8 @@ round-trip authoring declaration.
 
 | Synchronous API | Behavior |
 | --- | --- |
-| `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, `headerImages` and `runText` in one transaction against the original snapshot. |
-| `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one default-header image append. `change()` reports the effect. |
+| `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `runText` and `runRemovals` in one transaction against the original snapshot. |
+| `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one default- or first-page-header image append. Obtain the latter target from `stories()`; `change()` reports the effect. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
 Alignment edits take a `ParagraphAnchor` and `alignment`; table insertions
@@ -165,11 +173,25 @@ the original body paragraph. Header edits take a section-scoped
 `HeaderAnchor` from `header.view.anchor`, a `ResolvedImage` for an inline
 image, and `mode`. `"shared"` changes the physical header part for all its
 consumers. `"sectionLocal"` forks a supported header for the selected
-section, preserving other sections' effective headers. This is not
-general story or table-cell editing. To replace a direct body run containing
+section and variant, preserving other slots' effective headers. To replace a direct body run containing
 one text element outside fields and ranges, pass `runText: [{target: run.anchor,
 text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineIndex`,
 `before` and `after` for changed runs. Formatting and adjacent runs survive.
+
+- `paragraphInsertions: [{target, paragraph}]` inserts a `ResolvedParagraph`
+  after a direct body paragraph under the same inline and style restrictions
+  as table insertion. `paragraphInsertions()` reports original anchor indices.
+  Two insertions at the same anchor conflict, including a paragraph and a table.
+- `cellAlignments: [{target, rowIndex, cellIndex, alignment}]` takes a direct
+  body table anchor and physical indices (including opaque entries). Use
+  `top`, `center`, `bottom` or `both`; `cellAlignmentChanges()` reports the
+  physical cell, prior XML value and new alignment. Only the selected cell
+  changes, including when it is a merge continuation. Ambiguous grids and
+  unsupported wrappers reject the batch.
+- `runRemovals: [anchor]` removes a whole single-text direct body run with
+  recognized local formatting. Unknown markup, protected ranges, or replacing
+  the same run in this batch reject the edit. `runRemovals()` reports original
+  body and inline indices and the removed text.
 
 ```javascript
 import { openDocx } from "rocx-docx";

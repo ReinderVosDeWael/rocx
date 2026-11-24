@@ -32,6 +32,7 @@ nav:
   - Getting started: getting-started.md
   - JavaScript: javascript.md
   - Guides:
+      - JSON editor CLI: editor-cli.md
       - Formatting and drawings: contracts/FORMATTING.md
       - Deferred values: contracts/DEFERRED-FIELDS.md
       - Tables: contracts/TABLES.md

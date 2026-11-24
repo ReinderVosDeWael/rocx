@@ -6,11 +6,55 @@ use super::{
 };
 use crate::{
     DeclarationPath, Diagnostic, DrawingId, Error, ResolvedBlock, ResolvedImage, ResolvedInline,
-    ResolvedTable, Result, Rule, StoryKind,
+    ResolvedParagraph, ResolvedTable, Result, Rule, StoryKind,
     opc::{Package, PartName},
     xml::Node,
 };
 use std::collections::BTreeSet;
+
+pub(crate) fn encode_editor_paragraphs(
+    package: Package,
+    main: &str,
+    paragraphs: Vec<ResolvedParagraph>,
+) -> Result<(Package, Vec<Node>)> {
+    let mut style_refs = BTreeSet::new();
+    let path = DeclarationPath::root("sections").index(0).field("children");
+    for (index, paragraph) in paragraphs.iter().enumerate() {
+        check_blocks(
+            &[ResolvedBlock::Paragraph(paragraph.clone())],
+            &path.index(index),
+            &mut style_refs,
+            "editor.paragraph",
+        )?;
+    }
+    let style_part = if style_refs.is_empty() {
+        None
+    } else {
+        package.related(main, "styles")?
+    };
+    let styles = match style_part {
+        Some((_, path)) => package.word(&path)?,
+        None => Node::new("w:styles"),
+    };
+    if styles.name != "w:styles" {
+        return Err(unsupported("unexpected styles part root").into());
+    }
+    let styles = StyleCatalog::new(&styles)?;
+    for (kind, name) in style_refs {
+        styles.get_typed(&name, kind)?;
+    }
+    let mut renderer = fragment_renderer(package, main, styles);
+    let story =
+        renderer
+            .stories
+            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+    let mut output = Vec::with_capacity(paragraphs.len());
+    for paragraph in paragraphs {
+        let context = renderer.context(story, 8640);
+        output.push(renderer.paragraph(&paragraph, &context)?);
+    }
+    Ok((renderer.package, output))
+}
 
 pub(crate) fn encode_editor_tables(
     package: Package,
@@ -139,7 +183,12 @@ fn check_table(
                     .validate()
                     .map_err(|error| Error::from(error).at(path.field("margins").to_string()))?;
             }
-            check_blocks(cell.blocks(), &path.field("children"), styles)?;
+            check_blocks(
+                cell.blocks(),
+                &path.field("children"),
+                styles,
+                "editor.table",
+            )?;
         }
     }
     Ok(())
@@ -149,8 +198,13 @@ fn check_blocks(
     blocks: &[ResolvedBlock],
     path: &DeclarationPath,
     styles: &mut StyleRefs,
+    scope: &'static str,
 ) -> Result<()> {
-    fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs) -> Result<()> {
+    fn check_inline(
+        run: &ResolvedInline,
+        styles: &mut StyleRefs,
+        scope: &'static str,
+    ) -> Result<()> {
         if let Some(style) = run.format().and_then(|format| format.style.as_ref()) {
             styles.insert(("character", style.clone()));
         }
@@ -165,11 +219,20 @@ fn check_blocks(
             | ResolvedInline::Fraction { .. } => Ok(()),
             ResolvedInline::Hyperlink(link) if link.target().bookmark_name().is_none() => {
                 for child in link.children() {
-                    check_inline(child, styles)?;
+                    check_inline(child, styles, scope)?;
                 }
                 Ok(())
             }
-            _ => Err(unsupported("unsupported inline content in an inserted table").into()),
+            _ => Err(Diagnostic::new(
+                Rule::UnsupportedEdit,
+                if scope == "editor.table" {
+                    "unsupported inline content in an inserted table"
+                } else {
+                    "unsupported inline content in an inserted paragraph"
+                },
+            )
+            .at(scope)
+            .into()),
         }
     }
     for (index, block) in blocks.iter().enumerate() {
@@ -178,7 +241,12 @@ fn check_blocks(
             ResolvedBlock::Table(table) => check_table(table, &path, styles)?,
             ResolvedBlock::Paragraph(paragraph) => {
                 if paragraph.numbering().is_some() || paragraph.comment().is_some() {
-                    return Err(unsupported("numbering and comments are not yet supported").into());
+                    return Err(Diagnostic::new(
+                        Rule::UnsupportedEdit,
+                        "numbering and comments are not yet supported",
+                    )
+                    .at(scope)
+                    .into());
                 }
                 let format = paragraph.format();
                 if let Some(heading) = format.heading.filter(|value| *value > 0) {
@@ -187,7 +255,7 @@ fn check_blocks(
                     styles.insert(("paragraph", style.clone()));
                 }
                 for run in paragraph.runs() {
-                    check_inline(run, styles)?;
+                    check_inline(run, styles, scope)?;
                 }
                 paragraph
                     .validate()

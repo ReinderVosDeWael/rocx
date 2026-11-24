@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion, RunTextEdit,
+    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -456,6 +456,16 @@ async def generate(output: pathlib.Path) -> bytes:
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)
     imported = ImportedDocument.open(data)
+    assert any(s.name == "Catalog Bullets" and s.kind == "numbering" and s.id
+               for s in imported.styles.styles)
+    revisions = [node for block in imported.body for node in getattr(block, "inline_structure", [])
+                 if getattr(node, "author", None) == "Catalog editor"]
+    for kind, text in [("insertion", "inserted wording"), ("deletion", "old wording")]:
+        revision, = (r for r in revisions if r.kind == kind and r.children[0].items[0].value == text)
+        assert imported.inline_at(revision.children[0].anchor).items[0].value == text
+    controls = [block for block in imported.body if getattr(block, "tag", None) == "review-block"]
+    assert len(controls) == 1
+    assert (controls[0].alias, controls[0].lock) == ("Review block", "sdtLocked")
     entries = imported.entry_stories
     assert {e.kind for e in entries if e.id == "0"} >= {"footnote", "endnote"}
     review, = (e for e in entries if e.author == "Structured reviewer")
@@ -466,8 +476,16 @@ async def generate(output: pathlib.Path) -> bytes:
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
     replacement = "Imported editor: replaced this run by its anchor. "
-    preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)])
+    inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
+    preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)],
+                               paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
+    assert preview.paragraph_insertions == [
+        next(i for i, block in enumerate(imported.body)
+             if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
+    ]
     assert preview.run_text_changes[0].before == INLINE_LABEL
+    removal = imported.preview([], run_removals=[label.anchor])
+    assert removal.run_removals[0].before == INLINE_LABEL
     output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
     assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]
@@ -511,7 +529,9 @@ async def generate(output: pathlib.Path) -> bytes:
     reopened_again = ImportedDocument.open(edited)
     other_cell = reopened_again.body[table_index].children[0].children[1]
     assert other_cell.blocks[0].inline_structure[1].anchor != suffix.anchor
-    output.with_suffix(".edited.docx").write_bytes(edited)
+    cell_preview = reopened.preview([], cell_alignments=[CellAlignmentEdit(inserted.anchor, 0, 0, "center")])
+    assert len(cell_preview.cell_alignment_changes) == 1
+    output.with_suffix(".edited.docx").write_bytes(cell_preview.to_docx())
 
     # Inspect inherited header/footer slots before editing the default header.
     header_paragraph = d.Paragraph(children=[
@@ -562,6 +582,12 @@ async def generate(output: pathlib.Path) -> bytes:
         assert first_run.anchor == second_run.anchor == header_doc.inline_at(second_run.anchor).anchor
     assert stories[0].blocks[1].inline_structure[0].anchor == label.anchor
     resolved_image = await image("png").resolve()
+    first_page = next(s for s in stories if (s.section_index, s.kind, s.variant) == (1, "header", "first"))
+    for mode, suffix in (("shared", ".header-first-shared.docx"),
+                         ("section_local", ".header-first-local.docx")):
+        first_preview = header_doc.preview_header_image(HeaderImageEdit(first_page.anchor, resolved_image, mode=mode))
+        assert first_preview.change.affected_sections == ([0, 1] if mode == "shared" else [1])
+        output.with_suffix(suffix).write_bytes(first_preview.to_docx())
     body_target = header_doc.body[0]
     assert body_target.text == HEADER_BATCH_LABEL
     for mode, suffix in [("shared", ".header-shared.docx"),

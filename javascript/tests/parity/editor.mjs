@@ -61,7 +61,7 @@ async function installedChromium(fixtures, expected, reports) {
 try {
   command(python, [script, "generate", directory]);
   const fixtures = Object.fromEntries(await Promise.all(
-    ["base", "unsafe", "ambiguous", "drawing", "relocated", "image"].map(async (n) =>
+    ["base", "unsafe", "ambiguous", "drawing", "relocated", "styles-edge", "styles-missing", "styles-invalid", "image"].map(async (n) =>
       [n, await readFile(join(directory, n + (n === "image" ? ".png" : ".docx")))]),
   ));
   const { reports, mixedReports, ...outputs } = await run(fixtures);
@@ -74,7 +74,7 @@ try {
     if (native) assert.deepEqual(Buffer.from(bytes), await readFile(join(directory, `native-${file}`)), file);
   }
   command(python, [script, "verify", directory]);
-  console.log(`E04–E06 installed Node ${process.version}: all named cases${native ? ", seven exact Rust byte comparisons" : ""}`);
+  console.log(`E04–E06 installed Node ${process.version}: all named cases${native ? `, ${Object.keys(outputs).length} exact Rust byte comparisons` : ""}`);
   if (process.argv.includes("--chromium")) await installedChromium(fixtures, outputs, allReports);
 } finally {
   await rm(directory, { recursive: true, force: true });

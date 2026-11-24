@@ -39,7 +39,8 @@ HEADER_BATCH_LABEL = "Combined editor batch: this paragraph is centered and foll
 HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
-                    ".header-shared.docx", ".header-local.docx", ".run-text.docx")
+                    ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
+                    ".header-first-local.docx", ".run-text.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -145,6 +146,7 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             assert len(rows) == 1
             cells = rows[0].xpath("w:tc", namespaces=NS)
             assert len(cells) == 2
+            assert cells[0].xpath("w:tcPr/w:vAlign/@w:val", namespaces=NS) == ["center"]
             assert cells[0].xpath(".//w:t/text()", namespaces=NS) == [EDIT_TABLE_LABEL]
             assert cells[0].xpath(".//w:r[w:t=$label]/w:rPr/w:b/@w:val",
                                   namespaces=NS, label=EDIT_TABLE_LABEL) == ["1"]
@@ -794,6 +796,35 @@ def generate(directory: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     return rust, python
 
 
+def verify_first_header_scopes(original: bytes, first_shared: bytes, first_local: bytes) -> None:
+    header = docx.Document(io.BytesIO(original)).sections[0].first_page_header.part
+    part_name = str(header.partname).lstrip("/")
+    rels_name = str(header.partname.rels_uri).lstrip("/")
+    for data, expected, local in ((first_shared, [1, 1], False), (first_local, [0, 1], True)):
+        document = docx.Document(io.BytesIO(data))
+        headers = [section.first_page_header for section in document.sections]
+        assert [h.is_linked_to_previous for h in headers] == [False, not local]
+        assert [len(h._element.xpath(".//w:drawing")) for h in headers] == expected
+        image, = headers[1]._element.xpath(".//a:blip/@r:embed")
+        assert headers[1].part.related_parts[image].blob == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
+        with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(data)) as changed:
+            mutable = {"[Content_Types].xml"}
+            mutable.update({"word/document.xml", "word/_rels/document.xml.rels"} if local
+                           else {part_name, rels_name})
+            assert set(source.namelist()) <= set(changed.namelist())
+            for name in set(source.namelist()) - mutable:
+                assert source.read(name) == changed.read(name), name
+
+
+def verify_run_text(original: bytes, replaced: bytes) -> None:
+    paragraphs = [p.text for p in docx.Document(io.BytesIO(replaced)).paragraphs]
+    anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
+    assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
+    with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
+        assert set(source.namelist()) == set(changed.namelist())
+        assert all(source.read(n) == changed.read(n) for n in source.namelist() if n != "word/document.xml")
+
+
 def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:
     """Require every file and check content and untouched payloads separately."""
     artifacts = []
@@ -806,11 +837,13 @@ def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> No
             raise AssertionError(f"{path}: {error}") from error
         artifacts.append(data)
         print(f"Byte-identical {path}: {len(data)} bytes; SHA-256 {digest}")
-    final, template, edited, source, shared, local, _ = artifacts
+    final, template, edited, source, shared, local, first_shared, first_local, run_text = artifacts
     # Compare source/result payloads within the JS artifacts, independent of the Rust oracle.
     verify_content(final, template)
+    verify_run_text(final, run_text)
     verify_edited(final, edited)
     verify_header_scopes(source, shared, local)
+    verify_first_header_scopes(source, first_shared, first_local)
 
 
 def main() -> None:
@@ -828,20 +861,20 @@ def main() -> None:
     edited_digest = exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
     replaced = rust.with_suffix(".run-text.docx").read_bytes()
     exact_bytes(replaced, python.with_suffix(".run-text.docx").read_bytes())
-    assert any(p.text == "Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS)
-               for p in docx.Document(io.BytesIO(replaced)).paragraphs)
-    with zipfile.ZipFile(rust) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
-        assert set(source.namelist()) == set(changed.namelist())
-        assert all(source.read(n) == changed.read(n) for n in source.namelist() if n != "word/document.xml")
+    verify_run_text(rust.read_bytes(), replaced)
     verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
     verify_edited(rust.read_bytes(), edited)
-    for suffix in [".header-source.docx", ".header-shared.docx", ".header-local.docx"]:
+    for suffix in [".header-source.docx", ".header-shared.docx", ".header-local.docx",
+                   ".header-first-shared.docx", ".header-first-local.docx"]:
         data = rust.with_suffix(suffix).read_bytes()
         header_digest = exact_bytes(data, python.with_suffix(suffix).read_bytes())
         print(f"Byte-identical {suffix[1:]}: {len(data)} bytes; SHA-256 {header_digest}")
     verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in [
         ".header-source.docx", ".header-shared.docx", ".header-local.docx"
     ]))
+    verify_first_header_scopes(rust.with_suffix(".header-source.docx").read_bytes(),
+                               rust.with_suffix(".header-first-shared.docx").read_bytes(),
+                               rust.with_suffix(".header-first-local.docx").read_bytes())
     print(f"Byte-identical DOCX: {len(rust.read_bytes())} bytes; SHA-256 {digest}")
     print(f"Byte-identical edited DOCX: {len(edited)} bytes; SHA-256 {edited_digest}")
     print(f"Rust:   {rust}\nPython: {python}")

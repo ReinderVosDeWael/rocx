@@ -22,6 +22,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
         ("importedStories", (stories, Paths::Package)),
         ("importedEntryStories", (entry_stories, Paths::Package)),
+        ("importedStyles", (styles, Paths::Package)),
         (
             "importedStoryInlineStructure",
             (story_inline_structure, Paths::Package),
@@ -37,6 +38,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("defaultHeaders", "importedDefaultHeaders"),
     ("stories", "importedStories"),
     ("entryStories", "importedEntryStories"),
+    ("styles", "importedStyles"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("preview", "importedPreview"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
@@ -46,7 +48,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
 struct Anchors {
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
-    headers: RefCell<HashMap<usize, JsValue>>,
+    headers: RefCell<HashMap<(usize, usize), JsValue>>,
     inlines: RefCell<HashMap<InlineKey, JsValue>>,
 }
 
@@ -85,6 +87,40 @@ fn entry_stories(input: &Wire) -> Result<JsValue> {
     )
 }
 
+fn styles(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(source
+        .document()
+        .styles()?
+        .map_or(JsValue::UNDEFINED, |styles| {
+            let items = styles.styles.iter().map(|style| {
+                let value = b::record(&[("kind", style.kind.as_str().into())]);
+                for (key, item) in [
+                    ("id", style.id.as_deref()),
+                    ("name", style.name.as_deref()),
+                    ("basedOn", style.based_on.as_deref()),
+                    (
+                        "kindXml",
+                        match &style.kind {
+                            rocx::editor::StyleKind::Unsupported(raw) => Some(raw.as_str()),
+                            rocx::editor::StyleKind::Missing => None,
+                            kind => Some(kind.as_str()),
+                        },
+                    ),
+                ] {
+                    if let Some(item) = item {
+                        b::set(&value, key, &item.into());
+                    }
+                }
+                value
+            });
+            b::record(&[
+                ("partName", styles.part_name.as_str().into()),
+                ("styles", view::array(items)),
+            ])
+        }))
+}
+
 pub(crate) struct ImportedSource {
     document: ImportedDocument,
     anchors: Rc<Anchors>,
@@ -119,7 +155,7 @@ impl StorySource {
             StorySlot::Story(story) => (
                 "importedStory",
                 story.part_name.as_str(),
-                view::story(story)?,
+                view::story(story, anchors)?,
             ),
         };
         let part = Rc::from(part);

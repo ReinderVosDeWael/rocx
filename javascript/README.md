@@ -83,8 +83,11 @@ const bytes = report.toDocx(); // synchronous; snapshot can be rendered again
 | Inspect notes and comments | `doc.entryStories()` returns entries with source IDs, metadata, paragraph runs and links. |
 | Replace a direct body run's text | `doc.preview({ runText: [{ target: run.anchor, text: "New text" }] })`; inspect `runTextChanges()` before `toDocx()`. |
 | Render against an unsigned Transitional DOCX or DOTX | `report.toDocxWithTemplate({ bytes, edits })`; `compileTemplate` returns an inspectable package plan. |
-| Inspect an unsigned DOCX | `await openDocx(bytes)`, then `body()`, `sections()`, `stories()` or `defaultHeaders()`. Unsupported children may be opaque. |
-| Edit a copy | `imported.preview(batch)` stages body alignment, table insertion and default-header images together. Inspect `changes()`, `insertions()`, `headerChanges()`, then `toDocx()`. |
+| Inspect an unsigned DOCX | `await openDocx(bytes)`, then `body()`, `sections()`, `stories()`, `defaultHeaders()`, `entryStories()` or `styles()`. Direct body controls expose tag/alias/lock; inline insertion/deletion wrappers expose metadata and children. These views are read-only. |
+| Insert a block | `paragraphInsertions` or `tableInsertions` in `imported.preview(batch)` inserts supported resolved content immediately after a direct body paragraph. |
+| Patch a cell | `cellAlignments` selects a direct body table by anchor and a single physical cell by `rowIndex` and `cellIndex`. |
+| Remove a run | `runRemovals` accepts anchors of supported single-text direct body runs; `runRemovals()` reports the removed text. |
+| Edit a copy | Combine those edits with body alignment and default- or first-page-header images in one `preview(batch)`. Inspect the per-operation reports before calling `toDocx()`. |
 | Read/write in Node | `templateFile` reads on each render; `imageFile` captures bytes and basename at resolution. `saveDocx` encodes before replacing the destination. |
 
 Use anchors from the same snapshot. Untouched parts retain their payload bytes; edited XML and ZIP bytes may change. See [preview examples and shared-header modes](https://reindervosdewael.github.io/rocx/api/javascript/#preview-anchored-edits).

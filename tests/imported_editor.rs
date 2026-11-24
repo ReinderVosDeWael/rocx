@@ -33,6 +33,183 @@ fn fixture() -> Vec<u8> {
     fixture_with_body(BODY)
 }
 
+#[test]
+fn cell_alignment_patch_validates_grid_and_preserves_other_content() {
+    use rocx::{VerticalAlignment, editor::CellAlignmentEdit};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblPr/><w:tblGrid><w:gridCol/><w:gridCol/></w:tblGrid>
+<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge w:val="restart"/><w:shd w:fill="FF0000"/></w:tcPr><w:p/></w:tc></w:tr>
+<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let source = fixture_with_body(&xml);
+    let doc = ImportedDocument::open(&source).unwrap();
+    let BodyBlock::Table(table) = &doc.body()[0] else {
+        panic!("table")
+    };
+    let edit = CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Center,
+    };
+    let preview = doc
+        .preview_with_cells(&[], &[], &[], &[], std::slice::from_ref(&edit))
+        .unwrap();
+    assert_eq!(preview.cell_alignment_changes().len(), 1);
+    let result = parts(&preview.to_docx().unwrap());
+    let source_parts = parts(&source);
+    let before_xml = std::str::from_utf8(&source_parts["word/document.xml"]).unwrap();
+    let xml = String::from_utf8(result["word/document.xml"].clone()).unwrap();
+    let before = roxmltree::Document::parse(before_xml).unwrap();
+    let after = roxmltree::Document::parse(&xml).unwrap();
+    let preserved = |document: &roxmltree::Document<'_>| {
+        document
+            .descendants()
+            .filter(|n| n.has_tag_name((W, "tcPr")))
+            .map(|props| {
+                props
+                    .children()
+                    .filter(|n| !n.has_tag_name((W, "vAlign")))
+                    .map(|n| tree(n, false))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(preserved(&before), preserved(&after));
+    assert_eq!(
+        after
+            .descendants()
+            .filter(|n| n.has_tag_name((W, "vAlign")))
+            .map(|n| n.attribute((W, "val")))
+            .collect::<Vec<_>>(),
+        [Some("center")]
+    );
+    for (name, data) in parts(&source) {
+        if name != "word/document.xml" {
+            assert_eq!(result[&name], data);
+        }
+    }
+    assert!(
+        doc.preview_with_cells(&[], &[], &[], &[], &[edit.clone(), edit.clone()])
+            .is_err()
+    );
+    let other = ImportedDocument::open(&source).unwrap();
+    assert!(
+        other
+            .preview_with_cells(&[], &[], &[], &[], &[edit])
+            .is_err()
+    );
+    let broken = xml.replace("w:val=\"restart\"", "w:val=\"continue\"");
+    let broken_doc = ImportedDocument::open(&fixture_with_body(&broken)).unwrap();
+    let BodyBlock::Table(table) = &broken_doc.body()[0] else {
+        panic!("table")
+    };
+    let invalid = CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Top,
+    };
+    assert!(
+        broken_doc
+            .preview_with_cells(&[], &[], &[], &[], &[invalid])
+            .is_err()
+    );
+    let reopened = ImportedDocument::open(&preview.to_docx().unwrap()).unwrap();
+    let BodyBlock::Table(table) = &reopened.body()[0] else {
+        panic!("table")
+    };
+    let noop = CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Center,
+    };
+    assert!(
+        reopened
+            .preview_with_cells(&[], &[], &[], &[], std::slice::from_ref(&noop))
+            .unwrap()
+            .cell_alignment_changes()
+            .is_empty()
+    );
+    let continuation = CellAlignmentEdit {
+        row_index: 1,
+        alignment: VerticalAlignment::Bottom,
+        ..noop.clone()
+    };
+    assert_eq!(
+        reopened
+            .preview_with_cells(&[], &[], &[], &[], &[continuation])
+            .unwrap()
+            .cell_alignment_changes()
+            .len(),
+        1
+    );
+    let missing = CellAlignmentEdit {
+        row_index: 8,
+        ..noop
+    };
+    assert!(
+        reopened
+            .preview_with_cells(&[], &[], &[], &[], &[missing])
+            .is_err()
+    );
+}
+
+#[test]
+fn cell_alignment_rejects_unsafe_table_layouts_atomically() {
+    use rocx::{VerticalAlignment, editor::CellAlignmentEdit};
+    let base = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p><w:r><w:t>before</w:t></w:r></w:p><w:tbl><w:tblGrid><w:gridCol/><w:gridCol/></w:tblGrid><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge w:val="restart"/></w:tcPr><w:p/></w:tc></w:tr><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let cases = [
+        base.replace("w:val=\"restart\"", "w:val=\"continue\""),
+        base.replace("w:val=\"2\"", "w:val=\"3\""),
+        base.replace("<w:vMerge/>", "<w:hMerge/>"),
+        base.replace(
+            "<w:vMerge/>",
+            "<w:vMerge/><w:vAlign w:val=\"top\"/><w:vAlign w:val=\"bottom\"/>",
+        ),
+        base.replace(
+            "<w:tr><w:tc>",
+            "<w:tr><w:trPr><w:gridBefore w:val=\"1\"/></w:trPr><w:tc>",
+        ),
+        base.replace("<w:tr><w:tc>", "<w:tr><w:sdt/><w:tc>"),
+        base.replace("<w:vMerge/>", "<w:tcPrChange w:id=\"1\"/>"),
+    ];
+    for xml in cases {
+        let source = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&source).unwrap();
+        let BodyBlock::Table(table) = &doc.body()[1] else {
+            panic!("table")
+        };
+        let edit = CellAlignmentEdit {
+            target: table.anchor.clone(),
+            row_index: 0,
+            cell_index: 0,
+            alignment: VerticalAlignment::Center,
+        };
+        let paragraph = paragraph(&doc, 0);
+        assert!(
+            doc.preview_with_cells(
+                &[ParagraphAlignmentEdit {
+                    target: paragraph.anchor.clone(),
+                    alignment: Alignment::Right
+                }],
+                &[],
+                &[],
+                &[],
+                &[edit],
+            )
+            .is_err()
+        );
+        assert_eq!(
+            parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+            parts(&source)
+        );
+    }
+}
+
 fn fixture_with_body(xml: &str) -> Vec<u8> {
     let original = block_on(
         Document::new(vec![
@@ -59,11 +236,195 @@ fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     writer.finish().unwrap().into_inner()
 }
 
+#[test]
+fn inspect_style_metadata_and_preserve_source_part() {
+    use rocx::editor::StyleKind;
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let xml = format!(
+        r#"<w:styles xmlns:w="{W}"><w:style w:type="paragraph" w:styleId="Custom"><w:name w:val="Custom Name"/><w:basedOn w:val="Normal"/><w:rPr><w:b/></w:rPr></w:style><w:style w:type="future" w:styleId="Unknown"/><w:style/><w:style w:type="character"/><w:style w:type="table"/><w:style w:type="numbering"/></w:styles>"#
+    );
+    entries.insert("word/styles.xml".into(), xml.as_bytes().to_vec());
+    let bytes = package_bytes(entries);
+    let doc = ImportedDocument::open(&bytes).unwrap();
+    let styles = doc.styles().unwrap().unwrap();
+    assert_eq!(styles.part_name, "word/styles.xml");
+    assert_eq!(styles.styles.len(), 6);
+    let style = &styles.styles[0];
+    assert_eq!(style.id.as_deref(), Some("Custom"));
+    assert_eq!(style.kind, StyleKind::Paragraph);
+    assert_eq!(style.name.as_deref(), Some("Custom Name"));
+    assert_eq!(style.based_on.as_deref(), Some("Normal"));
+    assert_eq!(
+        styles.styles[1].kind,
+        StyleKind::Unsupported("future".into())
+    );
+    assert_eq!(styles.styles[2].kind, StyleKind::Missing);
+    assert_eq!(styles.styles[2].id, None);
+    assert_eq!(styles.styles[3].kind, StyleKind::Character);
+    assert_eq!(styles.styles[4].kind, StyleKind::Table);
+    assert_eq!(styles.styles[5].kind, StyleKind::Numbering);
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap())["word/styles.xml"],
+        xml.as_bytes()
+    );
+}
+
+#[test]
+fn styles_absence_and_invalid_part_are_distinct() {
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let rels = String::from_utf8(entries["word/_rels/document.xml.rels"].clone()).unwrap();
+    let start = rels[..rels.find("/styles\"").unwrap()]
+        .rfind("<Relationship ")
+        .unwrap();
+    let end = start + rels[start..].find("/>").unwrap() + 2;
+    let mut without = rels.clone();
+    without.replace_range(start..end, "");
+    entries.insert("word/_rels/document.xml.rels".into(), without.into_bytes());
+    let missing = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    assert!(missing.styles().unwrap().is_none());
+    entries.insert("word/_rels/document.xml.rels".into(), rels.into_bytes());
+    entries.insert(
+        "word/styles.xml".into(),
+        format!(r#"<w:notStyles xmlns:w="{W}"/>"#).into_bytes(),
+    );
+    let invalid = ImportedDocument::open(&package_bytes(entries)).unwrap();
+    assert!(invalid.styles().is_err());
+
+    let mut wrong_type = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let types = String::from_utf8(wrong_type["[Content_Types].xml"].clone()).unwrap();
+    wrong_type.insert(
+        "[Content_Types].xml".into(),
+        types
+            .replace(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+                "application/xml",
+            )
+            .into_bytes(),
+    );
+    let invalid = ImportedDocument::open(&package_bytes(wrong_type)).unwrap();
+    assert!(invalid.styles().is_err());
+}
+
+#[test]
+fn styles_follow_relocated_relationship_and_reject_ambiguity() {
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let rels = String::from_utf8(entries["word/_rels/document.xml.rels"].clone()).unwrap();
+    let relocated = rels.replace("Target=\"styles.xml\"", "Target=\"resources/custom.xml\"");
+    entries.insert(
+        "word/_rels/document.xml.rels".into(),
+        relocated.clone().into_bytes(),
+    );
+    let content_types = String::from_utf8(entries["[Content_Types].xml"].clone()).unwrap();
+    entries.insert(
+        "[Content_Types].xml".into(),
+        content_types
+            .replace("/word/styles.xml", "/word/resources/custom.xml")
+            .into_bytes(),
+    );
+    let style_xml = entries.remove("word/styles.xml").unwrap();
+    entries.insert("word/resources/custom.xml".into(), style_xml.clone());
+    let doc = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    assert_eq!(
+        doc.styles().unwrap().unwrap().part_name,
+        "word/resources/custom.xml"
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap())["word/resources/custom.xml"],
+        style_xml
+    );
+    let duplicate = r#"<Relationship Id="rStyleExtra" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="resources/custom.xml"/>"#;
+    entries.insert(
+        "word/_rels/document.xml.rels".into(),
+        relocated
+            .replace("</Relationships>", &format!("{duplicate}</Relationships>"))
+            .into_bytes(),
+    );
+    let doc = ImportedDocument::open(&package_bytes(entries)).unwrap();
+    assert!(doc.styles().is_err());
+}
+
 fn paragraph(doc: &ImportedDocument, index: usize) -> &rocx::editor::ImportedParagraph {
     match &doc.body()[index] {
         BodyBlock::Paragraph(p) => p,
         _ => panic!("expected paragraph at {index}"),
     }
+}
+
+#[test]
+fn removes_original_run_targets_and_rejects_unsafe_or_conflicting_batches() {
+    use rocx::editor::{ImportedInlineNode::Run, RunTextEdit};
+    let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>
+        <w:r><w:rPr><w:b/></w:rPr><w:t>first</w:t></w:r>
+        <w:r><w:t>keep</w:t></w:r><w:r><w:t>last</w:t></w:r>
+        <w:r><w:t>bad</w:t><w:tab/></w:r>
+        <w:r><w:rPr><w:rPrChange w:id="1"/></w:rPr><w:t>revision</w:t></w:r>
+        <w:r w:rsidR="12345678"><w:t>attributed</w:t></w:r>
+        <w:r><w:rPr><w:b w:id="3"/></w:rPr><w:t>unknown attribute</w:t></w:r>
+        <w:bookmarkStart w:id="7" w:name="guard"/><w:r><w:t>in range</w:t></w:r><w:bookmarkEnd w:id="7"/>
+        </w:p><w:sectPr/></w:body></w:document>"#;
+    let data = fixture_with_body(xml);
+    let doc = ImportedDocument::open(&data).unwrap();
+    let nodes = &paragraph(&doc, 0).inline_structure;
+    let anchor = |i| match &nodes[i] {
+        Run(run) => run.anchor.clone(),
+        _ => panic!("run"),
+    };
+    let preview = doc
+        .preview_with_run_removals(&[], &[], &[], &[], &[anchor(2), anchor(0)])
+        .unwrap();
+    assert_eq!(
+        preview
+            .run_removals()
+            .iter()
+            .map(|c| (c.inline_index, c.before.as_str()))
+            .collect::<Vec<_>>(),
+        [(0, "first"), (2, "last")]
+    );
+    let output = preview.to_docx().unwrap();
+    assert_eq!(
+        paragraph(&ImportedDocument::open(&output).unwrap(), 0).text,
+        "keepbad\trevisionattributedunknown attributein range"
+    );
+    for (name, value) in parts(&data) {
+        if name != "word/document.xml" {
+            assert_eq!(parts(&output)[&name], value, "{name}");
+        }
+    }
+    let stale = ImportedDocument::open(&data).unwrap();
+    let Run(stale_run) = &paragraph(&stale, 0).inline_structure[0] else {
+        panic!("run")
+    };
+    for targets in [
+        vec![anchor(0), anchor(0)],
+        vec![anchor(0), anchor(3)],
+        vec![anchor(0), anchor(4)],
+        vec![anchor(0), anchor(5)],
+        vec![anchor(0), anchor(6)],
+        vec![anchor(0), anchor(8)],
+        vec![anchor(0), stale_run.anchor.clone()],
+    ] {
+        assert!(
+            doc.preview_with_run_removals(&[], &[], &[], &[], &targets)
+                .is_err()
+        );
+    }
+    assert!(
+        doc.preview_with_run_removals(
+            &[],
+            &[],
+            &[],
+            &[RunTextEdit {
+                target: anchor(0),
+                text: "x".into()
+            }],
+            &[anchor(0)]
+        )
+        .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&data)
+    );
 }
 
 // Compare XML structure rather than serialization; the edited part may be reserialized.
@@ -119,12 +480,70 @@ fn reads_direct_body_blocks_and_paragraph_properties() {
         items,
         &[rocx::editor::ImportedInline::Text("in table".into())]
     );
-    assert!(matches!(&doc.body()[2], BodyBlock::Opaque(_)));
+    let BodyBlock::ContentControl(control) = &doc.body()[2] else {
+        panic!("expected content control")
+    };
+    assert_eq!(
+        (&control.tag, &control.alias, &control.lock),
+        (&None, &None, &None)
+    );
     let second = paragraph(&doc, 3);
     assert_eq!(second.text, "Second");
     assert_eq!(second.alignment, None);
     assert_eq!(second.alignment_xml, None);
     assert!(!second.has_opaque_content);
+}
+
+#[test]
+fn direct_control_metadata_is_read_only_and_preserved() {
+    let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:sdt><w:sdtPr><w:tag w:val="customer &amp; id"/><w:alias w:val="Name"/><w:lock w:val="futureLock"/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>secret</w:t></w:r></w:p></w:sdtContent></w:sdt>
+<w:sdt><w:sdtPr><w:tag/><w:alias w:val=""/></w:sdtPr><w:sdtContent/></w:sdt>
+<w:p><w:r><w:t>outside</w:t></w:r></w:p><w:sectPr/></w:body></w:document>"#;
+    let input = fixture_with_body(xml);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let BodyBlock::ContentControl(first) = &doc.body()[0] else {
+        panic!("control")
+    };
+    assert_eq!(first.tag.as_deref(), Some("customer & id"));
+    assert_eq!(first.alias.as_deref(), Some("Name"));
+    assert_eq!(first.lock.as_deref(), Some("futureLock"));
+    let BodyBlock::ContentControl(second) = &doc.body()[1] else {
+        panic!("control")
+    };
+    assert_eq!(second.tag, None);
+    assert_eq!(second.alias.as_deref(), Some(""));
+    assert_eq!(second.lock, None);
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&input)
+    );
+    let output = doc
+        .preview(&[ParagraphAlignmentEdit {
+            target: paragraph(&doc, 2).anchor.clone(),
+            alignment: Alignment::Center,
+        }])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let before = parts(&input);
+    let after = parts(&output);
+    for (name, bytes) in &before {
+        if name != "word/document.xml" {
+            assert_eq!(&after[name], bytes);
+        }
+    }
+    let before_xml = std::str::from_utf8(&before["word/document.xml"]).unwrap();
+    let after_xml = std::str::from_utf8(&after["word/document.xml"]).unwrap();
+    let before_tree = roxmltree::Document::parse(before_xml).unwrap();
+    let after_tree = roxmltree::Document::parse(after_xml).unwrap();
+    let controls = |doc: &roxmltree::Document<'_>| {
+        doc.descendants()
+            .filter(|n| n.has_tag_name((W, "sdt")))
+            .map(|n| tree(n, false))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(controls(&before_tree), controls(&after_tree));
 }
 
 #[test]
@@ -365,10 +784,17 @@ fn independent_body_inline_anchors_are_snapshot_scoped_and_read_only() {
     let other = ImportedDocument::open(input).unwrap();
     let error = other.inline_at(&word.anchor).unwrap_err();
     assert!(error.to_string().contains("different document snapshot"));
-    assert_eq!(
-        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
-        original
+    let saved = doc.preview(&[]).unwrap().to_docx().unwrap();
+    let reopened = ImportedDocument::open(&saved).unwrap();
+    assert!(
+        reopened
+            .inline_at(&word.anchor)
+            .unwrap_err()
+            .to_string()
+            .contains("different document snapshot")
     );
+    assert!(matches!(doc.inline_at(&word.anchor).unwrap(), Run(_)));
+    assert_eq!(parts(&saved), original);
 }
 
 #[test]
@@ -598,6 +1024,196 @@ fn resolve_insertion_table(table: rocx::Table) -> rocx::ResolvedTable {
         ResolvedBlock::Table(table) => table.clone(),
         _ => panic!("expected table"),
     }
+}
+
+#[test]
+fn mixed_cell_paragraph_and_run_edits_use_original_indices_atomically() {
+    use rocx::{
+        ResolvedBlock, VerticalAlignment,
+        editor::{CellAlignmentEdit, ImportedInlineNode::Run, ParagraphInsertion, RunTextEdit},
+    };
+    let source = fixture_with_body(
+        &BODY
+            .replace(
+                "<w:tbl><w:tr>",
+                "<w:tbl><w:tblGrid><w:gridCol/></w:tblGrid><w:tr>",
+            )
+            .replace(
+                "<w:t>Second</w:t></w:r>",
+                "<w:t>keep</w:t></w:r><w:r><w:t>remove</w:t></w:r>",
+            ),
+    );
+    let doc = ImportedDocument::open(&source).unwrap();
+    let payload = block_on(
+        Document::new(vec![
+            Section::new(vec![Paragraph::new("inserted").into()]).into(),
+        ])
+        .resolve(),
+    )
+    .unwrap();
+    let ResolvedBlock::Paragraph(content) = &payload.sections()[0].blocks()[0] else {
+        panic!("paragraph")
+    };
+    let BodyBlock::Table(table) = &doc.body()[1] else {
+        panic!("table")
+    };
+    let Run(run) = &paragraph(&doc, 3).inline_structure[1] else {
+        panic!("run")
+    };
+    let paragraphs = [ParagraphInsertion {
+        target: paragraph(&doc, 0).anchor.clone(),
+        paragraph: content.clone(),
+    }];
+    let cells = [CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Bottom,
+    }];
+    let removals = [run.anchor.clone()];
+    let batch = |text: &[RunTextEdit]| {
+        doc.preview_mixed(&[], &[], &[], text, &paragraphs, &cells, &removals)
+    };
+    let preview = batch(&[]).unwrap();
+    assert_eq!(preview.paragraph_insertions(), &[0]);
+    let [cell] = preview.cell_alignment_changes() else {
+        panic!("one cell patch")
+    };
+    assert_eq!(
+        (cell.body_index, cell.row_index, cell.cell_index),
+        (1, 0, 0)
+    );
+    let [removed] = preview.run_removals() else {
+        panic!("one removal")
+    };
+    assert_eq!(
+        (
+            removed.body_index,
+            removed.inline_index,
+            removed.before.as_str()
+        ),
+        (3, 1, "remove")
+    );
+    let output = preview.to_docx().unwrap();
+    let reopened = ImportedDocument::open(&output).unwrap();
+    assert_eq!(paragraph(&reopened, 1).text, "inserted");
+    assert!(matches!(reopened.body()[2], BodyBlock::Table(_)));
+    assert_eq!(paragraph(&reopened, 4).text, "keep");
+    let output_parts = parts(&output);
+    let xml = roxmltree::Document::parse(
+        std::str::from_utf8(&output_parts["word/document.xml"]).unwrap(),
+    )
+    .unwrap();
+    let cell_align = xml
+        .descendants()
+        .find(|n| n.has_tag_name((W, "vAlign")))
+        .unwrap();
+    assert_eq!(cell_align.attribute((W, "val")), Some("bottom"));
+    assert!(
+        batch(&[RunTextEdit {
+            target: run.anchor.clone(),
+            text: "conflict".into()
+        }])
+        .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&source)
+    );
+    assert_eq!(batch(&[]).unwrap().to_docx().unwrap(), output);
+}
+
+#[test]
+fn paragraph_insertions_are_atomic_and_preserve_other_parts() {
+    use rocx::{
+        ResolvedBlock,
+        editor::{ParagraphInsertion, TableInsertion},
+    };
+    let resolved = block_on(
+        Document::new(vec![
+            Section::new(vec![Paragraph::new("new paragraph").into()]).into(),
+        ])
+        .resolve(),
+    )
+    .unwrap();
+    let ResolvedBlock::Paragraph(content) = &resolved.sections()[0].blocks()[0] else {
+        panic!("expected paragraph");
+    };
+    let source = fixture();
+    let doc = ImportedDocument::open(&source).unwrap();
+    let insertion = ParagraphInsertion {
+        target: paragraph(&doc, 0).anchor.clone(),
+        paragraph: content.clone(),
+    };
+    let preview = doc
+        .preview_with_paragraphs(
+            &[ParagraphAlignmentEdit {
+                target: paragraph(&doc, 3).anchor.clone(),
+                alignment: Alignment::Center,
+            }],
+            &[TableInsertion {
+                target: paragraph(&doc, 3).anchor.clone(),
+                table: insertion_table(),
+            }],
+            &[],
+            &[],
+            std::slice::from_ref(&insertion),
+        )
+        .unwrap();
+    assert_eq!(preview.paragraph_insertions(), &[0]);
+    let output = preview.to_docx().unwrap();
+    let reopened = ImportedDocument::open(&output).unwrap();
+    assert_eq!(paragraph(&reopened, 1).text, "new paragraph");
+    assert_eq!(paragraph(&reopened, 4).alignment, Some(Alignment::Center));
+    assert!(matches!(&reopened.body()[5], BodyBlock::Table(_)));
+    for (name, original) in parts(&source) {
+        if name != "word/document.xml" {
+            assert_eq!(parts(&output)[&name], original, "{name}");
+        }
+    }
+    assert!(
+        doc.preview_with_paragraphs(&[], &[], &[], &[], &[insertion.clone(), insertion])
+            .is_err()
+    );
+    let other = ImportedDocument::open(&source).unwrap();
+    let stale = ParagraphInsertion {
+        target: paragraph(&other, 0).anchor.clone(),
+        paragraph: content.clone(),
+    };
+    assert!(
+        doc.preview_with_paragraphs(&[], &[], &[], &[], &[stale])
+            .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&source)
+    );
+}
+
+#[test]
+fn paragraph_insertion_rejects_active_ranges() {
+    use rocx::{ResolvedBlock, editor::ParagraphInsertion};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p><w:bookmarkStart w:id="1" w:name="open"/></w:p><w:p><w:bookmarkEnd w:id="1"/></w:p><w:sectPr/></w:body></w:document>"#
+    );
+    let doc = ImportedDocument::open(&fixture_with_body(&xml)).unwrap();
+    let resolved = block_on(
+        Document::new(vec![Section::new(vec![Paragraph::new("x").into()]).into()]).resolve(),
+    )
+    .unwrap();
+    let ResolvedBlock::Paragraph(content) = &resolved.sections()[0].blocks()[0] else {
+        panic!()
+    };
+    let insertion = ParagraphInsertion {
+        target: paragraph(&doc, 0).anchor.clone(),
+        paragraph: content.clone(),
+    };
+    assert!(
+        doc.preview_with_paragraphs(&[], &[], &[], &[], &[insertion])
+            .unwrap_err()
+            .to_string()
+            .contains("range")
+    );
 }
 
 #[test]
@@ -1216,14 +1832,106 @@ fn header_story_preserves_order_and_opaque_children() {
     assert!(matches!(link.children.as_slice(), [
         ImportedInlineNode::Run(drawing),
         ImportedInlineNode::Opaque(start),
-        ImportedInlineNode::Opaque(revision),
+        ImportedInlineNode::Revision(revision),
         ImportedInlineNode::Run(empty),
         ImportedInlineNode::Opaque(end),
     ] if drawing.items == [ImportedInline::Opaque("w:drawing".into())]
-        && start == "w:bookmarkStart" && revision == "w:ins"
+        && start == "w:bookmarkStart" && revision.kind == "insertion"
+        && revision.id.as_deref() == Some("9")
+        && revision.author.as_deref() == Some("Reviewer")
+        && matches!(revision.children.as_slice(), [ImportedInlineNode::Run(run)]
+            if run.items == [ImportedInline::Text("hidden".into())]
+            && matches!(doc.inline_at(&run.anchor), Ok(ImportedInlineNode::Run(_))))
         && empty.items.is_empty() && end == "w:bookmarkEnd"
         && matches!(doc.inline_at(&empty.anchor).unwrap(), ImportedInlineNode::Run(found)
             if found.anchor == empty.anchor)));
+}
+
+#[test]
+fn revision_inspection_keeps_boundaries_metadata_and_read_only_anchors() {
+    use rocx::editor::{ImportedInline, ImportedInlineNode, RunTextEdit};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p>
+        <w:ins w:id="4" w:author="Ada" w:date="2024-01-01T00:00:00Z"><w:r><w:t>new</w:t></w:r><w:proofErr/></w:ins>
+        <w:del w:id="5"><w:r><w:delText>old</w:delText><w:drawing/></w:r></w:del>
+        <w:moveFrom w:id="6"><w:r><w:delText>move</w:delText></w:r></w:moveFrom>
+        </w:p><w:sectPr/></w:body></w:document>"#
+    );
+    let bytes = fixture_with_body(&xml);
+    let doc = ImportedDocument::open(&bytes).unwrap();
+    let p = paragraph(&doc, 0);
+    let [
+        ImportedInlineNode::Revision(ins),
+        ImportedInlineNode::Revision(del),
+        ImportedInlineNode::Opaque(moved),
+    ] = p.inline_structure.as_slice()
+    else {
+        panic!("expected two revisions and an opaque move");
+    };
+    assert_eq!(
+        (
+            ins.kind,
+            ins.id.as_deref(),
+            ins.author.as_deref(),
+            ins.date.as_deref()
+        ),
+        (
+            "insertion",
+            Some("4"),
+            Some("Ada"),
+            Some("2024-01-01T00:00:00Z")
+        )
+    );
+    assert_eq!(
+        (del.kind, del.id.as_deref(), del.author.as_deref()),
+        ("deletion", Some("5"), None)
+    );
+    assert_eq!(moved, "w:moveFrom");
+    let [
+        ImportedInlineNode::Run(inserted),
+        ImportedInlineNode::Opaque(unknown),
+    ] = ins.children.as_slice()
+    else {
+        panic!("insertion children");
+    };
+    assert_eq!(unknown, "w:proofErr");
+    assert_eq!(inserted.items, [ImportedInline::Text("new".into())]);
+    let [ImportedInlineNode::Run(deleted)] = del.children.as_slice() else {
+        panic!("deletion children");
+    };
+    assert_eq!(
+        deleted.items,
+        [
+            ImportedInline::Text("old".into()),
+            ImportedInline::Opaque("w:drawing".into())
+        ]
+    );
+    assert!(matches!(
+        doc.inline_at(&del.anchor),
+        Ok(ImportedInlineNode::Revision(_))
+    ));
+    assert!(matches!(
+        doc.inline_at(&deleted.anchor),
+        Ok(ImportedInlineNode::Run(_))
+    ));
+    assert!(
+        ImportedDocument::open(&bytes)
+            .unwrap()
+            .inline_at(&deleted.anchor)
+            .is_err()
+    );
+    assert!(
+        doc.preview_with_text(
+            &[],
+            &[],
+            &[],
+            &[RunTextEdit {
+                target: inserted.anchor.clone(),
+                text: "unsafe".into()
+            }]
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -1734,4 +2442,93 @@ fn shared_edit_counts_aliases_on_first_page_headers() {
     let output = parts(&preview.to_docx().unwrap());
     assert_header_image_relationship(&output, &shared.output_part);
     assert_header_image_relationship(&output, &local.output_part);
+}
+
+#[test]
+fn first_header_image_local_preserves_aliases_and_inheritance() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit, SectionStoryKind};
+    let mut entries = parts(&header_fixture("<w:p/>", false));
+    let xml = String::from_utf8(entries["word/document.xml"].clone()).unwrap();
+    entries.insert(
+        "word/document.xml".into(),
+        xml.replace(
+            r#"<w:headerReference w:type="default" r:id="headerTest"/>"#,
+            r#"<w:headerReference w:type="default" r:id="headerTest"/><w:headerReference w:type="first" r:id="headerTest"/>"#,
+        )
+        .into_bytes(),
+    );
+    let input = package_bytes(entries);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let stories = doc.stories().unwrap();
+    let first = stories
+        .iter()
+        .find(|s| {
+            s.section_index == 1
+                && s.kind == SectionStoryKind::Header
+                && s.variant == rocx::HeaderFooterType::First
+        })
+        .unwrap();
+    assert!(first.inherited);
+    let default = &doc.default_headers().unwrap()[1].anchor;
+    let first_local = HeaderImageEdit {
+        target: first.anchor.clone().unwrap(),
+        mode: HeaderEditMode::SectionLocal,
+        image: header_image(),
+    };
+    let default_local = HeaderImageEdit {
+        target: default.clone(),
+        mode: HeaderEditMode::SectionLocal,
+        image: header_image(),
+    };
+    let both = doc
+        .preview_transaction(&[], &[], &[first_local.clone(), default_local.clone()])
+        .unwrap();
+    assert_eq!(both.header_changes().len(), 2);
+    assert_ne!(
+        both.header_changes()[0].output_part,
+        both.header_changes()[1].output_part
+    );
+    let mut shared = first_local.clone();
+    shared.mode = HeaderEditMode::Shared;
+    assert!(
+        doc.preview_transaction(&[], &[], &[shared, default_local])
+            .is_err()
+    );
+    for mode in [HeaderEditMode::Shared, HeaderEditMode::SectionLocal] {
+        let preview = doc
+            .preview_header_image(&HeaderImageEdit {
+                target: first.anchor.clone().unwrap(),
+                mode,
+                image: header_image(),
+            })
+            .unwrap();
+        let bytes = preview.to_docx().unwrap();
+        let output = parts(&bytes);
+        assert_header_image_relationship(&output, &preview.change().output_part);
+        if mode == HeaderEditMode::Shared {
+            assert_eq!(preview.change().affected_sections, [0, 1, 2]);
+            continue;
+        }
+        assert_eq!(preview.change().affected_sections, [1]);
+        assert_eq!(preview.change().restored_section, Some(2));
+        assert_eq!(
+            parts(&input)["word/headerTest.xml"],
+            output["word/headerTest.xml"]
+        );
+        let reopened = ImportedDocument::open(&bytes).unwrap();
+        for story in reopened
+            .stories()
+            .unwrap()
+            .iter()
+            .filter(|s| s.kind == SectionStoryKind::Header)
+        {
+            let expected =
+                if story.section_index == 1 && story.variant == rocx::HeaderFooterType::First {
+                    &preview.change().output_part
+                } else {
+                    &preview.change().source_part
+                };
+            assert_eq!(&story.part_name, expected);
+        }
+    }
 }

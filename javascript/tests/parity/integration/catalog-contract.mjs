@@ -7,6 +7,8 @@ const suffixes = {
   headerSource: ".header-source",
   headerShared: ".header-shared",
   headerLocal: ".header-local",
+  headerFirstShared: ".header-first-shared",
+  headerFirstLocal: ".header-first-local",
   runText: ".run-text",
 };
 

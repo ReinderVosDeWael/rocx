@@ -1,16 +1,74 @@
 # Editor declarative parity inventory
 
-This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Default, first, and even headers and footers expose section references, inherited status, physical part names, and ordered direct paragraphs; other direct children are opaque. The broader story view is read-only. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
+## Existing imported addresses
+
+Anchors belong to one open snapshot, not the DOCX file: opening identical bytes
+or reopening a preview issues a new snapshot. Obtain new anchors after reopening;
+the original snapshot and its anchors remain usable after preview. Rust
+`inline_at`, Python `inline_at`, and JavaScript `inlineAt` reject foreign inline
+anchors. They are not persistent IDs and must not be serialized for later use.
+
+Inline anchors distinguish runs and hyperlinks by physical location, not text,
+relationship ID, or entry ID. Aliased section stories for the same physical part
+share inline identities; different physical parts do not. Header image
+targets instead select a section and variant, even when slots share a header. Duplicate
+edits to one target and conflicting shared-header edits are rejected atomically.
+This is not a general contract for resolving duplicate source IDs.
+Rust and Python compare inline anchors by identity; JavaScript reuses the same
+opaque handle for an inline identity in a snapshot. Other anchor types do not
+promise cross-binding value equality.
+
+Section body ranges are zero-based, half-open block indices, not editable text
+ranges. There are no text-offset or arbitrary range anchors. Opaque nodes, run
+items, rows, cells and nested tables lack independent addresses. Paragraph or table insertion
+uses a direct-body paragraph and inserts after it; active or ambiguous supported
+fields and ranges prevent insertion there. Single-text direct-body run replacement or removal
+also rejects targets inside active or ambiguous supported ranges. These guards
+do not imply all OOXML range types are inspected or editable.
+
+## Supported imported targets
+
+The editor exposes direct body inspection with section ranges, explicit section
+types and ordered paragraph content. Default, first and even headers and footers
+expose section references, inherited status, physical part names and ordered
+direct paragraphs; other direct children are opaque. Only default and first-page
+header slots supply image-edit anchors. The [operation contract](#operation-contract)
+below describes the broader goal, not the currently supported surface.
+
+Direct body controls expose source tag, alias and lock: Rust
+`BodyBlock::ContentControl`, Python `BodyContentControl`, JavaScript
+`kind: "contentControl"`. Missing attributes are absent, empty strings remain
+empty and unknown lock values stay literal. There is no edit anchor or traversal
+of the contents. Controls in other contexts remain opaque.
+
+Paragraph insertion adds a resolved paragraph immediately after a direct body paragraph.
+Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
+`ParagraphInsertion` with `paragraph_insertions=`, and JavaScript uses
+`paragraphInsertions` in the preview batch. Payloads are resolved declarations;
+their supported inline content and referenced styles use the table-insertion
+guards. An anchor cannot receive both a paragraph and a table insertion in one
+batch. Paragraph replacement and removal, and paragraph insertion in other
+stories, are unsupported.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
-Rust and Python. The table anchor is inspection-only: it cannot be used as a paragraph
-edit target. Rows and cells have no independent edit identities yet. Table, row,
-cell, and paragraph properties (including grids, spans, and merges) are not
-interpreted; physical cells are not expanded into a logical grid. Unsupported
+Rust, Python and JavaScript. The table anchor plus physical row and cell indices
+can target a vertical-alignment patch, but cannot be used as a paragraph edit
+target. Rows and cells have no independent edit identities yet. The patch
+validates the explicit grid, spans and vertical merge chains; it rejects omitted
+grid columns, horizontal merges, tracked cell-property changes and opaque row or
+cell wrappers. It edits the selected physical cell, including a merge continuation,
+not all cells in a merged region. Other cell properties remain untouched.
+Physical cells are not expanded into a logical grid. Unsupported
 children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
+
+In Rust use `CellAlignmentEdit` with `preview_with_cells`; in Python use
+`CellAlignmentEdit` with `preview(..., cell_alignments=[...])`; in JavaScript
+use `preview({ cellAlignments: [...] })`. Indices refer to the original
+snapshot's inspected children, including opaque entries. Duplicate, missing,
+foreign-snapshot and structurally ambiguous targets reject the entire batch.
 
 Direct body, header, and footer paragraphs retain run and hyperlink boundaries through
 `inline_structure`. Hyperlinks expose their explicit owner-local relationship
@@ -23,7 +81,19 @@ values; `ImportedDocument::inline_at` in Rust and
 `ImportedDocument.inline_at` in Python reject anchors from another open,
 even when both snapshots came from identical bytes. Individual run items and
 opaque nodes are not addressable. Direct body run anchors support a single-text
-replacement via `RunTextEdit`; all other inline addresses remain read-only.
+replacement via `RunTextEdit`. Whole-run removal is stricter: the selected
+run must have recognized local formatting and no unsafe or unknown markup.
+Replacement and removal of the same run conflict. All other inline addresses
+remain read-only.
+
+Inline `w:ins` and `w:del` wrappers are also inspectable without applying them:
+Rust `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
+`kind: "revision"` expose insertion/deletion kind, literal optional ID, author
+and date, and ordered children. Deleted `w:delText` is represented as text
+inside the deletion; unsupported children and nested revisions remain opaque.
+Wrapper and child anchors resolve in their original snapshot but cannot be used
+for run-text edits. Flat projections continue to show an opaque wrapper;
+move revisions and revision editing are outside this slice.
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in
@@ -50,6 +120,10 @@ even with identical IDs across part kinds. Tables and other non-paragraph
 children remain opaque. Inspecting an ambiguous relationship, wrong root,
 wrong content type or missing entry ID fails without changing the snapshot.
 
+[Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
+part identity and direct style ID, kind, name, and base reference in all three
+bindings. Other style properties and resource editing remain outstanding.
+
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
 `ImportedHeaderBlock` type. In Python, `ImportedStoryParagraph` is an alias of
@@ -59,10 +133,17 @@ Aliases of the same part produce equal inline anchors even across the two views,
 but distinct parts do not, even when their contents and relationship IDs match.
 `default_headers` retains its existing inspection scope and section-scoped
 `HeaderAnchor` for image edits; unrelated footer failures don't affect it.
+The broader story view also supplies an image-edit anchor for default and
+first-page headers. Other story slots have no such anchor. Local edits restore
+inheritance only for the selected variant; shared edits include all aliases.
 
-Rust's `preview_transaction` and Python's `preview(..., header_images=...)`
-can stage body alignment, table insertion, and header image edits against the
-same snapshot. A shared edit conflicts with any other image edit on that
+To combine **all seven edit kinds** in one call, Rust uses
+`preview_mixed(alignments, tables, header_images, run_text, paragraphs, cells, run_removals)`.
+Python uses `preview(alignments, table_insertions=..., header_images=..., run_text=...,
+paragraph_insertions=..., cell_alignments=..., run_removals=...)`; JavaScript uses
+`preview({alignments, tableInsertions, headerImages, runText, paragraphInsertions,
+cellAlignments, runRemovals})`. Every target comes from the original snapshot.
+A shared edit conflicts with any other image edit on that
 physical header. Distinct sections may each fork the same original header
 with section-local edits. A rejected operation produces no partial preview.
 
@@ -100,4 +181,4 @@ Conditions, components, property references, lazy/async/deferred values, reuse a
 
 ## Acceptance cross-check
 
-Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the active plan for verification status.
+Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python/JavaScript DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the [active plan](PLAN.md) for verification status.

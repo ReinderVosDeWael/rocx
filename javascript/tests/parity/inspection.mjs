@@ -86,7 +86,13 @@ table.cell(0, 2).text = "Tail"
 row = table.rows[0]._tr
 row.insert(row.index(row.tc_lst[-1]), elem("sdt"))
 table._tbl.insert(table._tbl.index(row), elem("sdt"))
-doc.element.body.insert(3, elem("sdt"))
+control = elem("sdt")
+props = elem("sdtPr")
+for name, value in [("tag", "customer & id"), ("alias", "Name"), ("lock", "futureLock")]:
+    props.append(elem(name, val=value))
+control.append(props)
+control.append(elem("sdtContent"))
+doc.element.body.insert(3, control)
 
 first = doc.sections[0].header
 first.paragraphs[0].text = "Header "
@@ -159,10 +165,23 @@ strict = mutate(base, main, lambda xml: xml.replace(
 broken_header = mutate(base, "word/header1.xml", lambda xml: xml.replace(b"w:hdr", b"w:ftr"))
 broken_footer = mutate(base, "word/footer1.xml", lambda xml: xml.replace(b"w:ftr", b"w:hdr"))
 
+revision_doc = Document()
+revision_p = revision_doc.add_paragraph()
+for kind, value in (("ins", "new"), ("del", "old")):
+    revision = elem(kind, id="7", author="Ada")
+    run = elem("r")
+    text_node = elem("t" if kind == "ins" else "delText")
+    text_node.text = value
+    run.append(text_node)
+    run.append(elem("drawing"))
+    revision.append(run)
+    revision_p._p.append(revision)
+
 print(json.dumps({
     **{key: base64.b64encode(data).decode() for key, data in {
         "base": base, "implicit": implicit, "ambiguous": ambiguous, "strict": strict,
         "brokenHeader": broken_header, "brokenFooter": broken_footer,
+        "revisions": save(revision_doc),
     }.items()},
     "bodyLink": relation.get("Id"),
     "cellLink": cell_relation.get("Id"),
@@ -197,7 +216,7 @@ async function importedBodySectionsAndPhysicalCells() {
   assert.equal(unknown.alignment, undefined);
   assert.equal(unknown.alignmentXml, "start");
   assert.equal(unknown.hasOpaqueContent, false);
-  assert.deepEqual(unsupported, opaque("w:sdt"));
+  assert.deepEqual(unsupported, { kind: "contentControl", tag: "customer & id", alias: "Name", lock: "futureLock" });
   const [merged, , tail] = table.children[1].children;
   const [spanRun, field, cellLink] = merged.blocks[0].inlineStructure;
   const [left, right] = cellLink.children;
@@ -450,6 +469,22 @@ await importedBodySectionsAndPhysicalCells();
 await importedBodyInlineAnchorsAndProjections();
 await importedDefaultHeaderAliasesAndLazyInspection();
 await importedSectionStoriesAndCrossViewIdentity();
+{
+  const source = await openDocx(bytes("revisions"));
+  const [insertion, deletion] = source.body()[0].inlineStructure;
+  for (const [revision, kind, value] of [[insertion, "insertion", "new"], [deletion, "deletion", "old"]]) {
+    assert.equal(revision.kind, "revision");
+    assert.equal(revision.revisionKind, kind);
+    assert.equal(revision.id, "7");
+    assert.equal(revision.author, "Ada");
+    assert.equal(revision.date, undefined);
+    assert.deepEqual(revision.children[0].items, [text(value), opaque("w:drawing")]);
+    assert.equal(source.inlineAt(revision.anchor).anchor, revision.anchor);
+    assert.equal(source.inlineAt(revision.children[0].anchor).anchor, revision.children[0].anchor);
+    const other = await openDocx(bytes("revisions"));
+    assert.throws(() => other.inlineAt(revision.anchor), /different document snapshot/);
+  }
+}
 console.log(`E01–E03 installed runtime: sections, structured cells, inline anchors, lazy header/footer variants and aliases (${process.version})`);
 
 if (process.argv.includes("--browser")) {
@@ -465,7 +500,7 @@ if (process.argv.includes("--browser")) {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error));
     await page.goto(`http://${host}:${server.httpServer.address().port}/`);
-    const result = await page.evaluate(async ({ base, brokenHeader }) => {
+    const result = await page.evaluate(async ({ base, brokenHeader, revisions }) => {
       const { openDocx } = await import("/node_modules/rocx-docx/browser.js");
       const source = await openDocx(Uint8Array.fromBase64(base));
       const p = source.body()[0];
@@ -495,6 +530,8 @@ if (process.argv.includes("--browser")) {
         iframe.remove();
       }
       const malformed = await openDocx(Uint8Array.fromBase64(brokenHeader));
+      const revisionSource = await openDocx(Uint8Array.fromBase64(revisions));
+      const revisionNodes = revisionSource.body()[0].inlineStructure;
       let headerError;
       try {
         malformed.defaultHeaders();
@@ -503,6 +540,7 @@ if (process.argv.includes("--browser")) {
       }
       return {
         body: p.text,
+        control: source.body()[3],
         bodyIdentity: source.inlineAt(firstNode.anchor).anchor === firstNode.anchor,
         cellIdentity: source.inlineAt(cellLink.children[1].anchor).anchor === cellLink.children[1].anchor,
         headerIdentity: legacyAnchor === inherited.inlineStructure(0)[0].anchor
@@ -513,12 +551,18 @@ if (process.argv.includes("--browser")) {
         malformedBody: malformed.body()[0].text,
         headerError,
         foreignError,
+        revisions: revisionNodes.map((revision) => [
+          revision.revisionKind, revision.author, revision.children[0].items[0].text,
+          revisionSource.inlineAt(revision.children[0].anchor).anchor === revision.children[0].anchor,
+        ]),
       };
     }, fixtures);
     assert.deepEqual({ ...result, headerError: undefined }, {
       body: "AB\t\n\nLinkJump", bodyIdentity: true, cellIdentity: true,
+      control: { kind: "contentControl", tag: "customer & id", alias: "Name", lock: "futureLock" },
       headerIdentity: true, footerIdentity: true,
       malformedBody: "AB\t\n\nLinkJump", headerError: undefined, foreignError: "anchor",
+      revisions: [["insertion", "Ada", "new", true], ["deletion", "Ada", "old", true]],
     });
     assert.match(result.headerError, /invalid header root/);
     assert.deepEqual(errors, []);

@@ -12,6 +12,8 @@ export const catalogNames = Object.freeze({
   headerSource: "all_features-javascript.header-source.docx",
   headerShared: "all_features-javascript.header-shared.docx",
   headerLocal: "all_features-javascript.header-local.docx",
+  headerFirstShared: "all_features-javascript.header-first-shared.docx",
+  headerFirstLocal: "all_features-javascript.header-first-local.docx",
   runText: "all_features-javascript.run-text.docx",
 });
 const EDIT_TABLE_LABEL = "Imported editor table: bold label";
@@ -141,7 +143,18 @@ export async function generateCatalog(fixtures, options) {
   ], { columnWidths: [2160, 2160], layout: "fixed" }));
 
   const imported = await openDocx(final);
+  assert(imported.styles()?.styles.some((style) => style.name === "Catalog Bullets"
+    && style.kind === "numbering" && style.id), "expected imported numbering style");
   const body = imported.body();
+  const revisions = body.flatMap((block) => block.kind === "paragraph" ? block.inlineStructure : [])
+    .filter((node) => node.kind === "revision" && node.author === "Catalog editor");
+  for (const [kind, text] of [["insertion", "inserted wording"], ["deletion", "old wording"]]) {
+    const revision = revisions.find((node) => node.revisionKind === kind && node.children[0]?.items[0]?.text === text);
+    assert(revision && imported.inlineAt(revision.children[0].anchor).items[0].text === text, "missing typed revision");
+  }
+  const controls = body.filter((node) => node.kind === "contentControl" && node.tag === "review-block");
+  assert(controls.length === 1 && controls[0].alias === "Review block" &&
+    controls[0].lock === "sdtLocked", "incorrect block control metadata");
   const inline = body.find((node) => node.kind === "paragraph" && node.text === INLINE_LABEL + INLINE_LINK_RUNS.join(""));
   assert(inline, "expected labeled body inline structure");
   const entries = imported.entryStories();
@@ -153,8 +166,15 @@ export async function generateCatalog(fixtures, options) {
   const reviewRun = review.blocks[0].inlineStructure[0];
   assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
-  const textPreview = imported.preview({runText: [textEdit]});
+  const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
+  const textPreview = imported.preview({
+    runText: [textEdit],
+    paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
+  });
+  assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");
   const [change] = textPreview.runTextChanges();
+  const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
+  assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
     change.bodyIndex === body.indexOf(inline) && change.inlineIndex === 0, "incorrect text change");
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
@@ -167,9 +187,17 @@ export async function generateCatalog(fixtures, options) {
   checkText(target.inlineItems, [EDIT_LABEL]);
   const bodyIndex = body.indexOf(target);
   const preview = previewTable(imported, target, bodyIndex, resolvedTable);
-  const edited = preview.toDocx();
+  let edited = preview.toDocx();
   assertBytes(edited, preview.toDocx(), "retained body preview must encode identically");
   await checkEdited(edited, bodyIndex, imported);
+  const reopenedForCell = await openDocx(edited);
+  const insertedTable = reopenedForCell.body()[bodyIndex + 1];
+  assert(insertedTable.kind === "table", "expected inserted table");
+  const cellPreview = reopenedForCell.preview({ cellAlignments: [
+    { target: insertedTable.anchor, rowIndex: 0, cellIndex: 0, alignment: "center" },
+  ] });
+  assert(cellPreview.cellAlignmentChanges().length === 1, "expected cell alignment change");
+  edited = cellPreview.toDocx();
   const otherSnapshot = await openDocx(final);
   assertThrows(() => otherSnapshot.preview({runText: [textEdit]}), "accepted a foreign run-text edit");
   assertThrows(() => imported.preview({runText: [{target: reviewRun.anchor, text: "Wrong story"}]}),
@@ -197,6 +225,15 @@ export async function generateCatalog(fixtures, options) {
   const headerTarget = headers.body()[0];
   assert(headerTarget.kind === "paragraph" && headerTarget.text === HEADER_BATCH_LABEL, "expected header batch anchor");
   const resolvedImage = (await resolveComponent(image("png"))).view.image;
+  const firstPage = headers.stories().find(({view}) => view.sectionIndex === 1 && view.kind === "header" && view.variant === "first").view;
+  const firstOutputs = [];
+  for (const mode of ["shared", "sectionLocal"]) {
+    const firstPreview = headers.previewHeaderImage({target: firstPage.anchor, mode, image: resolvedImage});
+    const change = firstPreview.change();
+    assert(JSON.stringify(change.affectedSections) === JSON.stringify(mode === "shared" ? [0, 1] : [1]),
+      "unexpected first-page header scope");
+    firstOutputs.push(firstPreview.toDocx());
+  }
 
   async function headerEdit(mode, affectedSections) {
     const headerImages = [{ target: inherited.view.anchor, mode, image: resolvedImage }];
@@ -214,5 +251,6 @@ export async function generateCatalog(fixtures, options) {
   }
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
-  return { final, template, edited, headerSource, headerShared, headerLocal, runText };
+  const [headerFirstShared, headerFirstLocal] = firstOutputs;
+  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText };
 }
