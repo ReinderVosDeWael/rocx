@@ -493,6 +493,11 @@ async def generate(output: pathlib.Path) -> bytes:
                          n.items and n.items[0].kind == "text" and n.items[0].value == label)
         review_link = await d.Hyperlink("https://example.com/entry-review", [d.TextRun("Review link")]).resolve()
         entries_output = source.edit_entry_inlines(entry.part_name, [InlineEdit.insert_after(entry_run.anchor, review_link)])
+        source = ImportedDocument.open(entries_output)
+        entry = next(e for e in source.entry_stories if e.kind == kind and e.id == entry.id)
+        link_run = next(n.children[0] for n in entry.blocks[0].inline_structure if isinstance(n, ImportedHyperlink)
+                        and n.children[0].items[0].value == "Review link")
+        entries_output = source.edit_run_format([InlineEdit.patch_format(link_run.anchor, size=13.5)], owner_part=entry.part_name)
     output.with_suffix(".entry-text.docx").write_bytes(entries_output)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
@@ -562,6 +567,7 @@ async def generate(output: pathlib.Path) -> bytes:
     assert any(c.before == INLINE_LABEL for c in preview.run_text_changes)
     assert label.italic is None
     whole = imported.preview([], inline_edits=[InlineEdit.set_toggle(label.anchor, "italic", True),
+        InlineEdit.patch_format(label.anchor, size=12.5, clear=["font_east_asia"]),
         InlineEdit.insert_after(inline_link.anchor, await d.TextRun("Imported editor: inserted paragraph.").resolve())])
     assert whole.inline_changes[-1][1] == 1
     field = await d.Field(d.FieldInstruction.page(), [d.TextRun("sample cache")]).resolve()

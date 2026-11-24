@@ -25,7 +25,7 @@ PORTABLE_ORACLES = (
 )
 EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
-                  "blocks", "inline", "runFormatting", "tableStructure", "styleEdits", "controlEdits",
+                  "blocks", "inline", "runFormatting", "formatOwners", "tableStructure", "styleEdits", "controlEdits",
                   "controlWrapped", "controlUnwrapped", "guardedWorkflow",
                   "tracked", "reviewed", "moved", "moveAccepted", "boldChange", "boldAccepted", "boldRejected",
                   "paraInsert", "paraInsertAccepted", "paraInsertRejected", "paraDelete", "paraDeleteAccepted", "paraDeleteRejected", "combined", "fieldsRanges")

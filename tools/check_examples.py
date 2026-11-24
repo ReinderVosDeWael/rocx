@@ -832,6 +832,7 @@ def verify_entry_text(original: bytes, changed: bytes) -> None:
             link = text.getparent().getnext()
             assert link.tag == f"{{{NS['w']}}}hyperlink"
             assert link.xpath("./w:r/w:t/text()", namespaces=NS) == ["Review link"]
+            assert link.xpath("./w:r/w:rPr/w:sz/@w:val", namespaces=NS) == ["27"]
             rid = link.get(f"{{{NS['odr']}}}id")
             rel_path = f"word/_rels/{kind}s.xml.rels"
             rels = etree.fromstring(output.read(rel_path))

@@ -1,4 +1,5 @@
 use super::{InlineAnchor, InlineLocation, insertion::BoundaryState, unsupported};
+use super::{RunFormatField, run_format};
 use crate::Result;
 use crate::xml::{Content, Node};
 use std::collections::BTreeMap;
@@ -52,6 +53,11 @@ pub enum InlineAction {
     RemoveObject,
     /// Set (true/false) or clear (None) a direct property, without resolving styles.
     SetToggle(RunToggle, Option<bool>),
+    /// Omitted properties are retained; clear restores inheritance for selected slots.
+    PatchFormat {
+        set: Box<crate::RunFormat>,
+        clear: Vec<RunFormatField>,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -63,12 +69,12 @@ pub enum RunToggle {
 }
 
 impl RunToggle {
-    fn tag(self) -> &'static str {
+    fn field(self) -> RunFormatField {
         match self {
-            Self::Bold => "w:b",
-            Self::Italic => "w:i",
-            Self::Strike => "w:strike",
-            Self::Hidden => "w:vanish",
+            Self::Bold => RunFormatField::Bold,
+            Self::Italic => RunFormatField::Italic,
+            Self::Strike => RunFormatField::Strike,
+            Self::Hidden => RunFormatField::Hidden,
         }
     }
 
@@ -88,12 +94,12 @@ pub(super) enum Action {
     Remove,
     After(Vec<Node>),
     Replace(Vec<Node>),
+    Format(run_format::Slots),
     Description(Option<String>),
     Asset(String),
     Drawing(super::DrawingProperty, Node),
     Chart(String),
     RemoveObject,
-    Toggle(RunToggle, Option<bool>),
     RemoveHyperlink,
     LinkProperty(&'static str, Option<String>),
 }
@@ -101,10 +107,9 @@ pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
 pub(super) fn prepare(
     package: crate::opc::Package,
-    doc: &super::ImportedDocument,
+    main: &str,
     edits: &[InlineEdit],
 ) -> Result<(crate::opc::Package, Targets)> {
-    let main = doc.main.as_str();
     let mut ordered = BTreeMap::new();
     let mut charts = BTreeMap::new();
     for edit in edits {
@@ -115,9 +120,10 @@ pub(super) fn prepare(
                 "inline target must belong directly to a body paragraph",
             ));
         };
-        if ordered.insert((*body, *inline), &edit.action).is_some() {
-            return Err(unsupported("duplicate inline target"));
-        }
+        ordered
+            .entry((*body, *inline))
+            .or_insert_with(Vec::new)
+            .push(&edit.action);
         if let InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, i) = &edit.action {
             let crate::ResolvedInline::ColumnChart(chart) = i else {
                 return Err(unsupported("expected a resolved column chart"));
@@ -125,14 +131,7 @@ pub(super) fn prepare(
             charts.insert((*body, *inline), (doc.chart_id(&edit.target)?, chart));
         }
     }
-    render_actions(
-        package,
-        main,
-        main,
-        crate::StoryKind::Body,
-        ordered,
-        charts.into_values().collect(),
-    )
+    render_actions(package, main, main, crate::StoryKind::Body, ordered)
 }
 
 fn render_actions<K: Ord>(
@@ -140,17 +139,18 @@ fn render_actions<K: Ord>(
     main: &str,
     owner: &str,
     kind: crate::StoryKind,
-    ordered: BTreeMap<K, &InlineAction>,
+    ordered: BTreeMap<K, Vec<&InlineAction>>,
     charts: Vec<(&str, &crate::ColumnChartProperties)>,
 ) -> Result<(crate::opc::Package, BTreeMap<K, Action>)> {
     let payloads: Vec<_> = ordered
         .values()
+        .flatten()
         .filter_map(|action| match action {
             InlineAction::InsertAfter(i) | InlineAction::Replace(i) => Some(i),
             _ => None,
         })
         .collect();
-    let (mut package, nodes) = if payloads.is_empty() {
+    let (package, nodes) = if payloads.is_empty() {
         (package, vec![])
     } else {
         crate::ooxml::encode_editor_inlines(package, main, owner, kind, &payloads)?
@@ -158,6 +158,7 @@ fn render_actions<K: Ord>(
     let mut nodes = nodes.into_iter();
     let images: Vec<_> = ordered
         .values()
+        .flatten()
         .filter_map(|a| match a {
             InlineAction::SetImageAsset(i) => Some(i),
             _ => None,
@@ -171,6 +172,7 @@ fn render_actions<K: Ord>(
         .into_iter();
     let patches: Vec<_> = ordered
         .values()
+        .flatten()
         .filter_map(|a| match a {
             InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _) => None,
             InlineAction::PatchDrawing(_, i) => Some(i),
@@ -195,40 +197,62 @@ fn render_actions<K: Ord>(
             crate::ooxml::encode_editor_inlines(package.clone(), main, owner, kind, &patches)?.1;
     }
     let mut rendered = rendered.into_iter();
-    Ok((
-        package,
-        ordered
-            .into_iter()
-            .map(|(key, action)| {
-                (
-                    key,
-                    match action {
-                        InlineAction::InsertAfter(_) => Action::After(nodes.next().unwrap()),
-                        InlineAction::Replace(_) => Action::Replace(nodes.next().unwrap()),
-                        InlineAction::SetDrawingDescription(s) => Action::Description(s.clone()),
-                        InlineAction::SetImageAsset(_) => Action::Asset(links.next().unwrap()),
-                        InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _) => {
-                            Action::Chart(chart_links.next().unwrap())
-                        }
-                        InlineAction::PatchDrawing(property, _) => {
-                            Action::Drawing(*property, rendered.next().unwrap().pop().unwrap())
-                        }
-                        InlineAction::RemoveObject => Action::RemoveObject,
-                        InlineAction::SetBold(b) => Action::Toggle(RunToggle::Bold, Some(*b)),
-                        InlineAction::SetToggle(prop, value) => Action::Toggle(*prop, *value),
-                        InlineAction::RemoveHyperlink => Action::RemoveHyperlink,
-                        InlineAction::HyperlinkTooltip(v) => {
-                            Action::LinkProperty("w:tooltip", v.clone())
-                        }
-                        InlineAction::HyperlinkHistory(v) => Action::LinkProperty(
-                            "w:history",
-                            v.map(|x| if x { "1" } else { "0" }.into()),
-                        ),
-                    },
-                )
-            })
-            .collect(),
-    ))
+    let mut targets = BTreeMap::new();
+    for (key, group) in ordered {
+        let action = match group.as_slice() {
+            [InlineAction::InsertAfter(_)] => Action::After(nodes.next().unwrap()),
+            [InlineAction::Replace(_)] => Action::Replace(nodes.next().unwrap()),
+            [InlineAction::SetDrawingDescription(s)] => Action::Description(s.clone()),
+            [InlineAction::SetImageAsset(_)] => Action::Asset(links.next().unwrap()),
+            [InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _)] => {
+                Action::Chart(chart_links.next().unwrap())
+            }
+            [InlineAction::PatchDrawing(property, _)] => {
+                Action::Drawing(*property, rendered.next().unwrap().pop().unwrap())
+            }
+            [InlineAction::RemoveObject] => Action::RemoveObject,
+            [InlineAction::RemoveHyperlink] => Action::RemoveHyperlink,
+            [InlineAction::HyperlinkTooltip(v)] => Action::LinkProperty("w:tooltip", v.clone()),
+            [InlineAction::HyperlinkHistory(v)] => {
+                Action::LinkProperty("w:history", v.map(|x| if x { "1" } else { "0" }.into()))
+            }
+            _ => {
+                let mut slots = run_format::Slots::new();
+                for action in group {
+                    compile_format(&mut slots, action, &package, main)?;
+                }
+                Action::Format(slots)
+            }
+        };
+        targets.insert(key, action);
+    }
+    Ok((package, targets))
+}
+
+pub(super) fn compile_format(
+    slots: &mut run_format::Slots,
+    action: &InlineAction,
+    package: &crate::opc::Package,
+    main: &str,
+) -> Result<()> {
+    let (prop, value) = match action {
+        InlineAction::PatchFormat { set, clear } => {
+            return run_format::compile(slots, set, clear, package, main);
+        }
+        InlineAction::SetBold(b) => (RunToggle::Bold, Some(*b)),
+        InlineAction::SetToggle(p, v) => (*p, *v),
+        _ => {
+            return Err(unsupported(
+                "duplicate/conflicting target or non-format inline edit",
+            ));
+        }
+    };
+    let field = prop.field();
+    run_format::add(
+        slots,
+        field,
+        value.map(|b| Node::new(field.tag()).attr("w:val", if b { "1" } else { "0" })),
+    )
 }
 
 pub(super) fn direct_toggle(run: &Node, prop: RunToggle) -> Result<Option<bool>> {
@@ -310,29 +334,6 @@ pub(super) fn opaque_content(node: &Node) -> bool {
         Content::Text(t) => !t.trim().is_empty(),
         Content::Raw(_) => true,
     })
-}
-
-/// Signals retained markup not represented by the four direct toggle fields.
-pub(super) fn has_opaque_formatting(run: &Node) -> bool {
-    let mut properties = run.elements().filter(|p| p.name == "w:rPr");
-    let Some(props) = properties.next() else {
-        return false;
-    };
-    properties.next().is_some()
-        || has_other_attrs(props, &[])
-        || opaque_content(props)
-        || props.elements().any(|node| {
-            let prop = match node.name.as_str() {
-                "w:b" => RunToggle::Bold,
-                "w:i" => RunToggle::Italic,
-                "w:strike" => RunToggle::Strike,
-                "w:vanish" => RunToggle::Hidden,
-                _ => return true,
-            };
-            has_other_attrs(node, &["w:val"])
-                || !node.children.is_empty()
-                || direct_toggle(run, prop).is_err()
-        })
 }
 
 /// Only discard known local properties. Unknown markup may carry a relationship,
@@ -436,7 +437,7 @@ fn check_leaf(leaf: &Node, discard: bool) -> Result<()> {
 
 /// A property-only patch can preserve multiple ordinary leaves without
 /// interpreting their order or modifying their text or attributes.
-fn check_toggle_target(run: &Node) -> Result<()> {
+pub(super) fn check_format_target(run: &Node) -> Result<()> {
     if run.name != "w:r" || opaque_content(run) {
         return Err(unsupported("expected direct run with ordinary leaves"));
     }
@@ -445,7 +446,22 @@ fn check_toggle_target(run: &Node) -> Result<()> {
     if children.peek().is_none() {
         return Err(unsupported("expected nonempty run"));
     }
-    children.try_for_each(|leaf| check_leaf(leaf, false))
+    children.try_for_each(|leaf| match leaf.name.as_str() {
+        "w:noBreakHyphen" | "w:softHyphen" | "w:sym" | "w:lastRenderedPageBreak" | "w:ptab"
+            if leaf.children.is_empty() =>
+        {
+            Ok(())
+        }
+        "w:drawing"
+            if leaf.elements().count() == 1
+                && leaf
+                    .elements()
+                    .all(|n| matches!(n.name.as_str(), "wp:inline" | "wp:anchor")) =>
+        {
+            Ok(())
+        }
+        _ => check_leaf(leaf, false),
+    })
 }
 
 /// Revision operations may copy or discard either ordinary or deleted text.
@@ -652,9 +668,9 @@ fn apply_targets(
                         splices.push((slot + 1..slot + 1, nodes));
                         inline_changes.push((body_index, inline_index));
                     }
-                    Action::Toggle(prop, value) => {
-                        check_toggle_target(child)?;
-                        if patch_toggle(child, prop, value)? {
+                    Action::Format(slots) => {
+                        check_format_target(child)?;
+                        if run_format::apply(child, slots)? {
                             inline_changes.push((body_index, inline_index));
                         }
                     }
@@ -724,6 +740,22 @@ impl super::ImportedDocument {
     /// footnote, endnote or comment part, using original snapshot anchors.
     pub fn edit_entry_inlines(&self, owner_part: &str, edits: &[InlineEdit]) -> Result<Vec<u8>> {
         use crate::ooxml::WordParts;
+        if !edits.is_empty()
+            && edits.iter().all(|e| {
+                !matches!(
+                    e.action,
+                    InlineAction::InsertAfter(_) | InlineAction::Replace(_)
+                )
+            })
+        {
+            if !edits
+                .iter()
+                .all(|e| matches!(e.target.location, InlineLocation::Entry { .. }))
+            {
+                return Err(unsupported("expected an entry inline"));
+            }
+            return self.edit_run_format(Some(owner_part), edits);
+        }
         let mut ordered = BTreeMap::new();
         let mut counts = None;
         let mut kind = None;
@@ -773,12 +805,10 @@ impl super::ImportedDocument {
                 super::EntryKind::Footnote => crate::StoryKind::Footnote,
                 super::EntryKind::Endnote => crate::StoryKind::Endnote,
             });
-            if ordered
-                .insert((e.element_index, *block_index, *inline), &edit.action)
-                .is_some()
-            {
-                return Err(unsupported("duplicate entry inline target"));
-            }
+            ordered
+                .entry((e.element_index, *block_index, *inline))
+                .or_insert_with(Vec::new)
+                .push(&edit.action);
         }
         let kind = kind.ok_or_else(|| unsupported("expected an entry inline edit"))?;
         let (mut package, actions) = render_actions(
@@ -812,7 +842,7 @@ impl super::ImportedDocument {
         super::PackagePlan::new(package)?.to_bytes()
     }
 
-    fn editable_entry(
+    pub(super) fn editable_entry(
         &self,
         owner_part: &str,
         index: usize,

@@ -78,6 +78,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("fieldAt", "importedFieldAt"),
     ("patchField", "importedPatchField"),
     ("setPairedRange", "importedSetPairedRange"),
+    ("editRunFormat", "importedEditRunFormat"),
     ("previewTrackedText", "importedPreviewTrackedText"),
     ("previewTrackedBold", "importedPreviewTrackedBold"),
     ("previewTrackedParagraph", "importedPreviewTrackedParagraph"),

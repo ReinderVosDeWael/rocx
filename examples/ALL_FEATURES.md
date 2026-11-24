@@ -253,11 +253,16 @@ document and verifies each value in its own package part.
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
-The catalogs also inspect direct italic and stage an italic patch and an insertion after a hyperlink:
+The catalogs also inspect direct italic, combine an italic toggle and a size/font
+patch on one run, and stage an insertion after a hyperlink:
 Rust `preview_with_inlines` with `InlineEdit`/`InlineAction`, Python `inline_edits`
 with `InlineEdit.set_toggle`/`insert_after`, JavaScript `inlineEdits` with
 `setToggle`/`insertAfter`. Rust uses `InlineAction::SetToggle(RunToggle::Italic, Some(true))`.
-The installed editor oracle additionally clears direct bold and replaces a run
+The second edit is Rust `InlineAction::PatchFormat`, Python `InlineEdit.patch_format`,
+or JavaScript `kind: "patchFormat"`. It sets 12.5 points and clears the East Asian
+font selection. The installed editor oracle also updates character style, color,
+underline and script properties, clears a language hint and compares the resulting
+DOCX bytes. A separate inline batch clears direct bold and replaces a run
 with an external hyperlink and verifies its relationship and exact package bytes.
 
 Removal rejects opaque or unsafe run markup.
@@ -269,6 +274,12 @@ and [paired range calls](../docs/RANGES.md#imported-body-ranges) for the three
 spellings. The installed-consumer `fieldsRanges.docx` oracle additionally moves
 a comment pair across paragraphs, crosses it with a bookmark and replaces a
 simple field by a complex one before patching its instruction.
+In the entry-story catalog, the “Review link” child run in each ordinary note
+and comment is formatted at 13.5 points with Rust `edit_run_format`, Python
+`edit_run_format`, or JavaScript `editRunFormat`, naming the entry's part.
+The installed `formatOwners` oracle exercises the same call on a linked run
+containing text, a tab, a drawing and a nonbreaking hyphen in a body cell and
+in shared header/footer parts.
 
 The header-source catalog also previews four block edits independently using
 the first paragraph of the inherited section. Rust uses `preview_blocks` and

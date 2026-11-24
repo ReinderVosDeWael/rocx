@@ -2,7 +2,7 @@ import type { ResolvedImage } from "./drawings.js";
 import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
 import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable, TableLayout } from "./tables.js";
-import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
+import type { Alignment, ResolvedInline, ResolvedParagraph, RunFormat } from "./text-layout.js";
 
 export interface ParagraphAlignmentEdit {
   readonly target: ParagraphAnchor;
@@ -61,6 +61,9 @@ export type InlineEdit = { readonly target: InlineAnchor } & (
   | { readonly kind: "removeHyperlink" }
   | { readonly kind: "hyperlinkTooltip"; readonly value?: string }
   | { readonly kind: "hyperlinkHistory"; readonly value?: boolean }
+  | { readonly kind: "patchFormat"; readonly format?: RunFormat; readonly clear?: readonly
+      (Exclude<keyof RunFormat, "superscript" | "subscript" | "language"> |
+        "verticalAlignment" | "languageLatin" | "languageEastAsia" | "languageBidi" | "hidden")[] }
 );
 
 export interface EditBatch {
@@ -211,6 +214,7 @@ declare module "./inspection.js" {
     patchField(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number} & ({readonly property: "instruction"; readonly value: string} | {readonly property: "dirty" | "locked"; readonly value?: boolean})): Uint8Array;
     setPairedRange(batch: {readonly id: number; readonly bookmark?: string; readonly endpoints?: readonly [InlineAnchor, InlineAnchor]}): Uint8Array;
     bodyRangeMarkers(): readonly {readonly bodyIndex: number; readonly inlineIndex: number; readonly kind: "bookmarkStart" | "bookmarkEnd" | "commentRangeStart" | "commentRangeEnd" | "commentReference"; readonly id?: string; readonly name?: string}[];
+    editRunFormat(batch: { readonly ownerPart?: string; readonly inlineEdits: readonly Exclude<InlineEdit, { readonly kind: "insertAfter" | "replace" }>[] }): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to a shared header/footer or a section-local fork. */

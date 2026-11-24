@@ -92,7 +92,8 @@ const bytes = report.toDocx(); // synchronous; snapshot can be rendered again
 | Edit controls, styles and resources | `controls()` supplies physical control anchors for `controls` edits. Use `styleAnchor(id)` for a style patch, replacement or removal in `styleEdits`; `resources` sets or clears core title, default alignment and abstract level starts. |
 | Edit a copy | Combine ordinary edits and images in effective default/first/even header or footer slots in `preview(batch)`. Inspect the reports before calling `toDocx()`. |
 | Edit text in a story | `editStoryText({ownerPart, runText})` returns DOCX bytes for a separate batch of simple run edits in one physical header, footer, footnote, endnote or comment part. |
-| Edit ordinary note/comment inlines | `editEntryInlines({ownerPart, inlineEdits})` inserts or replaces supported direct inlines or patches run bold in one entry part. Use anchors from `entryStories()`; reference marks are protected. |
+| Edit ordinary note/comment inlines | `editEntryInlines({ownerPart, inlineEdits})` inserts or replaces supported direct inlines or patches direct run properties in one entry part. Use anchors from `entryStories()`; reference marks are protected. |
+| Format anchored runs | `editRunFormat({inlineEdits, ownerPart?})` patches ordinary runs and hyperlink child runs in body cells, paragraphs or the named physical section/entry owner. |
 | Read/write in Node | `templateFile` reads on each render; `imageFile` captures bytes and basename at resolution. `saveDocx` encodes before replacing the destination. |
 
 Use anchors from the same snapshot. Untouched parts retain their payload bytes; edited XML and ZIP bytes may change. See [preview examples and shared-header modes](https://reindervosdewael.github.io/rocx/api/javascript/#preview-anchored-edits).

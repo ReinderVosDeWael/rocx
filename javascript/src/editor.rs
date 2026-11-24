@@ -25,6 +25,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedFieldAt", (field_at, Paths::Package)),
         ("importedPatchField", (patch_field, Paths::Package)),
         ("importedSetPairedRange", (paired_range, Paths::Package)),
+        ("importedEditRunFormat", (format_runs, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedBold", (tracked_bold, Paths::Package)),
         (
@@ -195,7 +196,7 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
         input,
         path,
         &[
-            "target", "kind", "inline", "bold", "value", "image", "property",
+            "target", "kind", "inline", "bold", "value", "image", "property", "format", "clear",
         ],
     )?;
     let kind = b::string(&record.get("kind")?, &record.path("kind"))?;
@@ -218,6 +219,8 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
             &["target", "kind", "value"]
         } else if kind == "setToggle" {
             &["target", "kind", "property", "value"]
+        } else if kind == "patchFormat" {
+            &["target", "kind", "format", "clear"]
         } else {
             &["target", "kind", "inline"]
         },
@@ -272,6 +275,21 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
                 } else {
                     Some(b::string(&value, &edit.path("value"))?)
                 })
+            }
+            "patchFormat" => {
+                let set = edit.get("format")?;
+                let set = if set.js().is_undefined() {
+                    Default::default()
+                } else {
+                    crate::text_layout::run_format(&set, &edit.path("format"))?
+                };
+                InlineAction::PatchFormat {
+                    set: Box::new(set),
+                    clear: edits(&edit, "clear", |wire, path| {
+                        rocx::editor::RunFormatField::parse(&b::string(wire, path)?)
+                            .ok_or_else(|| Failure::invalid(path, "unknown run format field"))
+                    })?,
+                }
             }
             "setToggle" => {
                 let name = b::string(&edit.get("property")?, &edit.path("property"))?;
@@ -587,6 +605,30 @@ fn paired_range(input: &Wire) -> Result<JsValue> {
     )
     .into())
 }
+fn format_runs(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["ownerPart", "inlineEdits"],
+    )?;
+    let owner = batch.get("ownerPart")?;
+    let owner = (!owner.js().is_undefined())
+        .then(|| b::string(&owner, "batch.ownerPart"))
+        .transpose()?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_run_format(
+                owner.as_deref(),
+                &edits(&batch, "inlineEdits", inline_edit)?,
+            )?
+            .as_slice(),
+    )
+    .into())
+}
+
 fn story_text(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;

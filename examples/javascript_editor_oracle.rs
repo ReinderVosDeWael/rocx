@@ -41,6 +41,59 @@ fn pair(a: &str, b: &str) -> Table {
 
 fn main() {
     let directory = PathBuf::from(env::args_os().nth(1).expect("fixture directory"));
+    {
+        use rocx::editor::{
+            ImportedInlineNode::{Hyperlink, Run},
+            ImportedRowChild, ImportedTableChild, InlineAction, InlineEdit,
+        };
+        let mut bytes = fs::read(directory.join("format-owners-source.docx")).unwrap();
+        for label in ["cell", "header", "footer"] {
+            let source = ImportedDocument::open(&bytes).unwrap();
+            let stories = source.stories().unwrap();
+            let (owner, structure) = if label == "cell" {
+                let BodyBlock::Table(t) = &source.body()[0] else {
+                    panic!("table")
+                };
+                let ImportedTableChild::Row(r) = &t.children[0] else {
+                    panic!("row")
+                };
+                let ImportedRowChild::Cell(c) = &r.children[0] else {
+                    panic!("cell")
+                };
+                (None, c.inline_structure(0).unwrap())
+            } else {
+                let s = stories
+                    .iter()
+                    .find(|s| {
+                        s.kind.as_str() == label
+                            && s.section_index == 1
+                            && s.variant == rocx::HeaderFooterType::Default
+                    })
+                    .unwrap();
+                assert!(s.inherited);
+                (Some(s.part_name.as_str()), s.inline_structure(0).unwrap())
+            };
+            let Hyperlink(link) = &structure[0] else {
+                panic!("link")
+            };
+            let Run(r) = &link.children[0] else {
+                panic!("run")
+            };
+            bytes = source
+                .edit_run_format(
+                    owner,
+                    &[InlineEdit {
+                        target: r.anchor.clone(),
+                        action: InlineAction::PatchFormat {
+                            set: Box::new(RunFormat::default().with_size(13.5)),
+                            clear: vec![],
+                        },
+                    }],
+                )
+                .unwrap();
+        }
+        fs::write(directory.join("native-formatOwners.docx"), bytes).unwrap();
+    }
     let doc = ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
     let headers = doc.default_headers().unwrap();
     let image = immediate(Component::resolve(ImageRun::new(
@@ -372,17 +425,60 @@ fn main() {
                 action: InlineAction::SetToggle(prop, value),
             }
         });
-        write(
-            "native-runFormatting.docx",
-            ranged
-                .preview_edits(EditBatch {
-                    inline_edits: &edits,
+        let mut edits = edits.to_vec();
+        edits.push(InlineEdit {
+            target: edits[2].target.clone(),
+            action: InlineAction::PatchFormat {
+                set: Box::new(RunFormat {
+                    style: Some("Strong".into()),
+                    font: Some("Cambria".into()),
+                    font_east_asia: Some("Yu Mincho".into()),
+                    font_complex_script: Some("Amiri".into()),
+                    size: Some(12.5),
+                    size_complex_script: Some(14.),
+                    underline: Some(rocx::Underline::Double),
+                    color: Some(rocx::Color::Theme {
+                        name: rocx::ThemeColor::Accent2,
+                        tint: Some(150),
+                        shade: None,
+                    }),
+                    superscript: Some(true),
+                    all_caps: Some(false),
+                    small_caps: Some(true),
+                    snap_to_grid: Some(false),
+                    bold_complex_script: Some(true),
+                    italic_complex_script: Some(false),
+                    rtl: Some(true),
+                    complex_script: Some(true),
+                    language: Some(rocx::RunLanguage {
+                        latin: Some("fr-CA".into()),
+                        east_asia: Some("ja-JP".into()),
+                        bidi: None,
+                    }),
                     ..Default::default()
-                })
-                .unwrap()
-                .to_docx()
-                .unwrap(),
-        );
+                }),
+                clear: vec![rocx::editor::RunFormatField::LanguageBidi],
+            },
+        });
+        let bytes = ranged
+            .preview_edits(EditBatch {
+                inline_edits: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        let reopened = ImportedDocument::open(&bytes).unwrap();
+        let BodyBlock::Paragraph(p) = &reopened.body()[1] else {
+            unreachable!()
+        };
+        let Run(run) = &p.inline_structure[1] else {
+            unreachable!()
+        };
+        assert_eq!(run.format.size, Some(12.5));
+        assert_eq!(run.format.underline, Some(rocx::Underline::Double));
+        assert!(run.has_opaque_formatting);
+        write("native-runFormatting.docx", bytes);
     }
     let selection = rocx::editor::TextRangeEdit {
         target: anchor(&ranged, 1),

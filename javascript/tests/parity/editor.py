@@ -250,6 +250,20 @@ def generate(directory):
     p._p.append(link)
     paired.add_paragraph("last")
     paired.save(directory / "paired-source.docx")
+    owners = Document()
+    owners.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    cell = owners.add_table(rows=1, cols=1).cell(0, 0)
+    for label, p in [("cell",cell.paragraphs[0]), ("header",owners.sections[0].header.paragraphs[0]),
+                     ("footer",owners.sections[0].footer.paragraphs[0])]:
+        link = elem("hyperlink")
+        link.set(qn("r:id"),p.part.relate_to("https://example.invalid/"+label, RELATIONSHIP_TYPE.HYPERLINK,is_external=True))
+        run = p.add_run(label+"\tword")
+        run.add_picture(io.BytesIO(png((11,22,33))),width=Twips(100))
+        run._r.append(elem("noBreakHyphen"))
+        link.append(run._r)
+        p._p.append(link)
+    owners.add_section()
+    owners.save(directory / "format-owners-source.docx")
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
@@ -300,6 +314,8 @@ def generate(directory):
     p.clear()
     p.add_run("a😀b").bold = True
     p.add_run("e\u0301").underline = True
+    p.runs[-1]._r.rPr.find(qn("w:u")).set(qn("w:color"), "135790")
+    p.runs[-1]._r.rPr.append(elem("lang", bidi="ar"))
     p.add_run("cd").italic = True
     ranged.add_paragraph(style="Caption")
     ranged.save(directory / "range-source.docx")
@@ -497,6 +513,32 @@ def verify_fields_ranges(directory):
 
 def verify(directory):
     verify_fields_ranges(directory)
+    from rocx.editor import ImportedDocument, InlineEdit
+    raw = (directory / "format-owners-source.docx").read_bytes()
+    source = parts(io.BytesIO(raw))
+    for label in ("cell","header","footer"):
+        d = ImportedDocument.open(raw)
+        if label == "cell":
+            owner, paragraph = None, d.body[0].children[0].children[0].blocks[0]
+        else:
+            story = next(s for s in d.stories if s.kind == label and s.section_index == 1 and s.variant == "default")
+            owner, paragraph = story.part_name, story.blocks[0]
+        target = paragraph.inline_structure[0].children[0].anchor
+        raw = d.edit_run_format([InlineEdit.patch_format(target,size=13.5)],owner_part=owner)
+    assert raw == (directory / "formatOwners.docx").read_bytes()
+    output = parts(io.BytesIO(raw))
+    owners = (MAIN, HEADER, "word/footer1.xml")
+    untouched(source,output,owners)
+    for part in owners:
+        old, changed = [etree.fromstring(z[part]) for z in (source,output)]
+        rpr, = xp(changed,".//w:hyperlink/w:r/w:rPr")
+        assert xp(rpr,"./w:sz/@w:val") == ["27"]
+        rpr.getparent().remove(rpr)
+        assert tree(changed) == tree(old)
+    readback = Document(io.BytesIO(raw))
+    for p in [readback.tables[0].cell(0,0).paragraphs[0],readback.sections[1].header.paragraphs[0],
+              readback.sections[1].footer.paragraphs[0]]:
+        assert p.hyperlinks[0].runs[0].font.size.pt == 13.5
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d
@@ -543,12 +585,18 @@ def verify(directory):
     assert runs[0].bold and runs[1].underline and runs[2].italic
     ranged = ImportedDocument.open((directory / "range-source.docx").read_bytes())
     from rocx.editor import InlineEdit
+    from rocx.declarative import RunLanguage
     runs = ranged.body[1].inline_structure
     formatted = ranged.preview([], inline_edits=[
         InlineEdit.set_toggle(ranged.body[0].inline_structure[0].anchor, "bold", False),
         InlineEdit.set_toggle(runs[0].anchor, "hidden", True),
         InlineEdit.set_toggle(runs[1].anchor, "strike", True),
-        InlineEdit.set_toggle(runs[2].anchor, "italic", None)])
+        InlineEdit.set_toggle(runs[2].anchor, "italic", None),
+        InlineEdit.patch_format(runs[1].anchor, style="Strong", font="Cambria",
+            font_east_asia="Yu Mincho", font_complex_script="Amiri", size=12.5, size_complex_script=14,
+            underline="double", color={"theme":"accent2","tint":150}, superscript=True, all_caps=False,
+            small_caps=True, snap_to_grid=False, bold_complex_script=True, italic_complex_script=False,
+            rtl=True, complex_script=True, language=RunLanguage(latin="fr-CA", east_asia="ja-JP"), clear=["language_bidi"])])
     formatted_path = directory / "runFormatting.docx"
     assert formatted.to_docx() == formatted_path.read_bytes()
     untouched(range_source, parts(formatted_path), (MAIN,))
@@ -556,6 +604,17 @@ def verify(directory):
     a, b, c = content.runs
     assert heading.runs[0].bold is False and a.bold and a.font.hidden
     assert b.underline and b.font.strike and c.italic is None
+    assert b.font.size.pt == 12.5 and b.font.name == "Cambria" and b.style.style_id == "Strong"
+    assert b._r.rPr.find(qn("w:u")).get(qn("w:color")) == "135790"
+    rich = ImportedDocument.open(formatted.to_docx())
+    view = rich.body[1].inline_structure[1]
+    assert view.has_opaque_formatting and view.format["language"] == RunLanguage(latin="fr-CA", east_asia="ja-JP")
+    assert view.format["size_complex_script"] == 14 and view.format["underline"] == "double"
+    clear = [name for name in view.format if name not in ("language","superscript","underline")]
+    cleared = rich.preview([], inline_edits=[InlineEdit.patch_format(view.anchor,
+        clear=clear + ["language_latin","language_east_asia","vertical_alignment"])])
+    remaining = ImportedDocument.open(cleared.to_docx()).body[1].inline_structure[1]
+    assert remaining.format == {"underline":"double"} and remaining.has_opaque_formatting
     selection = TextRangeEdit(ranged.body[1].anchor, 1, 6, " 🐈 ")
     assert ranged.preview([], text_ranges=[selection]).to_docx() == (directory / "range.docx").read_bytes()
     point_bytes = (directory / "points.docx").read_bytes()

@@ -56,6 +56,7 @@ export type ImportedInline =
 
 export interface ImportedRun {
   readonly drawing?: DrawingOccurrence;
+  readonly format: import("./text-layout.js").ResolvedRunFormat;
   /** Direct toggle properties; absent when unset or ambiguous. */
   readonly bold?: boolean;
   readonly italic?: boolean;

@@ -148,7 +148,7 @@ and comment-range insertion, relocation and removal. New external links allocate
 the actual document part. Replacement refuses to discard unrecognized properties
 or markup; unused existing relationships are retained. Property-only patches also
 accept runs containing multiple ordinary text, tab, and break leaves. They preserve
-the leaves and unrelated run properties. Duplicate targets, nested targets, tracked or ambiguous
+the leaves and unrelated run properties. Overlapping edits, nested targets, tracked or ambiguous
 properties and active supported field/range boundaries reject the batch.
 
 | Rust: `preview_with_inlines`, `InlineEdit { target, action }` | Python: `preview([], inline_edits=[…])` | JavaScript: `preview({inlineEdits: […]})` |
@@ -157,12 +157,62 @@ properties and active supported field/range boundaries reject the batch.
 | `InlineAction::Replace(inline)` | `InlineEdit.replace(anchor, inline)` | `{kind: "replace", target, inline}` |
 | `InlineAction::SetBold(false)` | `InlineEdit.set_bold(anchor, False)` | `{kind: "setBold", target, bold: false}` |
 | `InlineAction::SetToggle(RunToggle::Italic, None)` | `InlineEdit.set_toggle(anchor, "italic", None)` | `{kind: "setToggle", target, property: "italic", value: null}` |
+| `InlineAction::PatchFormat { set: Box::new(RunFormat::default().with_size(12.5)), clear: vec![RunFormatField::FontEastAsia] }` | `InlineEdit.patch_format(anchor, size=12.5, clear=["font_east_asia"])` | `{kind: "patchFormat", target, format: {size: 12.5}, clear: ["fontEastAsia"]}` |
 
 Use `Bold`, `Italic`, `Strike`, or `Hidden` in Rust and `bold`, `italic`,
 `strike`, or `hidden` in Python and JavaScript. `true` and `false` set
 explicit direct values; `None`/`null` removes the property so style inheritance
 applies. A clear refuses to discard attributes or children outside the modeled
-value. Only one edit per original run is supported in a batch.
+value. Disjoint format edits on one run compose in any order and report one
+changed site. A repeated property (even twice with the same value), or mixing
+a format patch with text replacement/removal or a whole-inline edit on that
+run, rejects the batch.
+
+Read `ImportedRun.format` in all three bindings: a Rust `RunFormat`, a fresh
+Python dictionary of present keyword values, or a JavaScript `ResolvedRunFormat`.
+`PatchFormat` accepts the modeled run-format fields: character style, literal
+Latin/East Asian/complex-script fonts, point sizes, supported underline styles,
+RGB/auto/theme color (including tint and shade), superscript/subscript, bold,
+italic, strike, capitals, small capitals, snap-to-grid, script-specific bold and
+italic, right-to-left, complex-script selection and language hints. Character
+style input is an existing character-style ID or unambiguous display name in the
+staged catalog; inspection returns the ID. Sizes round to half-points.
+
+Omitted values retain the original property. To restore inheritance, use the
+corresponding `RunFormatField` variant in Rust, snake-case name in Python, or
+camel-case name in JavaScript. `VerticalAlignment` / `vertical_alignment` /
+`verticalAlignment` clears the *one* slot shared by superscript and subscript;
+requesting either as false without a true counterpart writes explicit baseline.
+Language subfields have independent clear slots: `LanguageLatin`, `LanguageEastAsia`,
+`LanguageBidi` (Python: `language_latin`, `language_east_asia`, `language_bidi`;
+JavaScript: `languageLatin`, `languageEastAsia`, `languageBidi`).
+Latin font owns the `ascii`/`hAnsi` pair. Font and language patches preserve
+sibling attributes on their shared elements. Updating an underline preserves its
+color; clearing that underline refuses to discard the color. A direct color edit
+owns both the fallback and theme attributes. A semantic no-op preserves the
+existing spelling and fallback. Unsupported direct selections, including
+themed fonts and unequal or incomplete Latin font pairs, are opaque and cannot
+be patched in the affected slot.
+
+**Property-only edits across physical owners.** For an anchored run in a body
+paragraph or a direct body-table cell paragraph, use Rust
+`doc.edit_run_format(None, &[edit])`, Python `doc.edit_run_format([edit])`,
+or JavaScript `doc.editRunFormat({inlineEdits: [edit]})`. A run can be a
+direct paragraph child or a direct child of its hyperlink. For a section
+header/footer or an ordinary note/comment entry, pass the inspected physical
+part name: `Some(&part)` in Rust, `owner_part=part` in Python, `ownerPart:
+part` in JavaScript. Each call returns new DOCX bytes. Section aliases share
+the edit; reopen before targeting another part or using the new snapshot.
+Disjoint patches to one physical run coalesce, even through section aliases.
+
+This operation changes only `rPr`. Text, tabs, breaks, inline/anchored
+drawings, symbols and supported hyphens are retained, as are the hyperlink
+wrapper and the owner's relationships. It rejects field/reference runs, active
+ranges, revision or control wrappers, reviewed ancestor properties, enforced
+document protection, non-format actions, stale anchors and owner mismatches.
+Entry identities must be unique and ordinary; separator/continuation entries
+are protected. Story tables, nested body tables, textbox stories and creating
+a local fork of a shared section part remain outside this operation.
 
 `ImportedRun.bold`, `.italic`, `.strike`, and `.hidden` inspect the same direct
 properties wherever structured runs are exposed. An unset or ambiguous toggle
@@ -399,9 +449,10 @@ Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 `editEntryInlines({ownerPart, inlineEdits})` (JavaScript) return bytes for an
 atomic batch of `InlineEdit` operations in one footnotes, endnotes or comments
 part. Insert after or replace an eligible direct run or hyperlink, or patch
-direct run bold. Use original inline anchors from ordinary entries with unique
+direct run formatting. Format-only batches also accept direct hyperlink child
+runs, using the same guards as `edit_run_format`. Use original inline anchors from ordinary entries with unique
 decimal IDs. Replacement uses the body editor's discard checks; note/reference
-marks, field/range interiors, nested targets and reserved notes are ineligible.
+marks, field/range interiors, nested splice targets and reserved notes are ineligible.
 External links allocate relationships in the entry part, including when its
 path is nonstandard. Existing relationships are retained. No entry or reference
 is created, deleted or renumbered. Reopen the returned package for new anchors.

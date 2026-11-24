@@ -5,7 +5,7 @@ use pyo3::{
     IntoPyObjectExt,
     exceptions::{PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyBytes, PyModule},
+    types::{PyBytes, PyDict, PyModule},
 };
 
 use super::rust_error;
@@ -396,6 +396,7 @@ struct PyInlineAnchor {
 
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
 struct PyImportedRun {
+    direct_format: crate::RunFormat,
     #[pyo3(get)]
     drawing: Option<Py<PyDrawingOccurrence>>,
     #[pyo3(get)]
@@ -479,6 +480,72 @@ struct PyImportedFraction {
     denominator: String,
 }
 
+#[pymethods]
+impl PyImportedRun {
+    /// An independent dictionary of directly modeled fields; no effective styles.
+    #[getter]
+    fn format<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let f = &self.direct_format;
+        let out = PyDict::new(py);
+        macro_rules! scalars { ($($field:ident),*) => {$(
+            if let Some(v) = &f.$field { out.set_item(stringify!($field),v)?; }
+        )*}; }
+        scalars!(
+            style,
+            bold,
+            italic,
+            font,
+            size,
+            superscript,
+            subscript,
+            strike,
+            all_caps,
+            small_caps,
+            snap_to_grid,
+            bold_complex_script,
+            italic_complex_script,
+            size_complex_script,
+            rtl,
+            complex_script,
+            font_east_asia,
+            font_complex_script
+        );
+        if let Some(u) = f.underline {
+            out.set_item("underline", u.xml())?;
+        }
+        if let Some(color) = f.color {
+            match color {
+                crate::Color::Auto => out.set_item("color", "auto")?,
+                crate::Color::Rgb([r, g, b]) => out.set_item("color", (r, g, b))?,
+                crate::Color::Theme { name, tint, shade } => {
+                    let value = PyDict::new(py);
+                    value.set_item("theme", name.xml())?;
+                    if let Some(v) = tint {
+                        value.set_item("tint", v)?;
+                    }
+                    if let Some(v) = shade {
+                        value.set_item("shade", v)?;
+                    }
+                    out.set_item("color", value)?;
+                }
+            }
+        }
+        if let Some(lang) = &f.language {
+            out.set_item(
+                "language",
+                py.import("rocx.declarative")?
+                    .getattr("RunLanguage")?
+                    .call1((
+                        lang.latin.as_deref(),
+                        lang.east_asia.as_deref(),
+                        lang.bidi.as_deref(),
+                    ))?,
+            )?;
+        }
+        Ok(out)
+    }
+}
+
 #[pyclass(name = "ImportedHyperlink", frozen, module = "rocx.editor")]
 struct PyImportedHyperlink {
     #[pyo3(get)]
@@ -550,6 +617,7 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                         )
                     })
                     .transpose()?,
+                direct_format: run.format.clone(),
                 has_opaque_formatting: run.has_opaque_formatting,
                 bold: run.bold,
                 italic: run.italic,
@@ -1043,6 +1111,62 @@ impl PyInlineEdit {
             inner: editor::InlineEdit {
                 target: target.inner.clone(),
                 action: editor::InlineAction::SetImageAsset(image),
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature = (target, *, clear=None, **properties))]
+    fn patch_format(
+        target: PyRef<'_, PyInlineAnchor>,
+        clear: Option<Vec<String>>,
+        properties: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        let py = target.py();
+        let kwargs = match properties {
+            Some(d) => d.copy()?,
+            None => PyDict::new(py),
+        };
+        let style = kwargs
+            .get_item("style")?
+            .map(|v| v.extract::<String>())
+            .transpose()?;
+        if style.is_some() {
+            kwargs.del_item("style")?;
+        }
+        let defaults = py
+            .import("rocx.declarative")?
+            .getattr("RunDefaults")?
+            .call((), Some(&kwargs))?;
+        let mut set = super::values::run_format(&defaults)?;
+        set.style = style;
+        let clear = clear
+            .unwrap_or_default()
+            .iter()
+            .map(|name| {
+                let mut camel = String::new();
+                for piece in name.split('_') {
+                    if camel.is_empty() {
+                        camel.push_str(piece);
+                    } else {
+                        let mut chars = piece.chars();
+                        if let Some(c) = chars.next() {
+                            camel.push(c.to_ascii_uppercase());
+                            camel.push_str(chars.as_str());
+                        }
+                    }
+                }
+                editor::RunFormatField::parse(&camel).ok_or_else(|| {
+                    PyValueError::new_err(format!("unknown run format field {name}"))
+                })
+            })
+            .collect::<PyResult<_>>()?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(set),
+                    clear,
+                },
             },
         })
     }
@@ -1898,6 +2022,25 @@ impl PyImportedDocument {
                 })
             })
             .collect()
+    }
+
+    #[pyo3(signature=(edits, *, owner_part=None))]
+    fn edit_run_format<'py>(
+        &self,
+        py: Python<'py>,
+        edits: Vec<PyRef<'_, PyInlineEdit>>,
+        owner_part: Option<&str>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_run_format(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
     }
 
     fn edit_entry_inlines<'py>(

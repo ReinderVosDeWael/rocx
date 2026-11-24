@@ -680,6 +680,28 @@ pub async fn generate(output: &Path) -> Result<()> {
                 action: editor::InlineAction::InsertAfter(p.runs()[0].clone()),
             }],
         )?;
+        let source = editor::ImportedDocument::open(&entries_output)?;
+        let entry = source
+            .entry_stories()?
+            .iter()
+            .find(|n| n.kind == kind && n.id == e.id)
+            .unwrap();
+        let target = entry.inline_structure(0).unwrap().iter().find_map(|node| {
+            if let editor::ImportedInlineNode::Hyperlink(link) = node
+                && let [Run(r)] = link.children.as_slice()
+                && matches!(r.items.as_slice(),[editor::ImportedInline::Text(t)] if t=="Review link")
+            {Some(r.anchor.clone())} else {None}
+        }).unwrap();
+        entries_output = source.edit_run_format(
+            Some(&entry.part_name),
+            &[editor::InlineEdit {
+                target,
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(RunFormat::default().with_size(13.5)),
+                    clear: vec![],
+                },
+            }],
+        )?;
     }
     std::fs::write(output.with_extension("entry-text.docx"), entries_output)?;
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
@@ -1051,6 +1073,13 @@ pub async fn generate(output: &Path) -> Result<()> {
             editor::InlineEdit {
                 target: label.anchor.clone(),
                 action: editor::InlineAction::SetToggle(editor::RunToggle::Italic, Some(true)),
+            },
+            editor::InlineEdit {
+                target: label.anchor.clone(),
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(rocx::RunFormat::default().with_size(12.5)),
+                    clear: vec![editor::RunFormatField::FontEastAsia],
+                },
             },
             editor::InlineEdit {
                 target: link.anchor.clone(),

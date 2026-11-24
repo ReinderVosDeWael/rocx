@@ -276,6 +276,7 @@ pub(super) fn inline_node(
                 &[
                     ("anchor", token(&run.anchor)),
                     ("hasOpaqueFormatting", run.has_opaque_formatting.into()),
+                    ("format", crate::text_layout::run_format_view(&run.format)),
                     ("items", items(&run.items)?),
                 ],
             );

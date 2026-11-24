@@ -58,28 +58,34 @@ impl ImportedDocument {
     }
 
     pub(super) fn style_part(&self) -> Result<Option<(String, Node)>> {
-        let links = self.package.relationships(&self.main, "styles")?;
-        if links.is_empty() {
-            return Ok(None);
-        }
-        if links.len() != 1 {
-            return Err(unsupported("ambiguous styles part"));
-        }
-        let (_, path) = self
-            .package
-            .related(&self.main, "styles")?
-            .ok_or_else(|| unsupported("missing styles part"))?;
-        if self.package.content_type_for(&path)?.as_deref()
-            != Some("application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml")
-        {
-            return Err(unsupported("invalid styles content type"));
-        }
-        let root = self.package.word(&path)?;
-        if root.name != "w:styles" {
-            return Err(unsupported("invalid styles root"));
-        }
-        Ok(Some((path, root)))
+        style_part(&self.package, &self.main)
     }
+}
+
+pub(super) fn style_part(
+    package: &crate::opc::Package,
+    main: &str,
+) -> Result<Option<(String, Node)>> {
+    let links = package.relationships(main, "styles")?;
+    if links.is_empty() {
+        return Ok(None);
+    }
+    if links.len() != 1 {
+        return Err(unsupported("ambiguous styles part"));
+    }
+    let (_, path) = package
+        .related(main, "styles")?
+        .ok_or_else(|| unsupported("missing styles part"))?;
+    if package.content_type_for(&path)?.as_deref()
+        != Some("application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml")
+    {
+        return Err(unsupported("invalid styles content type"));
+    }
+    let root = package.word(&path)?;
+    if root.name != "w:styles" {
+        return Err(unsupported("invalid styles root"));
+    }
+    Ok(Some((path, root)))
 }
 
 fn inspect(root: &Node) -> Vec<ImportedStyle> {

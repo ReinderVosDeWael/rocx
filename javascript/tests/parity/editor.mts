@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "control-choice-source", "paired-source",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "control-choice-source", "paired-source", "format-owners-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -506,6 +506,29 @@ export async function run(fixtures: Fixtures) {
     same([wide.gridSpan, wide.verticalMerge], [2, index ? "continue" : "restart"], "merged interval");
     check(plain.gridSpan === undefined && plain.verticalMerge === undefined, "unset direct properties");
   }
+  let formatOwners = fixtures["format-owners-source"];
+  for (const label of ["cell","header","footer"] as const) {
+    const source = await openDocx(formatOwners);
+    let structure;
+    let ownerPart: string | undefined;
+    if (label === "cell") {
+      const t = source.body()[0]; check(t.kind === "table","cell table");
+      const row=t.children[0]; check(row.kind === "row","cell row");
+      const cell=row.children[0]; check(cell.kind === "cell","physical cell");
+      const p=cell.blocks[0]; check(p.kind === "paragraph","cell paragraph"); structure=p.inlineStructure;
+    } else {
+      const story=source.stories().find(s=>s.view.kind===label && s.view.sectionIndex===1 && s.view.variant==="default");
+      check(story?.view.inherited,"shared inherited owner");
+      ownerPart=story.view.partName; structure=story.inlineStructure(0);
+    }
+    const link=structure?.[0]; check(link?.kind==="hyperlink","owner link");
+    const r=link.children[0]; check(r.kind==="run","hyperlink run");
+    const inlineEdits=[{kind:"patchFormat",target:r.anchor,format:{size:13.5}}] as const;
+    rejects(()=>source.editRunFormat({ownerPart:"word/unrelated.xml",inlineEdits}),/owner mismatch/);
+    formatOwners=source.editRunFormat({ownerPart,inlineEdits});
+    const reopened=await openDocx(formatOwners);
+    rejects(()=>reopened.editRunFormat({ownerPart,inlineEdits}),/snapshot/);
+  }
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
@@ -539,10 +562,21 @@ export async function run(fixtures: Fixtures) {
     {kind: "setToggle", target: a.anchor, property: "hidden", value: true},
     {kind: "setToggle", target: b.anchor, property: "strike", value: true},
     {kind: "setToggle", target: c.anchor, property: "italic", value: null},
+    {kind: "patchFormat", target: b.anchor, format: {style:"Strong",font:"Cambria",
+      fontEastAsia:"Yu Mincho",fontComplexScript:"Amiri",size:12.5,sizeComplexScript:14,
+      underline:"double",color:{kind:"theme",name:"accent2",tint:150},superscript:true,allCaps:false,
+      smallCaps:true,snapToGrid:false,boldComplexScript:true,italicComplexScript:false,rtl:true,
+      complexScript:true,language:{latin:"fr-CA",eastAsia:"ja-JP"}}, clear:["languageBidi"]},
   ]}).toDocx();
   const [x, y, z] = paragraph(await openDocx(runFormatting), 1).inlineStructure;
   check(x.kind === "run" && x.bold && x.hidden && y.kind === "run" && y.strike &&
     y.hasOpaqueFormatting && z.kind === "run" && z.italic === undefined, "reopened direct run formatting");
+  same(y.format, {style:"Strong",font:"Cambria",fontEastAsia:"Yu Mincho",fontComplexScript:"Amiri",
+    size:12.5,sizeComplexScript:14,underline:"double",color:{kind:"theme",name:"accent2",tint:150},
+    superscript:true,allCaps:false,smallCaps:true,snapToGrid:false,boldComplexScript:true,
+    italicComplexScript:false,rtl:true,complexScript:true,language:{latin:"fr-CA",eastAsia:"ja-JP"},strike:true}, "rich direct formatting");
+  rejects(() => ranged.preview({inlineEdits:[{kind:"patchFormat",target:b.anchor,format:{bold:true}},
+    {kind:"setBold",target:b.anchor,bold:false}]}), /duplicate|conflicting/);
   const selection = {target: paragraph(ranged, 1).anchor, start: 1, end: 6, text: " 🐈 "};
   const point = {target: selection.target, position: 3, text: "➡"};
   rejects(() => ranged.preview({textInsertions: [point, point]}), /overlapping/);
@@ -632,7 +666,7 @@ export async function run(fixtures: Fixtures) {
   return {
     boldChange, boldAccepted, boldRejected,
     ...blockRevisions,
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, formatOwners, inline: inline.toDocx(),
     fieldsRanges: await fieldsAndRanges(fixtures["paired-source"]),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
