@@ -348,6 +348,30 @@ impl ImportedDocument {
     }
 }
 
+/// Paragraph-mark review consumes a paragraph with its original property
+/// envelope. Adding ordinary properties to that paragraph would make a
+/// previously supported proposal no longer reviewable.
+pub(super) fn guard_paragraph_mark(paragraph: &Node) -> Result<()> {
+    let pending = paragraph
+        .elements()
+        .filter(|p| p.name == "w:pPr")
+        .flat_map(Node::elements)
+        .filter(|p| p.name == "w:rPr")
+        .flat_map(Node::elements)
+        .any(|p| {
+            matches!(
+                p.name.as_str(),
+                "w:ins" | "w:del" | "w:moveFrom" | "w:moveTo"
+            )
+        });
+    if pending {
+        return Err(unsupported(
+            "paragraph mark revision must be reviewed before editing its properties",
+        ));
+    }
+    Ok(())
+}
+
 fn id(n: &Node) -> Result<u32> {
     n.get("w:id")
         .and_then(|s| s.trim().parse().ok())

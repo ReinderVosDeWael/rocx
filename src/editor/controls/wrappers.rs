@@ -158,7 +158,9 @@ impl ImportedDocument {
             busy.insert(slot_to_index[&self.controls[edit.target.index].path[0]]);
         }
         for b in blocks {
-            if let crate::editor::BlockEdit::KeepWithNext(a, _) = b {
+            if let crate::editor::BlockEdit::KeepWithNext(a, _)
+            | crate::editor::BlockEdit::ParagraphFlag(a, ..) = b
+            {
                 busy.insert(a.body_index);
             }
         }

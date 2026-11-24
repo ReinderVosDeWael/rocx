@@ -228,6 +228,7 @@ pub(super) fn patch_paragraphs(body: &mut Node, targets: &Targets<'_>) -> Result
         if &paragraph_reference(p)? == v {
             continue;
         }
+        super::revisions::guard_paragraph_mark(p)?;
         changed = true;
         if p.child("w:pPr").is_none() {
             p.children.insert(0, Content::Element(Node::new("w:pPr")));

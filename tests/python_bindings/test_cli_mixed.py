@@ -585,9 +585,11 @@ async def test_rich_cli_batch_uses_staged_resources_and_shared_reference_guards(
             dict(kind="bookmark-link", name="MixedTarget", text="Jump"),
         ])),
     ]
-    failure = call(cli, "save-copy", source, success=False, output=str(output), snapshot=inspected["snapshot"],
-                   edits=[*edits, numbered | {"target": 2}])
-    assert "conflicting" in str(failure) and not output.exists()
+    for overlap in (numbered | {"target": 2},
+                    dict(kind="paragraph-flag", target=2, flag="keep_together", value=True)):
+        failure = call(cli, "save-copy", source, success=False, output=str(output),
+                       snapshot=inspected["snapshot"], edits=[*edits, overlap])
+        assert "conflicting" in str(failure) and not output.exists()
     changed = checked_copy(cli, source, output, edits)
     imported = ImportedDocument.open(source.read_bytes())
     a, b, _, _, _ = imported.body
@@ -652,5 +654,13 @@ async def test_rich_cli_batch_uses_staged_resources_and_shared_reference_guards(
              operation=dict(kind="insert-before", text="A tracked paragraph")),
     ])
     assert paragraph["body"][4]["mark_revision"]["kind"] == "insertion"
+    for change in (
+        numbered | {"target": 4},
+        dict(kind="paragraph-flag", target=4, flag="keep_with_next", value=True),
+        dict(kind="alignment", target=4, alignment="right"),
+    ):
+        fail = call(cli, "save-copy", marked, success=False, output=str(removed), snapshot=paragraph["snapshot"],
+                    edits=[change, dict(kind="core-subject", value="Not saved")])
+        assert "paragraph mark revision" in str(fail) and not removed.exists()
     checked_copy(cli, marked, removed, [dict(kind="review-paragraph-revision", target=4, action="reject")])
     assert not any(p.text == "A tracked paragraph" for p in docx.Document(removed).paragraphs)

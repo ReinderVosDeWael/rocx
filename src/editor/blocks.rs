@@ -220,6 +220,9 @@ impl Plan {
             {
                 return Err(unsupported("protected section property owner"));
             }
+            if owners.contains(&slot) {
+                super::revisions::guard_paragraph_mark(node)?;
+            }
             if let Some(fields) = properties.remove(&index) {
                 if !before
                     || !boundaries.safe()
@@ -232,6 +235,7 @@ impl Plan {
                     if section {
                         continue;
                     }
+                    super::revisions::guard_paragraph_mark(node)?;
                     if node.child(super::ALTERNATE).is_some()
                         || node.elements().filter(|n| n.name == "w:pPr").count() > 1
                     {
