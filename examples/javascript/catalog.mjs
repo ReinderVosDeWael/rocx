@@ -4,6 +4,7 @@ import {
   assert, assertBytes, authorCatalog, storyLabel,
 } from "./catalog/authoring.mjs";
 import { EDIT_LABEL, INLINE_LABEL, INLINE_LINK_RUNS, para, row, run, table, tableCell, text } from "./catalog/blocks.mjs";
+import { hyperlink } from "./catalog/stories.mjs";
 
 export const catalogNames = Object.freeze({
   final: "all_features-javascript.docx",
@@ -198,10 +199,23 @@ export async function generateCatalog(fixtures, options) {
   assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
   let entryText = final;
   for (const kind of ["footnote", "endnote", "comment"]) {
-    const source = await openDocx(entryText);
-    const entry = source.entryStories().find(e => e.kind === kind && (kind === "comment" ? e.author === "Structured reviewer" : e.id === "0"));
-    const run = entry.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items.length === 1 && n.items[0].kind === "text");
-    entryText = source.editStoryText({ownerPart: entry.partName, runText: [{target: run.anchor, text: `Edited ${kind} entry`}]});
+    let source = await openDocx(entryText);
+    const select = doc => doc.entryStories().find(e => e.kind === kind && (kind === "comment" ? e.author === "Structured reviewer" : e.id === "0"));
+    let entry = select(source);
+    const first = entry.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items.length === 1 && n.items[0].kind === "text");
+    const label = `Edited ${kind} entry`;
+    source = await openDocx(source.editStoryText({ownerPart: entry.partName, runText: [{target: first.anchor, text: label}]}));
+    entry = select(source);
+    const run = entry.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items[0]?.text === label);
+    const inline = await resolveComponent(hyperlink({kind: "external", url: "https://example.com/entry-review"}, [text("Review link")]));
+    const edit = {kind: "insertAfter", target: run.anchor, inline};
+    const batch = {ownerPart: entry.partName, inlineEdits: [edit]};
+    assertThrows(() => source.editEntryInlines({...batch, inlineEdits: [edit, edit]}), "accepted duplicate entry targets");
+    entryText = source.editEntryInlines(batch);
+    const reopened = await openDocx(entryText);
+    assertThrows(() => reopened.editEntryInlines(batch), "accepted a stale entry anchor");
+    assert(reopened.entryStories().find(e => e.kind === kind && e.id === entry.id)
+      .blocks[0].inlineStructure.some(n => n.kind === "hyperlink" && n.children[0].items[0].text === "Review link"), "missing inserted link");
   }
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
@@ -217,15 +231,21 @@ export async function generateCatalog(fixtures, options) {
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
+      {kind: "coreSubject", value: "Imported resource edits"},
+      {kind: "metadata", field: "creator", value: "Review team"},
+      {kind: "metadata", field: "manager", value: "Review lead"},
+      {kind: "customProperty", name: "Reviewed", value: false},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
+    textInsertions: [{target: target.anchor, position: 8, text: " + point"}],
     paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
   });
   assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");
   const change = textPreview.runTextChanges().find(c => c.before === INLINE_LABEL);
+  assert(inline.inlineStructure[0].italic === undefined, "unexpected direct italic");
   const whole = imported.preview({inlineEdits: [
-    {kind: "setBold", target: textEdit.target, bold: false},
+    {kind: "setToggle", target: textEdit.target, property: "italic", value: true},
     {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
   ]});
   assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");
@@ -236,14 +256,27 @@ export async function generateCatalog(fixtures, options) {
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
   const editedResources = await openDocx(runText);
-  assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample",
+  assert(editedResources.metadataField("manager") === "Review lead" &&
+    editedResources.customProperty("Reviewed") === false, "missing metadata values");
+  assertThrows(() => imported.preview({resources: [{kind: "customProperty", name: "Reviewed"}]}),
+    "accepted missing custom value");
+  assertThrows(() => imported.preview({resources: [{kind: "metadata", field: "created", value: "yesterday"}]}),
+    "accepted invalid core date");
+  assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample" &&
+    editedResources.coreSubject() === "Imported resource edits",
     "missing resource edits");
   const cleared = await openDocx(editedResources.preview({resources: [
+    {kind: "metadata", field: "manager", value: null}, {kind: "customProperty", name: "Reviewed", value: null},
     {kind: "coreTitle", value: null}, {kind: "defaultAlignment", value: null},
+    {kind: "coreSubject", value: null},
     {kind: "abstractStart", abstractId: 100, level: 0, value: null}]}).toDocx());
-  assert(cleared.coreTitle() === undefined && cleared.defaultAlignment() === undefined &&
+  assert(cleared.coreSubject() === undefined && cleared.coreTitle() === undefined && cleared.defaultAlignment() === undefined &&
     cleared.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === undefined),
     "clearing direct properties should return absence");
+  assert(cleared.customProperty("Reviewed") === undefined && cleared.metadataField("manager") === undefined,
+    "metadata clear retained the property");
+  assertThrows(() => editedResources.preview({runText: [textEdit], resources: [
+    {kind: "customProperty", name: "Reviewed", value: true}]}), "accepted stale anchor with metadata");
   assertThrows(() => imported.preview({resources: [{kind: "coreTitle", value: "uncommitted"},
     {kind: "abstractStart", abstractId: 9001, level: 0, value: 6}]}), "accepted missing numbering level");
   assertThrows(() => imported.preview({resources: [{kind: "coreTitle"}]}), "treated missing value as clear");
@@ -257,6 +290,11 @@ export async function generateCatalog(fixtures, options) {
   const reopenedForCell = await openDocx(edited);
   const insertedTable = reopenedForCell.body()[bodyIndex + 1];
   assert(insertedTable.kind === "table", "expected inserted table");
+  // Layout sample: change the direct layout while preserving grid widths.
+  assert(insertedTable.layout === "fixed" && insertedTable.gridWidths.join() === "2160,2160", "expected direct layout and widths");
+  const layout = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "layout", value: "autofit" }] });
+  const adjusted = (await openDocx(layout.toDocx())).body()[bodyIndex + 1];
+  assert(adjusted.layout === "autofit" && adjusted.gridWidths.join() === "2160,2160", "layout patch preserved grid");
   // Structural sample: append an empty row to this original table.
   const appended = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "insertRow", index: 1 }] });
   const larger = (await openDocx(appended.toDocx())).body()[bodyIndex + 1];

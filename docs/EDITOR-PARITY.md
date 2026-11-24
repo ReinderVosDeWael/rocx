@@ -52,6 +52,19 @@ report lists only changed runs, in source order. All ranges address the original
 snapshot: adjacent ranges may share a run, but overlapping/duplicate selections
 or a whole-run edit/removal on a touched run reject the entire batch.
 
+For point insertion, use Rust `EditBatch::text_insertions` with
+`TextInsertion { target, position, text }`, Python
+`preview([], text_insertions=[TextInsertion(target, position, text)])`, or
+JavaScript `preview({textInsertions: [{target, position, text}]})`.
+`position` uses the same original scalar coordinates. Inserted text must be
+nonempty single-line XML text without tabs. At a run boundary, the next scalar's
+run supplies the formatting; at paragraph end the final run supplies it. A
+runless paragraph accepts position zero and gets one unformatted run. The
+ordinary run-text report records its previous text as `""`. Points at either
+endpoint of a replacement are allowed and stay on that side of the replacement.
+Two points at one position, a point strictly inside a selection, or a conflicting
+whole-run or destructive block edit reject the batch.
+
 ## Supported imported targets
 
 The editor exposes direct body inspection with section ranges, explicit section
@@ -100,9 +113,9 @@ runs, or target a [supported object occurrence](#drawing-and-fraction-occurrence
 Direct inline payloads accept resolved text, breaks, tabs, fractions, external
 hyperlinks, pictures, shapes and column charts. New external links allocate relationships on
 the actual document part. Replacement refuses to discard unrecognized properties
-or markup; unused existing relationships are retained. A direct bold patch on a
-supported run sets only `w:rPr/w:b`, preserving other properties (including
-unmodeled markup). Duplicate targets, nested targets, tracked or ambiguous
+or markup; unused existing relationships are retained. Property-only patches also
+accept runs containing multiple ordinary text, tab, and break leaves. They preserve
+the leaves and unrelated run properties. Duplicate targets, nested targets, tracked or ambiguous
 properties and active supported field/range boundaries reject the batch.
 
 | Rust: `preview_with_inlines`, `InlineEdit { target, action }` | Python: `preview([], inline_edits=[…])` | JavaScript: `preview({inlineEdits: […]})` |
@@ -110,9 +123,23 @@ properties and active supported field/range boundaries reject the batch.
 | `InlineAction::InsertAfter(inline)` | `InlineEdit.insert_after(anchor, inline)` | `{kind: "insertAfter", target, inline}` |
 | `InlineAction::Replace(inline)` | `InlineEdit.replace(anchor, inline)` | `{kind: "replace", target, inline}` |
 | `InlineAction::SetBold(false)` | `InlineEdit.set_bold(anchor, False)` | `{kind: "setBold", target, bold: false}` |
+| `InlineAction::SetToggle(RunToggle::Italic, None)` | `InlineEdit.set_toggle(anchor, "italic", None)` | `{kind: "setToggle", target, property: "italic", value: null}` |
+
+Use `Bold`, `Italic`, `Strike`, or `Hidden` in Rust and `bold`, `italic`,
+`strike`, or `hidden` in Python and JavaScript. `true` and `false` set
+explicit direct values; `None`/`null` removes the property so style inheritance
+applies. A clear refuses to discard attributes or children outside the modeled
+value. Only one edit per original run is supported in a batch.
+
+`ImportedRun.bold`, `.italic`, `.strike`, and `.hidden` inspect the same direct
+properties wherever structured runs are exposed. An unset or ambiguous toggle
+is `None` in Rust/Python and absent in JavaScript. `has_opaque_formatting`
+(`hasOpaqueFormatting` in JavaScript) signals retained properties or markup
+outside this projection. These values do not resolve styles, complex-script
+variants, or effective visual formatting.
 
 `inline_changes()` / `inline_changes` / `inlineChanges()` return original
-(body, inline) index pairs in document order; an already-matching direct bold
+(body, inline) index pairs in document order; an already-matching direct toggle
 value is omitted. There are no character-range addresses in these operations.
 
 ### Drawing and fraction occurrences
@@ -187,6 +214,15 @@ children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
 
+Read `layout` in all three APIs for the recognized direct `fixed` or `autofit`
+setting (a `TableLayout` in Rust). `grid_widths` (Rust/Python) or `gridWidths`
+(JavaScript) lists direct grid columns in source order, in twips; a missing
+or unparseable unsigned width gives `None`/`null` at that position. On each
+physical cell, `grid_span`/`gridSpan` exposes a direct positive span, and
+`vertical_merge`/`verticalMerge` exposes the marker value (`continue` for an
+empty `w:vMerge`). Absent properties stay absent. These are source properties,
+not effective formatting or a computed viewer grid.
+
 In Rust use `CellAlignmentEdit` with `preview_with_cells`; in Python use
 `CellAlignmentEdit` with `preview(..., cell_alignments=[...])`; in JavaScript
 use `preview({ cellAlignments: [...] })`. Indices refer to the original
@@ -206,6 +242,13 @@ JavaScript `preview({tableStructure: [{target, kind: "insertRow", index}]})`.
 | `InsertCell` / `RemoveCell` | `insert_cell` / `remove_cell` | `insertCell` / `removeCell` | `row`, `cell`: physical row and cell |
 | `InsertColumn` / `RemoveColumn` | `insert_column` / `remove_column` | `insertColumn` / `removeColumn` | `index`: logical grid column, across all rows |
 | `ReplaceCell` | `replace_cell` | `replaceCell` | `row`, `cell`, `blocks`: physical target and ordered resolved paragraphs/tables |
+| `Layout(Some(TableLayout::Autofit))` | `layout(target, "autofit")` | `layout` | Whole table; JS `value: "autofit"`. Also accepts `fixed`; pass `None`/`None`/`null` to clear. |
+
+The layout patch only changes `w:tblLayout`; existing cell and grid widths
+are retained. It uses the same range and grid guards as structural edits and
+requires exclusive use of the table within the table edit batch. Duplicate
+layout elements, tracked table properties, and clears that would discard
+extension attributes or children on the property are rejected.
 
 Indices are zero-based; insert before an index or append at the count. A cell
 spanning three grid columns still counts as **one physical cell**. A new row
@@ -293,6 +336,8 @@ bindings. See [imported style edits](#imported-style-edits) for definition
 and property edits. The resource guide also covers direct [core title, default alignment
 and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
 Effective formatting and arbitrary resource editing remain outstanding.
+For timestamps, other core fields, extended company/manager and named string
+or boolean custom properties, see [package metadata](EDITOR-RESOURCES.md#package-metadata).
 
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
@@ -315,6 +360,17 @@ one physical header, footer, or note/comment part. Inherited slots see the same
 text. References, range markers, note IDs and comment metadata stay intact.
 Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 
+`edit_entry_inlines(owner_part, edits)` (Rust/Python) and
+`editEntryInlines({ownerPart, inlineEdits})` (JavaScript) return bytes for an
+atomic batch of `InlineEdit` operations in one footnotes, endnotes or comments
+part. Insert after or replace an eligible direct run or hyperlink, or patch
+direct run bold. Use original inline anchors from ordinary entries with unique
+decimal IDs. Replacement uses the body editor's discard checks; note/reference
+marks, field/range interiors, nested targets and reserved notes are ineligible.
+External links allocate relationships in the entry part, including when its
+path is nonstandard. Existing relationships are retained. No entry or reference
+is created, deleted or renumbered. Reopen the returned package for new anchors.
+
 ### Combine ordinary edits
 
 Rust accepts `doc.preview_edits(EditBatch { /* slices */, ..Default::default() })`;
@@ -331,6 +387,7 @@ in JavaScript use `doc.preview({...})`. The corresponding batch fields are:
 | `cells` | `cell_alignments` | `cellAlignments` |
 | `run_removals` | `run_removals` | `runRemovals` |
 | `ranges` | `text_ranges` | `textRanges` |
+| `text_insertions` | `text_insertions` | `textInsertions` |
 | `blocks` | `block_edits` | `blockEdits` |
 | `inline_edits` | `inline_edits` | `inlineEdits` |
 | `structural` | `table_structure` | `tableStructure` |

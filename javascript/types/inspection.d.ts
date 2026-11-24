@@ -1,6 +1,10 @@
 import type { ReadLimits, ResolvedHandle } from "./boundary.js";
+import type { TableLayout } from "./tables.js";
 
 declare const anchor: unique symbol;
+export type MetadataField = "creator" | "description" | "category" | "keywords" | "version"
+  | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
+  | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
 export interface ControlAnchor { readonly [anchor]: "control" }
 export interface ImportedControl {
@@ -42,6 +46,12 @@ export type ImportedInline =
 
 export interface ImportedRun {
   readonly drawing?: DrawingOccurrence;
+  /** Direct toggle properties; absent when unset or ambiguous. */
+  readonly bold?: boolean;
+  readonly italic?: boolean;
+  readonly strike?: boolean;
+  readonly hidden?: boolean;
+  readonly hasOpaqueFormatting: boolean;
   readonly kind: "run";
   readonly anchor: InlineAnchor;
   readonly items: readonly ImportedInline[];
@@ -115,6 +125,8 @@ export interface ImportedCellParagraph extends ImportedFlatParagraph {
 export type ImportedCellBlock = ImportedCellParagraph | ImportedOpaque;
 
 export interface ImportedTableCell {
+  readonly gridSpan?: number;
+  readonly verticalMerge?: string;
   readonly kind: "cell";
   readonly blocks: readonly ImportedCellBlock[];
 }
@@ -129,6 +141,8 @@ export interface ImportedTableRow {
 export type ImportedTableChild = ImportedTableRow | ImportedOpaque;
 
 export interface ImportedTable {
+  readonly layout?: TableLayout;
+  readonly gridWidths: readonly (number | null)[];
   readonly kind: "table";
   readonly anchor: TableAnchor;
   /** Physical rows; merged cells are not expanded. */
@@ -239,6 +253,9 @@ export interface ImportedDocument {
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;
+  coreSubject(): string | undefined;
+  metadataField(field: MetadataField): string | undefined;
+  customProperty(name: string): string | boolean | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
   abstractStarts(): readonly AbstractStart[];
 }

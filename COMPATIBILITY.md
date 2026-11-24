@@ -57,13 +57,16 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Accept/reject supported anchored revision(s) | `preview_revision` | `preview_revision` | `previewRevision` |
 | Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
 | Replace/remove a paragraph, replace section content or patch keep-with-next | `BlockEdit` / `preview_blocks` | `preview([], block_edits=[edit])` | `preview({blockEdits: [edit]})` |
-| Insert/replace a direct inline or patch run bold | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
+| Insert/replace a direct inline or patch direct run toggles | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
 | Insert/remove rows, cells or columns; replace cell contents | `TableStructureEdit` / `preview_with_table_structure` | `preview([], table_structure=[edit])` | `preview({tableStructure: [edit]})` |
+| Set/clear direct table layout (same batch field) | `TableOperation::Layout(Some(TableLayout::Fixed))` / `Layout(None)` | `TableStructureEdit.layout(target, "fixed")` / `layout(target, None)` | `{target, kind: "layout", value: "fixed"}` / `value: null` |
 | Edit supported style definitions | `StyleEdit` / `preview_with_styles` | `preview([], style_edits=[edit])` | `preview({styleEdits: [edit]})` |
 | Set/clear title, default alignment or abstract level start | `ResourceEdit` / `preview_with_resources` | `preview([], resources=[edit])` | `preview({resources: [edit]})` |
 | Edit simple text in a physical header/footer, footnote/endnote or comment part | `edit_story_text(owner_part, edits)` | `edit_story_text(owner_part, edits)` | `editStoryText({ownerPart, runText})` |
+| Insert/replace an ordinary note/comment inline or patch run bold | `edit_entry_inlines(owner_part, edits)` | `edit_entry_inlines(owner_part, edits)` | `editEntryInlines({ownerPart, inlineEdits})` |
 | Set a direct body table cell's vertical alignment | `preview_with_cells` / `CellAlignmentEdit` | `preview([], cell_alignments=[edit])` | `preview({cellAlignments: [edit]})` |
 | Replace a [plain paragraph scalar range](docs/EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs) | `preview_with_ranges` / `TextRangeEdit` | `preview([], text_ranges=[edit])` | `preview({textRanges: [edit]})` |
+| Insert text at a plain paragraph scalar position | `EditBatch::text_insertions` / `TextInsertion` | `preview([], text_insertions=[edit])` | `preview({textInsertions: [edit]})` |
 | Replace text in a direct body run | `doc.preview_with_text(&[], &[], &[], &[edit])?` | `doc.preview([], run_text=[edit])` | `doc.preview({runText: [edit]})` |
 | Remove a direct body run | `doc.preview_with_run_removals(&[], &[], &[], &[], &[anchor])?` | `doc.preview([], run_removals=[anchor])` | `doc.preview({runRemovals: [anchor]})` |
 | Inspect removed runs | `preview.run_removals()` | `preview.run_removals` | `preview.runRemovals()` |

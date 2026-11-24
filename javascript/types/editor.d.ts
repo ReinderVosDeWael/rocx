@@ -1,7 +1,7 @@
 import type { ResolvedImage } from "./drawings.js";
 import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
 import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
-import type { ResolvedTable } from "./tables.js";
+import type { ResolvedTable, TableLayout } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
 
 export interface ParagraphAlignmentEdit {
@@ -57,6 +57,7 @@ export type InlineEdit = { readonly target: InlineAnchor } & (
   | { readonly kind: "setDrawingDescription"; readonly value: string | null }
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
   | { readonly kind: "setBold"; readonly bold: boolean }
+  | { readonly kind: "setToggle"; readonly property: "bold" | "italic" | "strike" | "hidden"; readonly value: boolean | null }
 );
 
 export interface EditBatch {
@@ -67,6 +68,7 @@ export interface EditBatch {
   readonly resources?: readonly ResourceEdit[];
   readonly controls?: readonly ControlEdit[];
   readonly textRanges?: readonly TextRangeEdit[];
+  readonly textInsertions?: readonly TextInsertion[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
@@ -77,7 +79,9 @@ export interface EditBatch {
 }
 
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
+export interface TextInsertion { readonly target: ParagraphAnchor; readonly position: number; readonly text: string }
 export type TableStructureEdit =
+  | { readonly target: TableAnchor; readonly kind: "layout"; readonly value: TableLayout | null }
   | { readonly target: TableAnchor; readonly kind: "insertRow" | "removeRow" | "insertColumn" | "removeColumn"; readonly index: number }
   | { readonly target: TableAnchor; readonly kind: "insertCell" | "removeCell"; readonly row: number; readonly cell: number }
   | { readonly target: TableAnchor; readonly kind: "replaceCell"; readonly row: number; readonly cell: number; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[] };
@@ -92,7 +96,10 @@ export type StyleEdit =
   | { readonly op: "remove"; readonly target: StyleAnchor };
 
 export type ResourceEdit =
+  | { readonly kind: "metadata"; readonly field: import("./inspection.js").MetadataField; readonly value: string | null }
+  | { readonly kind: "customProperty"; readonly name: string; readonly value: string | boolean | null }
   | { readonly kind: "coreTitle"; readonly value: string | null }
+  | { readonly kind: "coreSubject"; readonly value: string | null }
   | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
   | { readonly kind: "abstractStart"; readonly abstractId: number; readonly level: number; readonly value: number | null };
 
@@ -184,6 +191,7 @@ declare module "./inspection.js" {
     }): EditPreview;
     /** Change single-text runs in the named physical story part, including all aliases. */
     editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
+    editEntryInlines(batch: { readonly ownerPart: string; readonly inlineEdits: readonly InlineEdit[] }): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to a shared header/footer or a section-local fork. */

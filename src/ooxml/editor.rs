@@ -91,10 +91,24 @@ fn editor_styles(package: &Package, main: &str, style_refs: StyleRefs) -> Result
 pub(crate) fn encode_editor_inlines(
     package: Package,
     main: &str,
+    owner: &str,
+    kind: StoryKind,
     inlines: &[&ResolvedInline],
 ) -> Result<(Package, Vec<Vec<Node>>)> {
     let mut refs = StyleRefs::new();
     for inline in inlines {
+        if kind != StoryKind::Body
+            && matches!(
+                inline,
+                ResolvedInline::Shape(_)
+                    | ResolvedInline::ColumnChart(_)
+                    | ResolvedInline::Fraction { .. }
+            )
+        {
+            return Err(
+                unsupported("shape, chart and fraction payloads require a body paragraph").into(),
+            );
+        }
         check_inline(inline, &mut refs, "editor.inline")?;
         inline.validate()?;
     }
@@ -111,10 +125,9 @@ pub(crate) fn encode_editor_inlines(
         renderer.drawing = DrawingId::new(super::defaults::drawing_ceiling(&renderer.package));
         renderer.media = MediaRegistry::from_package(&renderer.package)?;
     }
-    let story =
-        renderer
-            .stories
-            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+    let story = renderer
+        .stories
+        .register(kind, PartName::new(owner)?, StoryContent::Blocks)?;
     let context = renderer.context(story, 8640);
     let output = inlines
         .iter()

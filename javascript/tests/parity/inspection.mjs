@@ -222,7 +222,7 @@ async function importedBodySectionsAndPhysicalCells() {
   const [left, right] = cellLink.children;
   const [afterRun] = merged.blocks[3].inlineStructure;
   const [tailRun] = tail.blocks[0].inlineStructure;
-  const run = (node, value) => ({ kind: "run", anchor: node.anchor, items: [text(value)] });
+  const run = (node, value) => ({ kind: "run", hasOpaqueFormatting: false, anchor: node.anchor, items: [text(value)] });
   assert.deepEqual(table, {
     kind: "table", anchor: table.anchor,
     children: [
@@ -296,21 +296,21 @@ async function importedBodyInlineAnchorsAndProjections() {
     text("A"), text("B"), ...breaks, opaque("w:fldSimple"), text("L"), text("ink"), text("Jump"),
   ]);
   const [a, b, controls, field, external, internal] = p.inlineStructure;
-  assert.deepEqual(a, { kind: "run", anchor: a.anchor, items: [text("A")] });
-  assert.deepEqual(b, { kind: "run", anchor: b.anchor, items: [text("B")] });
+  assert.deepEqual(a, { kind: "run", hasOpaqueFormatting: false, bold: true, anchor: a.anchor, items: [text("A")] });
+  assert.deepEqual(b, { kind: "run", hasOpaqueFormatting: false, anchor: b.anchor, items: [text("B")] });
   assert.deepEqual(controls.items, breaks);
   assert.deepEqual(field, opaque("w:fldSimple"));
   assert.deepEqual(external, {
     kind: "hyperlink", anchor: external.anchor, relationshipId: fixtures.bodyLink,
     bookmark: "Somewhere",
     children: [
-      { kind: "run", anchor: external.children[0].anchor, items: [text("L")] },
-      { kind: "run", anchor: external.children[1].anchor, items: [text("ink")] },
+      { kind: "run", hasOpaqueFormatting: false, anchor: external.children[0].anchor, items: [text("L")] },
+      { kind: "run", hasOpaqueFormatting: false, anchor: external.children[1].anchor, items: [text("ink")] },
     ],
   });
   assert.deepEqual(internal, {
     kind: "hyperlink", anchor: internal.anchor, bookmark: "Local",
-    children: [{ kind: "run", anchor: internal.children[0].anchor, items: [text("Jump")] }],
+    children: [{ kind: "run", hasOpaqueFormatting: false, anchor: internal.children[0].anchor, items: [text("Jump")] }],
   });
   const run = external.children[1];
   for (const node of [a, b, controls, external, internal, ...external.children, ...internal.children]) {

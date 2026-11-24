@@ -20,6 +20,7 @@ use wasm_bindgen::JsValue;
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
+        ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
@@ -185,6 +186,8 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
             &["target", "kind"]
         } else if kind == "setDrawingDescription" {
             &["target", "kind", "value"]
+        } else if kind == "setToggle" {
+            &["target", "kind", "property", "value"]
         } else {
             &["target", "kind", "inline"]
         },
@@ -218,6 +221,21 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
                 } else {
                     Some(b::string(&value, &edit.path("value"))?)
                 })
+            }
+            "setToggle" => {
+                let name = b::string(&edit.get("property")?, &edit.path("property"))?;
+                let prop = rocx::editor::RunToggle::parse(&name).ok_or_else(|| {
+                    Failure::invalid(&edit.path("property"), "unknown run toggle")
+                })?;
+                let v = edit.get("value")?;
+                let value = if v.js().is_null() {
+                    None
+                } else {
+                    Some(v.js().as_bool().ok_or_else(|| {
+                        Failure::invalid(&edit.path("value"), "expected boolean or null")
+                    })?)
+                };
+                InlineAction::SetToggle(prop, value)
             }
             "setBold" => InlineAction::SetBold(
                 edit.get("bold")?
@@ -265,11 +283,13 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
     let edit = Record::new(
         input,
         path,
-        &["target", "kind", "index", "row", "cell", "blocks"],
+        &["target", "kind", "index", "row", "cell", "blocks", "value"],
     )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
     let fields: &[&str] = if kind == "replaceCell" {
         &["target", "kind", "row", "cell", "blocks"]
+    } else if kind == "layout" {
+        &["target", "kind", "value"]
     } else if matches!(kind.as_str(), "insertCell" | "removeCell") {
         &["target", "kind", "row", "cell"]
     } else {
@@ -281,6 +301,23 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
             .map_err(|_| Failure::invalid(&edit.path(name), "index is too large"))
     };
     let operation = match kind.as_str() {
+        "layout" => {
+            let v = edit.get("value")?;
+            Layout(if v.js().is_null() {
+                None
+            } else {
+                Some(match b::string(&v, &edit.path("value"))?.as_str() {
+                    "fixed" => rocx::TableLayout::Fixed,
+                    "autofit" => rocx::TableLayout::Autofit,
+                    _ => {
+                        return Err(Failure::invalid(
+                            &edit.path("value"),
+                            "unknown table layout",
+                        ));
+                    }
+                })
+            })
+        }
         "insertRow" => InsertRow(index("index")?),
         "removeRow" => RemoveRow(index("index")?),
         "insertColumn" => InsertColumn(index("index")?),
@@ -345,6 +382,24 @@ fn run_text_edit(input: &Wire, path: &str) -> Result<rocx::editor::RunTextEdit> 
     })
 }
 
+fn entry_inlines(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["ownerPart", "inlineEdits"],
+    )?;
+    let owner = b::string(&batch.get("ownerPart")?, "batch.ownerPart")?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_entry_inlines(&owner, &edits(&batch, "inlineEdits", inline_edit)?)?
+            .as_slice(),
+    )
+    .into())
+}
+
 fn story_text(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -377,6 +432,20 @@ fn range_edit(input: &Wire, path: &str) -> Result<rocx::editor::TextRangeEdit> {
     })
 }
 
+fn text_insertion(input: &Wire, path: &str) -> Result<rocx::editor::TextInsertion> {
+    let edit = Record::new(input, path, &["target", "position", "text"])?;
+    let position = usize::try_from(b::u64_number(
+        &edit.get("position")?,
+        &edit.path("position"),
+    )?)
+    .map_err(|_| Failure::invalid(&edit.path("position"), "offset is too large"))?;
+    Ok(rocx::editor::TextInsertion {
+        target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+        position,
+        text: b::string(&edit.get("text")?, &edit.path("text"))?,
+    })
+}
+
 fn control_edit(input: &Wire, path: &str) -> Result<rocx::editor::ControlEdit> {
     let edit = Record::new(input, path, &["target", "alias", "tag", "text"])?;
     let string = |field: &str| -> Result<Option<String>> {
@@ -398,11 +467,19 @@ fn control_edit(input: &Wire, path: &str) -> Result<rocx::editor::ControlEdit> {
 
 fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit> {
     use rocx::editor::{AbstractStart, ResourceEdit};
-    let edit = Record::new(input, path, &["kind", "value", "abstractId", "level"])?;
+    let edit = Record::new(
+        input,
+        path,
+        &["kind", "value", "abstractId", "level", "field", "name"],
+    )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
-    if kind != "abstractStart" {
-        Record::new(input, path, &["kind", "value"])?;
-    }
+    let keys: &[&str] = match kind.as_str() {
+        "metadata" => &["kind", "field", "value"],
+        "customProperty" => &["kind", "name", "value"],
+        "abstractStart" => &["kind", "abstractId", "level", "value"],
+        _ => &["kind", "value"],
+    };
+    Record::new(input, path, keys)?;
     let v = edit.get("value")?;
     let clear = v.js().is_null();
     let vp = edit.path("value");
@@ -412,11 +489,36 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
             .map_err(|_| Failure::invalid(p, "expected u32"))
     };
     Ok(match kind.as_str() {
-        "coreTitle" => ResourceEdit::CoreTitle(if clear {
-            None
-        } else {
-            Some(b::string(&v, &vp)?)
-        }),
+        "coreTitle" | "coreSubject" => {
+            let value = if clear {
+                None
+            } else {
+                Some(b::string(&v, &vp)?)
+            };
+            if kind == "coreTitle" {
+                ResourceEdit::CoreTitle(value)
+            } else {
+                ResourceEdit::CoreSubject(value)
+            }
+        }
+        "metadata" => ResourceEdit::Metadata(
+            b::string(&edit.get("field")?, &edit.path("field"))?.parse()?,
+            if clear {
+                None
+            } else {
+                Some(b::string(&v, &vp)?)
+            },
+        ),
+        "customProperty" => ResourceEdit::CustomProperty(
+            b::string(&edit.get("name")?, &edit.path("name"))?,
+            if clear {
+                None
+            } else if let Some(b) = v.js().as_bool() {
+                Some(rocx::editor::CustomValue::Boolean(b))
+            } else {
+                Some(rocx::editor::CustomValue::Text(b::string(&v, &vp)?))
+            },
+        ),
         "defaultAlignment" => ResourceEdit::DefaultAlignment(if clear {
             None
         } else {
@@ -521,6 +623,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "headerImages",
             "runText",
             "textRanges",
+            "textInsertions",
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
@@ -541,6 +644,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         cells: &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         run_removals: &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
         ranges: &edits(&batch, "textRanges", range_edit)?,
+        text_insertions: &edits(&batch, "textInsertions", text_insertion)?,
         blocks: &edits(&batch, "blockEdits", block_edit)?,
         inline_edits: &edits(&batch, "inlineEdits", inline_edit)?,
         structural: &edits(&batch, "tableStructure", structure_edit)?,

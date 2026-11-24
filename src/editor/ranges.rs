@@ -19,6 +19,23 @@ pub struct TextRangeEdit {
     pub text: String,
 }
 
+/// Insert nonempty text at an original Unicode scalar boundary. At a run
+/// boundary the right-hand run owns the insertion; at paragraph end the last
+/// run owns it. An initially runless paragraph gets a plain run.
+#[derive(Clone, Debug)]
+pub struct TextInsertion {
+    pub target: ParagraphAnchor,
+    pub position: usize,
+    pub text: String,
+}
+
+struct Patch<'a> {
+    target: &'a ParagraphAnchor,
+    start: usize,
+    end: usize,
+    text: &'a str,
+}
+
 fn plain_children(n: &Node) -> bool {
     n.children.iter().all(|c| {
         matches!(c, Content::Element(_))
@@ -39,17 +56,47 @@ fn tracked_properties(n: &Node) -> bool {
     ) || n.elements().any(tracked_properties)
 }
 
-pub(super) fn expand(body: &Node, ranges: &[TextRangeEdit]) -> Result<Vec<RunTextEdit>> {
-    let mut grouped = BTreeMap::<usize, Vec<&TextRangeEdit>>::new();
+pub(super) fn expand(
+    body: &mut Node,
+    ranges: &[TextRangeEdit],
+    points: &[TextInsertion],
+) -> Result<Vec<RunTextEdit>> {
+    let mut grouped = BTreeMap::<usize, Vec<Patch<'_>>>::new();
     for edit in ranges {
+        if edit.start >= edit.end {
+            return Err(unsupported("empty or reversed text range"));
+        }
         grouped
             .entry(edit.target.body_index)
             .or_default()
-            .push(edit);
+            .push(Patch {
+                target: &edit.target,
+                start: edit.start,
+                end: edit.end,
+                text: &edit.text,
+            });
+    }
+    for edit in points {
+        if edit.text.is_empty() {
+            return Err(unsupported("text insertion requires nonempty text"));
+        }
+        grouped
+            .entry(edit.target.body_index)
+            .or_default()
+            .push(Patch {
+                target: &edit.target,
+                start: edit.position,
+                end: edit.position,
+                text: &edit.text,
+            });
     }
     let mut result = Vec::new();
     let mut state = BoundaryState::default();
-    for (index, p) in body.elements().filter(|n| n.name != "w:sectPr").enumerate() {
+    for (index, p) in body
+        .elements_mut()
+        .filter(|n| n.name != "w:sectPr")
+        .enumerate()
+    {
         if grouped.is_empty() {
             break;
         }
@@ -96,19 +143,28 @@ pub(super) fn expand(body: &Node, ranges: &[TextRangeEdit]) -> Result<Vec<RunTex
                 }
                 ends.push(original.len());
             }
-            edits.sort_by_key(|r| r.start);
+            if ends.is_empty() {
+                // Materialize an insertion host in the private staging tree.
+                // Bounds and payload validation below still apply.
+                let mut run = Node::new("w:r");
+                run.children.push(Content::Element(Node::new("w:t")));
+                p.children.push(Content::Element(run));
+                ends.push(0);
+            }
+            edits.sort_by_key(|r| (r.start, r.end));
             let mut prior_end = 0;
             let mut prior_byte = 0;
+            let mut prior_point = None;
             // Accumulate patches against original byte coordinates, even for
             // adjacent ranges in one run. Keep unchanged targets for conflict checks.
             let mut patches = BTreeMap::<usize, Vec<(usize, usize, &str)>>::new();
-            let anchor = &edits[0].target;
+            let anchor = edits[0].target;
             for r in edits {
-                if r.start >= r.end || r.start < prior_end {
-                    return Err(unsupported(
-                        "empty, overlapping or out-of-bounds text range",
-                    ));
+                let point = r.start == r.end;
+                if r.start < prior_end || (point && prior_point == Some(r.start)) {
+                    return Err(unsupported("overlapping text edits"));
                 }
+                prior_point = point.then_some(r.start);
                 let advance = |byte, count| {
                     original[byte..]
                         .char_indices()
@@ -122,16 +178,22 @@ pub(super) fn expand(body: &Node, ranges: &[TextRangeEdit]) -> Result<Vec<RunTex
                 let end = advance(start, r.end - r.start)?;
                 prior_end = r.end;
                 prior_byte = end;
-                let first = ends.partition_point(|&pos| pos <= start);
-                let last = ends.partition_point(|&pos| pos < end);
-                let unchanged = original[start..end] == r.text;
+                let first = ends
+                    .partition_point(|&pos| pos <= start)
+                    .min(ends.len() - 1);
+                let last = if point {
+                    first
+                } else {
+                    ends.partition_point(|&pos| pos < end)
+                };
+                let unchanged = &original[start..end] == r.text;
                 for run in first..=last {
                     let from = start.max(if run == 0 { 0 } else { ends[run - 1] });
                     let to = end.min(ends[run]);
                     let replacement = if unchanged {
                         &original[from..to]
                     } else if run == first {
-                        &r.text
+                        r.text
                     } else {
                         ""
                     };

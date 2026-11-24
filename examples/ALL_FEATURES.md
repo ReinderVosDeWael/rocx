@@ -59,9 +59,10 @@ Output:
   and a default-header image. The `.header-first-shared.docx` and
   `.header-first-local.docx` artifacts separately preview first-page images.
 - `.footer-even.docx` edits text in the shared footer and forks an image into
-  only the second section's even footer. `.entry-text.docx` edits a footnote,
-  an endnote with the same ID in another part, and a comment.
-- `.run-text.docx` combines scalar-range and run text edits, a resolved paragraph
+  only the second section's even footer. `.entry-text.docx` inserts a labeled
+  external hyperlink into a footnote, an endnote with the same ID in another
+  part, and a comment. Each relationship belongs to its respective entry part.
+- `.run-text.docx` combines scalar-range edits, point insertion and run text edits, a resolved paragraph
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared
   abstract numbering level (100, 0) start 7.
@@ -123,7 +124,7 @@ separate entries. The two ordinary notes both use ID `0` in different parts.
 
 The Rust, Python and JavaScript `.run-text.docx` examples replace the labeled direct run before
 the bookmark hyperlink and replace `[0, 8)` of the separate alignment label
-with `Ranged 📝`. The checker compares exact bytes, reopens the paragraph
+with `Ranged 📝`, then insert ` + point` at original position 8. The checker compares exact bytes, reopens the paragraph
 and verifies every untouched package payload against the source catalog.
 
 Each sample names its requested feature in ordinary text before/within it.
@@ -200,6 +201,11 @@ and JavaScript `{target: anchor, kind: "insertRow", index: 1}`. The reopened
 preview has two rows. See [structural table edits](../docs/EDITOR-PARITY.md#structural-edits-to-a-direct-body-table)
 for the physical cell and logical column operations and merge guards.
 
+The layout sample previews `TableOperation::Layout(Some(TableLayout::Autofit))`,
+`TableStructureEdit.layout(anchor, "autofit")`, or
+`{target: anchor, kind: "layout", value: "autofit"}`. Reopening confirms the
+layout changed from fixed to autofit while both grid columns remain 2160 twips.
+
 For the run-text output Rust passes `ParagraphInsertion` to
 `EditBatch.paragraphs` in `preview_edits`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
 to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`
@@ -208,19 +214,27 @@ anchor's body index. Inserted content follows the same inline and style
 restrictions as inserted tables. A paragraph and table cannot be inserted at
 the same anchor in one batch.
 
-The batch also passes Rust `ResourceEdit::{CoreTitle, DefaultAlignment, AbstractStart}`,
-Python `resources=[ResourceEdit.core_title(...), ResourceEdit.default_alignment(...),
+The batch also passes Rust `ResourceEdit::{CoreTitle, CoreSubject, DefaultAlignment, AbstractStart}`,
+Python `resources=[ResourceEdit.core_title(...), ResourceEdit.core_subject(...), ResourceEdit.default_alignment(...),
 ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
-`coreTitle`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
+`coreTitle`, `coreSubject`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
 for clearing, absence, and shared-numbering semantics.
+
+In the same run-text sample the reviewer and manager are set with Rust
+`ResourceEdit::Metadata`, Python `ResourceEdit.metadata`, or JavaScript
+`{kind: "metadata", field, value}`. `Reviewed` is explicitly false through
+`ResourceEdit::CustomProperty`, `ResourceEdit.custom_property`, or
+`{kind: "customProperty", name, value}`. The parity checker reopens the
+document and verifies each value in its own package part.
 
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
-The catalogs also stage a direct bold patch and an insertion after a hyperlink:
+The catalogs also inspect direct italic and stage an italic patch and an insertion after a hyperlink:
 Rust `preview_with_inlines` with `InlineEdit`/`InlineAction`, Python `inline_edits`
-with `InlineEdit.set_bold`/`insert_after`, JavaScript `inlineEdits` with
-`setBold`/`insertAfter`. The installed editor oracle additionally replaces a run
+with `InlineEdit.set_toggle`/`insert_after`, JavaScript `inlineEdits` with
+`setToggle`/`insertAfter`. Rust uses `InlineAction::SetToggle(RunToggle::Italic, Some(true))`.
+The installed editor oracle additionally clears direct bold and replaces a run
 with an external hyperlink and verifies its relationship and exact package bytes.
 
 Removal rejects opaque or unsafe run markup.

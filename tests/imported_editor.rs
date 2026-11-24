@@ -147,6 +147,23 @@ fn text_ranges_use_snapshot_coordinates_at_run_boundaries() {
         doc.preview_with_ranges(&[], &[], &[], &[], &[], &[], &[], ranges)
     };
     assert!(preview(&[edit(1, usize::MAX, "out of bounds")]).is_err());
+    let point = rocx::editor::TextInsertion {
+        target: p.anchor.clone(),
+        position: 1,
+        text: "+".into(),
+    };
+    let inserted = doc
+        .preview_edits(rocx::editor::EditBatch {
+            text_insertions: &[point],
+            ..Default::default()
+        })
+        .unwrap();
+    let changes = inserted.run_text_changes();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(
+        (changes[0].inline_index, changes[0].after.as_str()),
+        (2, "+é")
+    );
     let changes = preview(&[edit(1, 2, "new"), edit(0, 1, "first")]).unwrap();
     assert_eq!(
         changes
@@ -870,6 +887,29 @@ fn whole_inline_edits_respect_cross_paragraph_fields_and_keep_opaque_formatting(
     let carriage_return = preview(&[node(3, InlineAction::Replace(line.clone()))]).unwrap();
     assert_eq!(carriage_return.inline_changes(), &[(1, 3)]);
     assert!(preview(&[node(2, InlineAction::Replace(line))]).is_err());
+    let Run(source) = &paragraph(&doc, 1).inline_structure[2] else {
+        unreachable!()
+    };
+    assert!(source.has_opaque_formatting);
+    assert_eq!((source.bold, source.italic), (Some(true), None));
+    assert!(
+        preview(&[node(
+            2,
+            InlineAction::SetToggle(rocx::editor::RunToggle::Bold, None)
+        )])
+        .is_err()
+    );
+    let toggle = preview(&[node(
+        2,
+        InlineAction::SetToggle(rocx::editor::RunToggle::Italic, Some(false)),
+    )])
+    .unwrap();
+    let reopened = ImportedDocument::open(&toggle.to_docx().unwrap()).unwrap();
+    let Run(view) = &paragraph(&reopened, 1).inline_structure[2] else {
+        unreachable!()
+    };
+    assert!(view.has_opaque_formatting);
+    assert_eq!((view.bold, view.italic), (Some(true), Some(false)));
     let bold = preview(&[node(2, InlineAction::SetBold(false))]).unwrap();
     assert_eq!(bold.inline_changes(), &[(1, 2)]);
     let package = parts(&bold.to_docx().unwrap());
@@ -3070,6 +3110,35 @@ fn first_header_image_local_preserves_aliases_and_inheritance() {
                 };
             assert_eq!(&story.part_name, expected);
         }
+    }
+}
+
+#[test]
+fn layout_rejects_duplicate_or_tracked_properties() {
+    use rocx::editor::{EditBatch, TableOperation, TableStructureEdit};
+    for (props, message) in [
+        ("<w:tblLayout/><w:tblLayout/>", "ambiguous table properties"),
+        ("<w:tblPrChange/>", "tracked table properties"),
+    ] {
+        let xml = format!(
+            r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblPr>{props}</w:tblPr><w:tblGrid><w:gridCol w:w="2400"/><w:gridCol/></w:tblGrid><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr><w:p/></w:tc></w:tr></w:tbl></w:body></w:document>"#
+        );
+        let bytes = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let BodyBlock::Table(t) = &doc.body()[0] else {
+            panic!("table")
+        };
+        assert_eq!(t.grid_widths, [Some(2400), None]);
+        let err = doc
+            .preview_edits(EditBatch {
+                structural: &[TableStructureEdit {
+                    target: t.anchor.clone(),
+                    operation: TableOperation::Layout(Some(rocx::TableLayout::Fixed)),
+                }],
+                ..Default::default()
+            })
+            .expect_err("ambiguous properties must reject layout change");
+        assert!(err.to_string().contains(message), "{err}");
     }
 }
 

@@ -820,14 +820,28 @@ def verify_first_header_scopes(original: bytes, first_shared: bytes, first_local
 def verify_entry_text(original: bytes, changed: bytes) -> None:
     owners = {f"word/{kind}s.xml" for kind in ("comment", "footnote", "endnote")}
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(changed)) as output:
-        assert set(source.namelist()) == set(output.namelist())
-        assert {p for p in source.namelist() if source.read(p) != output.read(p)} == owners
+        relations = {f"word/_rels/{kind}s.xml.rels" for kind in ("comment", "footnote", "endnote")}
+        assert set(output.namelist()) == set(source.namelist()) | relations
+        assert {p for p in source.namelist() if source.read(p) != output.read(p)} == owners | (relations & set(source.namelist()))
         for kind in ("comment", "footnote", "endnote"):
             owner = f"word/{kind}s.xml"
             before, after = [etree.fromstring(z.read(owner)) for z in (source, output)]
             text, = after.xpath(".//w:t[text()=$label]", namespaces=NS, label=f"Edited {kind} entry")
             idx = after.xpath(".//w:t", namespaces=NS).index(text)
             before.xpath(".//w:t", namespaces=NS)[idx].text = text.text
+            link = text.getparent().getnext()
+            assert link.tag == f"{{{NS['w']}}}hyperlink"
+            assert link.xpath("./w:r/w:t/text()", namespaces=NS) == ["Review link"]
+            rid = link.get(f"{{{NS['odr']}}}id")
+            rel_path = f"word/_rels/{kind}s.xml.rels"
+            rels = etree.fromstring(output.read(rel_path))
+            added, = [r for r in rels if r.get("Id") == rid]
+            assert added.get("Target") == "https://example.com/entry-review"
+            assert added.get("TargetMode") == "External" and added.get("Type").endswith("/hyperlink")
+            rels.remove(added)
+            old_rels = etree.fromstring(source.read(rel_path)) if rel_path in source.namelist() else []
+            assert [dict(r.attrib) for r in rels] == [dict(r.attrib) for r in old_rels]
+            link.getparent().remove(link)
             assert etree.tostring(before, method="c14n", exclusive=True) == etree.tostring(after, method="c14n", exclusive=True)
 
 
@@ -843,13 +857,20 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     edited_doc = docx.Document(io.BytesIO(replaced))
     assert edited_doc.element.xpath("//w:sdtPr[w:id/@w:val='5001']/w:alias/@w:val") == ["Imported editor caption"]
     assert edited_doc.core_properties.title == "Edited resource sample"
+    assert edited_doc.core_properties.subject == "Imported resource edits"
+    assert edited_doc.core_properties.author == "Review team"
     paragraphs = [p.text for p in edited_doc.paragraphs]
-    assert "Ranged 📝" + EDIT_LABEL[8:] in paragraphs
+    assert "Ranged 📝 + point" + EDIT_LABEL[8:] in paragraphs
     anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
     assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
         assert set(source.namelist()) == set(changed.namelist())
         mutable = {"word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml"}
+        mutable.update({"docProps/app.xml", "docProps/custom.xml"})
+        app = etree.fromstring(changed.read("docProps/app.xml"))
+        custom = etree.fromstring(changed.read("docProps/custom.xml"))
+        assert app.findtext("{*}Manager") == "Review lead"
+        assert custom.findtext("{*}property[@name='Reviewed']/{*}bool") == "false"
         assert {n for n in source.namelist() if source.read(n) != changed.read(n)} == mutable
         styles = etree.fromstring(changed.read("word/styles.xml"))
         assert styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:jc/@w:val", namespaces=NS) == ["center"]

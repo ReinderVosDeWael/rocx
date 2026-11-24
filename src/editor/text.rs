@@ -44,6 +44,37 @@ pub enum InlineAction {
     SetImageAsset(crate::ResolvedImage),
     PatchDrawing(super::DrawingProperty, crate::ResolvedInline),
     RemoveObject,
+    /// Set (true/false) or clear (None) a direct property, without resolving styles.
+    SetToggle(RunToggle, Option<bool>),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum RunToggle {
+    Bold,
+    Italic,
+    Strike,
+    Hidden,
+}
+
+impl RunToggle {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Bold => "w:b",
+            Self::Italic => "w:i",
+            Self::Strike => "w:strike",
+            Self::Hidden => "w:vanish",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "bold" => Some(Self::Bold),
+            "italic" => Some(Self::Italic),
+            "strike" => Some(Self::Strike),
+            "hidden" => Some(Self::Hidden),
+            _ => None,
+        }
+    }
 }
 
 pub(super) enum Action {
@@ -51,12 +82,12 @@ pub(super) enum Action {
     Remove,
     After(Vec<Node>),
     Replace(Vec<Node>),
-    Bold(bool),
     Description(Option<String>),
     Asset(String),
     Drawing(super::DrawingProperty, Node),
     Chart(String),
     RemoveObject,
+    Toggle(RunToggle, Option<bool>),
 }
 pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
@@ -86,6 +117,24 @@ pub(super) fn prepare(
             charts.insert((*body, *inline), (doc.chart_id(&edit.target)?, chart));
         }
     }
+    render_actions(
+        package,
+        main,
+        main,
+        crate::StoryKind::Body,
+        ordered,
+        charts.into_values().collect(),
+    )
+}
+
+fn render_actions<K: Ord>(
+    package: crate::opc::Package,
+    main: &str,
+    owner: &str,
+    kind: crate::StoryKind,
+    ordered: BTreeMap<K, &InlineAction>,
+    charts: Vec<(&str, &crate::ColumnChartProperties)>,
+) -> Result<(crate::opc::Package, BTreeMap<K, Action>)> {
     let payloads: Vec<_> = ordered
         .values()
         .filter_map(|action| match action {
@@ -96,7 +145,7 @@ pub(super) fn prepare(
     let (mut package, nodes) = if payloads.is_empty() {
         (package, vec![])
     } else {
-        crate::ooxml::encode_editor_inlines(package, main, &payloads)?
+        crate::ooxml::encode_editor_inlines(package, main, owner, kind, &payloads)?
     };
     let mut nodes = nodes.into_iter();
     let images: Vec<_> = ordered
@@ -106,10 +155,10 @@ pub(super) fn prepare(
             _ => None,
         })
         .collect();
-    let mut links = crate::ooxml::image_asset_links(&mut package, main, &images)?.into_iter();
+    let mut links = crate::ooxml::image_asset_links(&mut package, owner, &images)?.into_iter();
     let mut chart_links = charts
-        .into_values()
-        .map(|(id, c)| super::objects::chart::fork(&mut package, main, id, c))
+        .into_iter()
+        .map(|(id, c)| super::objects::chart::fork(&mut package, owner, id, c))
         .collect::<Result<Vec<_>>>()?
         .into_iter();
     let patches: Vec<_> = ordered
@@ -134,7 +183,8 @@ pub(super) fn prepare(
         }
         // The declaration supplies property XML only. Its media, drawing IDs
         // and chart parts must not leak into the output package.
-        rendered = crate::ooxml::encode_editor_inlines(package.clone(), main, &patches)?.1;
+        rendered =
+            crate::ooxml::encode_editor_inlines(package.clone(), main, owner, kind, &patches)?.1;
     }
     let mut rendered = rendered.into_iter();
     Ok((
@@ -147,7 +197,6 @@ pub(super) fn prepare(
                     match action {
                         InlineAction::InsertAfter(_) => Action::After(nodes.next().unwrap()),
                         InlineAction::Replace(_) => Action::Replace(nodes.next().unwrap()),
-                        InlineAction::SetBold(b) => Action::Bold(*b),
                         InlineAction::SetDrawingDescription(s) => Action::Description(s.clone()),
                         InlineAction::SetImageAsset(_) => Action::Asset(links.next().unwrap()),
                         InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _) => {
@@ -157,6 +206,8 @@ pub(super) fn prepare(
                             Action::Drawing(*property, rendered.next().unwrap().pop().unwrap())
                         }
                         InlineAction::RemoveObject => Action::RemoveObject,
+                        InlineAction::SetBold(b) => Action::Toggle(RunToggle::Bold, Some(*b)),
+                        InlineAction::SetToggle(prop, value) => Action::Toggle(*prop, *value),
                     },
                 )
             })
@@ -164,33 +215,47 @@ pub(super) fn prepare(
     ))
 }
 
-fn patch_bold(run: &mut Node, value: bool) -> Result<bool> {
+pub(super) fn direct_toggle(run: &Node, prop: RunToggle) -> Result<Option<bool>> {
+    let tag = prop.tag();
     if run.elements().filter(|n| n.name == "w:rPr").count() > 1
         || run.child("w:rPr").is_some_and(|p| {
             p.child(super::ALTERNATE).is_some()
                 || p.child("w:rPrChange").is_some()
-                || p.elements().filter(|n| n.name == "w:b").count() > 1
+                || p.elements().filter(|n| n.name == tag).count() > 1
         })
     {
         return Err(unsupported("ambiguous run properties"));
+    }
+    run.child("w:rPr")
+        .and_then(|p| p.child(tag))
+        .map(|p| match p.get("w:val") {
+            None | Some("true" | "1" | "on") => Ok(true),
+            Some("false" | "0" | "off") => Ok(false),
+            _ => Err(unsupported("unknown run toggle value")),
+        })
+        .transpose()
+}
+
+fn patch_toggle(run: &mut Node, prop: RunToggle, value: Option<bool>) -> Result<bool> {
+    let tag = prop.tag();
+    if direct_toggle(run, prop)? == value {
+        return Ok(false);
     }
     if run.child("w:rPr").is_none() {
         run.children.insert(0, Content::Element(Node::new("w:rPr")));
     }
     let props = run.child_mut("w:rPr").unwrap();
-    if let Some(bold) = props.child("w:b") {
-        let prior = match bold.get("w:val") {
-            None | Some("true" | "1" | "on") => true,
-            Some("false" | "0" | "off") => false,
-            _ => return Err(unsupported("unknown bold property value")),
-        };
-        if prior == value {
-            return Ok(false);
+    if let Some(value) = value {
+        props
+            .ensure(tag)
+            .set("w:val", if value { "1" } else { "0" });
+    } else {
+        let node = props.child(tag).unwrap();
+        if has_other_attrs(node, &["w:val"]) || !node.children.is_empty() {
+            return Err(unsupported("cannot clear opaque run property"));
         }
+        props.remove(tag);
     }
-    props
-        .ensure("w:b")
-        .set("w:val", if value { "1" } else { "0" });
     Ok(true)
 }
 
@@ -229,6 +294,29 @@ fn opaque_content(node: &Node) -> bool {
         Content::Text(t) => !t.trim().is_empty(),
         Content::Raw(_) => true,
     })
+}
+
+/// Signals retained markup not represented by the four direct toggle fields.
+pub(super) fn has_opaque_formatting(run: &Node) -> bool {
+    let mut properties = run.elements().filter(|p| p.name == "w:rPr");
+    let Some(props) = properties.next() else {
+        return false;
+    };
+    properties.next().is_some()
+        || has_other_attrs(props, &[])
+        || opaque_content(props)
+        || props.elements().any(|node| {
+            let prop = match node.name.as_str() {
+                "w:b" => RunToggle::Bold,
+                "w:i" => RunToggle::Italic,
+                "w:strike" => RunToggle::Strike,
+                "w:vanish" => RunToggle::Hidden,
+                _ => return true,
+            };
+            has_other_attrs(node, &["w:val"])
+                || !node.children.is_empty()
+                || direct_toggle(run, prop).is_err()
+        })
 }
 
 /// Only discard known local properties. Unknown markup may carry a relationship,
@@ -297,6 +385,10 @@ fn check_run(run: &Node, discard: bool) -> Result<()> {
     if elements.next().is_some() {
         return Err(error());
     }
+    check_leaf(leaf, discard)
+}
+
+fn check_leaf(leaf: &Node, discard: bool) -> Result<()> {
     match leaf.name.as_str() {
         "w:t"
             if !(discard && has_other_attrs(leaf, &["xml:space"]))
@@ -320,8 +412,24 @@ fn check_run(run: &Node, discard: bool) -> Result<()> {
         {
             Ok(())
         }
-        _ => Err(error()),
+        _ => Err(unsupported(
+            "run has unsupported properties or inline content",
+        )),
     }
+}
+
+/// A property-only patch can preserve multiple ordinary leaves without
+/// interpreting their order or modifying their text or attributes.
+fn check_toggle_target(run: &Node) -> Result<()> {
+    if run.name != "w:r" || opaque_content(run) {
+        return Err(unsupported("expected direct run with ordinary leaves"));
+    }
+    let mut children = run.elements().peekable();
+    children.next_if(|n| n.name == "w:rPr");
+    if children.peek().is_none() {
+        return Err(unsupported("expected nonempty run"));
+    }
+    children.try_for_each(|leaf| check_leaf(leaf, false))
 }
 
 /// Revision operations may copy or discard either ordinary or deleted text.
@@ -502,9 +610,9 @@ fn apply_targets(
                         splices.push((slot + 1..slot + 1, nodes));
                         inline_changes.push((body_index, inline_index));
                     }
-                    Action::Bold(bold) => {
-                        check_run(child, false)?;
-                        if patch_bold(child, bold)? {
+                    Action::Toggle(prop, value) => {
+                        check_toggle_target(child)?;
+                        if patch_toggle(child, prop, value)? {
                             inline_changes.push((body_index, inline_index));
                         }
                     }
@@ -570,6 +678,124 @@ fn apply_targets(
 }
 
 impl super::ImportedDocument {
+    /// Apply whole-inline operations to ordinary entries in one physical
+    /// footnote, endnote or comment part, using original snapshot anchors.
+    pub fn edit_entry_inlines(&self, owner_part: &str, edits: &[InlineEdit]) -> Result<Vec<u8>> {
+        use crate::ooxml::WordParts;
+        let mut ordered = BTreeMap::new();
+        let mut counts = None;
+        let mut kind = None;
+        for edit in edits {
+            self.validate_snapshot(&edit.target.snapshot)?;
+            let (InlineLocation::Entry { index, block_index }, [inline]) =
+                (&edit.target.location, edit.target.path.as_slice())
+            else {
+                return Err(unsupported("expected a direct entry inline"));
+            };
+            let e = self.editable_entry(owner_part, *index, &mut counts)?;
+            if matches!(
+                edit.action,
+                InlineAction::PatchDrawing(super::DrawingProperty::ChartSeries, _)
+            ) {
+                return Err(unsupported(
+                    "chart series patches require a direct body occurrence",
+                ));
+            }
+            if matches!(
+                self.inline_at(&edit.target)?,
+                super::ImportedInlineNode::Fraction { .. }
+                    | super::ImportedInlineNode::Run(super::ImportedRun {
+                        drawing: Some(super::DrawingOccurrence {
+                            kind: "chart" | "shape",
+                            ..
+                        }),
+                        ..
+                    })
+            ) {
+                return Err(unsupported(
+                    "only picture occurrences are editable in entry stories",
+                ));
+            }
+            kind = Some(match e.kind {
+                super::EntryKind::Comment => crate::StoryKind::Comment,
+                super::EntryKind::Footnote => crate::StoryKind::Footnote,
+                super::EntryKind::Endnote => crate::StoryKind::Endnote,
+            });
+            if ordered
+                .insert((e.element_index, *block_index, *inline), &edit.action)
+                .is_some()
+            {
+                return Err(unsupported("duplicate entry inline target"));
+            }
+        }
+        let kind = kind.ok_or_else(|| unsupported("expected an entry inline edit"))?;
+        let (mut package, actions) = render_actions(
+            self.package.clone(),
+            &self.main,
+            owner_part,
+            kind,
+            ordered,
+            vec![],
+        )?;
+        let mut groups = BTreeMap::<usize, Targets>::new();
+        for ((entry, block, inline), action) in actions {
+            groups
+                .entry(entry)
+                .or_default()
+                .insert((block, inline), action);
+        }
+        let mut root = package.word(owner_part)?;
+        let mut changes = Vec::new();
+        for (index, entry) in root.elements_mut().enumerate() {
+            if let Some(targets) = groups.remove(&index) {
+                apply_targets(entry, targets, false, &mut changes)?;
+            }
+        }
+        if !groups.is_empty() {
+            return Err(unsupported("story entry not found"));
+        }
+        if !changes.is_empty() {
+            package.put_word(owner_part, root)?;
+        }
+        super::PackagePlan::new(package)?.to_bytes()
+    }
+
+    fn editable_entry(
+        &self,
+        owner_part: &str,
+        index: usize,
+        entry_ids: &mut Option<BTreeMap<String, usize>>,
+    ) -> Result<&super::ImportedEntry> {
+        let entries = self.entry_stories()?;
+        let e = entries
+            .get(index)
+            .ok_or_else(|| unsupported("story entry not found"))?;
+        if e.part_name != owner_part {
+            return Err(unsupported("story text owner mismatch"));
+        }
+        let id =
+            crate::ooxml::decimal_id(&e.id).ok_or_else(|| unsupported("invalid story entry ID"))?;
+        if e.kind != super::EntryKind::Comment
+            && (id.starts_with('-') || !matches!(e.note_type.as_deref(), None | Some("normal")))
+        {
+            return Err(unsupported("reserved note entry"));
+        }
+        let counts = entry_ids.get_or_insert_with(|| {
+            let mut counts = BTreeMap::new();
+            for id in entries
+                .iter()
+                .filter(|other| other.part_name == owner_part)
+                .filter_map(|other| crate::ooxml::decimal_id(&other.id))
+            {
+                *counts.entry(id).or_default() += 1;
+            }
+            counts
+        });
+        if counts.get(&id) != Some(&1) {
+            return Err(unsupported("ambiguous story entry ID"));
+        }
+        Ok(e)
+    }
     /// Replace direct single-text runs in one physical story owner. Section aliases
     /// share the change. Entry IDs, reference runs and main-document links are untouched.
     pub fn edit_story_text(&self, owner_part: &str, edits: &[RunTextEdit]) -> Result<Vec<u8>> {
@@ -590,35 +816,7 @@ impl super::ImportedDocument {
                     (None, *block_index)
                 }
                 InlineLocation::Entry { index, block_index } => {
-                    let entries = self.entry_stories()?;
-                    let e = entries
-                        .get(*index)
-                        .ok_or_else(|| unsupported("story entry not found"))?;
-                    if e.part_name != owner_part {
-                        return Err(unsupported("story text owner mismatch"));
-                    }
-                    let id = crate::ooxml::decimal_id(&e.id)
-                        .ok_or_else(|| unsupported("invalid story entry ID"))?;
-                    if e.kind != super::EntryKind::Comment
-                        && (id.starts_with('-')
-                            || !matches!(e.note_type.as_deref(), None | Some("normal")))
-                    {
-                        return Err(unsupported("reserved note entry"));
-                    }
-                    let counts = entry_ids.get_or_insert_with(|| {
-                        let mut counts = BTreeMap::new();
-                        for id in entries
-                            .iter()
-                            .filter(|other| other.part_name == owner_part)
-                            .filter_map(|other| crate::ooxml::decimal_id(&other.id))
-                        {
-                            *counts.entry(id).or_insert(0usize) += 1;
-                        }
-                        counts
-                    });
-                    if counts.get(&id) != Some(&1) {
-                        return Err(unsupported("ambiguous story entry ID"));
-                    }
+                    let e = self.editable_entry(owner_part, *index, &mut entry_ids)?;
                     (Some(e.element_index), *block_index)
                 }
                 _ => return Err(unsupported("story text owner mismatch")),

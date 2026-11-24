@@ -7,7 +7,7 @@ also be used for text replacement or whole-run removal.
 
 ``ImportedDocument.preview`` stages paragraph alignments together with any of
 ``table_insertions=``, ``paragraph_insertions=``, ``cell_alignments=``,
-``header_images=``, ``text_ranges=``, ``run_text=``, ``run_removals=``,
+``header_images=``, ``text_ranges=``, ``text_insertions=``, ``run_text=``, ``run_removals=``,
 ``block_edits=``, ``inline_edits=``, ``table_structure=``, ``style_edits=``,
 ``resources=``, and ``controls=`` in one transaction.
 All targets refer to the original snapshot.
@@ -26,6 +26,8 @@ and footer references without simulating page selection. Every effective slot
 exposes an image-edit anchor; ``ImportedDocument.default_headers``
 also exposes the default-header targets. Use ``edit_story_text(owner_part, edits)``
 for single-text runs in a physical header/footer or note/comment owner.
+Use ``edit_entry_inlines(owner_part, edits)`` for resolved inline insertion,
+replacement, or direct run bold in ordinary note/comment definitions.
 """
 
 from ._native import (
@@ -55,6 +57,7 @@ from ._native import (
     ImportedStyle,
     ImportedStyles,
     TextRangeEdit,
+    TextInsertion,
     RunTextEdit,
     RunRemovalChange,
     RunTextChange,
@@ -111,6 +114,7 @@ __all__ = [
     "ImportedStyle",
     "ImportedStyles",
     "TextRangeEdit",
+    "TextInsertion",
     "RunTextEdit",
     "RunRemovalChange",
     "RunTextChange",
