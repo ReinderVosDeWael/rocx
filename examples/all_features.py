@@ -14,7 +14,7 @@ from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
     ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit,
-    TableInsertion, TextRangeEdit, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    TableInsertion, TextRangeEdit, TextInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -504,6 +504,7 @@ async def generate(output: pathlib.Path) -> bytes:
         ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
     caption, = (c for c in imported.controls if c.id == "5001")
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
+                               text_insertions=[TextInsertion(targets[0].anchor, 8, " + point")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
                                           ResourceEdit.core_subject("Imported resource edits"),
                                           ResourceEdit.default_alignment("center"),

@@ -61,7 +61,7 @@ Output:
 - `.footer-even.docx` edits text in the shared footer and forks an image into
   only the second section's even footer. `.entry-text.docx` edits a footnote,
   an endnote with the same ID in another part, and a comment.
-- `.run-text.docx` combines scalar-range and run text edits, a resolved paragraph
+- `.run-text.docx` combines scalar-range edits, point insertion and run text edits, a resolved paragraph
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared
   abstract numbering level (100, 0) start 7.
@@ -118,7 +118,7 @@ separate entries. The two ordinary notes both use ID `0` in different parts.
 
 The Rust, Python and JavaScript `.run-text.docx` examples replace the labeled direct run before
 the bookmark hyperlink and replace `[0, 8)` of the separate alignment label
-with `Ranged 📝`. The checker compares exact bytes, reopens the paragraph
+with `Ranged 📝`, then insert ` + point` at original position 8. The checker compares exact bytes, reopens the paragraph
 and verifies every untouched package payload against the source catalog.
 
 Each sample names its requested feature in ordinary text before/within it.

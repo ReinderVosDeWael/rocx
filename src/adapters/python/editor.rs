@@ -139,6 +139,25 @@ impl PyTextRangeEdit {
     }
 }
 
+#[pyclass(name = "TextInsertion", frozen, module = "rocx.editor")]
+struct PyTextInsertion {
+    inner: editor::TextInsertion,
+}
+
+#[pymethods]
+impl PyTextInsertion {
+    #[new]
+    fn new(target: PyRef<'_, PyParagraphAnchor>, position: usize, text: String) -> Self {
+        Self {
+            inner: editor::TextInsertion {
+                target: target.inner.clone(),
+                position,
+                text,
+            },
+        }
+    }
+}
+
 #[pyclass(name = "RunTextEdit", frozen, module = "rocx.editor")]
 struct PyRunTextEdit {
     inner: editor::RunTextEdit,
@@ -1616,7 +1635,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, text_insertions=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1627,6 +1646,7 @@ impl PyImportedDocument {
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
         text_ranges: Option<Vec<PyRef<'_, PyTextRangeEdit>>>,
+        text_insertions: Option<Vec<PyRef<'_, PyTextInsertion>>>,
         block_edits: Option<Vec<PyRef<'_, PyBlockEdit>>>,
         inline_edits: Option<Vec<PyRef<'_, PyInlineEdit>>>,
         table_structure: Option<Vec<PyRef<'_, PyTableStructureEdit>>>,
@@ -1681,6 +1701,7 @@ impl PyImportedDocument {
                     cells: &inner_edits!(cell_alignments),
                     run_removals: &inner_edits!(run_removals),
                     ranges: &inner_edits!(text_ranges),
+                    text_insertions: &inner_edits!(text_insertions),
                     blocks: &inner_edits!(block_edits),
                     inline_edits: &inner_edits!(inline_edits),
                     structural: &inner_edits!(table_structure),
@@ -1711,6 +1732,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedStyle>()?;
     module.add_class::<PyImportedStyles>()?;
     module.add_class::<PyTextRangeEdit>()?;
+    module.add_class::<PyTextInsertion>()?;
     module.add_class::<PyRunTextEdit>()?;
     module.add_class::<PyRunTextChange>()?;
     module.add_class::<PyRunRemovalChange>()?;

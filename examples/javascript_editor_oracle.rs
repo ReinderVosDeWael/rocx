@@ -275,6 +275,26 @@ fn main() {
         end: 6,
         text: " 🐈 ".into(),
     };
+    let point = |index, position, text: &str| rocx::editor::TextInsertion {
+        target: anchor(&ranged, index),
+        position,
+        text: text.into(),
+    };
+    write(
+        "native-points.docx",
+        ranged
+            .preview_edits(rocx::editor::EditBatch {
+                text_insertions: &[
+                    point(1, 3, "➡"),
+                    point(1, 7, "!"),
+                    point(ranged.body().len() - 1, 0, " Empty paragraph "),
+                ],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     write(
         "native-range.docx",
         ranged

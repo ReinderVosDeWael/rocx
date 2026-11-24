@@ -344,6 +344,20 @@ fn range_edit(input: &Wire, path: &str) -> Result<rocx::editor::TextRangeEdit> {
     })
 }
 
+fn text_insertion(input: &Wire, path: &str) -> Result<rocx::editor::TextInsertion> {
+    let edit = Record::new(input, path, &["target", "position", "text"])?;
+    let position = usize::try_from(b::u64_number(
+        &edit.get("position")?,
+        &edit.path("position"),
+    )?)
+    .map_err(|_| Failure::invalid(&edit.path("position"), "offset is too large"))?;
+    Ok(rocx::editor::TextInsertion {
+        target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+        position,
+        text: b::string(&edit.get("text")?, &edit.path("text"))?,
+    })
+}
+
 fn control_edit(input: &Wire, path: &str) -> Result<rocx::editor::ControlEdit> {
     let edit = Record::new(input, path, &["target", "alias", "tag", "text"])?;
     let string = |field: &str| -> Result<Option<String>> {
@@ -495,6 +509,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "headerImages",
             "runText",
             "textRanges",
+            "textInsertions",
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
@@ -515,6 +530,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         cells: &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         run_removals: &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
         ranges: &edits(&batch, "textRanges", range_edit)?,
+        text_insertions: &edits(&batch, "textInsertions", text_insertion)?,
         blocks: &edits(&batch, "blockEdits", block_edit)?,
         inline_edits: &edits(&batch, "inlineEdits", inline_edit)?,
         structural: &edits(&batch, "tableStructure", structure_edit)?,

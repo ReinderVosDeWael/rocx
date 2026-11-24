@@ -23,7 +23,7 @@ PORTABLE_ORACLES = (
     "tables", "tables-auto", "tables-layout",
     "fresh", "override", "edited", "structured",
 )
-EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "shared", "local",
+EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
                   "blocks", "inline", "tableStructure", "styleEdits", "controlEdits",
                   "tracked", "reviewed", "moved", "moveAccepted", "combined")

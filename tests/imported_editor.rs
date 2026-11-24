@@ -147,6 +147,23 @@ fn text_ranges_use_snapshot_coordinates_at_run_boundaries() {
         doc.preview_with_ranges(&[], &[], &[], &[], &[], &[], &[], ranges)
     };
     assert!(preview(&[edit(1, usize::MAX, "out of bounds")]).is_err());
+    let point = rocx::editor::TextInsertion {
+        target: p.anchor.clone(),
+        position: 1,
+        text: "+".into(),
+    };
+    let inserted = doc
+        .preview_edits(rocx::editor::EditBatch {
+            text_insertions: &[point],
+            ..Default::default()
+        })
+        .unwrap();
+    let changes = inserted.run_text_changes();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(
+        (changes[0].inline_index, changes[0].after.as_str()),
+        (2, "+é")
+    );
     let changes = preview(&[edit(1, 2, "new"), edit(0, 1, "first")]).unwrap();
     assert_eq!(
         changes

@@ -171,7 +171,7 @@ round-trip authoring declaration.
 
 | Synchronous API | Behavior |
 | --- | --- |
-| `imported.preview(batch: EditBatch): EditPreview` | Stages ordinary edits against original snapshot targets. All fields are optional: `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `textRanges`, `runText`, `runRemovals`, `blockEdits`, `inlineEdits`, `tableStructure`, `styleEdits`, `resources`, `controls`. |
+| `imported.preview(batch: EditBatch): EditPreview` | Stages ordinary edits against original snapshot targets. All fields are optional: `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `textRanges`, `textInsertions`, `runText`, `runRemovals`, `blockEdits`, `inlineEdits`, `tableStructure`, `styleEdits`, `resources`, `controls`. |
 | `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one image append to an effective header or footer slot. Obtain the target from `stories()`; `change()` reports the effect. |
 | `imported.editStoryText({ownerPart, runText}): Uint8Array` | Returns DOCX bytes for a separate atomic batch in one physical part. Supply the inspected part name and anchors for eligible direct runs in that header/footer or ordinary footnote/endnote/comment entry. All aliases see the edit. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
@@ -205,6 +205,9 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   of Unicode scalar positions in a plain direct-body paragraph. Count with
   `Array.from(text)`, not `.length`. The replacement retains the formatting
   of the first selected scalar; `runTextChanges()` reports changed runs.
+- `textInsertions: [{target, position, text}]` inserts nonempty text at an
+  original scalar position. At a run boundary it takes the next character's
+  formatting, or the last run's formatting at paragraph end.
 - `blockEdits` accepts `replace`, `remove`, `replaceSection` and `keepWithNext`
   at eligible direct body paragraph anchors. `inlineEdits` accepts
   `insertAfter`, `replace` and `setBold` at eligible direct inline anchors.

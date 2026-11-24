@@ -13,6 +13,7 @@ pub struct EditBatch<'a> {
     pub cells: &'a [CellAlignmentEdit],
     pub run_removals: &'a [InlineAnchor],
     pub ranges: &'a [TextRangeEdit],
+    pub text_insertions: &'a [TextInsertion],
     pub blocks: &'a [BlockEdit],
     pub inline_edits: &'a [InlineEdit],
     pub structural: &'a [TableStructureEdit],

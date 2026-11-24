@@ -745,6 +745,11 @@ pub async fn generate(output: &Path) -> Result<()> {
             end: 8,
             text: "Ranged 📝".into(),
         }],
+        text_insertions: &[editor::TextInsertion {
+            target: targets[0].anchor.clone(),
+            position: 8,
+            text: " + point".into(),
+        }],
         resources: &[
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
             editor::ResourceEdit::CoreSubject(Some("Imported resource edits".into())),

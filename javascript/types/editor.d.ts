@@ -63,6 +63,7 @@ export interface EditBatch {
   readonly resources?: readonly ResourceEdit[];
   readonly controls?: readonly ControlEdit[];
   readonly textRanges?: readonly TextRangeEdit[];
+  readonly textInsertions?: readonly TextInsertion[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
@@ -73,6 +74,7 @@ export interface EditBatch {
 }
 
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
+export interface TextInsertion { readonly target: ParagraphAnchor; readonly position: number; readonly text: string }
 export type TableStructureEdit =
   | { readonly target: TableAnchor; readonly kind: "insertRow" | "removeRow" | "insertColumn" | "removeColumn"; readonly index: number }
   | { readonly target: TableAnchor; readonly kind: "insertCell" | "removeCell"; readonly row: number; readonly cell: number }

@@ -198,6 +198,7 @@ export async function generateCatalog(fixtures, options) {
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
+    textInsertions: [{target: target.anchor, position: 8, text: " + point"}],
     paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
   });
   assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");

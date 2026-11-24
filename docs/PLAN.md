@@ -11,7 +11,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 
 | Ticket | Supported in the candidate | Still outside the implementation |
 | --- | --- | --- |
-| #42 Text ranges | Replace or delete nonempty scalar ranges across simple, singly textual runs of a direct body paragraph, retaining formatting outside the selection. | Cross-paragraph offsets, mixed/opaque paragraphs, zero-length insertion and other stories. |
+| #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
@@ -38,6 +38,12 @@ The follow-up to #48 adds independent set/clear/readback of the package core
 subject. Numbering, document defaults and remaining metadata are being worked
 on in parallel; #3 closure requires reconciling the individual slices against
 the editor inventory and qualifying their combined behavior.
+
+The #42 follow-up adds `TextInsertion` alongside nonempty `TextRangeEdit`.
+The python-docx fixture exercises run-boundary formatting, paragraph end and a
+runless paragraph; its complete output matched Rust, installed Python, packed
+Node and Chromium and passed schema/OPC checks. All eleven catalog outputs
+matched across Rust, Python and Node.
 
 ## Selected standalone topic results (before ten-way integration)
 
