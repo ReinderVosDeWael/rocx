@@ -55,7 +55,7 @@ pub(super) enum Action {
     Replace(Vec<Node>),
     Bold(bool),
     RemoveHyperlink,
-    LinkProperty(&'static str, Option<String>),
+    LinkProperties(BTreeMap<&'static str,Option<String>>),
 }
 pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
@@ -65,6 +65,7 @@ pub(super) fn prepare(
     edits: &[InlineEdit],
 ) -> Result<(crate::opc::Package, Targets)> {
     let mut ordered = BTreeMap::new();
+    let mut properties=BTreeMap::<_,BTreeMap<_,_>>::new();
     for edit in edits {
         let (InlineLocation::Body(body), [inline]) =
             (&edit.target.location, edit.target.path.as_slice())
@@ -73,7 +74,17 @@ pub(super) fn prepare(
                 "inline target must belong directly to a body paragraph",
             ));
         };
-        if ordered.insert((*body, *inline), &edit.action).is_some() {
+        let key=(*body,*inline);
+        let property=match &edit.action{
+            InlineAction::HyperlinkTooltip(v)=>Some(("w:tooltip",v.clone())),
+            InlineAction::HyperlinkHistory(v)=>Some(("w:history",v.map(|b|if b{"1"}else{"0"}.into()))),
+            _=>None,
+        };
+        if let Some((name,value))=property{
+            if ordered.contains_key(&key) || properties.entry(key).or_default().insert(name,value).is_some(){return Err(unsupported("duplicate or conflicting hyperlink property"));}
+            continue;
+        }
+        if properties.contains_key(&key) || ordered.insert(key, &edit.action).is_some() {
             return Err(unsupported("duplicate inline target"));
         }
     }
@@ -102,17 +113,11 @@ pub(super) fn prepare(
                         InlineAction::Replace(_) => Action::Replace(nodes.next().unwrap()),
                         InlineAction::SetBold(b) => Action::Bold(*b),
                         InlineAction::RemoveHyperlink => Action::RemoveHyperlink,
-                        InlineAction::HyperlinkTooltip(v) => {
-                            Action::LinkProperty("w:tooltip", v.clone())
-                        }
-                        InlineAction::HyperlinkHistory(v) => Action::LinkProperty(
-                            "w:history",
-                            v.map(|x| if x { "1" } else { "0" }.into()),
-                        ),
+                        InlineAction::HyperlinkTooltip(_) | InlineAction::HyperlinkHistory(_) => unreachable!("grouped property patches"),
                     },
                 )
             })
-            .collect(),
+            .chain(properties.into_iter().map(|(key,props)|(key,Action::LinkProperties(props)))).collect(),
     ))
 }
 
@@ -185,7 +190,7 @@ pub(super) fn opaque_content(node: &Node) -> bool {
 
 /// Only discard known local properties. Unknown markup may carry a relationship,
 /// range ID, or revision, and cannot safely be reconstructed from inspection.
-fn disposable_properties(props: &Node) -> bool {
+pub(super) fn disposable_properties(props: &Node) -> bool {
     !has_other_attrs(props, &[])
         && !opaque_content(props)
         && props.elements().all(|p| {
@@ -231,6 +236,13 @@ fn disposable_properties(props: &Node) -> bool {
 }
 
 fn check_run(run: &Node, discard: bool) -> Result<()> {
+    check_run_children(run, discard, false)
+}
+
+pub(super) fn check_cache_run(run: &Node) -> Result<()> {
+    check_run_children(run, true, true)
+}
+fn check_run_children(run: &Node, discard: bool, multiple: bool) -> Result<()> {
     let error = || unsupported("run has unsupported properties or inline content");
     if run.name != "w:r" || opaque_content(run) || (discard && has_other_attrs(run, &[])) {
         return Err(error());
@@ -246,9 +258,15 @@ fn check_run(run: &Node, discard: bool) -> Result<()> {
     let Some(leaf) = elements.next() else {
         return Err(error());
     };
-    if elements.next().is_some() {
+    if !multiple && elements.peek().is_some() {
         return Err(error());
     }
+    for leaf in std::iter::once(leaf).chain(elements) {
+        check_leaf(leaf, discard)?;
+    }
+    Ok(())
+}
+fn check_leaf(leaf: &Node, discard: bool) -> Result<()> {
     match leaf.name.as_str() {
         "w:t"
             if !(discard && has_other_attrs(leaf, &["xml:space"]))
@@ -272,7 +290,9 @@ fn check_run(run: &Node, discard: bool) -> Result<()> {
         {
             Ok(())
         }
-        _ => Err(error()),
+        _ => Err(unsupported(
+            "run has unsupported properties or inline content",
+        )),
     }
 }
 
@@ -311,6 +331,7 @@ pub(super) fn apply(
     removals: &[InlineAnchor],
     mut targets: Targets,
     inline_changes: &mut Vec<(usize, usize)>,
+    slots: super::batch::Slots,
 ) -> Result<(Vec<RunTextChange>, Vec<RunRemovalChange>)> {
     for edit in edits {
         let (InlineLocation::Body(body_index), [inline_index]) =
@@ -342,7 +363,7 @@ pub(super) fn apply(
             return Err(unsupported("duplicate or conflicting run target"));
         }
     }
-    apply_targets(body, targets, true, inline_changes)
+    apply_targets(body, targets, true, inline_changes, slots)
 }
 
 fn validate_text(text: &str) -> Result<()> {
@@ -359,6 +380,7 @@ fn apply_targets(
     mut targets: Targets,
     main_body: bool,
     inline_changes: &mut Vec<(usize, usize)>,
+    mut slots: super::batch::Slots,
 ) -> Result<(Vec<RunTextChange>, Vec<RunRemovalChange>)> {
     let mut changes = Vec::new();
     let mut removed = Vec::new();
@@ -368,7 +390,7 @@ fn apply_targets(
         .filter(|n| !main_body || n.name != "w:sectPr")
         .enumerate()
     {
-        if targets.is_empty() {
+        if targets.is_empty() && slots.is_empty() {
             break;
         }
         if block.name != "w:p" {
@@ -391,7 +413,35 @@ fn apply_targets(
             })
             .enumerate()
         {
-            if let Some(after) = targets.remove(&(body_index, inline_index)) {
+            let site = (body_index, inline_index);
+            let structured = slots.remove(&site);
+            let action = targets.remove(&site);
+            if let Some(s) = &structured {
+                if action.is_some()
+                    && (s.field
+                        || s.replacement.is_some()
+                        || !matches!(
+                            action,
+                            Some(Action::Text(_) | Action::Bold(_) | Action::LinkProperties(_))
+                        ))
+                {
+                    return Err(unsupported("conflicting structured and inline targets"));
+                }
+                if !s.before.is_empty() || !s.after.is_empty() || s.replacement.is_some() {
+                    inline_changes.push(site);
+                }
+            }
+            let mut tail = Vec::new();
+            if let Some(s) = structured {
+                if !s.before.is_empty() {
+                    splices.push((slot..slot, s.before));
+                }
+                if let Some(nodes) = s.replacement {
+                    splices.push((slot..slot + 1, nodes));
+                }
+                tail = s.after;
+            }
+            if let Some(after) = action {
                 if !boundaries.safe() {
                     return Err(unsupported("target must be outside fields and ranges"));
                 }
@@ -404,10 +454,11 @@ fn apply_targets(
                         splices.push((slot..slot + 1, Vec::new()));
                         inline_changes.push((body_index, inline_index));
                     }
-                    Action::LinkProperty(key, value) => {
+                    Action::LinkProperties(props) => {
                         if child.name != "w:hyperlink" {
                             return Err(unsupported("expected a hyperlink"));
                         }
+                        for (key,value) in props{
                         if value
                             .as_ref()
                             .is_some_and(|v| crate::document::invalid_xml_character(v).is_some())
@@ -420,6 +471,7 @@ fn apply_targets(
                                 child.set(key, v);
                             }
                             inline_changes.push((body_index, inline_index));
+                        }
                         }
                     }
                     Action::After(nodes) => {
@@ -466,6 +518,9 @@ fn apply_targets(
                     }
                 }
             }
+            if !tail.is_empty() {
+                splices.push((slot + 1..slot + 1, tail));
+            }
             boundaries.advance(child);
         }
         if !splices.is_empty() {
@@ -488,7 +543,7 @@ fn apply_targets(
             block.children.extend(original);
         }
     }
-    if !targets.is_empty() {
+    if !targets.is_empty() || !slots.is_empty() {
         return Err(unsupported("text target not found"));
     }
     Ok((changes, removed))
@@ -561,15 +616,22 @@ impl super::ImportedDocument {
         let mut root = package.word(owner_part)?;
         let mut changed = false;
         if let Some(targets) = groups.remove(&None) {
-            changed = !apply_targets(&mut root, targets, false, &mut Vec::new())?
-                .0
-                .is_empty();
+            changed = !apply_targets(
+                &mut root,
+                targets,
+                false,
+                &mut Vec::new(),
+                Default::default(),
+            )?
+            .0
+            .is_empty();
         } else {
             for (i, entry) in root.elements_mut().enumerate() {
                 if let Some(targets) = groups.remove(&Some(i)) {
-                    changed |= !apply_targets(entry, targets, false, &mut Vec::new())?
-                        .0
-                        .is_empty();
+                    changed |=
+                        !apply_targets(entry, targets, false, &mut Vec::new(), Default::default())?
+                            .0
+                            .is_empty();
                 }
             }
         }

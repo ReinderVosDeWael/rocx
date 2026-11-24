@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "paired-source",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "paired-source", "field-batch-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -438,7 +438,45 @@ async function fieldsAndRanges(bytes:Uint8Array) {
   check(paragraph(removed,2).inlineStructure.length===1 && paragraph(removed,3).inlineStructure.length===1 && removed.entryStories().length===1,"paired removal preserves comment definition");
   return d.setPairedRange({id:7,bookmark:"Crossing",endpoints:[at(1,0),at(2,1)]});
 }
+async function mixedFields(bytes: Uint8Array) {
+  const d = await openDocx(bytes);
+  const at = (p: number, i: number) => {
+    const n = paragraph(d,p).inlineStructure[i];
+    check(n.kind === "run" || n.kind === "hyperlink", "original inline target");
+    return n.anchor;
+  };
+  const payload = await resolveComponent({kind:"paragraph", runs:[
+    {kind:"hyperlink", target:{kind:"external",url:"https://example.invalid/cache"}, children:[{kind:"text",text:"remote"}]},
+    {kind:"hyperlink", target:{kind:"bookmark",name:"BatchMark"}, children:[{kind:"text",text:"jump"}]},
+  ]});
+  check(payload, "cache payload");
+  const target = paragraph(d,0).anchor, crossing = paragraph(d,4).anchor;
+  const info = d.fieldAt({target:crossing, inlineIndex:1});
+  same([info.inlineCount,info.instruction,info.lockedXml],[6," PAGE ","1"],"cross-paragraph field metadata");
+  const fields: NonNullable<EditBatch["fields"]> = [
+    {target:crossing,inlineIndex:1,op:"cache",children:payload.view.runs},
+    {target:crossing,inlineIndex:1,op:"patch",property:"dirty",value:false},
+    {target,inlineIndex:0,op:"patch",property:"dirty",value:true},
+    {target,inlineIndex:0,op:"patch",property:"instruction",value:" NUMPAGES "},
+  ];
+  const batch: EditBatch = {fields,
+    pairedRanges:[
+      {id:0,endpoints:[at(2,0),at(3,0)]},
+      {id:7,bookmark:"BatchMark",endpoints:[at(1,1),at(2,0)]},
+    ],
+    inlineEdits:[{kind:"hyperlinkHistory",target:at(2,0),value:false},{kind:"hyperlinkTooltip",target:at(2,0),value:"Batch tooltip"}],
+  };
+  const stale = await openDocx(bytes);
+  rejects(() => stale.preview(batch), /snapshot/);
+  rejects(() => d.preview({...batch, fields:[...fields,fields[1]]}), /duplicate field property/);
+  rejects(() => d.preview({...batch, inlineEdits:[...batch.inlineEdits!,batch.inlineEdits![0]]}), /duplicate/);
+  rejects(() => d.preview({...batch, runRemovals:[at(5,0)]}), /conflicting/);
+  const out = d.preview(batch).toDocx();
+  bytesEqual(d.preview({...batch, fields:[...fields].reverse(),pairedRanges:[...batch.pairedRanges!].reverse()}).toDocx(),out,"mixed batch order");
+  return out;
+}
 export async function run(fixtures: Fixtures) {
+  const fieldBatch = await mixedFields(fixtures["field-batch-source"]);
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
@@ -513,7 +551,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(), fieldsRanges:await fieldsAndRanges(fixtures["paired-source"]),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(), fieldsRanges:await fieldsAndRanges(fixtures["paired-source"]), fieldBatch,
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
     controlEdits: await editControls(fixtures),

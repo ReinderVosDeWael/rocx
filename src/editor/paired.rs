@@ -5,8 +5,8 @@ use super::{
 use crate::{
     BookmarkName, Result,
     ooxml::{WordParts, decimal_id},
-    opc::PackagePlan,
-    xml::{Content, Node},
+    opc::Package,
+    xml::Node,
 };
 
 struct Scan<'a> {
@@ -48,6 +48,12 @@ impl Scan<'_> {
     }
 }
 type Site = (usize, usize);
+#[derive(Clone, Debug)]
+pub struct PairedRangeEdit {
+    pub id: u32,
+    pub bookmark: Option<String>,
+    pub endpoints: Option<(InlineAnchor, InlineAnchor)>,
+}
 /// Physical direct paragraph marker; ID spelling is retained even on an
 /// ambiguous input. Inspection is not an assertion that the pair is editable.
 #[derive(Debug)]
@@ -114,6 +120,24 @@ impl ImportedDocument {
         bookmark: Option<&str>,
         endpoints: Option<(&InlineAnchor, &InlineAnchor)>,
     ) -> Result<Vec<u8>> {
+        self.preview_edits(super::EditBatch {
+            paired_ranges: &[PairedRangeEdit {
+                id,
+                bookmark: bookmark.map(str::to_owned),
+                endpoints: endpoints.map(|(a, b)| (a.clone(), b.clone())),
+            }],
+            ..Default::default()
+        })?
+        .to_docx()
+    }
+    pub(super) fn plan_pair(
+        &self,
+        root: &Node,
+        edit: &PairedRangeEdit,
+        slots: &mut super::batch::Slots,
+    ) -> Result<()> {
+        let (id, bookmark, endpoints) =
+            (edit.id, edit.bookmark.as_deref(), edit.endpoints.as_ref());
         let err = || unsupported("ambiguous, missing or unsupported range markers");
         let sites = endpoints
             .map(|(a, b)| Ok::<_, crate::Error>((self.paired_address(a)?, self.paired_address(b)?)))
@@ -148,8 +172,7 @@ impl ImportedDocument {
             counts: [0; 3],
             referenced: false,
         };
-        let mut root = self.package.word(&self.main)?;
-        scan.scan(&root)?;
+        scan.scan(root)?;
         for part in crate::ooxml::related_story_parts(&self.package, &self.main)? {
             scan.scan(&self.package.word(&part)?)?;
         }
@@ -175,7 +198,7 @@ impl ImportedDocument {
         } else {
             marker_nodes.push(Node::new("w:r").with(Node::new(tags[2]).attr("w:id", &id)));
         }
-        let body = root.child_mut("w:body").ok_or_else(err)?;
+        let body = root.child("w:body").ok_or_else(err)?;
         for (bi, p) in body.elements().filter(|n| n.name != "w:sectPr").enumerate() {
             if p.name != "w:p" {
                 state.advance(p);
@@ -245,36 +268,49 @@ impl ImportedDocument {
         if sites.is_some() && found != [true, true] || existing && old.len() != marker_nodes.len() {
             return Err(err());
         }
-        for (bi, p) in body
-            .elements_mut()
-            .filter(|n| n.name != "w:sectPr")
-            .enumerate()
-        {
-            if p.name != "w:p" {
-                continue;
+        for pos in old {
+            if slots.contains_key(&pos) {
+                return Err(unsupported("conflicting range markers"));
             }
-            let mut idx = 0;
-            for c in std::mem::take(&mut p.children) {
-                if !matches!(&c,Content::Element(n) if n.name!="w:pPr") {
-                    p.children.push(c);
-                    continue;
-                }
-                let pos = (bi, idx);
-                idx += 1;
-                if sites.is_some_and(|(a, _)| a == pos) {
-                    p.children.push(Content::Element(marker_nodes[0].clone()));
-                }
-                if !old.contains(&pos) {
-                    p.children.push(c);
-                }
-                if sites.is_some_and(|(_, b)| b == pos) {
-                    p.children
-                        .extend(marker_nodes[1..].iter().cloned().map(Content::Element));
-                }
-            }
+            slots.entry(pos).or_default().replacement = Some(Vec::new());
         }
-        let mut package = self.package.clone();
-        package.put_word(&self.main, root)?;
-        PackagePlan::new(package)?.to_bytes()
+        if let Some((a, b)) = sites {
+            slots
+                .entry(a)
+                .or_default()
+                .before
+                .push(marker_nodes.remove(0));
+            slots.entry(b).or_default().after.extend(marker_nodes);
+        }
+        Ok(())
     }
+}
+
+pub(super) fn recheck_removals(
+    package: &Package,
+    main: &str,
+    edits: &[PairedRangeEdit],
+) -> Result<()> {
+    for e in edits
+        .iter()
+        .filter(|e| e.bookmark.is_some() && e.endpoints.is_none())
+    {
+        let mut scan = Scan {
+            tags: ["w:bookmarkStart", "w:bookmarkEnd", ""],
+            id: e.id.to_string(),
+            name: e.bookmark.as_deref(),
+            counts: [0; 3],
+            referenced: false,
+        };
+        scan.scan(&package.word(main)?)?;
+        for part in crate::ooxml::related_story_parts(package, main)? {
+            scan.scan(&package.word(&part)?)?;
+        }
+        if scan.referenced || scan.counts != [0; 3] {
+            return Err(unsupported(
+                "removed bookmark may be referenced in staged content",
+            ));
+        }
+    }
+    Ok(())
 }

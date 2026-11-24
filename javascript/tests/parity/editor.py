@@ -160,6 +160,28 @@ def generate(directory):
     p._p.append(link)
     paired.add_paragraph("last")
     paired.save(directory / "paired-source.docx")
+    # A complex field starts in one paragraph and ends in another. Its result
+    # has multiple leaves in a formatted run; unsupported symbol neighbors
+    # and XML comments lie immediately outside the editable span.
+    p = paired.add_paragraph()
+    p.add_run()._r.append(elem("sym", font="Wingdings", char="F0FC"))
+    p._p.append(etree.Comment("before-field"))
+    p.add_run()._r.append(elem("fldChar", fldCharType="begin", fldLock="1"))
+    code = elem("instrText")
+    code.text = " PAGE "
+    p.add_run()._r.append(code)
+    p.add_run()._r.append(elem("fldChar", fldCharType="separate"))
+    run = p.add_run("old")
+    run.italic = True
+    run.add_tab()
+    run.add_text("cache")
+    q = paired.add_paragraph()
+    q.paragraph_format.keep_together = True
+    q.add_run("more old cache")
+    q.add_run()._r.append(elem("fldChar", fldCharType="end"))
+    q._p.append(etree.Comment("after-field"))
+    q.add_run()._r.append(elem("sym", font="Wingdings", char="F0FD"))
+    paired.save(directory / "field-batch-source.docx")
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
@@ -362,6 +384,54 @@ def verify_ordinary(directory):
     assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
 
 
+def verify_field_batch(directory):
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import FieldEdit, ImportedDocument, InlineEdit, PairedRangeEdit
+    source = directory / "field-batch-source.docx"
+    doc = ImportedDocument.open(source.read_bytes())
+    async def payload():
+        return [await d.Hyperlink("https://example.invalid/cache", [d.TextRun("remote")]).resolve(),
+                await d.Hyperlink(d.BookmarkTarget("BatchMark"), [d.TextRun("jump")]).resolve()]
+    at = lambda p, i: doc.body[p].inline_structure[i].anchor
+    fields = [
+        FieldEdit.cache(doc.body[4].anchor, 1, asyncio.run(payload())),
+        FieldEdit.patch(doc.body[4].anchor, 1, "dirty", False),
+        FieldEdit.patch(doc.body[0].anchor, 0, "dirty", True),
+        FieldEdit.patch(doc.body[0].anchor, 0, "instruction", " NUMPAGES "),
+    ]
+    ranges = [PairedRangeEdit(7, "BatchMark", (at(1, 1), at(2, 0))),
+              PairedRangeEdit(0, endpoints=(at(2, 0), at(3, 0)))]
+    links = [InlineEdit.hyperlink_tooltip(at(2, 0), "Batch tooltip"), InlineEdit.hyperlink_history(at(2, 0), False)]
+    batch = doc.preview([], fields=fields, paired_ranges=ranges, inline_edits=links)
+    data = batch.to_docx()
+    assert doc.preview([], fields=fields[::-1], paired_ranges=ranges[::-1], inline_edits=links[::-1]).to_docx() == data
+    assert data == (directory / "fieldBatch.docx").read_bytes()
+    before, after = parts(source), parts(io.BytesIO(data))
+    untouched(before, after, (MAIN, MAIN_RELS))
+    rels = lambda parts: {n.get("Id"): dict(n.attrib) for n in etree.fromstring(parts[MAIN_RELS])}
+    old, new = rels(before), rels(after)
+    assert old.items() <= new.items()
+    added, = new.keys() - old.keys()
+    assert new[added]["Target"] == "https://example.invalid/cache" and new[added]["TargetMode"] == "External"
+    word = Document(io.BytesIO(data))
+    p, q = word.paragraphs[4:6]
+    assert [link.text for link in p.hyperlinks] == ["remote", "jump"]
+    assert p._p.xpath("w:hyperlink/@r:id") == [added]
+    assert p._p.xpath("w:hyperlink/@w:anchor") == ["BatchMark"]
+    assert p._p.xpath("w:r/w:fldChar/@w:fldCharType") == ["begin", "separate"]
+    assert p._p.xpath("w:r/w:fldChar/@w:dirty") == ["0"] and p._p.xpath("w:r/w:fldChar/@w:fldLock") == ["1"]
+    assert q._p.xpath("w:r/w:fldChar/@w:fldCharType") == ["end"] and q.paragraph_format.keep_together
+    assert word.element.xpath("//w:sym/@w:char") == ["F0FC", "F0FD"]
+    assert [c.text for c in word.element.xpath("//comment()")] == ["before-field", "after-field"]
+    assert word.paragraphs[2].hyperlinks[0].url == BODY_LINK
+    assert word.paragraphs[2]._p.xpath("w:hyperlink/@w:tooltip") == ["Batch tooltip"]
+    assert word.paragraphs[2]._p.xpath("w:hyperlink/@w:history") == ["0"]
+    assert word.element.xpath("//w:fldSimple/@w:dirty") == ["1"]
+    assert word.element.xpath("//w:fldSimple/@w:instr") == [" NUMPAGES "]
+    assert len(word.comments) == 1
+
+
 def verify_fields_ranges(directory):
     import asyncio
     from rocx import declarative as decl
@@ -405,6 +475,7 @@ def verify_fields_ranges(directory):
 
 
 def verify(directory):
+    verify_field_batch(directory)
     verify_fields_ranges(directory)
     verify_controls(directory)
     verify_ordinary(directory)

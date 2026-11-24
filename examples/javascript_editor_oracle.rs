@@ -371,6 +371,68 @@ fn main() {
             )
             .unwrap(),
         );
+        use rocx::editor::{FieldAction, FieldEdit, PairedRangeEdit};
+        let d = open(fs::read(directory.join("field-batch-source.docx")).unwrap());
+        let children = immediate(Component::resolve(Paragraph::from_children(vec![
+            Hyperlink::new(
+                HyperlinkTarget::external("https://example.invalid/cache").unwrap(),
+                vec![TextRun::new("remote").into()],
+            )
+            .into(),
+            Hyperlink::new(
+                HyperlinkTarget::bookmark(rocx::BookmarkName::new("BatchMark").unwrap()),
+                vec![TextRun::new("jump").into()],
+            )
+            .into(),
+        ])))
+        .unwrap()
+        .unwrap();
+        let fields = [
+            FieldEdit {
+                target: anchor(&d, 4),
+                inline_index: 1,
+                action: FieldAction::Cache(children.runs().to_vec()),
+            },
+            FieldEdit{target:anchor(&d,4),inline_index:1,action:FieldAction::Patch(FieldPatch::Dirty(Some(false)))},
+            FieldEdit {
+                target: anchor(&d, 0),
+                inline_index: 0,
+                action: FieldAction::Patch(FieldPatch::Instruction(" NUMPAGES ".into())),
+            },
+            FieldEdit {
+                target: anchor(&d, 0),
+                inline_index: 0,
+                action: FieldAction::Patch(FieldPatch::Dirty(Some(true))),
+            },
+        ];
+        let ranges = [
+            PairedRangeEdit {
+                id: 7,
+                bookmark: Some("BatchMark".into()),
+                endpoints: Some((paragraph(&d, 1, 1), link(&d, 0))),
+            },
+            PairedRangeEdit {
+                id: 0,
+                bookmark: None,
+                endpoints: Some((link(&d, 0), paragraph(&d, 3, 0))),
+            },
+        ];
+        let edits = [InlineEdit {
+            target: link(&d, 0),
+            action: InlineAction::HyperlinkTooltip(Some("Batch tooltip".into())),
+        },InlineEdit{target:link(&d,0),action:InlineAction::HyperlinkHistory(Some(false))}];
+        write(
+            "native-fieldBatch.docx",
+            d.preview_edits(rocx::editor::EditBatch {
+                fields: &fields,
+                paired_ranges: &ranges,
+                inline_edits: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
     }
     let tracked = doc
         .preview_tracked_text(
