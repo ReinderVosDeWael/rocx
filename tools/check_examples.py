@@ -920,7 +920,19 @@ def verify_objects(original: bytes, output: bytes) -> None:
         note_rels = str(note.partname.rels_uri).lstrip("/")
         assert len(additions - {note_rels}) == 2
         note_xml = etree.fromstring(note.blob)
-        embed, = note_xml.xpath("//w:footnote[@w:id='0']//a:blip/@odr:embed", namespaces=NS)
+        original_note = etree.fromstring(src.read(note_part))
+        drawing_ids = "//w:footnote[@w:id='0']//wp:docPr/@id"
+        embeds = "//w:footnote[@w:id='0']//a:blip/@odr:embed"
+        previous = original_note.xpath(drawing_ids, namespaces=NS)
+        edited = note_xml.xpath(drawing_ids, namespaces=NS)
+        added, = set(edited) - set(previous)
+        assert [item for item in edited if item != added] == previous
+        new_embed, *preserved_embeds = note_xml.xpath(embeds, namespaces=NS)
+        assert edited[0] == added
+        assert preserved_embeds == original_note.xpath(embeds, namespaces=NS)
+        assert new_embed in preserved_embeds
+        assert src.read(note_rels) == dst.read(note_rels)
+        embed = new_embed
         asset = note.related_parts[embed]
         assert asset.blob == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
         assert str(asset.partname).lstrip("/") in src.namelist()
