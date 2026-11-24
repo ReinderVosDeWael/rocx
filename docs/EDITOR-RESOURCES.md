@@ -1,4 +1,4 @@
-# Imported style inspection
+# Imported document resources
 
 Rust `ImportedDocument::styles()`, Python `ImportedDocument.styles`, and
 JavaScript `ImportedDocument.styles()` inspect the relationship-selected

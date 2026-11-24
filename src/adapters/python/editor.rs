@@ -1123,6 +1123,47 @@ struct PyImportedStyles {
     styles: Vec<Py<PyImportedStyle>>,
 }
 
+#[pyclass(name = "AbstractStart", module = "rocx.editor", frozen, get_all)]
+struct PyAbstractStart {
+    abstract_id: u32,
+    level: u8,
+    start: Option<u32>,
+}
+
+#[pyclass(name = "ResourceEdit", module = "rocx.editor", frozen)]
+struct PyResourceEdit {
+    inner: editor::ResourceEdit,
+}
+
+#[pymethods]
+impl PyResourceEdit {
+    #[staticmethod]
+    #[pyo3(signature=(value))]
+    fn core_title(value: Option<String>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::CoreTitle(value),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(value))]
+    fn default_alignment(value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::DefaultAlignment(value.map(super::alignment).transpose()?),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(abstract_id, level, start))]
+    fn abstract_start(abstract_id: u32, level: u8, start: Option<u32>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::AbstractStart(editor::AbstractStart {
+                abstract_id,
+                level,
+                start,
+            }),
+        }
+    }
+}
+
 #[pymethods]
 impl PyImportedDocument {
     fn style_anchor(&self, id: &str) -> PyResult<PyStyleAnchor> {
@@ -1133,6 +1174,40 @@ impl PyImportedDocument {
         Ok(PyStyleAnchor {
             inner: doc.style_anchor(id).map_err(rust_error)?,
         })
+    }
+    #[getter]
+    fn core_title(&self) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .core_title()
+            .map_err(rust_error)
+    }
+    #[getter]
+    fn default_alignment(&self) -> PyResult<Option<&'static str>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .default_alignment()
+            .map_err(rust_error)?
+            .map(alignment_name))
+    }
+    #[getter]
+    fn abstract_starts(&self) -> PyResult<Vec<PyAbstractStart>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .abstract_starts()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|s| PyAbstractStart {
+                abstract_id: s.abstract_id,
+                level: s.level,
+                start: s.start,
+            })
+            .collect())
     }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {

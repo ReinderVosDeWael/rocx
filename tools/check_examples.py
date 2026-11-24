@@ -839,13 +839,19 @@ def verify_even_footer(data: bytes) -> None:
 
 
 def verify_run_text(original: bytes, replaced: bytes) -> None:
+    assert docx.Document(io.BytesIO(replaced)).core_properties.title == "Edited resource sample"
     paragraphs = [p.text for p in docx.Document(io.BytesIO(replaced)).paragraphs]
     assert "Ranged 📝" + EDIT_LABEL[8:] in paragraphs
     anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
     assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
         assert set(source.namelist()) == set(changed.namelist())
-        assert all(source.read(n) == changed.read(n) for n in source.namelist() if n != "word/document.xml")
+        mutable = {"word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml"}
+        assert {n for n in source.namelist() if source.read(n) != changed.read(n)} == mutable
+        styles = etree.fromstring(changed.read("word/styles.xml"))
+        assert styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:jc/@w:val", namespaces=NS) == ["center"]
+        numbers = etree.fromstring(changed.read("word/numbering.xml"))
+        assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["7"]
 
 
 def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:

@@ -189,6 +189,12 @@ anchor's body index. Inserted content follows the same inline and style
 restrictions as inserted tables. A paragraph and table cannot be inserted at
 the same anchor in one batch.
 
+The batch also passes Rust `ResourceEdit::{CoreTitle, DefaultAlignment, AbstractStart}`,
+Python `resources=[ResourceEdit.core_title(...), ResourceEdit.default_alignment(...),
+ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
+`coreTitle`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
+for clearing, absence, and shared-numbering semantics.
+
 Separately, all three catalogs preview removal of the labeled single-text body
 run without writing a tenth file: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.

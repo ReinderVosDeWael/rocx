@@ -187,6 +187,8 @@ export async function generateCatalog(fixtures, options) {
   const [target] = editTargets;
   checkText(target.inlineItems, [EDIT_LABEL]);
   const textPreview = imported.preview({
+    resources: [{kind: "coreTitle", value: "Edited resource sample"},
+      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
     paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
@@ -199,6 +201,18 @@ export async function generateCatalog(fixtures, options) {
     change.bodyIndex === body.indexOf(inline) && change.inlineIndex === 0, "incorrect text change");
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
+  const editedResources = await openDocx(runText);
+  assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample",
+    "missing resource edits");
+  const cleared = await openDocx(editedResources.preview({resources: [
+    {kind: "coreTitle", value: null}, {kind: "defaultAlignment", value: null},
+    {kind: "abstractStart", abstractId: 100, level: 0, value: null}]}).toDocx());
+  assert(cleared.coreTitle() === undefined && cleared.defaultAlignment() === undefined &&
+    cleared.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === undefined),
+    "clearing direct properties should return absence");
+  assertThrows(() => imported.preview({resources: [{kind: "coreTitle", value: "uncommitted"},
+    {kind: "abstractStart", abstractId: 9001, level: 0, value: 6}]}), "accepted missing numbering level");
+  assertThrows(() => imported.preview({resources: [{kind: "coreTitle"}]}), "treated missing value as clear");
   const internalLink = checkLink(imported, inline.inlineStructure, INLINE_LABEL, INLINE_LINK_RUNS);
   assert(internalLink.bookmark === "CatalogBookmark" && internalLink.relationshipId === undefined, "expected bookmark hyperlink");
   const bodyIndex = body.indexOf(target);

@@ -124,6 +124,11 @@ pub(super) fn alignment(o: &Bound<'_, PyAny>) -> PyResult<Alignment> {
         "center" => Ok(Alignment::Center),
         "right" => Ok(Alignment::Right),
         "both" | "justify" => Ok(Alignment::Justify),
+        "distribute" => Ok(Alignment::Distribute),
+        "justifyMedium" => Ok(Alignment::JustifyMedium),
+        "justifyHigh" => Ok(Alignment::JustifyHigh),
+        "justifyLow" => Ok(Alignment::JustifyLow),
+        "thaiJustify" => Ok(Alignment::ThaiJustify),
         _ => Err(PyValueError::new_err("Invalid paragraph alignment")),
     }
 }

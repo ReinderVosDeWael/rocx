@@ -201,6 +201,15 @@ export interface ImportedDocument {
   entryStories(): readonly ImportedEntry[];
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
+  coreTitle(): string | undefined;
+  defaultAlignment(): ImportedAlignment | undefined;
+  abstractStarts(): readonly AbstractStart[];
+}
+
+export interface AbstractStart {
+  readonly abstractId: number;
+  readonly level: number;
+  readonly start?: number;
 }
 
 export interface OpenDocxOptions {
