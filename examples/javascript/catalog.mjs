@@ -239,6 +239,18 @@ export async function generateCatalog(fixtures, options) {
     {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
   ]});
   assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");
+  const field = await resolveComponent({kind:"field", instruction:{kind:"page"}, children:[{kind:"text",text:"sample cache"}]});
+  const fieldSample = await openDocx(imported.preview({inlineEdits:[
+    {kind:"insertAfter",target:textEdit.target,inline:field},
+    {kind:"hyperlinkTooltip",target:inline.inlineStructure[1].anchor,value:"Catalog link"}
+  ]}).toDocx());
+  const samplePara = fieldSample.body()[body.indexOf(inline)];
+  assert(fieldSample.fieldAt({target:samplePara.anchor,inlineIndex:1}).instruction === " PAGE ", "incorrect new field");
+  const marked = imported.setPairedRange({id:842901,bookmark:"CatalogEditorRange",endpoints:[textEdit.target,inline.inlineStructure[1].anchor]});
+  const protectedDoc = await openDocx(marked);
+  const protectedRun = protectedDoc.body()[body.indexOf(inline)].inlineStructure[1];
+  assert(!protectedDoc.controlSites().some(s => s.text === INLINE_LABEL), "control site inside bookmark");
+  assertThrows(() => protectedDoc.previewTrackedBold({target:protectedRun.anchor,bold:false,author:"Reviewer"}), "tracked bold inside bookmark");
   const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
   assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
@@ -317,9 +329,9 @@ export async function generateCatalog(fixtures, options) {
   assert((await openDocx(restored.toDocx())).body()[0].text === HEADER_BATCH_LABEL, "rejected move");
   const blockTarget = headers.body()[2].anchor;
   const addition = headers.previewTrackedParagraph({target:blockTarget,kind:"insertBefore",text:"Review this paragraph.",...metadata});
-  const pending = await openDocx(addition.toDocx());
-  assert(pending.body()[2].markRevision.kind === "insertion", "tracked paragraph mark");
-  const reviewed = pending.previewParagraphRevision({target:pending.body()[2].anchor,action:"reject"});
+  const pendingParagraph = await openDocx(addition.toDocx());
+  assert(pendingParagraph.body()[2].markRevision.kind === "insertion", "tracked paragraph mark");
+  const reviewed = pendingParagraph.previewParagraphRevision({target:pendingParagraph.body()[2].anchor,action:"reject"});
   assert((await openDocx(reviewed.toDocx())).body().length === headers.body().length, "rejected paragraph");
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [

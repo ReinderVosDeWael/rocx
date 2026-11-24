@@ -278,9 +278,16 @@ async def test_independent_comment_inline_batch_keeps_anchor_and_annotation_refe
     bold = InlineEdit.set_bold(first.anchor, True)
     replacement = await d.Hyperlink(TARGET, [d.TextRun("details")]).resolve()
     link = InlineEdit.replace(second.anchor, replacement)
+    page = await d.Field(d.FieldInstruction.page(), [d.TextRun("1")]).resolve()
+    with pytest.raises(ValueError, match="unsupported inline declaration"):
+        imported.edit_entry_inlines(entry.part_name, [bold, InlineEdit.insert_after(second.anchor, page)])
     with pytest.raises(ValueError):
         imported.edit_entry_inlines(entry.part_name, [link, InlineEdit.replace(mark.anchor, replacement)])
     changed = imported.edit_entry_inlines(entry.part_name, [link, bold])
+    changed_doc = ImportedDocument.open(changed)
+    changed_link = changed_doc.entry_stories[0].blocks[0].inline_structure[-1]
+    with pytest.raises(ValueError, match="direct body hyperlink"):
+        changed_doc.edit_entry_inlines(entry.part_name, [InlineEdit.remove_hyperlink(changed_link.anchor)])
     with pytest.raises(ValueError):
         ImportedDocument.open(changed).edit_entry_inlines(entry.part_name, [bold])
     result = docx.Document(io.BytesIO(changed))

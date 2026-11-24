@@ -54,6 +54,9 @@ export type InlineEdit = { readonly target: InlineAnchor } & (
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
   | { readonly kind: "setBold"; readonly bold: boolean }
   | { readonly kind: "setToggle"; readonly property: "bold" | "italic" | "strike" | "hidden"; readonly value: boolean | null }
+  | { readonly kind: "removeHyperlink" }
+  | { readonly kind: "hyperlinkTooltip"; readonly value?: string }
+  | { readonly kind: "hyperlinkHistory"; readonly value?: boolean }
 );
 
 export interface EditBatch {
@@ -199,6 +202,11 @@ declare module "./inspection.js" {
     /** Change single-text runs in the named physical story part, including all aliases. */
     editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
     editEntryInlines(batch: { readonly ownerPart: string; readonly inlineEdits: readonly InlineEdit[] }): Uint8Array;
+    replaceField(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number; readonly field?: import("./structured.js").ResolvedField}): Uint8Array;
+    fieldAt(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number}): {readonly complex: boolean; readonly instruction: string; readonly inlineCount: number; readonly dirtyXml?: string; readonly lockedXml?: string};
+    patchField(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number} & ({readonly property: "instruction"; readonly value: string} | {readonly property: "dirty" | "locked"; readonly value?: boolean})): Uint8Array;
+    setPairedRange(batch: {readonly id: number; readonly bookmark?: string; readonly endpoints?: readonly [InlineAnchor, InlineAnchor]}): Uint8Array;
+    bodyRangeMarkers(): readonly {readonly bodyIndex: number; readonly inlineIndex: number; readonly kind: "bookmarkStart" | "bookmarkEnd" | "commentRangeStart" | "commentRangeEnd" | "commentReference"; readonly id?: string; readonly name?: string}[];
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to a shared header/footer or a section-local fork. */

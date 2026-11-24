@@ -4,6 +4,21 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+Integrate fields and paired ranges with the inline, control and revision
+workstreams. The combined `guardedWorkflow` oracle covers bookmark boundaries,
+unique revision IDs, control-site eligibility before and after review, and
+retrying a review after rejecting a colliding range. Separate guards exercise
+move names and field caches containing controls or revisions.
+
+**Combined qualification:** 342 Rust all-target/all-feature tests, three
+doctests, native and Wasm Clippy, Rust 1.88 and all 915 schema-required
+installed Python tests passed. All 38 editor and 12 catalog packages
+matched complete Rust ZIPs in packed Node 26 and Chromium. All 50 passed
+schema/OPC checks; Node 22 and 24 also matched the 38 editor files. The
+installed Python catalog matched all 12 files; the
+independent Python editor checks verified the new combined workflow, revision
+and field packages, retained part payloads and python-docx readback.
+
 #48 metadata worktree: core scalars and timestamps, company/manager, and named
 string/boolean custom-property edits passed standalone qualification: 55 Rust
 editor/showcase tests, nine installed-wheel resource tests, native Clippy and
@@ -33,6 +48,16 @@ OPC, python-docx and untouched-payload checks.
 The 56 Rust imported-editor tests, 15 focused Python tests, native/Wasm
 Clippy and strict installed TypeScript passed. All eleven catalog artifacts
 matched across Rust, installed Python and packed Node.
+
+Fields/links/ranges slice (#3): direct body field insertion, instruction/flag
+patches, whole-field replacement/removal, hyperlink targets/properties, and
+cross-paragraph bookmark/comment pairs are implemented on the topic branch.
+`fieldsRanges.docx` matched in Rust, installed Python and packed Node; the
+package passed schema/OPC validation and independent python-docx readback.
+Opaque caches, cross-paragraph complex fields, non-body endpoints and combining
+standalone field/range edits in a mixed preview remain outside this slice.
+See [fields](FIELDS.md#editing-an-imported-field-or-link) and
+[ranges](RANGES.md#imported-body-ranges).
 
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains

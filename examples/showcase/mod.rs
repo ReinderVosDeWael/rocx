@@ -705,6 +705,61 @@ pub async fn generate(output: &Path) -> Result<()> {
         panic!("expected a standalone run and hyperlink");
     };
     let replacement = "Imported editor: replaced this run by its anchor. ";
+    let field = Component::resolve(Paragraph::from_children(vec![
+        Field::new(
+            FieldInstruction::Page,
+            vec![TextRun::new("sample cache").into()],
+        )
+        .into(),
+    ]))
+    .await?
+    .unwrap();
+    let sample = imported
+        .preview_edits(editor::EditBatch {
+            inline_edits: &[
+                editor::InlineEdit {
+                    target: label.anchor.clone(),
+                    action: editor::InlineAction::InsertAfter(field.runs()[0].clone()),
+                },
+                editor::InlineEdit {
+                    target: link.anchor.clone(),
+                    action: editor::InlineAction::HyperlinkTooltip(Some("Catalog link".into())),
+                },
+            ],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    let sample = editor::ImportedDocument::open(&sample)?;
+    let editor::BodyBlock::Paragraph(sample_para) = &sample.body()[paragraph_index] else {
+        unreachable!()
+    };
+    assert_eq!(
+        sample.field_at(&sample_para.anchor, 1)?.instruction,
+        " PAGE "
+    );
+    let marked = imported.set_paired_range(
+        842901,
+        Some("CatalogEditorRange"),
+        Some((&label.anchor, &link.anchor)),
+    )?;
+    let marked = editor::ImportedDocument::open(&marked)?;
+    let editor::BodyBlock::Paragraph(marked_para) = &marked.body()[paragraph_index] else {
+        unreachable!()
+    };
+    let Run(protected) = &marked_para.inline_structure[1] else {
+        unreachable!()
+    };
+    assert!(
+        marked
+            .preview_tracked_bold(&protected.anchor, false, "Reviewer", None)
+            .is_err()
+    );
+    assert!(
+        !marked
+            .control_sites()
+            .iter()
+            .any(|s| s.text == INLINE_LABEL)
+    );
     let paragraph_payload = Document::new(vec![
         Section::new(vec![
             Paragraph::new("Imported editor: inserted paragraph.").into(),

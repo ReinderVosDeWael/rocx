@@ -164,6 +164,15 @@ pub(crate) struct BoundaryState {
 }
 
 impl BoundaryState {
+    pub(super) fn paired_site(&self) -> bool {
+        self.fields == 0
+            && !self.proof_ranges.contains(&true)
+            && !self.uncertain
+            && self
+                .ranges
+                .iter()
+                .all(|(kind, _)| matches!(*kind, "w:bookmark" | "w:commentRange"))
+    }
     pub(crate) fn safe(&self) -> bool {
         self.fields == 0
             && !self.proof_ranges.contains(&true)

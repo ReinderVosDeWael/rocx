@@ -73,6 +73,8 @@ export interface ImportedHyperlink {
   /** Source relationship ID local to the owning part, not a URL. */
   readonly relationshipId?: string;
   readonly bookmark?: string;
+  readonly tooltip?: string;
+  readonly historyXml?: string;
   readonly children: readonly ImportedInlineNode[];
 }
 

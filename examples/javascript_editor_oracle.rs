@@ -442,6 +442,72 @@ fn main() {
         }
     };
     let date = "2024-02-29T12:34:56Z";
+    {
+        let open = |data: Vec<u8>| ImportedDocument::open(&data).unwrap();
+        let original = open(fs::read(directory.join("control-choice-source.docx")).unwrap());
+        let target = paragraph(&original, 0, 0);
+        let marked = open(
+            original
+                .set_paired_range(90, Some("Guard"), Some((&target, &target)))
+                .unwrap(),
+        );
+        assert!(marked.control_sites().iter().all(|s| s.text != "block"));
+        assert!(
+            marked
+                .preview_tracked_bold(&paragraph(&marked, 0, 1), false, "Reviewer", None)
+                .is_err()
+        );
+        let plain = open(marked.set_paired_range(90, Some("Guard"), None).unwrap());
+        let changed = open(
+            plain
+                .preview_tracked_bold(&paragraph(&plain, 0, 0), false, "Reviewer", None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+        let BodyBlock::Paragraph(p) = &changed.body()[0] else {
+            unreachable!()
+        };
+        let Run(r) = &p.inline_structure[0] else {
+            unreachable!()
+        };
+        let id = r
+            .property_revision
+            .as_ref()
+            .unwrap()
+            .id
+            .as_deref()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let other = paragraph(&changed, 1, 0);
+        assert!(
+            changed
+                .set_paired_range(id, Some("Other"), Some((&other, &other)))
+                .is_err()
+        );
+        assert!(changed.control_sites().iter().all(|s| s.text != "block"));
+        let reviewed = open(
+            changed
+                .preview_revision(&r.anchor, TextRevisionAction::Accept, None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+        let site = reviewed
+            .control_sites()
+            .iter()
+            .find(|s| s.context.as_str() == "block" && s.text == "block")
+            .unwrap();
+        write(
+            "native-guardedWorkflow.docx",
+            reviewed
+                .preview_wrap_control(site, "reviewed")
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
     use rocx::editor::TrackedParagraph;
     let mut source =
         ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
@@ -492,6 +558,71 @@ fn main() {
                 .unwrap()
                 .to_docx()
                 .unwrap(),
+        );
+    }
+    {
+        use rocx::{
+            Field, FieldForm, FieldInstruction, FieldProperties,
+            editor::{FieldPatch, ImportedInlineNode, InlineAction, InlineEdit},
+        };
+        let open = |bytes: Vec<u8>| ImportedDocument::open(&bytes).unwrap();
+        let mut d = open(fs::read(directory.join("paired-source.docx")).unwrap());
+        let field = immediate(Component::resolve(Paragraph::from_children(vec![
+            Field::new(
+                FieldInstruction::Page,
+                vec![TextRun::new("new cache").into()],
+            )
+            .with_properties(FieldProperties::default().with_form(FieldForm::Complex))
+            .into(),
+        ])))
+        .unwrap()
+        .unwrap();
+        d = open(
+            d.replace_field(&anchor(&d, 0), 0, Some(&field.runs()[0]))
+                .unwrap(),
+        );
+        d = open(
+            d.patch_field(
+                &anchor(&d, 0),
+                0,
+                FieldPatch::Instruction(" NUMPAGES ".into()),
+            )
+            .unwrap(),
+        );
+        let link = |d: &ImportedDocument, i: usize| {
+            let BodyBlock::Paragraph(p) = &d.body()[2] else {
+                panic!()
+            };
+            let ImportedInlineNode::Hyperlink(l) = &p.inline_structure[i] else {
+                panic!()
+            };
+            l.anchor.clone()
+        };
+        let edit = InlineEdit {
+            target: link(&d, 0),
+            action: InlineAction::HyperlinkTooltip(Some("hover".into())),
+        };
+        d = open(
+            d.preview_edits(rocx::editor::EditBatch {
+                inline_edits: &[edit],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
+        d = open(
+            d.set_paired_range(0, None, Some((&link(&d, 0), &paragraph(&d, 3, 0))))
+                .unwrap(),
+        );
+        write(
+            "native-fieldsRanges.docx",
+            d.set_paired_range(
+                7,
+                Some("Crossing"),
+                Some((&paragraph(&d, 1, 0), &link(&d, 1))),
+            )
+            .unwrap(),
         );
     }
     let tracked = doc

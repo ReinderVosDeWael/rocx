@@ -21,6 +21,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
         ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
+        ("importedReplaceField", (replace_field, Paths::Package)),
+        ("importedFieldAt", (field_at, Paths::Package)),
+        ("importedPatchField", (patch_field, Paths::Package)),
+        ("importedSetPairedRange", (paired_range, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedBold", (tracked_bold, Paths::Package)),
         (
@@ -196,7 +200,11 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
     let edit = Record::new(
         input,
         path,
-        if kind == "setBold" {
+        if kind == "removeHyperlink" {
+            &["target", "kind"]
+        } else if matches!(kind.as_str(), "hyperlinkTooltip" | "hyperlinkHistory") {
+            &["target", "kind", "value"]
+        } else if kind == "setBold" {
             &["target", "kind", "bold"]
         } else if kind == "setToggle" {
             &["target", "kind", "property", "value"]
@@ -213,6 +221,27 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
     Ok(InlineEdit {
         target: crate::inspection::inline_anchor(&edit.get("target")?, &edit.path("target"))?,
         action: match kind.as_str() {
+            "removeHyperlink" => InlineAction::RemoveHyperlink,
+            "hyperlinkTooltip" => {
+                let v = edit.get("value")?;
+                InlineAction::HyperlinkTooltip(if v.js().is_undefined() {
+                    None
+                } else {
+                    Some(b::string(&v, &edit.path("value"))?)
+                })
+            }
+            "hyperlinkHistory" => {
+                let v = edit.get("value")?;
+                InlineAction::HyperlinkHistory(if v.js().is_undefined() {
+                    None
+                } else {
+                    Some(
+                        v.js().as_bool().ok_or_else(|| {
+                            Failure::invalid(&edit.path("value"), "expected boolean")
+                        })?,
+                    )
+                })
+            }
             "insertAfter" => InlineAction::InsertAfter(payload()?),
             "replace" => InlineAction::Replace(payload()?),
             "setToggle" => {
@@ -393,6 +422,142 @@ fn entry_inlines(input: &Wire) -> Result<JsValue> {
     .into())
 }
 
+fn field_at(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["target", "inlineIndex"],
+    )?;
+    let target = borrow_target::<ParagraphAnchor>(&batch, "batch.target")?;
+    let index = usize::try_from(b::u64_number(
+        &batch.get("inlineIndex")?,
+        "batch.inlineIndex",
+    )?)
+    .map_err(|_| Failure::invalid("batch.inlineIndex", "index too large"))?;
+    let f = source.document().field_at(&target, index)?;
+    let view = b::record(&[
+        ("complex", f.complex.into()),
+        ("instruction", f.instruction.into()),
+        ("inlineCount", (f.inline_count as u32).into()),
+    ]);
+    if let Some(v) = f.dirty_xml {
+        b::set(&view, "dirtyXml", &v.into());
+    }
+    if let Some(v) = f.locked_xml {
+        b::set(&view, "lockedXml", &v.into());
+    }
+    Ok(view)
+}
+fn patch_field(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::FieldPatch;
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["target", "inlineIndex", "property", "value"],
+    )?;
+    let target = borrow_target::<ParagraphAnchor>(&batch, "batch.target")?;
+    let index = usize::try_from(b::u64_number(
+        &batch.get("inlineIndex")?,
+        "batch.inlineIndex",
+    )?)
+    .map_err(|_| Failure::invalid("batch.inlineIndex", "index too large"))?;
+    let v = batch.get("value")?;
+    let flag = || {
+        if v.js().is_undefined() {
+            Ok(None)
+        } else {
+            v.js()
+                .as_bool()
+                .map(Some)
+                .ok_or_else(|| Failure::invalid("batch.value", "expected boolean"))
+        }
+    };
+    let patch = match b::string(&batch.get("property")?, "batch.property")?.as_str() {
+        "instruction" => FieldPatch::Instruction(b::string(&v, "batch.value")?),
+        "dirty" => FieldPatch::Dirty(flag()?),
+        "locked" => FieldPatch::Locked(flag()?),
+        _ => return Err(Failure::invalid("batch.property", "unknown field property")),
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .patch_field(&target, index, patch)?
+            .as_slice(),
+    )
+    .into())
+}
+fn replace_field(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["target", "inlineIndex", "field"],
+    )?;
+    let target = borrow_target::<ParagraphAnchor>(&batch, "batch.target")?;
+    let index = usize::try_from(b::u64_number(
+        &batch.get("inlineIndex")?,
+        "batch.inlineIndex",
+    )?)
+    .map_err(|_| Failure::invalid("batch.inlineIndex", "index too large"))?;
+    let field = batch.get("field")?;
+    let field = if field.js().is_undefined() {
+        None
+    } else {
+        Some(b::borrow::<rocx::ResolvedInline>(&field, "batch.field")?)
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .replace_field(&target, index, field.as_deref())?
+            .as_slice(),
+    )
+    .into())
+}
+fn paired_range(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["id", "bookmark", "endpoints"],
+    )?;
+    let id = u32::try_from(b::u64_number(&batch.get("id")?, "batch.id")?)
+        .map_err(|_| Failure::invalid("batch.id", "id too large"))?;
+    let name = batch.get("bookmark")?;
+    let name = if name.js().is_undefined() {
+        None
+    } else {
+        Some(b::string(&name, "batch.bookmark")?)
+    };
+    let endpoints = batch.get("endpoints")?;
+    let endpoints = if endpoints.js().is_undefined() {
+        None
+    } else {
+        let items = b::list(&endpoints, "batch.endpoints")?;
+        let [a, z] = items.as_slice() else {
+            return Err(Failure::invalid(
+                "batch.endpoints",
+                "expected two inline anchors",
+            ));
+        };
+        Some((
+            crate::inspection::inline_anchor(a, "batch.endpoints[0]")?,
+            crate::inspection::inline_anchor(z, "batch.endpoints[1]")?,
+        ))
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .set_paired_range(id, name.as_deref(), endpoints.as_ref().map(|(a, z)| (a, z)))?
+            .as_slice(),
+    )
+    .into())
+}
 fn story_text(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;

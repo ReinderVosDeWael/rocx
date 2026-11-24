@@ -278,6 +278,29 @@ pub(crate) fn root(name: &str) -> Node {
 }
 
 mod compatibility;
+/// Related Word stories whose range identities can collide with a body edit.
+pub(crate) fn related_story_parts(
+    package: &Package,
+    main: &str,
+) -> Result<std::collections::BTreeSet<String>> {
+    let mut parts = std::collections::BTreeSet::new();
+    for kind in [
+        "header",
+        "footer",
+        "comments",
+        "footnotes",
+        "endnotes",
+        "glossaryDocument",
+    ] {
+        for (rid, _) in package.relationships(main, kind)? {
+            let (_, part) = package.related(main, &format!("#{rid}"))?.ok_or_else(|| {
+                crate::Diagnostic::new(crate::Rule::UnsupportedEdit, "missing related story")
+            })?;
+            parts.insert(part);
+        }
+    }
+    Ok(parts)
+}
 pub(crate) mod schema;
 pub(crate) trait WordParts {
     fn word(&self, path: &str) -> Result<Node>;

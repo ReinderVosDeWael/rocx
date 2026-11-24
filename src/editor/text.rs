@@ -40,6 +40,12 @@ pub enum InlineAction {
     Replace(crate::ResolvedInline),
     /// Set direct (non-complex-script) bold without rebuilding the run properties.
     SetBold(bool),
+    /// Remove a supported direct body hyperlink including its displayed runs.
+    RemoveHyperlink,
+    /// Set or clear the tooltip without rewriting the displayed runs.
+    HyperlinkTooltip(Option<String>),
+    /// Set or clear the hyperlink's history flag.
+    HyperlinkHistory(Option<bool>),
     /// Set (true/false) or clear (None) a direct property, without resolving styles.
     SetToggle(RunToggle, Option<bool>),
 }
@@ -79,6 +85,8 @@ pub(super) enum Action {
     After(Vec<Node>),
     Replace(Vec<Node>),
     Toggle(RunToggle, Option<bool>),
+    RemoveHyperlink,
+    LinkProperty(&'static str, Option<String>),
 }
 pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
@@ -135,6 +143,14 @@ fn render_actions<K: Ord>(
                         InlineAction::Replace(_) => Action::Replace(nodes.next().unwrap()),
                         InlineAction::SetBold(b) => Action::Toggle(RunToggle::Bold, Some(*b)),
                         InlineAction::SetToggle(prop, value) => Action::Toggle(*prop, *value),
+                        InlineAction::RemoveHyperlink => Action::RemoveHyperlink,
+                        InlineAction::HyperlinkTooltip(v) => {
+                            Action::LinkProperty("w:tooltip", v.clone())
+                        }
+                        InlineAction::HyperlinkHistory(v) => Action::LinkProperty(
+                            "w:history",
+                            v.map(|x| if x { "1" } else { "0" }.into()),
+                        ),
                     },
                 )
             })
@@ -209,13 +225,13 @@ fn single_text(run: &Node) -> Result<String> {
     Ok(value)
 }
 
-fn has_other_attrs(node: &Node, allowed: &[&str]) -> bool {
+pub(super) fn has_other_attrs(node: &Node, allowed: &[&str]) -> bool {
     node.attrs
         .iter()
         .any(|(name, _)| name.declaration().is_none() && !allowed.contains(&name.as_str()))
 }
 
-fn opaque_content(node: &Node) -> bool {
+pub(super) fn opaque_content(node: &Node) -> bool {
     node.children.iter().any(|c| match c {
         Content::Element(_) => false,
         Content::Text(t) => !t.trim().is_empty(),
@@ -373,7 +389,7 @@ pub(super) fn disposable_run(run: &Node, tag: &str, text: &str) -> bool {
         && run.child("w:rPr").is_none_or(disposable_properties)
 }
 
-fn check_whole(node: &Node, discard: bool) -> Result<()> {
+pub(super) fn check_whole(node: &Node, discard: bool) -> Result<()> {
     if node.name != "w:hyperlink" {
         return check_run(node, discard);
     }
@@ -479,6 +495,32 @@ fn apply_targets(
                     return Err(unsupported("target must be outside fields and ranges"));
                 }
                 match after {
+                    Action::RemoveHyperlink => {
+                        if child.name != "w:hyperlink" {
+                            return Err(unsupported("expected a hyperlink"));
+                        }
+                        check_whole(child, true)?;
+                        splices.push((slot..slot + 1, Vec::new()));
+                        inline_changes.push((body_index, inline_index));
+                    }
+                    Action::LinkProperty(key, value) => {
+                        if child.name != "w:hyperlink" {
+                            return Err(unsupported("expected a hyperlink"));
+                        }
+                        if value
+                            .as_ref()
+                            .is_some_and(|v| crate::document::invalid_xml_character(v).is_some())
+                        {
+                            return Err(unsupported("invalid XML hyperlink property"));
+                        }
+                        if child.get(key) != value.as_deref() {
+                            child.attrs.retain(|(k, _)| k != key);
+                            if let Some(v) = value {
+                                child.set(key, v);
+                            }
+                            inline_changes.push((body_index, inline_index));
+                        }
+                    }
                     Action::After(nodes) => {
                         check_whole(child, false)?;
                         splices.push((slot + 1..slot + 1, nodes));
@@ -561,6 +603,16 @@ impl super::ImportedDocument {
         let mut kind = None;
         for edit in edits {
             self.validate_snapshot(&edit.target.snapshot)?;
+            if matches!(
+                edit.action,
+                InlineAction::RemoveHyperlink
+                    | InlineAction::HyperlinkTooltip(_)
+                    | InlineAction::HyperlinkHistory(_)
+            ) {
+                return Err(unsupported(
+                    "hyperlink property edits and removal require a direct body hyperlink",
+                ));
+            }
             let (InlineLocation::Entry { index, block_index }, [inline]) =
                 (&edit.target.location, edit.target.path.as_slice())
             else {

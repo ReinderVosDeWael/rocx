@@ -543,6 +543,22 @@ async def generate(output: pathlib.Path) -> bytes:
     whole = imported.preview([], inline_edits=[InlineEdit.set_toggle(label.anchor, "italic", True),
         InlineEdit.insert_after(inline_link.anchor, await d.TextRun("Imported editor: inserted paragraph.").resolve())])
     assert whole.inline_changes[-1][1] == 1
+    field = await d.Field(d.FieldInstruction.page(), [d.TextRun("sample cache")]).resolve()
+    sample = ImportedDocument.open(imported.preview([], inline_edits=[
+        InlineEdit.insert_after(label.anchor, field),
+        InlineEdit.hyperlink_tooltip(inline_link.anchor, "Catalog link")]).to_docx())
+    sample_para = next(p for p in sample.body if getattr(p, "text", "").startswith(INLINE_LABEL))
+    assert sample.field_at(sample_para.anchor, 1).instruction == " PAGE "
+    marked = imported.set_paired_range(842901, "CatalogEditorRange", (label.anchor, inline_link.anchor))
+    marked = ImportedDocument.open(marked)
+    protected = next(p for p in marked.body if getattr(p, "text", "").startswith(INLINE_LABEL))
+    assert not any(s.text == INLINE_LABEL for s in marked.control_sites)
+    try:
+        marked.preview_tracked_bold(protected.inline_structure[1].anchor, False, "Reviewer")
+    except ValueError as error:
+        assert "protected" in str(error)
+    else:
+        raise AssertionError("tracked bold inside bookmark")
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
     edited_bytes = preview.to_docx()

@@ -290,6 +290,8 @@ pub(super) fn inline_node(
             );
             optional(&result, "relationshipId", link.relationship_id.as_deref());
             optional(&result, "bookmark", link.bookmark.as_deref());
+            optional(&result, "tooltip", link.tooltip.as_deref());
+            optional(&result, "historyXml", link.history_xml.as_deref());
             result
         }
         ImportedInlineNode::Revision(revision) => {
