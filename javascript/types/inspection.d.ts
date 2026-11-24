@@ -41,6 +41,12 @@ export type ImportedInline =
   | ImportedOpaque;
 
 export interface ImportedRun {
+  /** Direct toggle properties; absent when unset or ambiguous. */
+  readonly bold?: boolean;
+  readonly italic?: boolean;
+  readonly strike?: boolean;
+  readonly hidden?: boolean;
+  readonly hasOpaqueFormatting: boolean;
   readonly kind: "run";
   readonly anchor: InlineAnchor;
   readonly items: readonly ImportedInline[];

@@ -203,8 +203,9 @@ export async function generateCatalog(fixtures, options) {
   });
   assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");
   const change = textPreview.runTextChanges().find(c => c.before === INLINE_LABEL);
+  assert(inline.inlineStructure[0].italic === undefined, "unexpected direct italic");
   const whole = imported.preview({inlineEdits: [
-    {kind: "setBold", target: textEdit.target, bold: false},
+    {kind: "setToggle", target: textEdit.target, property: "italic", value: true},
     {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
   ]});
   assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");

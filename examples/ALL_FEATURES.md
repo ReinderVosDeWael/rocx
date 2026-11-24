@@ -212,10 +212,11 @@ for clearing, absence, and shared-numbering semantics.
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
-The catalogs also stage a direct bold patch and an insertion after a hyperlink:
+The catalogs also inspect direct italic and stage an italic patch and an insertion after a hyperlink:
 Rust `preview_with_inlines` with `InlineEdit`/`InlineAction`, Python `inline_edits`
-with `InlineEdit.set_bold`/`insert_after`, JavaScript `inlineEdits` with
-`setBold`/`insertAfter`. The installed editor oracle additionally replaces a run
+with `InlineEdit.set_toggle`/`insert_after`, JavaScript `inlineEdits` with
+`setToggle`/`insertAfter`. Rust uses `InlineAction::SetToggle(RunToggle::Italic, Some(true))`.
+The installed editor oracle additionally clears direct bold and replaces a run
 with an external hyperlink and verifies its relationship and exact package bytes.
 
 Removal rejects opaque or unsafe run markup.

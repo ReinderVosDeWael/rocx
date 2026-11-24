@@ -53,6 +53,7 @@ export interface HeaderImageEdit {
 export type InlineEdit = { readonly target: InlineAnchor } & (
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
   | { readonly kind: "setBold"; readonly bold: boolean }
+  | { readonly kind: "setToggle"; readonly property: "bold" | "italic" | "strike" | "hidden"; readonly value: boolean | null }
 );
 
 export interface EditBatch {

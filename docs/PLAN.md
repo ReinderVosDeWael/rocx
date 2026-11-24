@@ -13,7 +13,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | --- | --- | --- |
 | #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
-| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
+| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear direct bold, italic, strike, and hidden toggles, including multi-leaf ordinary runs. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
@@ -44,6 +44,13 @@ The python-docx fixture exercises run-boundary formatting, paragraph end and a
 runless paragraph; its complete output matched Rust, installed Python, packed
 Node and Chromium and passed schema/OPC checks. All eleven catalog outputs
 matched across Rust, Python and Node.
+
+The direct run-toggle follow-up to #3 adds four imported formatting values and
+an opaque-formatting indicator. On its standalone branch, 54 Rust and 57
+installed Python editor tests passed. The four-toggle DOCX matched across Rust,
+Python 3.12, and packed Node 26, with schema/OPC, python-docx, and unchanged-part
+checks. All eleven catalogs also matched across these consumers. Browser and
+combined-branch qualification remain separate.
 
 ## Selected standalone topic results (before ten-way integration)
 

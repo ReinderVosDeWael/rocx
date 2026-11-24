@@ -887,6 +887,29 @@ fn whole_inline_edits_respect_cross_paragraph_fields_and_keep_opaque_formatting(
     let carriage_return = preview(&[node(3, InlineAction::Replace(line.clone()))]).unwrap();
     assert_eq!(carriage_return.inline_changes(), &[(1, 3)]);
     assert!(preview(&[node(2, InlineAction::Replace(line))]).is_err());
+    let Run(source) = &paragraph(&doc, 1).inline_structure[2] else {
+        unreachable!()
+    };
+    assert!(source.has_opaque_formatting);
+    assert_eq!((source.bold, source.italic), (Some(true), None));
+    assert!(
+        preview(&[node(
+            2,
+            InlineAction::SetToggle(rocx::editor::RunToggle::Bold, None)
+        )])
+        .is_err()
+    );
+    let toggle = preview(&[node(
+        2,
+        InlineAction::SetToggle(rocx::editor::RunToggle::Italic, Some(false)),
+    )])
+    .unwrap();
+    let reopened = ImportedDocument::open(&toggle.to_docx().unwrap()).unwrap();
+    let Run(view) = &paragraph(&reopened, 1).inline_structure[2] else {
+        unreachable!()
+    };
+    assert!(view.has_opaque_formatting);
+    assert_eq!((view.bold, view.italic), (Some(true), Some(false)));
     let bold = preview(&[node(2, InlineAction::SetBold(false))]).unwrap();
     assert_eq!(bold.inline_changes(), &[(1, 2)]);
     let package = parts(&bold.to_docx().unwrap());

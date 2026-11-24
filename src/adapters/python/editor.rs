@@ -373,6 +373,16 @@ struct PyInlineAnchor {
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
 struct PyImportedRun {
     #[pyo3(get)]
+    has_opaque_formatting: bool,
+    #[pyo3(get)]
+    bold: Option<bool>,
+    #[pyo3(get)]
+    italic: Option<bool>,
+    #[pyo3(get)]
+    strike: Option<bool>,
+    #[pyo3(get)]
+    hidden: Option<bool>,
+    #[pyo3(get)]
     anchor: Py<PyInlineAnchor>,
     #[pyo3(get)]
     items: Vec<Py<PyImportedInline>>,
@@ -420,6 +430,11 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
         ImportedInlineNode::Run(run) => Py::new(
             py,
             PyImportedRun {
+                has_opaque_formatting: run.has_opaque_formatting,
+                bold: run.bold,
+                italic: run.italic,
+                strike: run.strike,
+                hidden: run.hidden,
                 anchor: anchor(&run.anchor)?,
                 items: run
                     .items
@@ -834,6 +849,23 @@ impl PyInlineEdit {
                 action: editor::InlineAction::SetBold(bold),
             },
         }
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (target, property, value))]
+    fn set_toggle(
+        target: PyRef<'_, PyInlineAnchor>,
+        property: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let prop = editor::RunToggle::parse(property)
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("unknown run toggle"))?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetToggle(prop, value),
+            },
+        })
     }
 }
 

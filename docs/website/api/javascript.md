@@ -210,7 +210,10 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   formatting, or the last run's formatting at paragraph end.
 - `blockEdits` accepts `replace`, `remove`, `replaceSection` and `keepWithNext`
   at eligible direct body paragraph anchors. `inlineEdits` accepts
-  `insertAfter`, `replace` and `setBold` at eligible direct inline anchors.
+  `insertAfter`, `replace`, `setBold` and `setToggle` at eligible direct inline anchors.
+  `setToggle` takes `property` (`bold`, `italic`, `strike`, `hidden`) and `value`
+  (`true`, `false`, or `null` to clear). Structured run inspection exposes the
+  four direct values and `hasOpaqueFormatting`.
 - `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
   `insertColumn`, `removeColumn` and `replaceCell`. Row/cell positions are
   physical; column positions count logical grid columns.
