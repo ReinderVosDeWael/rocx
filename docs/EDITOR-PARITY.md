@@ -283,6 +283,17 @@ one physical header, footer, or note/comment part. Inherited slots see the same
 text. References, range markers, note IDs and comment metadata stay intact.
 Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 
+`edit_entry_inlines(owner_part, edits)` (Rust/Python) and
+`editEntryInlines({ownerPart, inlineEdits})` (JavaScript) return bytes for an
+atomic batch of `InlineEdit` operations in one footnotes, endnotes or comments
+part. Insert after or replace an eligible direct run or hyperlink, or patch
+direct run bold. Use original inline anchors from ordinary entries with unique
+decimal IDs. Replacement uses the body editor's discard checks; note/reference
+marks, field/range interiors, nested targets and reserved notes are ineligible.
+External links allocate relationships in the entry part, including when its
+path is nonstandard. Existing relationships are retained. No entry or reference
+is created, deleted or renumbered. Reopen the returned package for new anchors.
+
 ### Combine ordinary edits
 
 Rust accepts `doc.preview_edits(EditBatch { /* slices */, ..Default::default() })`;

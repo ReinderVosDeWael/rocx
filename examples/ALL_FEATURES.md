@@ -59,8 +59,9 @@ Output:
   and a default-header image. The `.header-first-shared.docx` and
   `.header-first-local.docx` artifacts separately preview first-page images.
 - `.footer-even.docx` edits text in the shared footer and forks an image into
-  only the second section's even footer. `.entry-text.docx` edits a footnote,
-  an endnote with the same ID in another part, and a comment.
+  only the second section's even footer. `.entry-text.docx` inserts a labeled
+  external hyperlink into a footnote, an endnote with the same ID in another
+  part, and a comment. Each relationship belongs to its respective entry part.
 - `.run-text.docx` combines scalar-range edits, point insertion and run text edits, a resolved paragraph
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared

@@ -100,6 +100,16 @@ pub(super) fn prepare(
             return Err(unsupported("duplicate inline target"));
         }
     }
+    render_actions(package, main, main, crate::StoryKind::Body, ordered)
+}
+
+fn render_actions<K: Ord>(
+    package: crate::opc::Package,
+    main: &str,
+    owner: &str,
+    kind: crate::StoryKind,
+    ordered: BTreeMap<K, &InlineAction>,
+) -> Result<(crate::opc::Package, BTreeMap<K, Action>)> {
     let payloads: Vec<_> = ordered
         .values()
         .filter_map(|action| match action {
@@ -110,7 +120,7 @@ pub(super) fn prepare(
     let (package, nodes) = if payloads.is_empty() {
         (package, vec![])
     } else {
-        crate::ooxml::encode_editor_inlines(package, main, &payloads)?
+        crate::ooxml::encode_editor_inlines(package, main, owner, kind, &payloads)?
     };
     let mut nodes = nodes.into_iter();
     Ok((
@@ -542,6 +552,95 @@ fn apply_targets(
 }
 
 impl super::ImportedDocument {
+    /// Apply whole-inline operations to ordinary entries in one physical
+    /// footnote, endnote or comment part, using original snapshot anchors.
+    pub fn edit_entry_inlines(&self, owner_part: &str, edits: &[InlineEdit]) -> Result<Vec<u8>> {
+        use crate::ooxml::WordParts;
+        let mut ordered = BTreeMap::new();
+        let mut counts = None;
+        let mut kind = None;
+        for edit in edits {
+            self.validate_snapshot(&edit.target.snapshot)?;
+            let (InlineLocation::Entry { index, block_index }, [inline]) =
+                (&edit.target.location, edit.target.path.as_slice())
+            else {
+                return Err(unsupported("expected a direct entry inline"));
+            };
+            let e = self.editable_entry(owner_part, *index, &mut counts)?;
+            kind = Some(match e.kind {
+                super::EntryKind::Comment => crate::StoryKind::Comment,
+                super::EntryKind::Footnote => crate::StoryKind::Footnote,
+                super::EntryKind::Endnote => crate::StoryKind::Endnote,
+            });
+            if ordered
+                .insert((e.element_index, *block_index, *inline), &edit.action)
+                .is_some()
+            {
+                return Err(unsupported("duplicate entry inline target"));
+            }
+        }
+        let kind = kind.ok_or_else(|| unsupported("expected an entry inline edit"))?;
+        let (mut package, actions) =
+            render_actions(self.package.clone(), &self.main, owner_part, kind, ordered)?;
+        let mut groups = BTreeMap::<usize, Targets>::new();
+        for ((entry, block, inline), action) in actions {
+            groups
+                .entry(entry)
+                .or_default()
+                .insert((block, inline), action);
+        }
+        let mut root = package.word(owner_part)?;
+        let mut changes = Vec::new();
+        for (index, entry) in root.elements_mut().enumerate() {
+            if let Some(targets) = groups.remove(&index) {
+                apply_targets(entry, targets, false, &mut changes)?;
+            }
+        }
+        if !groups.is_empty() {
+            return Err(unsupported("story entry not found"));
+        }
+        if !changes.is_empty() {
+            package.put_word(owner_part, root)?;
+        }
+        super::PackagePlan::new(package)?.to_bytes()
+    }
+
+    fn editable_entry(
+        &self,
+        owner_part: &str,
+        index: usize,
+        entry_ids: &mut Option<BTreeMap<String, usize>>,
+    ) -> Result<&super::ImportedEntry> {
+        let entries = self.entry_stories()?;
+        let e = entries
+            .get(index)
+            .ok_or_else(|| unsupported("story entry not found"))?;
+        if e.part_name != owner_part {
+            return Err(unsupported("story text owner mismatch"));
+        }
+        let id =
+            crate::ooxml::decimal_id(&e.id).ok_or_else(|| unsupported("invalid story entry ID"))?;
+        if e.kind != super::EntryKind::Comment
+            && (id.starts_with('-') || !matches!(e.note_type.as_deref(), None | Some("normal")))
+        {
+            return Err(unsupported("reserved note entry"));
+        }
+        let counts = entry_ids.get_or_insert_with(|| {
+            let mut counts = BTreeMap::new();
+            for id in entries
+                .iter()
+                .filter(|other| other.part_name == owner_part)
+                .filter_map(|other| crate::ooxml::decimal_id(&other.id))
+            {
+                *counts.entry(id).or_default() += 1;
+            }
+            counts
+        });
+        if counts.get(&id) != Some(&1) {
+            return Err(unsupported("ambiguous story entry ID"));
+        }
+        Ok(e)
+    }
     /// Replace direct single-text runs in one physical story owner. Section aliases
     /// share the change. Entry IDs, reference runs and main-document links are untouched.
     pub fn edit_story_text(&self, owner_part: &str, edits: &[RunTextEdit]) -> Result<Vec<u8>> {
@@ -562,35 +661,7 @@ impl super::ImportedDocument {
                     (None, *block_index)
                 }
                 InlineLocation::Entry { index, block_index } => {
-                    let entries = self.entry_stories()?;
-                    let e = entries
-                        .get(*index)
-                        .ok_or_else(|| unsupported("story entry not found"))?;
-                    if e.part_name != owner_part {
-                        return Err(unsupported("story text owner mismatch"));
-                    }
-                    let id = crate::ooxml::decimal_id(&e.id)
-                        .ok_or_else(|| unsupported("invalid story entry ID"))?;
-                    if e.kind != super::EntryKind::Comment
-                        && (id.starts_with('-')
-                            || !matches!(e.note_type.as_deref(), None | Some("normal")))
-                    {
-                        return Err(unsupported("reserved note entry"));
-                    }
-                    let counts = entry_ids.get_or_insert_with(|| {
-                        let mut counts = BTreeMap::new();
-                        for id in entries
-                            .iter()
-                            .filter(|other| other.part_name == owner_part)
-                            .filter_map(|other| crate::ooxml::decimal_id(&other.id))
-                        {
-                            *counts.entry(id).or_insert(0usize) += 1;
-                        }
-                        counts
-                    });
-                    if counts.get(&id) != Some(&1) {
-                        return Err(unsupported("ambiguous story entry ID"));
-                    }
+                    let e = self.editable_entry(owner_part, *index, &mut entry_ids)?;
                     (Some(e.element_index), *block_index)
                 }
                 _ => return Err(unsupported("story text owner mismatch")),

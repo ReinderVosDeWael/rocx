@@ -174,6 +174,7 @@ round-trip authoring declaration.
 | `imported.preview(batch: EditBatch): EditPreview` | Stages ordinary edits against original snapshot targets. All fields are optional: `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `textRanges`, `textInsertions`, `runText`, `runRemovals`, `blockEdits`, `inlineEdits`, `tableStructure`, `styleEdits`, `resources`, `controls`. |
 | `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one image append to an effective header or footer slot. Obtain the target from `stories()`; `change()` reports the effect. |
 | `imported.editStoryText({ownerPart, runText}): Uint8Array` | Returns DOCX bytes for a separate atomic batch in one physical part. Supply the inspected part name and anchors for eligible direct runs in that header/footer or ordinary footnote/endnote/comment entry. All aliases see the edit. |
+| `imported.editEntryInlines({ownerPart, inlineEdits}): Uint8Array` | Insert after or replace eligible direct runs/hyperlinks, or patch direct run bold, in ordinary note/comment entries of one part. New external links belong to that part; reference marks and reserved notes are protected. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
 Alignment edits take a `ParagraphAnchor` and `alignment`; table insertions

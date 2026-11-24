@@ -486,7 +486,13 @@ async def generate(output: pathlib.Path) -> bytes:
                      (e.author == "Structured reviewer" if kind == "comment" else e.id == "0"))
         entry_run = next(n for n in entry.blocks[0].inline_structure if isinstance(n, ImportedRun) and
                    len(n.items) == 1 and n.items[0].kind == "text")
-        entries_output = source.edit_story_text(entry.part_name, [RunTextEdit(entry_run.anchor, f"Edited {kind} entry")])
+        label = f"Edited {kind} entry"
+        source = ImportedDocument.open(source.edit_story_text(entry.part_name, [RunTextEdit(entry_run.anchor, label)]))
+        entry = next(e for e in source.entry_stories if e.kind == kind and e.id == entry.id)
+        entry_run = next(n for n in entry.blocks[0].inline_structure if isinstance(n, ImportedRun) and
+                         n.items and n.items[0].kind == "text" and n.items[0].value == label)
+        review_link = await d.Hyperlink("https://example.com/entry-review", [d.TextRun("Review link")]).resolve()
+        entries_output = source.edit_entry_inlines(entry.part_name, [InlineEdit.insert_after(entry_run.anchor, review_link)])
     output.with_suffix(".entry-text.docx").write_bytes(entries_output)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))

@@ -173,6 +173,21 @@ async def test_relocated_note_owners_and_supported_story_edits_are_relationship_
             elif name==f"word/_rels/{kind}s.xml.rels":
                 payload=payload.replace(b'Target="media/',b'Target="../word/media/')
             target.writestr(destination,payload)
+    from rocx.editor import ImportedDocument, InlineEdit
+    imported = ImportedDocument.open(template.read_bytes())
+    note = next(e for e in imported.entry_stories if e.kind == kind and e.id == "0")
+    anchor = next(r.anchor for r in note.blocks[0].inline_structure if any(
+        i.kind == "text" for i in getattr(r, "items", [])))
+    new_url = "https://example.org/relocated-owner"
+    link = await d.Hyperlink(new_url, [d.TextRun("review")]).resolve()
+    changed = imported.edit_entry_inlines(note.part_name, [InlineEdit.insert_after(anchor, link)])
+    with zipfile.ZipFile(template) as old, zipfile.ZipFile(io.BytesIO(changed)) as new:
+        relpath = "annotations/_rels/notes.xml.rels"
+        assert {p for p in old.namelist() if old.read(p) != new.read(p)} == {note.part_name, relpath}
+        added, = etree.fromstring(new.read(note.part_name)).xpath(
+            ".//w:hyperlink[w:r/w:t='review']", namespaces={"w": W[1:-1]})
+        owned, = [r for r in etree.fromstring(new.read(relpath)) if r.get("Id") == added.get(R + "id")]
+        assert owned.get("Target") == new_url and owned.get("TargetMode") == "External"
     addition=d.Document([d.Section(children=[d.Paragraph(children=[d.NoteReference(kind,9)])])],notes=[
         d.Note(kind,9,[d.Paragraph(children=[d.Hyperlink(TARGET,[d.TextRun("new link")]),d.ImageRun(data=IMAGE)])])])
     original_text="Other foot" if kind=="footnote" else "End Ω"
@@ -246,3 +261,53 @@ async def test_entry_text_refuses_ambiguous_decimal_id():
     run = next(n for n in note.blocks[0].inline_structure if any(i.kind == "text" for i in n.items))
     with pytest.raises(ValueError, match="ambiguous story entry ID"):
         imported.edit_story_text(owner, [RunTextEdit(run.anchor, "ambiguous")])
+
+
+async def test_independent_comment_inline_batch_keeps_anchor_and_annotation_reference():
+    from rocx.editor import ImportedDocument, InlineEdit
+
+    source = docx.Document()
+    reviewed = source.add_paragraph("reviewed body").runs[0]
+    comment = source.add_comment(reviewed, text="Review", author="Ada", initials="AL")
+    comment.paragraphs[0].add_run(" this")
+    buffer = io.BytesIO()
+    source.save(buffer)
+    imported = ImportedDocument.open(buffer.getvalue())
+    entry, = imported.entry_stories
+    mark, first, second = entry.blocks[0].inline_structure
+    bold = InlineEdit.set_bold(first.anchor, True)
+    replacement = await d.Hyperlink(TARGET, [d.TextRun("details")]).resolve()
+    link = InlineEdit.replace(second.anchor, replacement)
+    with pytest.raises(ValueError):
+        imported.edit_entry_inlines(entry.part_name, [link, InlineEdit.replace(mark.anchor, replacement)])
+    changed = imported.edit_entry_inlines(entry.part_name, [link, bold])
+    with pytest.raises(ValueError):
+        ImportedDocument.open(changed).edit_entry_inlines(entry.part_name, [bold])
+    result = docx.Document(io.BytesIO(changed))
+    edited, = result.comments
+    assert (edited.comment_id, edited.author, edited.initials) == (comment.comment_id, "Ada", "AL")
+    assert edited.paragraphs[0].text == "Reviewdetails" and edited.paragraphs[0].runs[-1].bold
+    assert edited.paragraphs[0].hyperlinks[0].address == TARGET
+    assert edited.paragraphs[0]._p.xpath(".//w:annotationRef")
+    with zipfile.ZipFile(buffer) as before, zipfile.ZipFile(io.BytesIO(changed)) as after:
+        assert set(after.namelist()) == set(before.namelist()) | {"word/_rels/comments.xml.rels"}
+        assert all(before.read(p) == after.read(p) for p in before.namelist() if p != entry.part_name)
+
+
+@pytest.mark.parametrize("kind", ["footnote", "endnote"])
+async def test_entry_inline_rejects_reference_run_and_special_entry(kind):
+    from rocx.editor import ImportedDocument, InlineEdit
+
+    imported = ImportedDocument.open(await declaration().to_bytes())
+    note = next(e for e in imported.entry_stories if e.kind == kind and not e.note_type)
+    reference, text, *_ = note.blocks[0].inline_structure
+    special = next(e for e in imported.entry_stories if e.kind == kind and e.note_type == "separator")
+    good = InlineEdit.set_bold(text.anchor, True)
+    for protected in (reference, special.blocks[0].inline_structure[0]):
+        with pytest.raises(ValueError):
+            imported.edit_entry_inlines(note.part_name, [good, InlineEdit.set_bold(protected.anchor, False)])
+    with pytest.raises(ValueError, match="owner mismatch"):
+        imported.edit_entry_inlines("word/document.xml", [good])
+    changed = imported.edit_entry_inlines(note.part_name, [good])
+    with zipfile.ZipFile(io.BytesIO(changed)) as output:
+        assert etree.fromstring(output.read(note.part_name)).find(f".//{W}{kind}Ref") is not None

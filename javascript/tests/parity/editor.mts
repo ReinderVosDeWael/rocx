@@ -540,7 +540,14 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
     for (const block of e.blocks) {
       if (block.kind !== "paragraph") continue;
       for (const node of block.inlineStructure) {
-        if (node.kind === "run") doc.inlineAt(node.anchor);
+        if (node.kind === "run") {
+          doc.inlineAt(node.anchor);
+          const bytes: Uint8Array = doc.editEntryInlines({
+            ownerPart: e.partName, inlineEdits: [{kind: "setBold", target: node.anchor, bold: true}],
+          });
+          // @ts-expect-error decimal entry IDs are metadata, not inline anchors
+          doc.editEntryInlines({ownerPart: e.partName, inlineEdits: [{kind: "setBold", target: id, bold: true}]});
+        }
       }
     }
   }

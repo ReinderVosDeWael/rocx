@@ -643,11 +643,41 @@ pub async fn generate(output: &Path) -> Result<()> {
                 _ => None,
             })
             .unwrap();
-        entries_output = source.edit_story_text(
+        let label = format!("Edited {} entry", kind.as_str());
+        let text_bytes = source.edit_story_text(
             &e.part_name,
             &[editor::RunTextEdit {
                 target: run.anchor.clone(),
-                text: format!("Edited {} entry", kind.as_str()),
+                text: label.clone(),
+            }],
+        )?;
+        let source = editor::ImportedDocument::open(&text_bytes)?;
+        let e = source
+            .entry_stories()?
+            .iter()
+            .find(|other| other.kind == kind && other.id == e.id)
+            .unwrap();
+        let run = e.inline_structure(0).unwrap().iter().find_map(|node| match node {
+            Run(r) if matches!(r.items.as_slice(), [editor::ImportedInline::Text(text)] if text == &label) => Some(r),
+            _ => None,
+        }).unwrap();
+        let link = Hyperlink::new(
+            HyperlinkTarget::external("https://example.com/entry-review")?,
+            vec![TextRun::new("Review link").into()],
+        );
+        let payload = Document::new(vec![
+            Section::new(vec![Paragraph::from_children(vec![link.into()]).into()]).into(),
+        ])
+        .resolve()
+        .await?;
+        let ResolvedBlock::Paragraph(p) = &payload.sections()[0].blocks()[0] else {
+            unreachable!()
+        };
+        entries_output = source.edit_entry_inlines(
+            &e.part_name,
+            &[editor::InlineEdit {
+                target: run.anchor.clone(),
+                action: editor::InlineAction::InsertAfter(p.runs()[0].clone()),
             }],
         )?;
     }
