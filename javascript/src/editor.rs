@@ -33,6 +33,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
             "editPreviewRunTextChanges",
             (run_text_changes, Paths::Package),
         ),
+        ("editPreviewInlineChanges", (inline_changes, Paths::Package)),
         ("editPreviewRunRemovals", (run_removals, Paths::Package)),
         ("editPreviewInsertions", (insertions, Paths::Package)),
         (
@@ -103,6 +104,41 @@ fn paragraph_insertion(input: &Wire, path: &str) -> Result<ParagraphInsertion> {
     })
 }
 
+fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
+    use rocx::editor::{InlineAction, InlineEdit};
+    let record = Record::new(input, path, &["target", "kind", "inline", "bold"])?;
+    let kind = b::string(&record.get("kind")?, &record.path("kind"))?;
+    let edit = Record::new(
+        input,
+        path,
+        if kind == "setBold" {
+            &["target", "kind", "bold"]
+        } else {
+            &["target", "kind", "inline"]
+        },
+    )?;
+    let payload = || -> Result<_> {
+        Ok(
+            (*b::borrow::<rocx::ResolvedInline>(&edit.get("inline")?, &edit.path("inline"))?)
+                .clone(),
+        )
+    };
+    Ok(InlineEdit {
+        target: crate::inspection::inline_anchor(&edit.get("target")?, &edit.path("target"))?,
+        action: match kind.as_str() {
+            "insertAfter" => InlineAction::InsertAfter(payload()?),
+            "replace" => InlineAction::Replace(payload()?),
+            "setBold" => InlineAction::SetBold(
+                edit.get("bold")?
+                    .js()
+                    .as_bool()
+                    .ok_or_else(|| Failure::invalid(&edit.path("bold"), "expected boolean"))?,
+            ),
+            _ => return Err(Failure::invalid(&edit.path("kind"), "unknown inline edit")),
+        },
+    })
+}
+
 fn cell_alignment_edit(input: &Wire, path: &str) -> Result<rocx::editor::CellAlignmentEdit> {
     let edit = Record::new(
         input,
@@ -167,9 +203,10 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
+            "inlineEdits",
         ],
     )?;
-    let preview = source.document().preview_mixed(
+    let preview = source.document().preview_with_inlines(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -186,6 +223,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
         &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
+        &edits(&batch, "inlineEdits", inline_edit)?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",
@@ -197,6 +235,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
             ("runTextChanges", "editPreviewRunTextChanges"),
             ("runRemovals", "editPreviewRunRemovals"),
             ("insertions", "editPreviewInsertions"),
+            ("inlineChanges", "editPreviewInlineChanges"),
             ("paragraphInsertions", "editPreviewParagraphInsertions"),
             ("headerChanges", "editPreviewHeaderChanges"),
             ("toDocx", "editPreviewToDocx"),
@@ -282,6 +321,13 @@ fn insertions(input: &Wire) -> Result<JsValue> {
             ("columns", change.columns.into()),
         ])
     })))
+}
+
+fn inline_changes(input: &Wire) -> Result<JsValue> {
+    let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
+    Ok(array(preview.inline_changes().iter().map(
+        |&(body, inline)| array([JsValue::from(body), JsValue::from(inline)].into_iter()),
+    )))
 }
 
 fn paragraph_insertions(input: &Wire) -> Result<JsValue> {

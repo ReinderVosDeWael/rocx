@@ -613,6 +613,57 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "InlineEdit", frozen, module = "rocx.editor")]
+struct PyInlineEdit {
+    inner: editor::InlineEdit,
+}
+
+fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
+    if !node.is_instance(
+        &node
+            .py()
+            .import("rocx.resolution.snapshot")?
+            .getattr("ResolvedNode")?,
+    )? {
+        return Err(PyTypeError::new_err("expected resolved inline"));
+    }
+    super::content::inline(node)?.ok_or_else(|| PyTypeError::new_err("expected resolved inline"))
+}
+
+#[pymethods]
+impl PyInlineEdit {
+    #[staticmethod]
+    fn insert_after(
+        target: PyRef<'_, PyInlineAnchor>,
+        inline: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::InsertAfter(inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn replace(target: PyRef<'_, PyInlineAnchor>, inline: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::Replace(inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn set_bold(target: PyRef<'_, PyInlineAnchor>, bold: bool) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetBold(bold),
+            },
+        }
+    }
+}
+
 #[pyclass(name = "ParagraphInsertion", frozen, module = "rocx.editor")]
 struct PyParagraphInsertion {
     target: editor::ParagraphAnchor,
@@ -703,6 +754,15 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    #[getter]
+    fn inline_changes(&self) -> PyResult<Vec<(usize, usize)>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .inline_changes()
+            .to_vec())
+    }
     #[getter]
     fn paragraph_insertions(&self) -> PyResult<Vec<usize>> {
         Ok(self
@@ -1057,7 +1117,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, inline_edits=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1067,6 +1127,7 @@ impl PyImportedDocument {
         run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
+        inline_edits: Option<Vec<PyRef<'_, PyInlineEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1094,7 +1155,7 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_mixed(
+                doc.preview_with_inlines(
                     &edits,
                     &insertions,
                     &header_images,
@@ -1120,6 +1181,11 @@ impl PyImportedDocument {
                         .unwrap_or_default()
                         .iter()
                         .map(|anchor| anchor.inner.clone())
+                        .collect::<Vec<_>>(),
+                    &inline_edits
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| e.inner.clone())
                         .collect::<Vec<_>>(),
                 )
                 .map_err(rust_error)?,
@@ -1162,6 +1228,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyParagraphAlignmentEdit>()?;
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyParagraphInsertion>()?;
+    module.add_class::<PyInlineEdit>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;

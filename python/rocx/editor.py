@@ -6,7 +6,7 @@ hyperlink, or revision anchor in the same snapshot. Supported direct-body run an
 also be used for text replacement or whole-run removal.
 
 ``ImportedDocument.preview`` stages paragraph alignments together with any of
-``table_insertions=``, ``paragraph_insertions=``, ``cell_alignments=``,
+``table_insertions=``, ``paragraph_insertions=``, ``cell_alignments=``, ``inline_edits=``,
 ``header_images=``, ``run_text=``, and ``run_removals=`` in one transaction.
 All targets refer to the original snapshot.
 
@@ -49,6 +49,7 @@ from ._native import (
     ImportedTableRow,
     InlineAnchor,
     ParagraphAlignmentEdit,
+    InlineEdit,
     ParagraphInsertion,
     ParagraphAnchor,
     TableInsertion,
@@ -93,6 +94,7 @@ __all__ = [
     "ImportedTableRow",
     "InlineAnchor",
     "ParagraphAlignmentEdit",
+    "InlineEdit",
     "ParagraphInsertion",
     "ParagraphAnchor",
     "TableInsertion",

@@ -173,6 +173,11 @@ export async function generateCatalog(fixtures, options) {
   });
   assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");
   const [change] = textPreview.runTextChanges();
+  const whole = imported.preview({inlineEdits: [
+    {kind: "setBold", target: textEdit.target, bold: false},
+    {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
+  ]});
+  assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");
   const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
   assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&

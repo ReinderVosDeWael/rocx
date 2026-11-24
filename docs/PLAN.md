@@ -2,6 +2,11 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+Whole-inline topic (#3): direct-body anchored insert-after, replacement and a
+property-preserving direct bold patch passed focused mixed-batch tests. The
+packed Node 22 editor oracle matched all 13 native files exactly; Python matched
+the new inline file and independently verified placement and relationships.
+
 ## Current milestone: qualify the combined #3 editor
 
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).

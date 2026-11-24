@@ -28,7 +28,7 @@ pub use header::{
 };
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit};
-pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
+pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -368,6 +368,7 @@ pub struct AlignmentChange {
 #[derive(Debug)]
 pub struct EditPreview {
     run_text_changes: Vec<RunTextChange>,
+    inline_changes: Vec<(usize, usize)>,
     run_removals: Vec<RunRemovalChange>,
     cell_alignment_changes: Vec<CellAlignmentChange>,
     changes: Vec<AlignmentChange>,
@@ -381,6 +382,10 @@ impl EditPreview {
     /// Changed physical cells in original document order.
     pub fn cell_alignment_changes(&self) -> &[CellAlignmentChange] {
         &self.cell_alignment_changes
+    }
+    /// Changed (body index, direct inline index) pairs in original document order.
+    pub fn inline_changes(&self) -> &[(usize, usize)] {
+        &self.inline_changes
     }
     /// Removed direct body runs, in original document order.
     pub fn run_removals(&self) -> &[RunRemovalChange] {
@@ -647,6 +652,31 @@ impl ImportedDocument {
         cells: &[CellAlignmentEdit],
         run_removals: &[InlineAnchor],
     ) -> Result<EditPreview> {
+        self.preview_with_inlines(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            &[],
+        )
+    }
+
+    /// A mixed transaction including whole-inline insertions, replacements and formatting patches.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_with_inlines(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+        inline_edits: &[InlineEdit],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -655,6 +685,7 @@ impl ImportedDocument {
             .chain(run_text.iter().map(|edit| &edit.target.snapshot))
             .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
+            .chain(inline_edits.iter().map(|e| &e.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
         {
             self.validate_snapshot(snapshot)?;
@@ -699,12 +730,14 @@ impl ImportedDocument {
         let mut insertions = Vec::new();
         let mut header_changes = Vec::new();
         let mut run_text_changes = Vec::new();
+        let mut inline_changes = Vec::new();
         let mut removed_runs = Vec::new();
         let mut cell_alignment_changes = Vec::new();
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !run_text.is_empty()
+            || !inline_edits.is_empty()
             || !run_removals.is_empty()
             || !paragraph_targets.is_empty()
             || !cells.is_empty()
@@ -712,7 +745,10 @@ impl ImportedDocument {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            (run_text_changes, removed_runs) = text::apply(body, run_text, run_removals)?;
+            let (staged, actions) = text::prepare(package, &self.main, inline_edits)?;
+            package = staged;
+            (run_text_changes, removed_runs) =
+                text::apply(body, run_text, run_removals, actions, &mut inline_changes)?;
             cell_alignment_changes = tables::apply(body, cells)?;
             for (body_index, paragraph) in body
                 .elements_mut()
@@ -799,6 +835,7 @@ impl ImportedDocument {
             }
             if !changes.is_empty()
                 || !run_text_changes.is_empty()
+                || !inline_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
                 || !insertions.is_empty()
@@ -812,6 +849,7 @@ impl ImportedDocument {
         }
         Ok(EditPreview {
             run_text_changes,
+            inline_changes,
             run_removals: removed_runs,
             cell_alignment_changes,
             changes,

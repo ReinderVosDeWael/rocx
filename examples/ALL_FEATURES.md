@@ -184,6 +184,12 @@ the same anchor in one batch.
 Separately, all three catalogs preview removal of the labeled single-text body
 run without writing a tenth file: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
+The catalogs also stage a direct bold patch and an insertion after a hyperlink:
+Rust `preview_with_inlines` with `InlineEdit`/`InlineAction`, Python `inline_edits`
+with `InlineEdit.set_bold`/`insert_after`, JavaScript `inlineEdits` with
+`setBold`/`insertAfter`. The installed editor oracle additionally replaces a run
+with an external hyperlink and verifies its relationship and exact package bytes.
+
 Removal rejects opaque or unsafe run markup.
 
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle

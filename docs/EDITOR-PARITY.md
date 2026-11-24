@@ -50,6 +50,26 @@ guards. An anchor cannot receive both a paragraph and a table insertion in one
 batch. Paragraph replacement and removal, and paragraph insertion in other
 stories, are unsupported.
 
+Whole-inline edits address a direct child of a direct body paragraph. Insert after
+or replace a single text, break or tab run, or a hyperlink containing only such
+runs. Payloads use the imported-paragraph codecs for resolved text, breaks, tabs,
+fractions and external hyperlinks. New external links allocate relationships on
+the actual document part. Replacement refuses to discard unrecognized properties
+or markup; unused existing relationships are retained. A direct bold patch on a
+supported run sets only `w:rPr/w:b`, preserving other properties (including
+unmodeled markup). Duplicate targets, nested targets, tracked or ambiguous
+properties and active supported field/range boundaries reject the batch.
+
+| Rust: `preview_with_inlines`, `InlineEdit { target, action }` | Python: `preview([], inline_edits=[…])` | JavaScript: `preview({inlineEdits: […]})` |
+| --- | --- | --- |
+| `InlineAction::InsertAfter(inline)` | `InlineEdit.insert_after(anchor, inline)` | `{kind: "insertAfter", target, inline}` |
+| `InlineAction::Replace(inline)` | `InlineEdit.replace(anchor, inline)` | `{kind: "replace", target, inline}` |
+| `InlineAction::SetBold(false)` | `InlineEdit.set_bold(anchor, False)` | `{kind: "setBold", target, bold: false}` |
+
+`inline_changes()` / `inline_changes` / `inlineChanges()` return original
+(body, inline) index pairs in document order; an already-matching direct bold
+value is omitted. There are no character-range addresses in these operations.
+
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
 Rust, Python and JavaScript. The table anchor plus physical row and cell indices
@@ -83,8 +103,8 @@ even when both snapshots came from identical bytes. Individual run items and
 opaque nodes are not addressable. Direct body run anchors support a single-text
 replacement via `RunTextEdit`. Whole-run removal is stricter: the selected
 run must have recognized local formatting and no unsafe or unknown markup.
-Replacement and removal of the same run conflict. All other inline addresses
-remain read-only.
+Replacement and removal of the same run conflict. Direct-body whole-inline edits
+are described above; inline addresses in other stories and cells remain read-only.
 
 Inline `w:ins` and `w:del` wrappers are also inspectable without applying them:
 Rust `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript

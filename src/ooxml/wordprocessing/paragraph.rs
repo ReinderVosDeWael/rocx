@@ -38,7 +38,7 @@ impl Compiler<'_> {
         Ok(node)
     }
     /// P1 §17.16.22: hyperlink owns runs, not a run's child element.
-    pub(super) fn inline(
+    pub(in crate::ooxml) fn inline(
         &mut self,
         run: &ResolvedInline,
         context: &crate::ooxml::PartContext,

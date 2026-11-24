@@ -253,6 +253,25 @@ def verify(directory):
     assert python_preview.run_removals[0].before == "Source bold"
     assert python_preview.to_docx() == (directory / "removal.docx").read_bytes()
 
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import InlineEdit
+
+    async def inline_batch():
+        target = lambda i: imported.body[i].inline_structure[0].anchor
+        link = await d.Hyperlink("https://example.invalid/inline", [d.TextRun("editable link")]).resolve()
+        return imported.preview([], inline_edits=[InlineEdit.insert_after(target(4), await d.Break().resolve()),
+            InlineEdit.set_bold(target(0), False), InlineEdit.replace(target(1), link)])
+
+    inline = asyncio.run(inline_batch())
+    assert inline.inline_changes == [(0, 0), (1, 0), (4, 0)]
+    assert inline.to_docx() == (directory / "inline.docx").read_bytes()
+    untouched(source, parts(directory / "inline.docx"), (MAIN, MAIN_RELS))
+    edited = Document(directory / "inline.docx").paragraphs
+    assert edited[0].runs[0].bold is False
+    assert edited[1].hyperlinks[0].url == "https://example.invalid/inline"
+    assert edited[1].text == "editable link" and edited[4].text == "next section\n"
+
     body = parts(directory / "body.docx")
     untouched(source, body, (MAIN, MAIN_RELS))
     inspect_body(source, body)

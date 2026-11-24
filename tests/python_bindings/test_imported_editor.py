@@ -956,3 +956,88 @@ async def test_header_image_edit_rejects_invalid_inputs_and_foreign_anchor():
         HeaderImageEdit(anchor, d.ImageRun(data=b""), mode="shared")
     with pytest.raises(ValueError):
         second.preview_header_image(HeaderImageEdit(anchor, image, mode="shared"))
+
+
+async def test_inline_splices_use_original_slots_and_preserve_unmodeled_properties():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from lxml import etree
+    from rocx.editor import InlineEdit
+
+    source = docx.Document()
+    p = source.add_paragraph()
+    for text in ("one", "two", "three", "four", "five"):
+        p.add_run(text)
+    props = p.runs[3]._r.get_or_add_rPr()
+    language = OxmlElement("w:lang")
+    language.set(qn("w:val"), "fr-CA")
+    props.append(language)
+    props.append(etree.Comment("preserve property annotation"))
+    source.add_table(rows=1, cols=1).cell(0, 0).text = "cell"
+    out = io.BytesIO()
+    source.save(out)
+    original = out.getvalue()
+    doc = ImportedDocument.open(original)
+    paragraph, table = doc.body
+    one, two, three, four, five = [r.anchor for r in paragraph.inline_structure]
+    link = await d.Hyperlink("https://example.test/inline", [d.TextRun("new", italic=True)]).resolve()
+    line = await d.Break().resolve()
+    edits = [InlineEdit.set_bold(four, True), InlineEdit.replace(three, link), InlineEdit.insert_after(one, line)]
+    batch = dict(run_removals=[two], run_text=[RunTextEdit(five, "last")], inline_edits=edits,
+                 cell_alignments=[CellAlignmentEdit(table.anchor, 0, 0, "bottom")])
+    preview = doc.preview([], **batch)
+    assert preview.inline_changes == [(0, 0), (0, 2), (0, 3)]
+    result = preview.to_docx()
+    p = docx.Document(io.BytesIO(result)).paragraphs[0]
+    assert p.text == "one\nnewfourlast" and p.hyperlinks[0].url == "https://example.test/inline"
+    kept = p.runs[-2]
+    assert kept.bold and kept._r.rPr.find(qn("w:lang")).get(qn("w:val")) == "fr-CA"
+    assert kept._r.rPr.xpath("comment()")[0].text == "preserve property annotation"
+    source_parts, result_parts = _parts(original), _parts(result)
+    assert result_parts.keys() == source_parts.keys()
+    assert all(source_parts[n] == result_parts[n] for n in source_parts
+               if n not in ("word/document.xml", "word/_rels/document.xml.rels"))
+    reopened = ImportedDocument.open(result)
+    _, br, hyperlink, bold, _ = reopened.body[0].inline_structure
+    nop = reopened.preview([], inline_edits=[InlineEdit.set_bold(bold.anchor, True)])
+    assert nop.inline_changes == [] and _parts(nop.to_docx()) == result_parts
+    text = await d.TextRun(" fresh ").resolve()
+    reedited = reopened.preview([], inline_edits=[InlineEdit.replace(br.anchor, text), InlineEdit.replace(hyperlink.anchor, line)])
+    assert docx.Document(io.BytesIO(reedited.to_docx())).paragraphs[0].text == "one fresh \nfourlast"
+    for invalid in (InlineEdit.replace(four, line), InlineEdit.replace(hyperlink.children[0].anchor, line),
+                    InlineEdit.set_bold(bold.anchor, False), InlineEdit.replace(one, text)):
+        with pytest.raises(ValueError):
+            doc.preview([], inline_edits=[edits[-1], invalid])
+    with pytest.raises(ValueError):
+        reopened.preview([], inline_edits=[InlineEdit.replace(hyperlink.children[0].anchor, text)])
+    assert doc.preview([], **batch).to_docx() == result
+
+
+async def test_inline_range_and_ambiguous_properties_reject_batch():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import InlineEdit
+
+    source = docx.Document()
+    p = source.add_paragraph("keep")
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), "4")
+    start.set(qn("w:name"), "protected")
+    p._p.append(start)
+    p.add_run("in range")
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), "4")
+    p._p.append(end)
+    props = p.add_run("ambiguous")._r.get_or_add_rPr()
+    props.extend([OxmlElement("w:b"), OxmlElement("w:b")])
+    out = io.BytesIO()
+    source.save(out)
+    doc = ImportedDocument.open(out.getvalue())
+    first, _, protected, _, ambiguous = doc.body[0].inline_structure
+    payload = await d.TextRun("new").resolve()
+    for bad in [InlineEdit.insert_after(protected.anchor, payload), InlineEdit.replace(protected.anchor, payload),
+                InlineEdit.set_bold(ambiguous.anchor, False),
+                InlineEdit.replace(first.anchor, await d.TextRun("annotated", comment_text="note").resolve())]:
+        with pytest.raises(ValueError):
+            doc.preview([], run_text=[RunTextEdit(first.anchor, "other")], inline_edits=[bad])
+    assert _parts(doc.preview([]).to_docx()) == _parts(out.getvalue())

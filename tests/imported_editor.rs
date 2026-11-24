@@ -427,6 +427,63 @@ fn removes_original_run_targets_and_rejects_unsafe_or_conflicting_batches() {
     );
 }
 
+#[test]
+fn whole_inline_edits_respect_cross_paragraph_fields_and_keep_opaque_formatting() {
+    use rocx::editor::{ImportedInlineNode::Run, InlineAction, InlineEdit};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}" xmlns:ext="urn:fixture"><w:body>
+        <w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r></w:p>
+        <w:p><w:r><w:t>cache</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>
+        <w:r><w:rPr><w:b ext:token="keep"/><ext:decoration ext:version="7">opaque</ext:decoration></w:rPr><w:t>visible</w:t></w:r><w:r><w:cr/></w:r></w:p>
+        <w:sectPr/></w:body></w:document>"#
+    );
+    let doc = ImportedDocument::open(&fixture_with_body(&xml)).unwrap();
+    let node = |index: usize, action| {
+        let Run(run) = &paragraph(&doc, 1).inline_structure[index] else {
+            panic!("expected a run")
+        };
+        InlineEdit {
+            target: run.anchor.clone(),
+            action,
+        }
+    };
+    let preview =
+        |edits: &[InlineEdit]| doc.preview_with_inlines(&[], &[], &[], &[], &[], &[], &[], edits);
+    let line = rocx::ResolvedInline::Break {
+        kind: rocx::BreakType::Line,
+        format: Default::default(),
+        comment: None,
+    };
+    assert!(
+        preview(&[
+            node(2, InlineAction::SetBold(false)),
+            node(0, InlineAction::InsertAfter(line.clone()))
+        ])
+        .is_err()
+    );
+    let carriage_return = preview(&[node(3, InlineAction::Replace(line.clone()))]).unwrap();
+    assert_eq!(carriage_return.inline_changes(), &[(1, 3)]);
+    assert!(preview(&[node(2, InlineAction::Replace(line))]).is_err());
+    let bold = preview(&[node(2, InlineAction::SetBold(false))]).unwrap();
+    assert_eq!(bold.inline_changes(), &[(1, 2)]);
+    let package = parts(&bold.to_docx().unwrap());
+    let result =
+        roxmltree::Document::parse(std::str::from_utf8(&package["word/document.xml"]).unwrap())
+            .unwrap();
+    let prop = result
+        .descendants()
+        .find(|n| n.has_tag_name((W, "b")))
+        .unwrap();
+    assert_eq!(prop.attribute((W, "val")), Some("0"));
+    assert_eq!(prop.attribute(("urn:fixture", "token")), Some("keep"));
+    let opaque = prop.next_sibling_element().unwrap();
+    assert!(opaque.has_tag_name(("urn:fixture", "decoration")));
+    assert_eq!(
+        (opaque.attribute(("urn:fixture", "version")), opaque.text()),
+        (Some("7"), Some("opaque"))
+    );
+}
+
 // Compare XML structure rather than serialization; the edited part may be reserialized.
 fn tree(node: roxmltree::Node<'_, '_>, skip_jc: bool) -> String {
     if node.is_text() {

@@ -632,6 +632,26 @@ pub async fn generate(output: &Path) -> Result<()> {
     )?;
     assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);
     assert_eq!(preview.run_text_changes()[0].before, INLINE_LABEL);
+    let whole = imported.preview_with_inlines(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[
+            editor::InlineEdit {
+                target: label.anchor.clone(),
+                action: editor::InlineAction::SetBold(false),
+            },
+            editor::InlineEdit {
+                target: link.anchor.clone(),
+                action: editor::InlineAction::InsertAfter(inserted_paragraph.runs()[0].clone()),
+            },
+        ],
+    )?;
+    assert_eq!(whole.inline_changes().last(), Some(&(paragraph_index, 1)));
     let removal = imported.preview_with_run_removals(
         &[],
         &[],

@@ -125,6 +125,51 @@ fn main() {
             .to_docx()
             .unwrap(),
     );
+    {
+        use rocx::editor::{ImportedInlineNode, InlineAction, InlineEdit};
+        let target = |index: usize| {
+            let BodyBlock::Paragraph(p) = &doc.body()[index] else {
+                panic!("paragraph")
+            };
+            let ImportedInlineNode::Run(run) = &p.inline_structure[0] else {
+                panic!("run")
+            };
+            run.anchor.clone()
+        };
+        let payload = immediate(Component::resolve(Paragraph::from_children(vec![
+            Hyperlink::new(
+                HyperlinkTarget::external("https://example.invalid/inline").unwrap(),
+                vec![TextRun::new("editable link").into()],
+            )
+            .into(),
+            rocx::Break::new(rocx::BreakType::Line).into(),
+        ])))
+        .unwrap()
+        .unwrap();
+        let batch = [
+            InlineEdit {
+                target: target(4),
+                action: InlineAction::InsertAfter(payload.runs()[1].clone()),
+            },
+            InlineEdit {
+                target: target(0),
+                action: InlineAction::SetBold(false),
+            },
+            InlineEdit {
+                target: target(1),
+                action: InlineAction::Replace(payload.runs()[0].clone()),
+            },
+        ];
+        let preview = doc
+            .preview_with_inlines(&[], &[], &[], &[], &[], &[], &[], &batch)
+            .unwrap();
+        assert_eq!(preview.inline_changes(), &[(0, 0), (1, 0), (4, 0)]);
+        assert!(
+            doc.preview_with_inlines(&[], &[], &[], &[], &[], &[], &[target(1)], &batch)
+                .is_err()
+        );
+        write("native-inline.docx", preview.to_docx().unwrap());
+    }
     for (name, a, t, h) in [
         ("native-noop.docx", &[][..], &[][..], &[][..]),
         (

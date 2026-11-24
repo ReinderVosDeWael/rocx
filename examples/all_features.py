@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion, InlineEdit,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -484,6 +484,9 @@ async def generate(output: pathlib.Path) -> bytes:
              if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     ]
     assert preview.run_text_changes[0].before == INLINE_LABEL
+    whole = imported.preview([], inline_edits=[InlineEdit.set_bold(label.anchor, False),
+        InlineEdit.insert_after(inline_link.anchor, await d.TextRun("Imported editor: inserted paragraph.").resolve())])
+    assert whole.inline_changes[-1][1] == 1
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
     output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
