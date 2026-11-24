@@ -326,17 +326,17 @@ fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
         .is_err()
     );
     let insert = || N::AddInstance {
-        num_id: 2,
+        num_id: 902,
         abstract_id: 7,
     };
     let patch = || N::Paragraph {
         target: anchor.clone(),
-        value: Some(rocx::NumberingReference { id: 2, level: 0 }),
+        value: Some(rocx::NumberingReference { id: 902, level: 0 }),
     };
     let data = render(vec![patch(), insert()]).unwrap().to_docx().unwrap();
     let result = parts(&data);
     let xml = std::str::from_utf8(&result[name]).unwrap();
-    assert!(xml.find("w:numId=\"2\"").unwrap() < xml.find("<w:numIdMacAtCleanup").unwrap());
+    assert!(xml.find("w:numId=\"902\"").unwrap() < xml.find("<w:numIdMacAtCleanup").unwrap());
     let edited = ImportedDocument::open(&data).unwrap();
     assert!(edited.paragraph_numbering(&anchor).is_err());
     assert_eq!(
@@ -345,7 +345,7 @@ fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
             .unwrap()
             .unwrap()
             .id,
-        2
+        902
     );
     assert_eq!(edited.numbering_instances().unwrap()[0].abstract_id, 7);
     assert_eq!(

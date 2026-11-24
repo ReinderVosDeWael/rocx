@@ -594,6 +594,7 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
             "numId",
             "level",
             "levels",
+            "definition",
             "target",
             "field",
             "name",
@@ -606,13 +607,16 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
         match kind.as_str() {
             "metadata" | "documentDefault" => &["kind", "field", "value"],
             "customProperty" => &["kind", "name", "value"],
+            "replaceInstance" => &["kind", "definition"],
             "abstractStart" => &["kind", "abstractId", "level", "value"],
-            "addAbstract" => &["kind", "abstractId", "levels"],
+            "addAbstract" | "replaceAbstract" => &["kind", "abstractId", "levels"],
+            "abstractLevel" => &["kind", "abstractId", "level", "value"],
             "removeAbstract" => &["kind", "abstractId"],
-            "addInstance" => &["kind", "abstractId", "numId"],
+            "addInstance" | "relinkInstance" => &["kind", "abstractId", "numId"],
             "removeInstance" => &["kind", "numId"],
             "instanceStart" | "instanceLevel" => &["kind", "numId", "level", "value"],
             "paragraphNumbering" => &["kind", "target", "value"],
+            "storyParagraphNumbering" => &["kind", "target", "value"],
             _ => &["kind", "value"],
         },
     )?;
@@ -701,9 +705,16 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
                 Some(rocx::editor::CustomValue::Text(b::string(&v, &vp)?))
             },
         ),
-        "addAbstract" => ResourceEdit::Numbering(N::AddAbstract {
-            abstract_id: id("abstractId")?,
-            levels: b::list(&edit.get("levels")?, &edit.path("levels"))?
+        "replaceInstance" => ResourceEdit::Numbering(N::ReplaceInstance(Box::new(
+            crate::styles::numbering_definition(
+                &edit.get("definition")?,
+                &b::Operation::new().pass(),
+                &edit.path("definition"),
+            )?,
+        ))),
+        "addAbstract" | "replaceAbstract" => {
+            let abstract_id = id("abstractId")?;
+            let levels = b::list(&edit.get("levels")?, &edit.path("levels"))?
                 .iter()
                 .enumerate()
                 .map(|(i, l)| {
@@ -713,12 +724,22 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
                         &format!("{path}.levels[{i}]"),
                     )
                 })
-                .collect::<Result<_>>()?,
-        }),
-        "instanceLevel" => ResourceEdit::Numbering(N::InstanceLevel {
-            num_id: id("numId")?,
-            level: level(id("level")?)?,
-            value: if clear {
+                .collect::<Result<_>>()?;
+            ResourceEdit::Numbering(if kind == "addAbstract" {
+                N::AddAbstract {
+                    abstract_id,
+                    levels,
+                }
+            } else {
+                N::ReplaceAbstract {
+                    abstract_id,
+                    levels,
+                }
+            })
+        }
+        "abstractLevel" | "instanceLevel" => {
+            let level = level(id("level")?)?;
+            let value = if clear {
                 None
             } else {
                 Some(Box::new(crate::styles::numbering_level(
@@ -726,7 +747,24 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
                     &b::Operation::new().pass(),
                     &vp,
                 )?))
-            },
+            };
+            ResourceEdit::Numbering(if kind == "abstractLevel" {
+                N::AbstractLevel {
+                    abstract_id: id("abstractId")?,
+                    level,
+                    value,
+                }
+            } else {
+                N::InstanceLevel {
+                    num_id: id("numId")?,
+                    level,
+                    value,
+                }
+            })
+        }
+        "relinkInstance" => ResourceEdit::Numbering(N::RelinkInstance {
+            num_id: id("numId")?,
+            abstract_id: id("abstractId")?,
         }),
         "removeAbstract" => ResourceEdit::Numbering(N::RemoveAbstract {
             abstract_id: id("abstractId")?,
@@ -743,9 +781,8 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
             level: level(id("level")?)?,
             start: if clear { None } else { Some(uint(&v, &vp)?) },
         }),
-        "paragraphNumbering" => ResourceEdit::Numbering(N::Paragraph {
-            target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
-            value: if clear {
+        "paragraphNumbering" | "storyParagraphNumbering" => {
+            let value = if clear {
                 None
             } else {
                 let r = Record::new(&v, &vp, &["id", "level"])?;
@@ -753,8 +790,24 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
                     id: uint(&r.get("id")?, &r.path("id"))?,
                     level: level(uint(&r.get("level")?, &r.path("level"))?)?,
                 })
-            },
-        }),
+            };
+            ResourceEdit::Numbering(if kind == "paragraphNumbering" {
+                N::Paragraph {
+                    target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?)
+                        .clone(),
+                    value,
+                }
+            } else {
+                N::StoryParagraph {
+                    target: (*borrow_target::<rocx::editor::StoryParagraphAnchor>(
+                        &edit,
+                        &edit.path("target"),
+                    )?)
+                    .clone(),
+                    value,
+                }
+            })
+        }
         "defaultAlignment" => ResourceEdit::DefaultAlignment(if clear {
             None
         } else {

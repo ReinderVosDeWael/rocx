@@ -32,7 +32,7 @@ mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
 mod numbering;
 mod resource_fields;
-pub use numbering::{ImportedNumberingInstance, NumberingEdit};
+pub use numbering::{ImportedNumberingInstance, NumberingEdit, StoryParagraphAnchor};
 mod resources;
 mod revisions;
 pub use revisions::TrackedText;
@@ -816,6 +816,7 @@ impl ImportedDocument {
         }
         let mut by_index = BTreeMap::new();
         let number_refs = numbering::paragraph_targets(self, resources)?;
+        let cell_numbers = numbering::cell_targets(self, resources, structural)?;
         for edit in edits {
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
@@ -870,6 +871,7 @@ impl ImportedDocument {
         let mut block_changes = Vec::new();
         if !by_index.is_empty()
             || !number_refs.is_empty()
+            || !cell_numbers.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
@@ -888,6 +890,7 @@ impl ImportedDocument {
             let occupied = by_index
                 .keys()
                 .chain(number_refs.keys())
+                .chain(cell_numbers.keys().map(|site| &site.0))
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
                 .copied()
@@ -941,6 +944,7 @@ impl ImportedDocument {
             // Control paths include raw XML child slots: resolve them before
             // any property insertion or run, row, cell or block splice.
             let controls_changed = self.apply_controls(body, controls)?;
+            let cell_numbers_changed = numbering::patch_cells(body, &cell_numbers)?;
             let mut block_plan =
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
@@ -1013,6 +1017,7 @@ impl ImportedDocument {
             package = block_plan.stage(package, &self.main, body, pending)?;
             block_changes = block_plan.changes;
             if controls_changed
+                || cell_numbers_changed
                 || numbering_changed
                 || !changes.is_empty()
                 || !block_changes.is_empty()
@@ -1030,6 +1035,7 @@ impl ImportedDocument {
                 package.put_word(&self.main, root)?;
             }
         }
+        self.stage_story_numbering(&mut package, resources)?;
         // A defaults patch shares the styles part. Read the staged version.
         resource_fields::apply(&mut package, &self.main, resources)?;
         if destructive_styles {

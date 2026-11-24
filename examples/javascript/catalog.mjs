@@ -233,6 +233,8 @@ export async function generateCatalog(fixtures, options) {
     "unexpected direct catalog defaults");
   assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
     "missing shared abstract numbering level");
+  const storySite = {ownerPart: review.partName, entryId: review.id, blockIndex: 0};
+  const reviewParagraph = imported.storyParagraphAnchor(storySite);
   const textPreview = imported.preview({
     styleEdits: [{op:"add", definition:{kind:"numbering", name:"Reviewed List", numberingId:9049}}],
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
@@ -244,6 +246,11 @@ export async function generateCatalog(fixtures, options) {
       {kind: "metadata", field: "creator", value: "Review team"},
       {kind: "metadata", field: "manager", value: "Review lead"},
       {kind: "customProperty", name: "Reviewed", value: false},
+      {kind: "replaceAbstract", abstractId: 0, levels: [{level: 0, start: 3, format: "upperLetter", text: "%1)"}]},
+      {kind: "abstractLevel", abstractId: 1, level: 0, value: {level: 0, start: 4, format: "upperRoman", text: "%1."}},
+      {kind: "relinkInstance", numId: 8, abstractId: 0},
+      {kind: "replaceInstance", definition: {id: 9, abstractId: 1, startOverrides: [{level: 0, start: 12}]}},
+      {kind: "storyParagraphNumbering", target: reviewParagraph, value: {id: 9049, level: 0}},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7},
       {kind: "addAbstract", abstractId: 9048, levels: [{level: 0, start: 2, format: "decimal", text: "%1."}]},
       {kind: "instanceLevel", numId: 9049, level: 0, value: {level: 0, start: 1, format: "lowerRoman", text: "(%1)"}},
@@ -279,6 +286,9 @@ export async function generateCatalog(fixtures, options) {
     "accepted missing custom value");
   assertThrows(() => imported.preview({resources: [{kind: "metadata", field: "created", value: "yesterday"}]}),
     "accepted invalid core date");
+  assert(editedResources.storyParagraphNumbering(editedResources.storyParagraphAnchor(storySite))?.id === 9049,
+    "missing physical comment numbering reference");
+  assertThrows(() => editedResources.storyParagraphNumbering(reviewParagraph), "accepted stale story target");
   assert(editedResources.numberingInstances().some(n => n.numId === 9049 && n.abstractId === 9048 &&
     n.replacementLevels.includes(0) && n.startOverrides.some(o => o.level === 0 && o.start === 6)), "missing instance override");
   const listTarget = editedResources.body().find(p => p.kind === "paragraph" && p.text.startsWith("Ranged 📝"));

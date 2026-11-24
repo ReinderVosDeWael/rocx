@@ -19,6 +19,7 @@ export interface ImportedControl {
 
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
+export interface StoryParagraphAnchor { readonly [anchor]: "storyParagraph" }
 /** Direct body table address for cell alignment edits. */
 export interface TableAnchor { readonly [anchor]: "table" }
 /** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement or removal. */
@@ -266,6 +267,9 @@ export interface ImportedDocument {
   documentDefaults(): Partial<DefaultValues>;
   abstractStarts(): readonly AbstractStart[];
   numberingInstances(): readonly ImportedNumberingInstance[];
+  storyParagraphAnchor(site: { readonly ownerPart: string; readonly blockIndex: number; readonly entryId?: string }): StoryParagraphAnchor;
+  cellParagraphAnchor(site: { readonly target: TableAnchor; readonly rowIndex: number; readonly cellIndex: number; readonly blockIndex: number }): StoryParagraphAnchor;
+  storyParagraphNumbering(target: StoryParagraphAnchor): { readonly id: number; readonly level: number } | undefined;
   paragraphNumbering(target: ParagraphAnchor): { readonly id: number; readonly level: number } | undefined;
 }
 

@@ -74,6 +74,11 @@ in Rust, Python and Node; all 24 editor outputs matched Rust/Node, and all 11
 catalog outputs matched across the three bindings. The mixed catalog passed
 schema/OPC checks and independent numbering readback.
 
+Next numbering increment: allocate a missing numbering part beside the main
+document, replace supported abstract levels and relink existing instances
+without breaking consumer level addresses, and edit direct story paragraphs
+through their original physical owner.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls

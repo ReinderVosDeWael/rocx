@@ -1,6 +1,6 @@
 import type { ResolvedImage } from "./drawings.js";
-import type { StyleDefinition, NumberingStyleDefinition, NumberingLevel, TableSectionFormat } from "./styles.js";
-import type { ControlAnchor, DefaultValues, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor, ParagraphFlag, SectionFlag, ImportedSectionType } from "./inspection.js";
+import type { StyleDefinition, NumberingStyleDefinition, NumberingLevel, NumberingDefinition, TableSectionFormat } from "./styles.js";
+import type { ControlAnchor, DefaultValues, HeaderAnchor, InlineAnchor, ParagraphAnchor, StoryParagraphAnchor, TableAnchor, ParagraphFlag, SectionFlag, ImportedSectionType } from "./inspection.js";
 import type { ResolvedTable, TableLayout } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph, RunFormat } from "./text-layout.js";
 
@@ -106,6 +106,11 @@ export type ResourceEdit =
   | { [K in keyof DefaultValues]: {readonly kind: "documentDefault"; readonly field: K; readonly value: DefaultValues[K] | null} }[keyof DefaultValues]
   | { readonly kind: "metadata"; readonly field: import("./inspection.js").MetadataField; readonly value: string | null }
   | { readonly kind: "customProperty"; readonly name: string; readonly value: string | boolean | null }
+  | { readonly kind: "replaceInstance"; readonly definition: Omit<NumberingDefinition, "abstractId" | "inheritStyle" | "levels"> & {readonly abstractId: number} }
+  | { readonly kind: "replaceAbstract"; readonly abstractId: number; readonly levels: readonly NumberingLevel[] }
+  | { readonly kind: "abstractLevel"; readonly abstractId: number; readonly level: number; readonly value: NumberingLevel | null }
+  | { readonly kind: "relinkInstance"; readonly numId: number; readonly abstractId: number }
+  | { readonly kind: "storyParagraphNumbering"; readonly target: StoryParagraphAnchor; readonly value: { readonly id: number; readonly level: number } | null }
   | { readonly kind: "addAbstract"; readonly abstractId: number; readonly levels: readonly NumberingLevel[] }
   | { readonly kind: "instanceLevel"; readonly numId: number; readonly level: number; readonly value: NumberingLevel | null }
   | { readonly kind: "removeAbstract"; readonly abstractId: number }

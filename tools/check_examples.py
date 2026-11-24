@@ -880,7 +880,7 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
         assert set(source.namelist()) == set(changed.namelist())
         mutable = {"word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml", "word/settings.xml"}
-        mutable.update({"docProps/app.xml", "docProps/custom.xml"})
+        mutable.update({"docProps/app.xml", "docProps/custom.xml", "word/comments.xml"})
         app = etree.fromstring(changed.read("docProps/app.xml"))
         custom = etree.fromstring(changed.read("docProps/custom.xml"))
         assert app.findtext("{*}Manager") == "Review lead"
@@ -893,6 +893,12 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
         assert settings.xpath("w:footnotePr/w:numStart/@w:val", namespaces=NS) == ["5"]
         assert styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:jc/@w:val", namespaces=NS) == ["center"]
         numbers = etree.fromstring(changed.read("word/numbering.xml"))
+        comments = etree.fromstring(changed.read("word/comments.xml"))
+        assert comments.xpath("w:comment[@w:author='Structured reviewer']/w:p/w:pPr/w:numPr/w:numId/@w:val", namespaces=NS) == ["9049"]
+        assert numbers.xpath("w:num[@w:numId='8']/w:abstractNumId/@w:val", namespaces=NS) == ["0"]
+        assert numbers.xpath("w:num[@w:numId='9']/w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val", namespaces=NS) == ["12"]
+        for aid, fmt in [("0", "upperLetter"), ("1", "upperRoman")]:
+            assert numbers.xpath("w:abstractNum[@w:abstractNumId=$aid]/w:lvl/w:numFmt/@w:val", namespaces=NS, aid=aid) == [fmt]
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["7"]
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='9048']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["2"]
         instance, = numbers.xpath("w:num[@w:numId='9049']", namespaces=NS)

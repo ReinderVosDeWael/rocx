@@ -116,3 +116,113 @@ def test_override_start_clear_retains_opaque_replacement_and_noop_bytes():
     after = unpack(doc.preview([], resources=[R.instance_start(90, 1, None)]).to_docx())
     assert b"<!--keep replacement-->" in after[NUMBERS]
     assert not etree.fromstring(after[NUMBERS]).xpath("w:num[@w:numId='90']//w:startOverride", namespaces=ns)
+
+
+def test_create_numbering_part_next_to_relocated_main_without_claiming_orphan():
+    doc = docx.Document()
+    doc.add_paragraph("first list")
+    buf = BytesIO()
+    doc.save(buf)
+    parts = {k.replace("word/", "custom/"): v for k,v in unpack(buf.getvalue()).items()}
+    parts["_rels/.rels"] = parts["_rels/.rels"].replace(b"word/document.xml", b"custom/document.xml")
+    parts["[Content_Types].xml"] = parts["[Content_Types].xml"].replace(b"/word/", b"/custom/")
+    rels = "custom/_rels/document.xml.rels"
+    root = etree.fromstring(parts[rels])
+    num_rel, = [n for n in root if n.get("Type").endswith("/numbering")]
+    root.remove(num_rel)
+    parts[rels] = etree.tostring(root)
+    doc = ImportedDocument.open(pack(parts))
+    assert doc.numbering_instances == []
+    with pytest.raises(ValueError, match="referenced"):
+        doc.preview([], resources=[R.add_abstract(90, [NumberingLevel()]), R.add_instance(1, 90)])
+    result = doc.preview([], resources=[R.add_instance(91, 90), R.add_abstract(90, [NumberingLevel()]),
+                                        R.paragraph_numbering(doc.body[0].anchor, (91, 0))]).to_docx()
+    after = unpack(result)
+    assert after.keys() - parts.keys() == {"custom/numbering1.xml"}
+    assert {n for n in parts if after[n] != parts[n]} == {"custom/document.xml", rels, "[Content_Types].xml"}
+    word = docx.Document(BytesIO(result))
+    assert str(word.part.numbering_part.partname) == "/custom/numbering1.xml"
+    assert word.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
+
+
+def test_replace_rich_levels_relink_and_preserve_local_metadata():
+    from rocx.declarative import ParagraphDefaults, RunDefaults
+    rich = NumberingLevel(label_format=RunDefaults(bold=True, size=12), paragraph_format=ParagraphDefaults(left_indent=12))
+    src = ImportedDocument.open(pack(fixture()))
+    parts = unpack(src.preview([], resources=[R.add_abstract(80, [rich, NumberingLevel(level=1)]),
+        R.add_instance(90, 80), R.instance_level(90, 1, NumberingLevel(level=1, label_format=RunDefaults(italic=True))),
+        R.paragraph_numbering(src.body[0].anchor, (90, 1))]).to_docx())
+    root = etree.fromstring(parts[NUMBERS])
+    ns = {"w": qn("w:lvl").split("}")[0][1:]}
+    definition, = root.xpath("w:abstractNum[@w:abstractNumId='80']", namespaces=ns)
+    definition.insert(0, etree.Comment("kept with abstract"))
+    parts[NUMBERS] = etree.tostring(root)
+    src = ImportedDocument.open(pack(parts))
+    for invalid in [
+        [R.abstract_level(80, 1, None)], [R.replace_abstract(80, [NumberingLevel()])],
+        [R.add_abstract(81, [NumberingLevel()]), R.relink_instance(90, 81)],
+        [R.replace_abstract(80, [rich]), R.abstract_level(80, 1, None)],
+    ]:
+        with pytest.raises(ValueError):
+            src.preview([], resources=invalid)
+    output = src.preview([], resources=[
+        R.relink_instance(90, 81), R.replace_abstract(80, [NumberingLevel(start=7)]),
+        R.add_abstract(81, [NumberingLevel(), NumberingLevel(level=1)]),
+        R.instance_level(90, 1, NumberingLevel(level=1, format="bullet", text="•")),
+    ]).to_docx()
+    after = unpack(output)
+    assert {n for n in parts if parts[n] != after[n]} == {NUMBERS}
+    assert b"<!--kept with abstract-->" in after[NUMBERS]
+    dest = ImportedDocument.open(output)
+    assert dest.paragraph_numbering(dest.body[0].anchor) == (90, 1)
+    n, = (n for n in dest.numbering_instances if n.num_id == 90)
+    assert (n.abstract_id, n.replacement_levels) == (81, [1])
+    from rocx.declarative import NumberingDefinition, NumberingStartOverride
+    replace = R.replace_instance(NumberingDefinition(90, abstract_id=81, start_overrides=[NumberingStartOverride(0, 2)]))
+    with pytest.raises(ValueError, match="conflicting"):
+        dest.preview([], resources=[replace, R.instance_start(90, 1, None)])
+    replaced = ImportedDocument.open(dest.preview([], resources=[replace]).to_docx())
+    n, = (n for n in replaced.numbering_instances if n.num_id == 90)
+    assert (n.abstract_id, n.replacement_levels, n.start_overrides) == (81, [], [(0, 2)])
+    expanded = ImportedDocument.open(dest.preview([], resources=[R.abstract_level(80, 1, rich_level(1))]).to_docx())
+    assert any(a.abstract_id == 80 and a.level == 1 for a in expanded.abstract_starts)
+    shrunk = ImportedDocument.open(expanded.preview([], resources=[R.abstract_level(80, 1, None)]).to_docx())
+    assert not any(a.abstract_id == 80 and a.level == 1 for a in shrunk.abstract_starts)
+    definition.find(qn("w:lvl")).find(qn("w:rPr")).append(etree.Comment("keep inside formatting"))
+    parts[NUMBERS] = etree.tostring(root)
+    opaque = ImportedDocument.open(pack(parts))
+    with pytest.raises(ValueError, match="unmodeled"):
+        opaque.preview([], resources=[R.abstract_level(80, 0, NumberingLevel())])
+
+
+def rich_level(level):
+    from rocx.declarative import RunDefaults
+    return NumberingLevel(level=level, label_format=RunDefaults(bold=True))
+
+
+def test_number_empty_shared_footer_by_physical_snapshot_address():
+    from docx.enum.section import WD_SECTION
+    word = docx.Document()
+    word.sections[0].footer.paragraphs[0].text = ""
+    word.add_section(WD_SECTION.NEW_PAGE)
+    buf = BytesIO()
+    word.save(buf)
+    parts = unpack(buf.getvalue())
+    src = ImportedDocument.open(buf.getvalue())
+    aliases = [s for s in src.stories if s.kind == "footer" and s.variant == "default"]
+    assert len(aliases) == 2 and aliases[0].part_name == aliases[1].part_name
+    targets = [src.story_paragraph_anchor(s.part_name, 0) for s in aliases]
+    edit = lambda target: R.story_paragraph_numbering(target, (1, 0))
+    with pytest.raises(ValueError, match="duplicate"):
+        src.preview([], resources=list(map(edit, targets)))
+    with pytest.raises(ValueError):
+        src.story_paragraph_anchor("word/styles.xml", 0)
+    data = src.preview([], resources=[edit(targets[0])]).to_docx()
+    final = unpack(data)
+    assert {n for n in parts if final[n] != parts[n]} == {aliases[0].part_name}
+    assert docx.Document(BytesIO(data)).sections[1].footer.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["1"]
+    reopened = ImportedDocument.open(data)
+    fresh = reopened.story_paragraph_anchor(aliases[0].part_name, 0)
+    assert reopened.story_paragraph_numbering(fresh) == (1, 0)
+    with pytest.raises(ValueError, match="snapshot"):
+        reopened.preview([], resources=[edit(targets[0])])
