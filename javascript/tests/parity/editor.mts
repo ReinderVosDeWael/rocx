@@ -466,6 +466,10 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
   }
   const run = p.inlineStructure[0];
   if (run?.kind === "run") {
+    // @ts-expect-error tracked deletion has no insertion text
+    doc.previewTrackedText({target: run.anchor, kind: "delete", author: "Ada", text: "lost"});
+    // @ts-expect-error review requires an inline anchor from inspection
+    doc.previewRevision({target: p.anchor, action: "reject"});
     const text: string = doc.preview({runText: [{target: run.anchor, text: "New"}]}).runTextChanges()[0].after;
     const before: string = doc.preview({runRemovals: [run.anchor]}).runRemovals()[0].before;
   }

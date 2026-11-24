@@ -177,7 +177,11 @@ and date, and ordered children. Deleted `w:delText` is represented as text
 inside the deletion; unsupported children and nested revisions remain opaque.
 Wrapper and child anchors resolve in their original snapshot but cannot be used
 for run-text edits. Flat projections continue to show an opaque wrapper;
-move revisions and revision editing are outside this slice.
+named move legs expose `moveSource` / `moveDestination` when the wrapper has an
+author. Direct body single-text runs support [explicit tracked text and move
+previews](REVISIONS.md#review-a-single-change-in-an-existing-docx), and supported
+wrapper anchors allow individual accept/reject (both anchors for a move).
+Child anchors and revisions in other locations remain inspection-only.
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in

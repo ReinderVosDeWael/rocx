@@ -298,6 +298,22 @@ def verify(directory):
     assert ranged.preview([], text_ranges=[selection]).to_docx() == (directory / "range.docx").read_bytes()
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
+    date = "2024-02-29T12:34:56Z"
+    tracked = imported.preview_tracked_text(anchor, "replace", "A & B", text=" Revised ", date=date).to_docx()
+    reopened = ImportedDocument.open(tracked)
+    reviewed = reopened.preview_revision(reopened.body[0].inline_structure[1].anchor, "accept").to_docx()
+    moved = imported.preview_tracked_move(anchor, imported.body[1].inline_structure[0].anchor, "Move1", "A & B", date).to_docx()
+    pair = ImportedDocument.open(moved)
+    accepted = pair.preview_revision(pair.body[0].inline_structure[1].anchor, "accept", paired=pair.body[1].inline_structure[2].anchor).to_docx()
+    for name, data, expected in [("tracked", tracked, ["", "unset alignment"]),
+                                 ("reviewed", reviewed, [" Revised ", "unset alignment"]),
+                                 ("moved", moved, ["", "unset alignment"]),
+                                 ("moveAccepted", accepted, ["", "unset alignmentSource bold"])]:
+        assert (directory / f"{name}.docx").read_bytes() == data
+        payloads = parts(io.BytesIO(data))
+        untouched(source, payloads, (MAIN,))
+        assert tree(xp(etree.fromstring(source[MAIN]), ".//w:fldSimple")[0]) == tree(xp(etree.fromstring(payloads[MAIN]), ".//w:fldSimple")[0])
+        assert [p.text for p in Document(io.BytesIO(data)).paragraphs[:2]] == expected
     python_preview = imported.preview([], run_removals=[anchor])
     assert python_preview.run_removals[0].before == "Source bold"
     assert python_preview.to_docx() == (directory / "removal.docx").read_bytes()

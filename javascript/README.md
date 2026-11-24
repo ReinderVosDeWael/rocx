@@ -87,6 +87,7 @@ const bytes = report.toDocx(); // synchronous; snapshot can be rendered again
 | Insert a block | `paragraphInsertions` or `tableInsertions` in `imported.preview(batch)` inserts supported resolved content immediately after a direct body paragraph. |
 | Patch a cell | `cellAlignments` selects a direct body table by anchor and a single physical cell by `rowIndex` and `cellIndex`. |
 | Remove a run | `runRemovals` accepts anchors of supported single-text direct body runs; `runRemovals()` reports the removed text. |
+| Track or review a body run | Use `previewTrackedText` for an insertion, deletion or replacement. `previewTrackedMove` creates both move legs. Reopen the output and use `previewRevision` with one wrapper anchor, or both for a move. |
 | Edit a copy | Combine those edits with body alignment and default- or first-page-header images in one `preview(batch)`. Inspect the per-operation reports before calling `toDocx()`. |
 | Read/write in Node | `templateFile` reads on each render; `imageFile` captures bytes and basename at resolution. `saveDocx` encodes before replacing the destination. |
 

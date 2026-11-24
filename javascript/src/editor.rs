@@ -368,6 +368,10 @@ fn preview(input: &Wire) -> Result<JsValue> {
             })
         })?,
     )?;
+    preview_handle(preview)
+}
+
+fn preview_handle(preview: EditPreview) -> Result<JsValue> {
     Ok(b::handle_with_methods(
         "editPreview",
         preview,

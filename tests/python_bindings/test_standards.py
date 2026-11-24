@@ -27,6 +27,62 @@ def validator():
     return validation.Validator(directory)
 
 
+def test_direct_body_revision_previews_are_schema_valid(validator):
+    from docx import Document
+    from docx.oxml.ns import qn
+    from rocx.editor import ImportedDocument, RunTextEdit
+
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    from docx.oxml import OxmlElement
+    doc.settings.element.append(OxmlElement("w:trackRevisions"))
+    # Ordered placement in the independent Word settings part.
+    tracking = doc.settings.element[-1]
+    doc.settings.element.find(qn("w:defaultTabStop")).addprevious(tracking)
+    p = doc.add_paragraph()
+    p.add_run("before").bold = True
+    p.add_run("after")
+    source = io.BytesIO()
+    doc.save(source)
+    original = ImportedDocument.open(source.getvalue())
+    first, last = original.body[0].inline_structure
+    date = "2024-02-29T12:34:56Z"
+
+    def check(preview, visible):
+        data = preview.to_docx()
+        assert "word/document.xml" in validator.validate(data)
+        with ZipFile(io.BytesIO(data)) as z, ZipFile(source) as old:
+            assert z.namelist() and set(z.namelist()) == set(old.namelist())
+            assert all(z.read(n) == old.read(n) for n in z.namelist() if n != "word/document.xml")
+        assert Document(io.BytesIO(data)).paragraphs[0].text == visible
+        result = ImportedDocument.open(data)
+        assert result.body[0].text == visible
+        return result
+
+    ordinary = check(original.preview([], run_text=[RunTextEdit(first.anchor, "plain")]), "plainafter")
+    assert len(ordinary.body[0].inline_structure) == 2
+    for kind, kwargs, visible, slot, accepted, rejected in [
+        ("insertAfter", {"text": " <added> "}, "beforeafter", 1, "before <added> after", "beforeafter"),
+        ("delete", {}, "after", 0, "after", "beforeafter"),
+    ]:
+        edited = check(original.preview_tracked_text(first.anchor, kind, "A & B", date=date, **kwargs), visible)
+        revision = edited.body[0].inline_structure[slot]
+        assert (revision.author, revision.date) == ("A & B", date)
+        for action, expected in [("accept", accepted), ("reject", rejected)]:
+            check(edited.preview_revision(revision.anchor, action), expected)
+    for target, after, visible in [(first,last,"after"),(last,first,"before")]:
+        moved = check(original.preview_tracked_move(target.anchor, after.anchor, "Move1", "Reviewer", date), visible)
+        wrappers = [n for n in moved.body[0].inline_structure if getattr(n,"kind",None) in ("moveSource","moveDestination")]
+        src, dst = sorted(wrappers, key=lambda n: n.kind, reverse=True)
+        with pytest.raises(ValueError):
+            moved.preview_revision(src.anchor, "accept", paired=target.anchor)
+        check(moved.preview_revision(dst.anchor, "reject", paired=src.anchor), "beforeafter")
+        check(moved.preview_revision(src.anchor, "accept", paired=dst.anchor), "afterbefore" if target is first else "beforeafter")
+    for author, bad_date in [(" ", date), ("A", "2023-02-29T12:34:56Z"), ("A\x00", date)]:
+        with pytest.raises(ValueError):
+            original.preview_tracked_text(first.anchor, "delete", author, date=bad_date)
+
+
 @pytest.fixture
 def chart_package():
     """Hand-authored workbook-free chart, independent of the native codec."""

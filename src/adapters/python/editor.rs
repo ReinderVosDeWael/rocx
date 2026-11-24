@@ -1445,6 +1445,83 @@ impl PyImportedDocument {
         inline_object(py, doc.inline_at(&target.inner).map_err(rust_error)?)
     }
 
+    /// Track insertion after, replacement of, or deletion of one body run.
+    #[pyo3(signature = (target, kind, author, *, text=None, date=None))]
+    fn preview_tracked_text(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        kind: &str,
+        author: &str,
+        text: Option<String>,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        use editor::TrackedText::*;
+        let edit = match (kind, text) {
+            ("insertAfter", Some(t)) => InsertAfter(t),
+            ("replace", Some(t)) => Replace(t),
+            ("delete", None) => Delete,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected insertAfter/replace with text or delete without text",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_text(&target.inner, edit, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    fn preview_tracked_move(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        after: PyRef<'_, PyInlineAnchor>,
+        name: &str,
+        author: &str,
+        date: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_move(&target.inner, &after.inner, name, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    #[pyo3(signature = (target, action, *, paired=None))]
+    fn preview_revision(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        action: &str,
+        paired: Option<PyRef<'_, PyInlineAnchor>>,
+    ) -> PyResult<PyEditPreview> {
+        let action = match action {
+            "accept" => crate::TextRevisionAction::Accept,
+            "reject" => crate::TextRevisionAction::Reject,
+            _ => return Err(PyValueError::new_err("expected accept or reject")),
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_revision(&target.inner, action, paired.as_ref().map(|a| &a.inner))
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None))]

@@ -5,6 +5,8 @@ export async function editorFixtures(read) {
   const sources = await Promise.all(names.map(async (name) => [name, await read(`${name}.docx`)]));
   const result = await run({ ...Object.fromEntries(sources), image: await read("image.png") });
   const files = {
+    tracked: result.tracked, reviewed: result.reviewed,
+    moved: result.moved, moveAccepted: result.moveAccepted,
     body: result.body,
     tableStructure: result.tableStructure,
     cell: result.cell,

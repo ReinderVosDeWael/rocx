@@ -46,7 +46,7 @@ export interface ImportedHyperlink {
 
 export interface ImportedRevision {
   readonly kind: "revision";
-  readonly revisionKind: "insertion" | "deletion";
+  readonly revisionKind: "insertion" | "deletion" | "moveSource" | "moveDestination";
   readonly anchor: InlineAnchor;
   readonly id?: string;
   readonly author?: string;

@@ -51,6 +51,8 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Inspect the styles part and direct style metadata | `doc.styles()?` | `doc.styles` | `doc.styles()` |
 | Inspect direct body control metadata | `BodyBlock::ContentControl` | `BodyContentControl` | `kind: "contentControl"` |
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
+| Track a direct body text edit / paired move | `preview_tracked_text` / `preview_tracked_move` | `preview_tracked_text` / `preview_tracked_move` | `previewTrackedText` / `previewTrackedMove` |
+| Accept/reject supported anchored revision(s) | `preview_revision` | `preview_revision` | `previewRevision` |
 | Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
 | Set a direct body table cell's vertical alignment | `preview_with_cells` / `CellAlignmentEdit` | `preview([], cell_alignments=[edit])` | `preview({cellAlignments: [edit]})` |
 | Replace a [plain paragraph scalar range](docs/EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs) | `preview_with_ranges` / `TextRangeEdit` | `preview([], text_ranges=[edit])` | `preview({textRanges: [edit]})` |

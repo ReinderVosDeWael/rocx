@@ -339,6 +339,43 @@ fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
 }
 
 #[test]
+fn tracked_ids_reserve_relocated_xml_and_fail_closed_on_unreadable_xml() {
+    use rocx::editor::{ImportedInlineNode, TrackedText};
+    let mut entries = parts(&fixture());
+    let types = String::from_utf8(entries["[Content_Types].xml"].clone())
+        .unwrap()
+        .replace(
+            "</Types>",
+            r#"<Override PartName="/extra/reviewer.data" ContentType="application/xml"/></Types>"#,
+        );
+    entries.insert("[Content_Types].xml".into(), types.into_bytes());
+    // Valid XML without a leading '<', BOM or conventional extension.
+    let payload = format!(r#"  <extra xmlns:w="{W}"><w:ins w:id="+0001"/></extra>"#);
+    entries.insert("extra/reviewer.data".into(), payload.as_bytes().to_vec());
+    let preview = |doc: &ImportedDocument| {
+        let ImportedInlineNode::Run(r) = &paragraph(doc, 3).inline_structure[0] else {
+            panic!()
+        };
+        doc.preview_tracked_text(&r.anchor, TrackedText::Delete, "Reviewer", None)
+    };
+    let source = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    let bytes = preview(&source).unwrap().to_docx().unwrap();
+    assert_eq!(parts(&bytes)["extra/reviewer.data"], payload.as_bytes());
+    let reopened = ImportedDocument::open(&bytes).unwrap();
+    let ImportedInlineNode::Revision(r) = &paragraph(&reopened, 3).inline_structure[0] else {
+        panic!()
+    };
+    assert_ne!(r.id.as_deref(), Some("1"));
+    entries.insert("extra/reviewer.data".into(), b"<invalid".to_vec());
+    let source = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    assert!(preview(&source).is_err());
+    assert_eq!(
+        parts(&source.preview(&[]).unwrap().to_docx().unwrap()),
+        entries
+    );
+}
+
+#[test]
 fn inspect_style_metadata_and_preserve_source_part() {
     use rocx::editor::StyleKind;
     let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));

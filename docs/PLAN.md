@@ -44,6 +44,18 @@ TypeScript consumer check, independent python-docx readback, and exact parity
 of nine catalog files across native Rust, Python 3.12 and packed Node 26.
 The mixed resource output passed schema/OPC checks (20 schema-covered parts).
 
+**Next revisions slice (#3):** qualify opt-in tracked insert-after, replace,
+delete and paired moves of simple direct body text runs, plus anchored review
+of existing wrappers. Keep the original editor's ordinary-text projections and
+snapshot contract. Four focused package oracles cover tracked replacement,
+reviewed insertion, paired move and accepted move. Mixed revision/ordinary
+batches, property changes and rich/nested revision editing are outside this slice.
+Focused verification passed: Rust editor/revision/showcase tests, native/Wasm
+Clippy, 58 Python tests with required schemas, and packed Node 24/Chromium
+editor tests. The four new DOCX outputs matched across Rust, installed Python,
+Node and Chromium, with independent readback, untouched-part and schema/OPC
+checks. All nine catalog artifacts matched across Rust, Python and Node.
+
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 [CLI contract](CLI.md) for its digest-bound mixed-edit workflow.
