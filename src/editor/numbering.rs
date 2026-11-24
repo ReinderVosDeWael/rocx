@@ -658,26 +658,11 @@ fn discardable(n: &Node) -> bool {
         && n.elements().all(discardable)
 }
 
-// Compare the modeled infoset, not serializer state, surrounding indentation
-// or namespace declaration spelling. The caller has already rejected opaque
-// content, so this never makes a destructive unknown edit into a no-op.
+// Apply the same interpretation as readback: reapplying modeled values must
+// not normalize numeric lexemes, namespace declarations or property order.
 fn same_level(a: &Node, b: &Node) -> bool {
-    let attrs = |n: &Node| {
-        n.attrs
-            .iter()
-            .filter(|(k, _)| k.declaration().is_none())
-            .count()
-    };
-    a.name == b.name
-        && attrs(a) == attrs(b)
-        && a.attrs
-            .iter()
-            .filter(|(k, _)| k.declaration().is_none())
-            .all(|(k, v)| b.attrs.iter().any(|(key, value)| k == key && v == value))
-        && a.elements().count() == b.elements().count()
-        && a.elements()
-            .zip(b.elements())
-            .all(|(a, b)| same_level(a, b))
+    matches!((view::read_level(a), view::read_level(b)), (Ok(a), Ok(b))
+        if !a.has_opaque_content && !b.has_opaque_content && a == b)
 }
 
 fn prune_empty_override(num: &mut Node, level: u8) {

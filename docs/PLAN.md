@@ -4,6 +4,23 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+**#48 modeled acceptance on the combined editor:** the direct numbering
+catalog reads full modeled levels and replacement levels, including nested
+label/paragraph formatting and stored style links. Local levels can be edited
+when the `styleLink` / style `numId` relationship is reciprocal; level-free
+aliases are kept intact and their paragraph assignments are checked against
+the owner. The CLI uses the same readback and accepts rich level declarations.
+The authoring audit found no remaining declarative default fields; the
+metadata Comments key now explicitly aliases the stored description.
+
+Closure criterion: require the combined fix and its cross-binding,
+schema/OPC, and preservation qualification on `main`. Do not count
+effective numbering, ownership migration, unsafe/dangling references,
+protected or arbitrary nested editing targets, legacy numbering tabs,
+independent theme fallbacks, or unmodeled default/metadata variants against
+the supported direct model. See [modeled acceptance](EDITOR-RESOURCES.md#modeled-acceptance-boundary).
+#3 is manually closed; this follow-up tracks #48 without reopening it.
+
 The isolated integration takes the structural merge at `c3ea09d` and the
 resource/style recovery at `2d5de8e`. It retains the earlier mixed oracles,
 physical-table property no-op guards, and both CLI discovery modes. The new
@@ -78,7 +95,7 @@ consumers and passed schema/OPC checks. An independent footer/cell fixture
 matched Rust CLI, installed Python and packed Node byte for byte, including
 no-op, stale-anchor, duplicate, live-reference and opaque-markup probes.
 
-Keep #48 open. The direct readers do not reconstruct full abstract/override
+At this recovery checkpoint, the direct readers did not reconstruct full abstract/override
 level bodies or expose their abstract style links; edits cannot change levels
 of style-linked abstracts, relink across them, or drop a level address of a
 surviving instance. Nested or protected paragraph targets aren't supported.
@@ -111,8 +128,7 @@ readback and untouched-payload checks passed, as did strict installed
 TypeScript and offline Wasm/glue replay from the packed source archive.
 The stale table inspection expectation on the hosted PR head is corrected
 and passes locally on Node 22 and 24 with Chromium. Hosted checks must rerun
-on the updated PR head. Keep #3 open for the remaining editor and transport
-inventory.
+on the updated PR head. This checkpoint preceded the manual closure of #3.
 
 **#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
 `ProcessContent` wrappers before treating a property as absent or a bookmark
@@ -201,8 +217,8 @@ consumer suite compared 25 editor outputs. Exercise style ownership with the
 #48 instance/override editor (`c1a8fac`) in a combined checkout.
 
 The ten topic branches start from `fad29a9` and are combined in
-[#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
-open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
+[#63](https://github.com/ReinderVosDeWael/rocx/pull/63). The
+[editor inventory](EDITOR-PARITY.md) describes the available calls
 and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#operation-contract).
 
 | Ticket | Supported in the candidate | Still outside the implementation |

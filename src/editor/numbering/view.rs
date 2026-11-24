@@ -166,15 +166,15 @@ fn paragraph_properties(n: &Node) -> (ParagraphFormat, bool) {
             "w:tabs" => {
                 let mut positions = BTreeSet::new();
                 for tab in c.elements().filter(|t| t.name == "w:tab") {
-                    if let Some((position, alignment, leader)) = tab_stop(tab) {
-                        if positions.insert(position) {
-                            f.tab_stops.push(TabStop {
-                                position: f64::from(position) / 20.,
-                                alignment,
-                                leader,
-                            });
-                            continue;
-                        }
+                    if let Some((position, alignment, leader)) = tab_stop(tab)
+                        && positions.insert(position)
+                    {
+                        f.tab_stops.push(TabStop {
+                            position: f64::from(position) / 20.,
+                            alignment,
+                            leader,
+                        });
+                        continue;
                     }
                     opaque = true;
                 }

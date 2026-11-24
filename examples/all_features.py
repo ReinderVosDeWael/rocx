@@ -12,7 +12,7 @@ import sys
 import rocx
 from rocx import declarative as d
 from rocx.editor import (
-    HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
+    HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedNumberingCatalog, ImportedRun, ParagraphAlignmentEdit,
     ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit, LayoutEdit,
     TableInsertion, TextRangeEdit, TextInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
@@ -564,7 +564,7 @@ async def generate(output: pathlib.Path) -> bytes:
     assert removal.run_removals[0].before == INLINE_LABEL
     edited_bytes = preview.to_docx()
     resource_result = ImportedDocument.open(edited_bytes)
-    numbering = resource_result.numbering_catalog
+    numbering: ImportedNumberingCatalog = resource_result.numbering_catalog
     owner, = (a for a in numbering["abstracts"] if a["abstract_id"] == 100)
     assert owner["style_link"] == "CatalogBullets" and owner["levels"][1]["paragraph_style"] == "Heading2"
     assert any(a["abstract_id"] == 101 and a.get("num_style_link") == "CatalogBullets" and not a["levels"]

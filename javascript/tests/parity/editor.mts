@@ -446,7 +446,7 @@ async function editLinkedNumbering(fixtures: Fixtures) {
   const replace = {kind:"replaceAbstract", abstractId:710, levels:[{
     level:0, start:5, format:"ordinal", text:"%1)", restart:0, isLegal:false,
     suffix:"space", alignment:"start", paragraphStyle:"Heading 2",
-    labelFormat:{bold:false, size:12.5, underline:"double", color:{theme:"accent2", tint:16}},
+    labelFormat:{bold:false, size:12.5, underline:"double", color:{kind:"theme", name:"accent2", tint:16}},
     paragraphFormat:{alignment:"center", firstLineIndent:-9, lineHeight:{kind:"exact",value:11},
       tabStops:[{position:12,alignment:"right",leader:"dot"}]},
   }]} as const;

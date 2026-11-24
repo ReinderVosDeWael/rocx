@@ -117,12 +117,23 @@ from ._native import (
     TableInsertionChange,
 )
 
+from ._numbering_view import (
+    ImportedConcreteNumbering,
+    ImportedNumberingAbstract,
+    ImportedNumberingCatalog,
+    ImportedNumberingLevel,
+)
+
 # Both story views expose the same paragraph class.
 ImportedStoryParagraph = ImportedHeaderParagraph
 
 __all__ = [
     "AbstractStart",
     "ImportedNumberingInstance",
+    "ImportedConcreteNumbering",
+    "ImportedNumberingAbstract",
+    "ImportedNumberingCatalog",
+    "ImportedNumberingLevel",
     "ResourceEdit",
     "StyleAnchor",
     "StoryParagraphAnchor",

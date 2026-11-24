@@ -472,7 +472,7 @@ fn numbering_replacement_preserves_equivalent_levels_and_rejects_opaque_or_confl
     };
     for opaque in [false, true] {
         let comment = if opaque { "<!-- do not drop -->" } else { "" };
-        entries.insert(number.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="701"><w:lvl w:ilvl="0">{comment}<w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="702"><w:abstractNumId w:val="701"/></w:num></w:numbering>"#).into_bytes());
+        entries.insert(number.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="701"><w:lvl w:ilvl="0">{comment}<w:start w:val="+01"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="702"><w:abstractNumId w:val="701"/></w:num></w:numbering>"#).into_bytes());
         let source = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
         let apply = |resources: &[R]| {
             source.preview_edits(EditBatch {
