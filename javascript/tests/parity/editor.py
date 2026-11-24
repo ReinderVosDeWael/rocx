@@ -118,6 +118,40 @@ def generate_controls(directory):
     props.append(choices)
     doc.save(directory / "control-choice-source.docx")
 
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    doc.add_paragraph("ordinary")
+    p = doc.add_paragraph("range ")
+    p.add_run("start").bold = True
+    doc.add_table(rows=1, cols=1).cell(0, 0).text = "retained table"
+    doc.add_paragraph("range end")
+    p = doc.add_paragraph("one")
+    p.add_run("two").italic = True
+    p.add_run("outside")
+    wrap(doc.add_paragraph("block payload")._p, elem("lock", val="sdtLocked"))
+    wrap(doc.add_paragraph().add_run("inline payload")._r)
+    wrap(doc.add_paragraph("locked")._p, elem("lock", val="contentLocked"))
+    for name in ("header","footer"):
+        p = getattr(doc.sections[0], name).paragraphs[0]
+        wrap(p.add_run(name)._r)
+    comment = doc.add_comment(doc.add_paragraph().add_run("comment range"), "comment", author="Editor")
+    wrap(comment.paragraphs[0]._p)
+    from docx.opc.part import Part
+    from docx.opc.packuri import PackURI
+    for tag in ("footnote","endnote"):
+        root = elem(tag + "s")
+        entry = elem(tag, id="1")
+        payload = copy.deepcopy(doc.element.xpath("//w:sdt[w:sdtPr/w:lock/@w:val='contentLocked']")[0])
+        entry.append(payload)
+        root.append(entry)
+        part = Part(PackURI("/word/" + tag + "s.xml"),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml."+tag+"s+xml",
+                    etree.tostring(root), doc.part.package)
+        doc.part.relate_to(part, NS["r"]+"/"+tag+"s")
+        doc.add_paragraph().add_run()._r.append(elem(tag+"Reference",id="1"))
+    doc.add_section()
+    doc.save(directory / "rich-control-source.docx")
+
 
 def verify_controls(directory):
     from rocx.editor import ControlEdit, ControlProperties, ImportedDocument
@@ -209,6 +243,51 @@ def verify_controls(directory):
     assert reopened.paragraphs[0].runs[0].bold and reopened.paragraphs[1].runs[0].bold
     for name in ("controlWrapped", "controlUnwrapped"):
         untouched(parts(directory / "control-choice-source.docx"), parts(directory / (name + ".docx")), (MAIN,))
+
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import WrapperEdit as W, HeaderImageEdit, ParagraphAlignmentEdit, ParagraphInsertion
+    rich_path = directory / "rich-control-source.docx"
+    rich = ImportedDocument.open(rich_path.read_bytes())
+    assert sorted(c.owner_part for c in rich.story_controls) == [
+        "word/comments.xml","word/endnotes.xml","word/footer1.xml","word/footnotes.xml","word/header1.xml"]
+    assert sorted(c.entry_id for c in rich.story_controls if c.entry_index is not None) == ["0","1","1"]
+    refused(lambda: rich.preview_unwrap_control(rich.story_controls[0].anchor), "read-only")
+    site = lambda ctx, label: next(s for s in rich.control_sites if s.context == ctx and s.text == label)
+    def wrap(ctx, first, last, tag):
+        return W.wrap(site(ctx, first), tag, last=site(ctx,last))
+    async def rich_batch():
+        a,b,adjacent = [await d.Paragraph(text=t).resolve() for t in ("A","B","adjacent")]
+        image = await d.ImageRun((directory / "image.png").read_bytes()).resolve()
+        runs = [await d.TextRun("picture:").resolve(), image]
+        c = rich.controls
+        wrappers = [wrap("block","range start","range end","group"),wrap("inline","one","two","runs"),
+                    W.replace_blocks(c[0].anchor, [a,b]), W.replace_inlines(c[1].anchor,runs)]
+        refused(lambda: rich.preview([], wrappers=[wrappers[0],W.replace_blocks(c[2].anchor,[a])]),"locked")
+        refused(lambda: rich.preview([ParagraphAlignmentEdit(rich.body[1].anchor,"center")],wrappers=wrappers),"conflicting")
+        return rich.preview([],wrappers=wrappers,paragraph_insertions=[ParagraphInsertion(rich.body[0].anchor,adjacent)],
+            header_images=[HeaderImageEdit(rich.default_headers[0].anchor,image,mode="shared")]).to_docx()
+    mixed = asyncio.run(rich_batch())
+    assert mixed == (directory / "richControls.docx").read_bytes()
+    xml = Document(io.BytesIO(mixed)).element
+    grouped = xml.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='group']/w:sdtContent")[0]
+    assert [c.tag for c in grouped] == [qn("w:p"),qn("w:tbl"),qn("w:p")]
+    assert xp(grouped,".//w:r[w:rPr/w:b]/w:t/text()") == ["start"]
+    assert xml.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='runs']/w:sdtContent/w:r[w:rPr/w:i]/w:t/text()") == ["two"]
+    assert xml.xpath("//w:sdt[w:sdtPr/w:lock/@w:val='sdtLocked']/w:sdtContent/w:p/w:r/w:t/text()") == ["A","B"]
+    readback = Document(io.BytesIO(mixed))
+    assert [p.text for p in readback.paragraphs[:2]] == ["ordinary","adjacent"]
+    assert len(readback.inline_shapes)==1
+    header=readback.sections[0].header._element
+    assert header.xpath(".//wp:docPr/@id") != xml.xpath(".//wp:docPr/@id") and len(header.xpath(".//wp:docPr"))==1
+    untouched(parts(rich_path),parts(io.BytesIO(mixed)),(MAIN,MAIN_RELS,HEADER,HEADER_RELS,TYPES))
+    promoted=ImportedDocument.open(mixed)
+    data=promoted.preview([],wrappers=[W.unwrap(c.anchor) for c in promoted.controls if c.tag in ("group","runs")]).to_docx()
+    assert data == (directory / "richUnwrapped.docx").read_bytes()
+    restored=Document(io.BytesIO(data))
+    assert [p.text for p in restored.paragraphs[:5]] == ["ordinary","adjacent","range start","range end","onetwooutside"]
+    assert restored.tables[0].cell(0,0).text=="retained table"
+    untouched(parts(io.BytesIO(mixed)),parts(io.BytesIO(data)),(MAIN,))
 
 
 def generate(directory):

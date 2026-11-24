@@ -11,6 +11,11 @@ retained formatting and unchanged part payloads. All twelve catalog files
 matched across Rust, installed Python and packed Node. The two editor outputs
 also matched Chromium; both and the new catalog sample passed schema/OPC checks.
 
+Next controls increment: retain rich sibling runs and block/table payloads
+when wrapping or unwrapping, compose disjoint wrapper operations with ordinary
+edits on original anchors, and inspect relationship-selected stories by
+physical owner. Bound controls stay opaque.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls

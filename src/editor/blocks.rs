@@ -18,7 +18,7 @@ pub enum BlockEdit {
 /// Allow-list *discardable* markup, including attributes and non-element
 /// children. In particular paragraph IDs, fields, ranges and relationship
 /// references cannot be silently dropped.
-fn local(node: &Node, parent: &str) -> bool {
+pub(super) fn local(node: &Node, parent: &str) -> bool {
     let name = node.name.as_str();
     let attrs: &[&str] = match (parent, name) {
         ("body", "w:p") | ("w:p", "w:r" | "w:pPr") | ("w:r", "w:rPr") => &[],
@@ -248,6 +248,7 @@ impl Plan {
         main: &str,
         body: &mut Node,
         mut pending: Vec<(usize, Node)>,
+        mut wrappers: BTreeMap<usize, Vec<Content>>,
     ) -> Result<Package> {
         let mut slots = Vec::new();
         let mut paragraphs = Vec::new();
@@ -282,7 +283,7 @@ impl Plan {
                 (slot, if is_table { ts.next() } else { ps.next() }.unwrap())
             }),
         );
-        if !pending.is_empty() || !self.deletes.is_empty() {
+        if !pending.is_empty() || !self.deletes.is_empty() || !wrappers.is_empty() {
             pending.sort_by_key(|(slot, _)| *slot);
             let mut pending = pending.into_iter().peekable();
             for (index, c) in std::mem::take(&mut body.children).into_iter().enumerate() {
@@ -290,7 +291,9 @@ impl Plan {
                     body.children
                         .push(Content::Element(pending.next().unwrap().1));
                 }
-                if !self.deletes.contains(&index) {
+                if let Some(nodes) = wrappers.remove(&index) {
+                    body.children.extend(nodes);
+                } else if !self.deletes.contains(&index) {
                     body.children.push(c);
                 }
             }

@@ -10,6 +10,9 @@ export interface ControlSite {
   readonly text: string;
 }
 export interface ImportedControl {
+  readonly ownerPart?: string;
+  readonly entryId?: string;
+  readonly entryIndex?: number;
   readonly anchor: ControlAnchor;
   readonly context: "block" | "inline" | "row" | "cell";
   readonly id?: string;
@@ -207,6 +210,7 @@ export interface ImportedStyles {
 }
 export interface ImportedDocument {
   controls(): readonly ImportedControl[];
+  storyControls(): readonly ImportedControl[];
   controlSites(): readonly ControlSite[];
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];

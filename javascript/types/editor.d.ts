@@ -62,6 +62,7 @@ export interface EditBatch {
   readonly styleEdits?: readonly StyleEdit[];
   readonly resources?: readonly ResourceEdit[];
   readonly controls?: readonly ControlEdit[];
+  readonly wrappers?: readonly WrapperEdit[];
   readonly textRanges?: readonly TextRangeEdit[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
@@ -98,6 +99,13 @@ export interface ControlEdit {
   readonly alias?: string;
   readonly text?: string;
 }
+export type WrapperEdit =
+  | {readonly kind:"wrap"; readonly target:import("./inspection.js").ControlSiteAnchor; readonly last?:import("./inspection.js").ControlSiteAnchor; readonly tag:string}
+  | {readonly kind:"unwrap"; readonly target:ControlAnchor}
+  | {readonly kind:"define"; readonly target:ControlAnchor; readonly properties:import("./structured.js").ContentControlProperties}
+  | {readonly kind:"choice"; readonly target:ControlAnchor; readonly selected:string; readonly choices?:import("./inspection.js").ImportedControl["choices"]}
+  | {readonly kind:"replaceInlines"; readonly target:ControlAnchor; readonly inlines:readonly ResolvedInline[]}
+  | {readonly kind:"replaceBlocks"; readonly target:ControlAnchor; readonly blocks:readonly (ResolvedParagraph|ResolvedTable)[]};
 
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
 export interface RunRemovalChange {

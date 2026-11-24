@@ -168,6 +168,9 @@ impl PyControlSite {
 
 #[pyclass(name = "ImportedControl", frozen, get_all, module = "rocx.editor")]
 struct PyImportedControl {
+    owner_part: Option<String>,
+    entry_id: Option<String>,
+    entry_index: Option<usize>,
     anchor: Py<PyControlAnchor>,
     context: &'static str,
     id: Option<String>,
@@ -184,6 +187,103 @@ struct PyImportedControl {
 #[pyclass(name = "ControlEdit", frozen, module = "rocx.editor")]
 struct PyControlEdit {
     inner: editor::ControlEdit,
+}
+
+#[pyclass(name = "WrapperEdit", frozen, module = "rocx.editor")]
+struct PyWrapperEdit {
+    inner: editor::WrapperEdit,
+}
+
+#[pymethods]
+impl PyWrapperEdit {
+    #[staticmethod]
+    #[pyo3(signature=(first, tag, *, last=None))]
+    fn wrap(
+        first: PyRef<'_, PyControlSite>,
+        tag: String,
+        last: Option<PyRef<'_, PyControlSite>>,
+    ) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Wrap {
+                first: first.inner.clone(),
+                last: last.map(|s| s.inner.clone()),
+                tag,
+            },
+        }
+    }
+    #[staticmethod]
+    fn unwrap(target: PyRef<'_, PyControlAnchor>) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Unwrap(target.inner.clone()),
+        }
+    }
+    #[staticmethod]
+    fn define(target: PyRef<'_, PyControlAnchor>, properties: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::Define(
+                target.inner.clone(),
+                super::content::content_control_properties(properties)?,
+            ),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,selected,*,choices=None))]
+    fn choice(
+        target: PyRef<'_, PyControlAnchor>,
+        selected: String,
+        choices: Option<Vec<(String, String)>>,
+    ) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Choice {
+                target: target.inner.clone(),
+                selected,
+                items: choices.map(|v| {
+                    v.into_iter()
+                        .map(|(display_text, value)| crate::ContentControlListItem {
+                            display_text,
+                            value,
+                        })
+                        .collect()
+                }),
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace_inlines(
+        target: PyRef<'_, PyControlAnchor>,
+        inlines: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::ReplaceInlines(
+                target.inner.clone(),
+                inlines
+                    .iter()
+                    .map(inline_payload)
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn replace_blocks(
+        target: PyRef<'_, PyControlAnchor>,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::ReplaceBlocks(
+                target.inner.clone(),
+                blocks
+                    .iter()
+                    .map(|b| {
+                        if b.getattr("_native_kind")?.extract::<String>()? == "Table" {
+                            resolved_block_table(b).map(crate::ResolvedBlock::Table)
+                        } else {
+                            resolved_block_paragraph(b).map(crate::ResolvedBlock::Paragraph)
+                        }
+                    })
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
 }
 
 #[pymethods]
@@ -1287,32 +1387,18 @@ impl PyImportedDocument {
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        doc.controls()
+        doc.controls().iter().map(|c| control_view(py, c)).collect()
+    }
+    #[getter]
+    fn story_controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.story_controls()
+            .map_err(rust_error)?
             .iter()
-            .map(|c| {
-                Ok(PyImportedControl {
-                    anchor: Py::new(
-                        py,
-                        PyControlAnchor {
-                            inner: c.anchor.clone(),
-                        },
-                    )?,
-                    context: c.context.as_str(),
-                    id: c.id.clone(),
-                    tag: c.tag.clone(),
-                    alias: c.alias.clone(),
-                    lock: c.lock.clone(),
-                    bound: c.bound,
-                    kind: c.kind,
-                    multi_line: c.multi_line.clone(),
-                    choices: c
-                        .choices
-                        .iter()
-                        .map(|i| (i.display_text.clone(), i.value.clone()))
-                        .collect(),
-                    selected: c.selected.clone(),
-                })
-            })
+            .map(|c| control_view(py, c))
             .collect()
     }
     #[getter]
@@ -1718,7 +1804,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None, wrappers=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1735,6 +1821,7 @@ impl PyImportedDocument {
         style_edits: Option<Vec<PyRef<'_, PyStyleEdit>>>,
         resources: Option<Vec<PyRef<'_, PyResourceEdit>>>,
         controls: Option<Vec<PyRef<'_, PyControlEdit>>>,
+        wrappers: Option<Vec<PyRef<'_, PyWrapperEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1789,6 +1876,7 @@ impl PyImportedDocument {
                     styles: &inner_edits!(style_edits),
                     resources: &inner_edits!(resources),
                     controls: &inner_edits!(controls),
+                    wrappers: &inner_edits!(wrappers),
                 })
                 .map_err(rust_error)?,
             ),
@@ -1803,6 +1891,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStyleEdit>()?;
     module.add_class::<PyControlAnchor>()?;
     module.add_class::<PyControlSite>()?;
+    module.add_class::<PyWrapperEdit>()?;
     module.add_class::<PyControlEdit>()?;
     module.add_class::<PyImportedControl>()?;
     module.add_class::<PyBlockEdit>()?;
@@ -1847,4 +1936,32 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyEditPreview>()?;
     module.add_class::<PyImportedDocument>()?;
     Ok(())
+}
+
+fn control_view(py: Python<'_>, c: &editor::ImportedControl) -> PyResult<PyImportedControl> {
+    Ok(PyImportedControl {
+        owner_part: c.owner_part.clone(),
+        entry_id: c.entry_id.clone(),
+        entry_index: c.entry_index,
+        anchor: Py::new(
+            py,
+            PyControlAnchor {
+                inner: c.anchor.clone(),
+            },
+        )?,
+        context: c.context.as_str(),
+        id: c.id.clone(),
+        tag: c.tag.clone(),
+        alias: c.alias.clone(),
+        lock: c.lock.clone(),
+        bound: c.bound,
+        kind: c.kind,
+        multi_line: c.multi_line.clone(),
+        choices: c
+            .choices
+            .iter()
+            .map(|i| (i.display_text.clone(), i.value.clone()))
+            .collect(),
+        selected: c.selected.clone(),
+    })
 }

@@ -462,9 +462,9 @@ impl HeaderBatch<'_> {
         mut package: Package,
         main: &str,
         body: &mut Node,
+        mut resources: Option<crate::ooxml::HeaderImageResources>,
     ) -> Result<(Package, Vec<HeaderImageChange>)> {
         let mut changes = Vec::with_capacity(self.targets.len());
-        let mut resources = None;
         for (&(index, kind, variant), edit) in &self.targets {
             let (mut header, change) =
                 self.prepare_image(&mut package, main, body, (index, kind, variant), edit.mode)?;

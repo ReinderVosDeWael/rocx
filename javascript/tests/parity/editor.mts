@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "control-choice-source",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "control-choice-source", "rich-control-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -447,7 +447,30 @@ async function editControls(fixtures: Fixtures) {
     const wrap = target.controls().find(s => s.context === ctx && s.tag === ctx)!;
     data = target.previewUnwrapControl(wrap.anchor).toDocx();
   }
-  return {controlWrapped, controlUnwrapped:data, controlEdits:controlled.preview({ controls: edits }).toDocx()};
+  const rich = await openDocx(fixtures["rich-control-source"]);
+  const stories = rich.storyControls();
+  same(stories.map(c => c.ownerPart).sort(), ["word/comments.xml","word/endnotes.xml","word/footer1.xml","word/footnotes.xml","word/header1.xml"],"physical story controls");
+  same(stories.filter(c => c.entryIndex !== undefined).map(c => c.entryId).sort(),["0","1","1"],"entry identities");
+  rejects(() => rich.previewUnwrapControl(stories[0].anchor),/read-only/);
+  const site = (ctx:string,label:string) => rich.controlSites().find(s => s.context===ctx && s.text===label)!.anchor;
+  const wrap = (ctx:string,first:string,last:string,tag:string) => ({kind:"wrap" as const,target:site(ctx,first),last:site(ctx,last),tag});
+  const [targetBlock,targetInline,locked]=rich.controls();
+  const [a,b,adjacent] = await Promise.all(["A","B","adjacent"].map(s => resolveComponent(text(s))));
+  const picture = await resolveComponent({kind:"image",data:fixtures.image});
+  const caption = await resolveComponent({kind:"text",text:"picture:"});
+  check(a && b && adjacent && picture && caption,"rich payloads");
+  const first = wrap("block","range start","range end","group");
+  const wrappers = [first,wrap("inline","one","two","runs"),
+    {kind:"replaceBlocks" as const,target:targetBlock.anchor,blocks:[a,b]},
+    {kind:"replaceInlines" as const,target:targetInline.anchor,inlines:[caption,picture]}];
+  rejects(()=>rich.preview({wrappers:[first,{kind:"replaceBlocks",target:locked.anchor,blocks:[a]}]}),/locked/);
+  rejects(()=>rich.preview({wrappers,alignments:[{target:paragraph(rich,1).anchor,alignment:"center"}]}),/conflicting/);
+  const mixed = rich.preview({wrappers,paragraphInsertions:[{target:paragraph(rich,0).anchor,paragraph:adjacent}],
+    headerImages:[{target:rich.defaultHeaders()[0].anchor,mode:"shared",image:picture.view.image}]}).toDocx();
+  const promoted = await openDocx(mixed);
+  const richUnwrapped = promoted.preview({wrappers:promoted.controls().filter(c=>["group","runs"].includes(c.tag??""))
+    .map(c=>({kind:"unwrap",target:c.anchor}))}).toDocx();
+  return {richControls:mixed, richUnwrapped, controlWrapped, controlUnwrapped:data, controlEdits:controlled.preview({ controls: edits }).toDocx()};
 }
 
 export async function run(fixtures: Fixtures) {
