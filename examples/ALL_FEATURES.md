@@ -186,6 +186,14 @@ run without writing a tenth file: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
 Removal rejects opaque or unsafe run markup.
 
+The header-source catalog also previews four block edits independently using
+the first paragraph of the inherited section. Rust uses `preview_blocks` and
+`BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext}`. Python passes
+`BlockEdit.replace`, `.remove`, `.replace_section` or `.keep_with_next` in
+`preview([], block_edits=[...])`. JavaScript uses `preview({blockEdits: [...]})`
+with `kind` equal to `replace`, `remove`, `replaceSection` or `keepWithNext`.
+See [the editor inventory](../docs/EDITOR-PARITY.md#body-block-edits) for target rules.
+
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle
 rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque
 extensions have dedicated tests; invalid structures do not belong in a visual

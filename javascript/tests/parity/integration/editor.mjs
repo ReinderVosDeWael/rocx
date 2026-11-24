@@ -8,6 +8,7 @@ export async function editorFixtures(read) {
     body: result.body,
     cell: result.cell,
     mixedBody: result.mixedBody,
+    blocks: result.blocks,
     noop: result.noop,
     removal: result.removal,
     shared: result.shared,

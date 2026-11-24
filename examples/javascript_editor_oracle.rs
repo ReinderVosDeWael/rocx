@@ -112,6 +112,56 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    use rocx::editor::BlockEdit;
+    let paragraph = immediate(Component::resolve(Paragraph::new("inserted paragraph")))
+        .unwrap()
+        .unwrap();
+    let blocks = doc
+        .preview_with_blocks(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[
+                BlockEdit::KeepWithNext(anchor(&doc, 0), false),
+                BlockEdit::Replace(anchor(&doc, 1), Box::new(paragraph.clone())),
+                BlockEdit::ReplaceSection(
+                    anchor(&doc, 4),
+                    vec![
+                        rocx::ResolvedBlock::Paragraph(paragraph.clone()),
+                        rocx::ResolvedBlock::Paragraph(paragraph),
+                        rocx::ResolvedBlock::Table(
+                            immediate(Component::resolve(pair("next A", "next B")))
+                                .unwrap()
+                                .unwrap(),
+                        ),
+                    ],
+                ),
+            ],
+        )
+        .unwrap();
+    assert_eq!(blocks.block_changes(), &[0, 1, 4]);
+    let intermediate = ImportedDocument::open(&blocks.to_docx().unwrap()).unwrap();
+    write(
+        "native-blocks.docx",
+        intermediate
+            .preview_with_blocks(
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[],
+                &[BlockEdit::Remove(anchor(&intermediate, 5))],
+            )
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     let BodyBlock::Paragraph(first) = &doc.body()[0] else {
         panic!("paragraph")
     };

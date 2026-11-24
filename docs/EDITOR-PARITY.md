@@ -137,7 +137,7 @@ The broader story view also supplies an image-edit anchor for default and
 first-page headers. Other story slots have no such anchor. Local edits restore
 inheritance only for the selected variant; shared edits include all aliases.
 
-To combine **all seven edit kinds** in one call, Rust uses
+To combine these seven edit kinds in one call, Rust uses
 `preview_mixed(alignments, tables, header_images, run_text, paragraphs, cells, run_removals)`.
 Python uses `preview(alignments, table_insertions=..., header_images=..., run_text=...,
 paragraph_insertions=..., cell_alignments=..., run_removals=...)`; JavaScript uses
@@ -182,3 +182,34 @@ Conditions, components, property references, lazy/async/deferred values, reuse a
 ## Acceptance cross-check
 
 Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python/JavaScript DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the [active plan](PLAN.md) for verification status.
+
+## Body block edits
+
+Use an original direct body paragraph anchor for these operations:
+
+| Operation | Rust `BlockEdit` | Python `BlockEdit` | JavaScript `blockEdits` item |
+|---|---|---|---|
+| Replace one paragraph | `Replace(anchor, Box::new(p))` | `replace(anchor, p)` | `{kind: "replace", target, paragraph}` |
+| Remove one paragraph | `Remove(anchor)` | `remove(anchor)` | `{kind: "remove", target}` |
+| Replace section content | `ReplaceSection(anchor, blocks)` | `replace_section(anchor, blocks)` | `{kind: "replaceSection", target, blocks}` |
+| Set direct keep-with-next | `KeepWithNext(anchor, bool)` | `keep_with_next(anchor, value)` | `{kind: "keepWithNext", target, value}` |
+
+Section payloads can mix resolved paragraphs and tables, subject to the same
+style, inline and geometry restrictions as insertion. Automatic table widths
+use the owning section. A section target must be its first body block,
+and that block must be a paragraph. A nonfinal section retains its original
+break paragraph, emptied of supported runs, **after** the declarations;
+terminal section properties stay in the body. An empty declaration list clears
+supported content. Source tables, controls, fields, relationships, anchors,
+unrecognized attributes and other opaque markup cannot be discarded. Section
+header/footer references are validated; the original owning properties remain
+in place, preserving inheritance. Direct replacement/removal of a break
+paragraph is refused. Keep-with-next patches the single direct `w:keepNext`
+property, retaining other properties, attributes, and inline content.
+
+Use Rust `preview_blocks` or `preview_with_blocks` for a mixed batch, Python
+`preview([], block_edits=[...])` or JavaScript `preview({blockEdits: [...]})`.
+Structural block operations reserve their entire original range against other body edits.
+Keep-with-next can accompany an alignment patch on the same paragraph.
+Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
+original start index per operation (unchanged direct keep-with-next omitted).

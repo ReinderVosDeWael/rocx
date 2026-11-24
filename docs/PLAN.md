@@ -1,5 +1,17 @@
 # Active plan — editing existing DOCX files
 
+Blocks topic (#3): direct paragraph replacement/removal, paragraph-anchored
+section replacement with ordered resolved paragraphs/tables, and keep-with-next
+patches share the original-snapshot transaction. The section's original break
+and header/footer inheritance are preserved. Replacement of source sections
+containing tables or opaque content remains unsupported.
+
+Topic verification: 43 Rust editor tests plus the showcase, 32 installed
+Python editor tests, native/Wasm Clippy and strict installed TypeScript passed.
+Packed Node 24 and Chromium 159 matched 13 native editor outputs. The mixed
+block output matched Python and passed independent python-docx, unchanged-part,
+OPC and 11-part schema checks. All nine catalogs matched across the bindings.
+
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
 ## Current milestone: qualify the combined #3 editor

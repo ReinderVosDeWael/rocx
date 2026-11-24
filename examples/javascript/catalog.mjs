@@ -207,6 +207,15 @@ export async function generateCatalog(fixtures, options) {
     "accepted a foreign edit anchor");
 
   const headers = await openDocx(headerSource);
+  const blockTarget = headers.body()[2].anchor;
+  const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
+  for (const edit of [
+    {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},
+    {kind: "replaceSection", blocks: [blockParagraph]}, {kind: "keepWithNext", value: true},
+  ]) {
+    assert(headers.preview({blockEdits: [{target: blockTarget, ...edit}]}).blockChanges()[0] === 2,
+      "incorrect block preview target");
+  }
   const sections = headers.sections();
   assert(sections.length === 2 && sections[0].bodyStart === 0 && sections[0].bodyEnd === 2 &&
     sections[1].bodyStart === 2 && sections[1].bodyEnd === 3, "unexpected section body ranges");

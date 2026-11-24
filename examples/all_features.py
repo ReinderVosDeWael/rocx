@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion, BlockEdit,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -553,6 +553,11 @@ async def generate(output: pathlib.Path) -> bytes:
     source_bytes = await (await source.resolve()).to_bytes()
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
+    target = header_doc.body[2].anchor
+    payload = await p("Block editor: replacement paragraph.").resolve()
+    for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
+                 BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True)):
+        assert header_doc.preview([], block_edits=[edit]).block_changes == [2]
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
     first, target = header_doc.default_headers
     assert target.section_index == 1 and target.inherited and first.part_name == target.part_name
