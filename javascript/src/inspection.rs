@@ -164,6 +164,8 @@ fn styles(input: &Wire) -> Result<JsValue> {
                     ("id", style.id.as_deref()),
                     ("name", style.name.as_deref()),
                     ("basedOn", style.based_on.as_deref()),
+                    ("nextStyle", style.next_style.as_deref()),
+                    ("linkedStyle", style.linked_style.as_deref()),
                     (
                         "kindXml",
                         match &style.kind {
@@ -177,6 +179,11 @@ fn styles(input: &Wire) -> Result<JsValue> {
                         b::set(&value, key, &item.into());
                     }
                 }
+                b::set(
+                    &value,
+                    "propertyXml",
+                    &view::array(style.property_xml.iter().map(|s| s.as_str().into())),
+                );
                 value
             });
             b::record(&[

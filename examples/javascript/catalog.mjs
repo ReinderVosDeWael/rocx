@@ -148,6 +148,9 @@ export async function generateCatalog(fixtures, options) {
   const styled = imported.preview({ styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
     { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
+    { op: "field", target: imported.styleAnchor("Regionfirst_row"), region: "firstRow", field: "b", value: null },
+    { op: "region", target: imported.styleAnchor("Regionlast_row"), region: "lastRow", format: { italic: true } },
+    { op: "add", definition: { kind: "numbering", name: "Catalog Imported List", numberingId: 60 } },
   ] });
   assert((await openDocx(styled.toDocx())).styles().styles.some(s =>
     s.id === "CatalogImportedChild" && s.basedOn === "CatalogBase"), "imported style edit readback");

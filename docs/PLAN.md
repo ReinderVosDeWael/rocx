@@ -40,7 +40,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
-| #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
+| #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits, retargeting live users and synthesizing missing parts. |
 | #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
@@ -57,6 +57,17 @@ consumers. Regressions cover crossing a bookmark inside math, live style
 aliases, protected move and bound-control template edits, proofing ranges
 across cells, and sharing a staged style catalog across operations.
 Keep #48 open for the remaining resource inventory; #52 is separate.
+
+**Style follow-up (#3, based on `b0a28b0`):** the seven-edit style fixture
+matches full Rust, installed Python 3.12, packed Node 26 and Chromium 159
+bytes. Independent readback checks the next-style reference, conditional cell
+format, resulting style order, reciprocal numbering link, unchanged levels
+and untouched part payloads. Schema/OPC validation passed. All 11 catalog
+files matched across Rust, Python and Node. The 60 focused Rust and 74
+Python tests passed, including clear/readback for every physical table region,
+opaque-leaf protection and a style/numbering/content transaction. Strict
+TypeScript and native Clippy passed. See the [style edit contract](EDITOR-PARITY.md#imported-style-edits)
+for supported scalar fields and whole-region semantics.
 
 ## Selected standalone topic results (before ten-way integration)
 

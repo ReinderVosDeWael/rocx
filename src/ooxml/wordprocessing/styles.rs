@@ -110,7 +110,7 @@ fn apply_run(style: &mut Node, f: &RunFormat) -> Result<()> {
     }
     Ok(())
 }
-fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
+pub(crate) fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
     let mut n = Node::new("w:tblStylePr");
     let mut run = font(
         &fmt.font,

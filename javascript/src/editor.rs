@@ -691,6 +691,8 @@ fn style_edit(input: &Wire, path: &str) -> Result<rocx::editor::StyleEdit> {
     )?;
     let fields: &[&str] = match op.as_str() {
         "add" => &["op", "definition"],
+        "field" => &["op", "target", "region", "field", "value"],
+        "region" => &["op", "target", "region", "format"],
         "patch" => &["op", "target", "bold", "italic"],
         "replace" => &["op", "target", "definition"],
         "remove" => &["op", "target"],
@@ -720,6 +722,37 @@ fn style_edit(input: &Wire, path: &str) -> Result<rocx::editor::StyleEdit> {
     };
     Ok(match op.as_str() {
         "add" => StyleEdit::Add(definition()?),
+        "field" => {
+            let region = record.get("region")?;
+            let value = record.get("value")?;
+            StyleEdit::Field {
+                target: target()?,
+                region: (!region.js().is_undefined())
+                    .then(|| b::string(&region, &record.path("region")))
+                    .transpose()?,
+                field: b::string(&record.get("field")?, &record.path("field"))?,
+                value: (!value.js().is_null())
+                    .then(|| b::string(&value, &record.path("value")))
+                    .transpose()?,
+            }
+        }
+        "region" => {
+            let format = record.get("format")?;
+            StyleEdit::Region {
+                target: target()?,
+                region: b::string(&record.get("region")?, &record.path("region"))?,
+                format: (!format.js().is_null())
+                    .then(|| {
+                        crate::styles::table_region(
+                            &format,
+                            &b::Operation::new().pass(),
+                            &record.path("format"),
+                        )
+                    })
+                    .transpose()?
+                    .map(Box::new),
+            }
+        }
         "replace" => StyleEdit::Replace {
             target: target()?,
             definition: definition()?,

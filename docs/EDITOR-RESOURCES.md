@@ -7,6 +7,12 @@ an ambiguous, invalid, or unsupported part produces an error. The part name
 identifies the physical source, and styles appear in source order.
 
 Each style exposes its optional source ID, direct name and `basedOn` ID.
+Rust and Python expose `next_style`, `linked_style`, and `property_xml`;
+JavaScript exposes `nextStyle`, `linkedStyle`, and `propertyXml`. The first
+two are the IDs stored in `w:next` and `w:link`. The last is a source-ordered
+list of standalone XML strings for the direct `pPr`, `rPr`, `tblPr`, `trPr`,
+`tcPr` and `tblStylePr` elements, including their attributes and descendants.
+Parse by namespace URI; serialization does not promise original lexical bytes.
 Kinds are paragraph, character, table or numbering; a missing kind is distinct
 from an unsupported source value. Python and JavaScript expose the original
 kind as `kind_xml` / `kindXml` (absent for a missing kind); Rust retains an unknown value in

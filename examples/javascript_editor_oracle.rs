@@ -229,6 +229,28 @@ fn main() {
                 definition: style("Memo Replace").with_bold(true).into(),
             },
             StyleEdit::Remove(catalog.style_anchor("MemoDrop").unwrap()),
+            StyleEdit::Field {
+                target: catalog.style_anchor("Heading1").unwrap(),
+                region: None,
+                field: "next".into(),
+                value: Some("MemoAdded".into()),
+            },
+            StyleEdit::Region {
+                target: catalog.style_anchor("TableGrid").unwrap(),
+                region: "nwCell".into(),
+                format: Some(Box::new(rocx::TableSectionFormat {
+                    bold: Some(true),
+                    background: Some([10, 20, 30]),
+                    ..Default::default()
+                })),
+            },
+            StyleEdit::Add(
+                rocx::NumberingStyleDefinition {
+                    name: "Memo List".into(),
+                    numbering_id: 1,
+                }
+                .into(),
+            ),
             StyleEdit::Patch {
                 target: catalog.style_anchor("MemoActive").unwrap(),
                 bold: None,
