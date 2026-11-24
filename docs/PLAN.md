@@ -214,6 +214,11 @@ until the hosted preflight succeeds and registry setup is confirmed.
 
 ## Editor goal: declarative parity
 
+Parallel task 9 CLI slice: a JSON interface covers direct-body inspection and
+anchored alignment preview/save-copy using a complete-source digest to bind
+targets across invocations. This does not complete the broader editor milestone;
+remaining operations and acceptance remain open.
+
 Complete #3 before releasing 0.4.0. Continue the serial checkpoint with
 relationship-based inspection of footnote, endnote and comment entries.
 Re-run release preflight on the integrated candidate, not the earlier docs commit.
