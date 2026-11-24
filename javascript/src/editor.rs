@@ -587,16 +587,35 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
     let edit = Record::new(
         input,
         path,
-        &["kind", "value", "abstractId", "level", "field", "name"],
+        &[
+            "kind",
+            "value",
+            "abstractId",
+            "numId",
+            "level",
+            "levels",
+            "target",
+            "field",
+            "name",
+        ],
     )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
-    let keys: &[&str] = match kind.as_str() {
-        "metadata" => &["kind", "field", "value"],
-        "customProperty" => &["kind", "name", "value"],
-        "abstractStart" => &["kind", "abstractId", "level", "value"],
-        _ => &["kind", "value"],
-    };
-    Record::new(input, path, keys)?;
+    Record::new(
+        input,
+        path,
+        match kind.as_str() {
+            "metadata" | "documentDefault" => &["kind", "field", "value"],
+            "customProperty" => &["kind", "name", "value"],
+            "abstractStart" => &["kind", "abstractId", "level", "value"],
+            "addAbstract" => &["kind", "abstractId", "levels"],
+            "removeAbstract" => &["kind", "abstractId"],
+            "addInstance" => &["kind", "abstractId", "numId"],
+            "removeInstance" => &["kind", "numId"],
+            "instanceStart" | "instanceLevel" => &["kind", "numId", "level", "value"],
+            "paragraphNumbering" => &["kind", "target", "value"],
+            _ => &["kind", "value"],
+        },
+    )?;
     let v = edit.get("value")?;
     let clear = v.js().is_null();
     let vp = edit.path("value");
@@ -604,6 +623,11 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
         b::u64_number(wire, p)?
             .try_into()
             .map_err(|_| Failure::invalid(p, "expected u32"))
+    };
+    use rocx::editor::NumberingEdit as N;
+    let id = |field| uint(&edit.get(field)?, &edit.path(field));
+    let level = |n: u32| {
+        u8::try_from(n).map_err(|_| Failure::invalid(&edit.path("level"), "invalid level"))
     };
     Ok(match kind.as_str() {
         "coreTitle" | "coreSubject" => {
@@ -617,6 +641,47 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
             } else {
                 ResourceEdit::CoreSubject(value)
             }
+        }
+        "documentDefault" => {
+            use rocx::editor::{DefaultField, DefaultTab, DefaultValue as V};
+            let key = b::string(&edit.get("field")?, &edit.path("field"))?;
+            let f = DefaultField::from_key(&key)
+                .ok_or_else(|| Failure::invalid(&edit.path("field"), "unknown document default"))?;
+            let value = if clear {
+                None
+            } else if let Some(b) = v.js().as_bool() {
+                Some(V::Bool(b))
+            } else if v.js().as_f64().is_some() {
+                Some(V::Integer(b::i64_number(&v, &vp)?))
+            } else if v.js().is_string() {
+                Some(V::Text(b::string(&v, &vp)?))
+            } else {
+                let mut tabs = Vec::new();
+                for (i, item) in b::list(&v, &vp)?.iter().enumerate() {
+                    let tab = Record::new(
+                        item,
+                        &format!("{vp}[{i}]"),
+                        &["positionTwips", "alignment", "leader"],
+                    )?;
+                    let leader = tab.get("leader")?;
+                    tabs.push(DefaultTab {
+                        position_twips: b::i64_number(
+                            &tab.get("positionTwips")?,
+                            &tab.path("positionTwips"),
+                        )?
+                        .try_into()
+                        .map_err(|_| Failure::invalid(&vp, "expected i32 tab position"))?,
+                        alignment: b::string(&tab.get("alignment")?, &tab.path("alignment"))?,
+                        leader: if leader.js().is_undefined() {
+                            None
+                        } else {
+                            Some(b::string(&leader, &tab.path("leader"))?)
+                        },
+                    });
+                }
+                Some(V::Tabs(tabs))
+            };
+            ResourceEdit::Default(f, value)
         }
         "metadata" => ResourceEdit::Metadata(
             b::string(&edit.get("field")?, &edit.path("field"))?.parse()?,
@@ -636,6 +701,60 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
                 Some(rocx::editor::CustomValue::Text(b::string(&v, &vp)?))
             },
         ),
+        "addAbstract" => ResourceEdit::Numbering(N::AddAbstract {
+            abstract_id: id("abstractId")?,
+            levels: b::list(&edit.get("levels")?, &edit.path("levels"))?
+                .iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    crate::styles::numbering_level(
+                        l,
+                        &b::Operation::new().pass(),
+                        &format!("{path}.levels[{i}]"),
+                    )
+                })
+                .collect::<Result<_>>()?,
+        }),
+        "instanceLevel" => ResourceEdit::Numbering(N::InstanceLevel {
+            num_id: id("numId")?,
+            level: level(id("level")?)?,
+            value: if clear {
+                None
+            } else {
+                Some(Box::new(crate::styles::numbering_level(
+                    &v,
+                    &b::Operation::new().pass(),
+                    &vp,
+                )?))
+            },
+        }),
+        "removeAbstract" => ResourceEdit::Numbering(N::RemoveAbstract {
+            abstract_id: id("abstractId")?,
+        }),
+        "addInstance" => ResourceEdit::Numbering(N::AddInstance {
+            num_id: id("numId")?,
+            abstract_id: id("abstractId")?,
+        }),
+        "removeInstance" => ResourceEdit::Numbering(N::RemoveInstance {
+            num_id: id("numId")?,
+        }),
+        "instanceStart" => ResourceEdit::Numbering(N::InstanceStart {
+            num_id: id("numId")?,
+            level: level(id("level")?)?,
+            start: if clear { None } else { Some(uint(&v, &vp)?) },
+        }),
+        "paragraphNumbering" => ResourceEdit::Numbering(N::Paragraph {
+            target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+            value: if clear {
+                None
+            } else {
+                let r = Record::new(&v, &vp, &["id", "level"])?;
+                Some(rocx::NumberingReference {
+                    id: uint(&r.get("id")?, &r.path("id"))?,
+                    level: level(uint(&r.get("level")?, &r.path("level"))?)?,
+                })
+            },
+        }),
         "defaultAlignment" => ResourceEdit::DefaultAlignment(if clear {
             None
         } else {
@@ -800,6 +919,8 @@ fn style_edit(input: &Wire, path: &str) -> Result<rocx::editor::StyleEdit> {
     )?;
     let fields: &[&str] = match op.as_str() {
         "add" => &["op", "definition"],
+        "field" => &["op", "target", "region", "field", "value"],
+        "region" => &["op", "target", "region", "format"],
         "patch" => &["op", "target", "bold", "italic"],
         "replace" => &["op", "target", "definition"],
         "remove" => &["op", "target"],
@@ -829,6 +950,37 @@ fn style_edit(input: &Wire, path: &str) -> Result<rocx::editor::StyleEdit> {
     };
     Ok(match op.as_str() {
         "add" => StyleEdit::Add(definition()?),
+        "field" => {
+            let region = record.get("region")?;
+            let value = record.get("value")?;
+            StyleEdit::Field {
+                target: target()?,
+                region: (!region.js().is_undefined())
+                    .then(|| b::string(&region, &record.path("region")))
+                    .transpose()?,
+                field: b::string(&record.get("field")?, &record.path("field"))?,
+                value: (!value.js().is_null())
+                    .then(|| b::string(&value, &record.path("value")))
+                    .transpose()?,
+            }
+        }
+        "region" => {
+            let format = record.get("format")?;
+            StyleEdit::Region {
+                target: target()?,
+                region: b::string(&record.get("region")?, &record.path("region"))?,
+                format: (!format.js().is_null())
+                    .then(|| {
+                        crate::styles::table_region(
+                            &format,
+                            &b::Operation::new().pass(),
+                            &record.path("format"),
+                        )
+                    })
+                    .transpose()?
+                    .map(Box::new),
+            }
+        }
         "replace" => StyleEdit::Replace {
             target: target()?,
             definition: definition()?,

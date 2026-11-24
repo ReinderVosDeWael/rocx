@@ -150,6 +150,9 @@ export async function generateCatalog(fixtures, options) {
   const styled = imported.preview({ styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
     { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
+    { op: "field", target: imported.styleAnchor("Regionfirst_row"), region: "firstRow", field: "b", value: null },
+    { op: "region", target: imported.styleAnchor("Regionlast_row"), region: "lastRow", format: { italic: true } },
+    { op: "add", definition: { kind: "numbering", name: "Catalog Imported List", numberingId: 60 } },
   ] });
   assert((await openDocx(styled.toDocx())).styles().styles.some(s =>
     s.id === "CatalogImportedChild" && s.basedOn === "CatalogBase"), "imported style edit readback");
@@ -224,19 +227,29 @@ export async function generateCatalog(fixtures, options) {
   assert(editTargets.length === 1 && editTargets[0].alignment === "left", "expected unique left-aligned target");
   const [target] = editTargets;
   checkText(target.inlineItems, [EDIT_LABEL]);
+  assert(imported.documentDefaults().sizeHalfPoints === 22, "expected direct 11-point default");
+  assertThrows(() => imported.preview({resources: [{kind:"documentDefault", field:"bold", value:1}]}), "accepted numeric default toggle");
   assert(imported.coreTitle() === "All features visual inspection" && imported.defaultAlignment() === undefined,
     "unexpected direct catalog defaults");
   assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
     "missing shared abstract numbering level");
   const textPreview = imported.preview({
+    styleEdits: [{op:"add", definition:{kind:"numbering", name:"Reviewed List", numberingId:9049}}],
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
       {kind: "coreSubject", value: "Imported resource edits"},
+      {kind:"documentDefault", field:"bold", value:false}, {kind:"documentDefault", field:"footnoteStart", value:5},
+      {kind:"documentDefault", field:"afterTwips", value:null},
       {kind: "metadata", field: "creator", value: "Review team"},
       {kind: "metadata", field: "manager", value: "Review lead"},
       {kind: "customProperty", name: "Reviewed", value: false},
-      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
+      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7},
+      {kind: "addAbstract", abstractId: 9048, levels: [{level: 0, start: 2, format: "decimal", text: "%1."}]},
+      {kind: "instanceLevel", numId: 9049, level: 0, value: {level: 0, start: 1, format: "lowerRoman", text: "(%1)"}},
+      {kind: "addInstance", numId: 9049, abstractId: 9048},
+      {kind: "instanceStart", numId: 9049, level: 0, value: 6},
+      {kind: "paragraphNumbering", target: target.anchor, value: {id: 9049, level: 0}}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
     textInsertions: [{target: target.anchor, position: 8, text: " + point"}],
@@ -258,12 +271,20 @@ export async function generateCatalog(fixtures, options) {
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
   const editedResources = await openDocx(runText);
+  const defaults = editedResources.documentDefaults();
+  assert(defaults.bold === false && defaults.footnoteStart === 5 && defaults.afterTwips === undefined, "incorrect direct defaults");
   assert(editedResources.metadataField("manager") === "Review lead" &&
     editedResources.customProperty("Reviewed") === false, "missing metadata values");
   assertThrows(() => imported.preview({resources: [{kind: "customProperty", name: "Reviewed"}]}),
     "accepted missing custom value");
   assertThrows(() => imported.preview({resources: [{kind: "metadata", field: "created", value: "yesterday"}]}),
     "accepted invalid core date");
+  assert(editedResources.numberingInstances().some(n => n.numId === 9049 && n.abstractId === 9048 &&
+    n.replacementLevels.includes(0) && n.startOverrides.some(o => o.level === 0 && o.start === 6)), "missing instance override");
+  const listTarget = editedResources.body().find(p => p.kind === "paragraph" && p.text.startsWith("Ranged 📝"));
+  assert(editedResources.paragraphNumbering(listTarget.anchor)?.id === 9049, "missing direct numbering reference");
+  assertThrows(() => editedResources.paragraphNumbering(target.anchor), "accepted stale paragraph anchor");
+  assertThrows(() => editedResources.preview({resources: [{kind: "removeInstance", numId: 9049}]}), "deleted a live instance");
   assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample" &&
     editedResources.coreSubject() === "Imported resource edits",
     "missing resource edits");

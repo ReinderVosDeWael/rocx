@@ -4,6 +4,29 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+Primary integration: combine the `a30c516` point, section, formatting, story
+and lifecycle work with `ea1c023`, preserve the union of catalog/editor
+artifacts, and qualify the resource/style CLI transport with the native,
+installed Python and packed JavaScript gates.
+
+**#47/#48 integration:** defaults, metadata, numbering and style editing share
+one transaction. Allocate absent resource parts without adopting orphan parts,
+resolve new numbering-style links against staged instances, reject duplicate
+alias edits, and recheck removals against the finished package. Exercise both
+a mixed consumer oracle and an independent fixture that creates all six parts.
+Combined verification: 63 focused Rust and 96 installed Python tests passed;
+strict TypeScript and native/Wasm Clippy passed. All 24 editor outputs matched
+between Rust, packed Node 26 and Chromium 159; installed Python also matched
+the mixed oracle. All 11 catalog packages matched across Rust, Python and Node
+and passed schema/OPC validation and independent readback.
+
+#48 defaults increment: direct run/paragraph defaults and document-wide
+settings now support independent inspection and set/clear. All eleven catalogs
+matched in Rust, installed Python 3.12 and packed Node 26 and passed schema/OPC
+and independent readback. All 23 packed Node editor outputs matched Rust;
+the mixed tab-stop edit also matched installed Python. Focused tests covered
+relocated settings, explicit false, annotation guards and stale-anchor retry.
+
 #48 metadata worktree: core scalars and timestamps, company/manager, and named
 string/boolean custom-property edits passed standalone qualification: 55 Rust
 editor/showcase tests, nine installed-wheel resource tests, native Clippy and
@@ -11,6 +34,15 @@ strict TypeScript declarations. All eleven catalog outputs matched byte for
 byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
 passed independent readback and schema/OPC checks (20 covered parts).
 See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
+
+Numbering follow-up (#48): add abstract levels and concrete instances, set or
+clear concrete starts/replacement levels and anchored body paragraph references,
+and guard removals against live or uninspectable references in the final package.
+Standalone verification: 55 Rust editor tests, 74 installed Python tests, strict
+TypeScript and packed Node 26 passed. The independent numbering fixture matched
+in Rust, Python and Node; all 24 editor outputs matched Rust/Node, and all 11
+catalog outputs matched across the three bindings. The mixed catalog passed
+schema/OPC checks and independent numbering readback.
 
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
@@ -24,8 +56,8 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six header/footer slots; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Custom note marks, shared or nested reference edits, destructive rich block edits, modern comment metadata, reserved entries and local text forks. |
-| #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
-| #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
+| #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits and retargeting live users. |
+| #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
 | #51 JSON CLI / #3 follow-up | Digest-bound transport for every `b0a28b0` ordinary batch family, all story image slots, physical story text, tracked text/moves and revision review. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; additions to the core after `b0a28b0` require corresponding transport. See [CLI contract](CLI.md). |
@@ -110,6 +142,17 @@ complete DOCX bytes in Rust, installed Python 3.12, packed Node 26 and Chromium
 payloads. All 24 editor outputs matched Rust in Node and Chromium; all 11
 catalogs matched across Rust, Python and Node. Native/Wasm Clippy, strict
 TypeScript, 54 Rust and 58 Python editor tests passed on the standalone branch.
+
+**Style follow-up (#3, based on `b0a28b0`):** the seven-edit style fixture
+matches full Rust, installed Python 3.12, packed Node 26 and Chromium 159
+bytes. Independent readback checks the next-style reference, conditional cell
+format, resulting style order, reciprocal numbering link, unchanged levels
+and untouched part payloads. Schema/OPC validation passed. All 11 catalog
+files matched across Rust, Python and Node. The 60 focused Rust and 74
+Python tests passed, including clear/readback for every physical table region,
+opaque-leaf protection and a style/numbering/content transaction. Strict
+TypeScript and native Clippy passed. See the [style edit contract](EDITOR-PARITY.md#imported-style-edits)
+for supported scalar fields and whole-region semantics.
 
 ## Selected standalone topic results (before ten-way integration)
 

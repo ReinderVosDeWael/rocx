@@ -28,7 +28,8 @@ pub(crate) fn order(name: &crate::xml::Name) -> Option<Vec<&'static str>> {
         "w:footnotePr" => "pos numFmt numStart numRestart footnote",
         "w:endnotePr" => "pos numFmt numStart numRestart endnote",
         "w:pgBorders" => "top left bottom right",
-        "w:numbering" => "numPicBullet abstractNum num numIdMac",
+        "w:numbering" => "numPicBullet abstractNum num numIdMacAtCleanup",
+        "w:numPr" => "ilvl numId numberingChange ins",
         "w:abstractNum" => "nsid multiLevelType tmpl name styleLink numStyleLink lvl",
         "w:lvlOverride" => "startOverride lvl",
         "w:lvl" => {

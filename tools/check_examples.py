@@ -57,6 +57,19 @@ def verify_inventory() -> None:
     wrappers = {"BlockChildren", "Deferred", "DeferredProperty", "PropertyRef"}
     assert set(d.__all__) == set(inventory) | wrappers, "Update catalog coverage for changed public exports"
     verify_rust_builder_inventory()
+    verify_imported_default_keys()
+
+
+def verify_imported_default_keys() -> None:
+    """Keep the two string-key consumers and the published defaults inventory in sync."""
+    core = (ROOT / "src/editor/resource_fields/defaults.rs").read_text()
+    fields = re.findall(r'^\s*\w+: "(\w+)", (?:RUN|PARA|FOOT|END|SETTINGS),', core, re.M)
+    declarations = (ROOT / "javascript/types/inspection.d.ts").read_text()
+    groups = re.findall(r"type Default(?:Text|Toggle|Integer) = ([^;]+);", declarations)
+    declared = {"tabStops"} | set(re.findall(r'"(\w+)"', " ".join(groups)))
+    assert len(fields) == len(declared) and set(fields) == declared, "Update typed default keys"
+    guide = (ROOT / "docs/EDITOR-RESOURCES.md").read_text()
+    assert all(f"`{field}`" in guide for field in fields), "Document every imported default key"
 
 
 def verify_rust_builder_inventory() -> None:
@@ -857,6 +870,8 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     assert edited_doc.element.xpath("//w:sdtPr[w:id/@w:val='5001']/w:alias/@w:val") == ["Imported editor caption"]
     assert edited_doc.core_properties.title == "Edited resource sample"
     assert edited_doc.core_properties.subject == "Imported resource edits"
+    assert edited_doc.styles["Reviewed List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["9049"]
+    assert edited_doc.part.numbering_part.element.xpath("w:abstractNum[@w:abstractNumId='9048']/w:styleLink/@w:val") == ["ReviewedList"]
     assert edited_doc.core_properties.author == "Review team"
     paragraphs = [p.text for p in edited_doc.paragraphs]
     assert "Ranged 📝 + point" + EDIT_LABEL[8:] in paragraphs
@@ -864,7 +879,7 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
         assert set(source.namelist()) == set(changed.namelist())
-        mutable = {"word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml"}
+        mutable = {"word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml", "word/settings.xml"}
         mutable.update({"docProps/app.xml", "docProps/custom.xml"})
         app = etree.fromstring(changed.read("docProps/app.xml"))
         custom = etree.fromstring(changed.read("docProps/custom.xml"))
@@ -872,9 +887,20 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
         assert custom.findtext("{*}property[@name='Reviewed']/{*}bool") == "false"
         assert {n for n in source.namelist() if source.read(n) != changed.read(n)} == mutable
         styles = etree.fromstring(changed.read("word/styles.xml"))
+        assert styles.xpath("w:docDefaults/w:rPrDefault/w:rPr/w:b/@w:val", namespaces=NS) == ["0"]
+        assert not styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:spacing/@w:after", namespaces=NS)
+        settings = etree.fromstring(changed.read("word/settings.xml"))
+        assert settings.xpath("w:footnotePr/w:numStart/@w:val", namespaces=NS) == ["5"]
         assert styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:jc/@w:val", namespaces=NS) == ["center"]
         numbers = etree.fromstring(changed.read("word/numbering.xml"))
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["7"]
+        assert numbers.xpath("w:abstractNum[@w:abstractNumId='9048']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["2"]
+        instance, = numbers.xpath("w:num[@w:numId='9049']", namespaces=NS)
+        assert instance.xpath("w:abstractNumId/@w:val", namespaces=NS) == ["9048"]
+        assert instance.xpath("w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val", namespaces=NS) == ["6"]
+        assert instance.xpath("w:lvlOverride[@w:ilvl='0']/w:lvl/w:numFmt/@w:val", namespaces=NS) == ["lowerRoman"]
+        numbered, = [p for p in edited_doc.paragraphs if p.text.startswith("Ranged 📝")]
+        assert numbered._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["9049"]
 
 
 def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:

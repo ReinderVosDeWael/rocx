@@ -30,7 +30,9 @@ mod insertion;
 pub(crate) use insertion::BoundaryState;
 mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
+mod numbering;
 mod resource_fields;
+pub use numbering::{ImportedNumberingInstance, NumberingEdit};
 mod resources;
 mod revisions;
 pub use revisions::TrackedText;
@@ -43,7 +45,9 @@ pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
-pub use resource_fields::{AbstractStart, CustomValue, MetadataField, ResourceEdit};
+pub use resource_fields::{
+    AbstractStart, CustomValue, DefaultField, DefaultTab, DefaultValue, MetadataField, ResourceEdit,
+};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
@@ -811,6 +815,7 @@ impl ImportedDocument {
             self.validate_snapshot(snapshot)?;
         }
         let mut by_index = BTreeMap::new();
+        let number_refs = numbering::paragraph_targets(self, resources)?;
         for edit in edits {
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
@@ -831,6 +836,9 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        // Numbering identities must be visible to both styles and body
+        // payloads. Validate removals only after their final users are staged.
+        let removed_numbers = numbering::stage(&mut package, &self.main, resources)?;
         // Check unused definitions against the original snapshot, and make
         // newly added definitions available to every payload codec.
         self.stage_styles(&mut package, styles)?;
@@ -861,6 +869,7 @@ impl ImportedDocument {
         let mut cell_alignment_changes = Vec::new();
         let mut block_changes = Vec::new();
         if !by_index.is_empty()
+            || !number_refs.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
@@ -878,6 +887,7 @@ impl ImportedDocument {
             let headers = self.plan_header_images(&root, header_images)?;
             let occupied = by_index
                 .keys()
+                .chain(number_refs.keys())
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
                 .copied()
@@ -939,6 +949,7 @@ impl ImportedDocument {
             (run_text_changes, removed_runs) =
                 text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
             cell_alignment_changes = tables::apply(body, cells)?;
+            let numbering_changed = numbering::patch_paragraphs(body, &number_refs)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -1000,6 +1011,7 @@ impl ImportedDocument {
             package = block_plan.stage(package, &self.main, body, pending)?;
             block_changes = block_plan.changes;
             if controls_changed
+                || numbering_changed
                 || !changes.is_empty()
                 || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
@@ -1015,15 +1027,15 @@ impl ImportedDocument {
             {
                 package.put_word(&self.main, root)?;
             }
-            if destructive_styles {
-                // Revalidate against the staged content, including implicit
-                // style references emitted by payload codecs. The plan always
-                // derives the catalog itself from the immutable source.
-                self.stage_styles(&mut package, styles)?;
-            }
         }
         // A defaults patch shares the styles part. Read the staged version.
         resource_fields::apply(&mut package, &self.main, resources)?;
+        if destructive_styles {
+            self.check_final_style_uses(&package, styles)?;
+        }
+        if let Some(removed) = removed_numbers {
+            removed.check(&package)?;
+        }
         Ok(EditPreview {
             block_changes,
             run_text_changes,

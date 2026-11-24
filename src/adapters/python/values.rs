@@ -674,7 +674,7 @@ pub(super) fn numbering_definition(o: &Bound<'_, PyAny>) -> PyResult<crate::Numb
         level_overrides: list(&o.getattr("level_overrides")?, numbering_level)?,
     })
 }
-fn numbering_level(o: &Bound<'_, PyAny>) -> PyResult<Option<crate::NumberingLevel>> {
+pub(super) fn numbering_level(o: &Bound<'_, PyAny>) -> PyResult<Option<crate::NumberingLevel>> {
     let alignment = match field!(o, "alignment", Option<String>).as_deref() {
         None => None,
         Some("left") => Some(crate::NumberingAlignment::Left),

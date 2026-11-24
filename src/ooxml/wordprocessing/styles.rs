@@ -110,7 +110,7 @@ fn apply_run(style: &mut Node, f: &RunFormat) -> Result<()> {
     }
     Ok(())
 }
-fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
+pub(crate) fn section_format(fmt: &TableSectionFormat) -> Result<Node> {
     let mut n = Node::new("w:tblStylePr");
     let mut run = font(
         &fmt.font,
@@ -454,7 +454,7 @@ pub(crate) fn apply(
                     abs.push(val("numStyleLink", id));
                 }
                 for level in &def.levels {
-                    abs.push(numbering_level(level, &styles)?);
+                    abs.push(numbering_level(level, Some(&styles))?);
                 }
                 nums.push(abs);
             }
@@ -474,7 +474,7 @@ pub(crate) fn apply(
                 overrides
                     .entry(entry.level)
                     .or_insert_with(|| Node::new("w:lvlOverride").attr("w:ilvl", entry.level))
-                    .push(numbering_level(entry, &styles)?);
+                    .push(numbering_level(entry, Some(&styles))?);
             }
             for entry in overrides.into_values() {
                 concrete.push(entry);
@@ -501,7 +501,10 @@ pub(crate) fn apply(
     Ok(styles)
 }
 
-fn numbering_level(level: &crate::NumberingLevel, styles: &Node) -> Result<Node> {
+pub(crate) fn numbering_level(
+    level: &crate::NumberingLevel,
+    styles: Option<&Node>,
+) -> Result<Node> {
     let mut node = Node::new("w:lvl")
         .attr("w:ilvl", level.level)
         .with(val("start", level.start))
@@ -511,6 +514,8 @@ fn numbering_level(level: &crate::NumberingLevel, styles: &Node) -> Result<Node>
     }
     // P1 (2016) Annex A.1 CT_Lvl: pStyle precedes isLgl and label text.
     if let Some(name) = &level.paragraph_style {
+        let styles = styles
+            .ok_or_else(|| Error::Validation("numbering level needs a styles catalog".into()))?;
         node.push(val(
             "pStyle",
             typed_style_id(styles, name, "paragraph")

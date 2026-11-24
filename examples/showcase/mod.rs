@@ -549,6 +549,27 @@ pub async fn generate(output: &Path) -> Result<()> {
                 bold: None,
                 italic: Some(true),
             },
+            editor::StyleEdit::Field {
+                target: imported.style_anchor("Regionfirst_row")?,
+                region: Some("firstRow".into()),
+                field: "b".into(),
+                value: None,
+            },
+            editor::StyleEdit::Region {
+                target: imported.style_anchor("Regionlast_row")?,
+                region: "lastRow".into(),
+                format: Some(Box::new(TableSectionFormat {
+                    italic: Some(true),
+                    ..Default::default()
+                })),
+            },
+            editor::StyleEdit::Add(
+                NumberingStyleDefinition {
+                    name: "Catalog Imported List".into(),
+                    numbering_id: 60,
+                }
+                .into(),
+            ),
         ],
     )?;
     assert!(
@@ -777,6 +798,10 @@ pub async fn generate(output: &Path) -> Result<()> {
         Some("All features visual inspection")
     );
     assert_eq!(imported.default_alignment()?, None);
+    assert_eq!(
+        imported.document_defaults()?[&editor::DefaultField::SizeHalfPoints],
+        editor::DefaultValue::Integer(22)
+    );
     assert!(
         imported
             .abstract_starts()?
@@ -801,6 +826,13 @@ pub async fn generate(output: &Path) -> Result<()> {
         .find(|c| c.id.as_deref() == Some("5001"))
         .unwrap();
     let preview = imported.preview_edits(editor::EditBatch {
+        styles: &[editor::StyleEdit::Add(
+            rocx::NumberingStyleDefinition {
+                name: "Reviewed List".into(),
+                numbering_id: 9049,
+            }
+            .into(),
+        )],
         run_text: &[editor::RunTextEdit {
             target: label.anchor.clone(),
             text: replacement.into(),
@@ -821,6 +853,40 @@ pub async fn generate(output: &Path) -> Result<()> {
             text: " + point".into(),
         }],
         resources: &[
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
+                abstract_id: 9048,
+                levels: vec![rocx::NumberingLevel {
+                    level: 0,
+                    start: 2,
+                    format: "decimal".into(),
+                    text: "%1.".into(),
+                    ..Default::default()
+                }],
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceLevel {
+                num_id: 9049,
+                level: 0,
+                value: Some(Box::new(rocx::NumberingLevel {
+                    level: 0,
+                    start: 1,
+                    format: "lowerRoman".into(),
+                    text: "(%1)".into(),
+                    ..Default::default()
+                })),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
+                num_id: 9049,
+                abstract_id: 9048,
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceStart {
+                num_id: 9049,
+                level: 0,
+                start: Some(6),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::Paragraph {
+                target: targets[0].anchor.clone(),
+                value: Some(rocx::NumberingReference { id: 9049, level: 0 }),
+            }),
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
             editor::ResourceEdit::CoreSubject(Some("Imported resource edits".into())),
             editor::ResourceEdit::Metadata(
@@ -836,6 +902,15 @@ pub async fn generate(output: &Path) -> Result<()> {
                 Some(editor::CustomValue::Boolean(false)),
             ),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::Bold,
+                Some(editor::DefaultValue::Bool(false)),
+            ),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::FootnoteStart,
+                Some(editor::DefaultValue::Integer(5)),
+            ),
+            editor::ResourceEdit::Default(editor::DefaultField::AfterTwips, None),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {
                 abstract_id: 100,
                 level: 0,
