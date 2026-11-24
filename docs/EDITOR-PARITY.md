@@ -96,8 +96,9 @@ Paragraph insertion in other stories is unsupported.
 
 Whole-inline edits address a direct child of a direct body paragraph. Insert after
 or replace a single text, break or tab run, or a hyperlink containing only such
-runs. Payloads use the imported-paragraph codecs for resolved text, breaks, tabs,
-fractions and external hyperlinks. New external links allocate relationships on
+runs, or target a [supported object occurrence](#drawing-and-fraction-occurrences).
+Direct inline payloads accept resolved text, breaks, tabs, fractions, external
+hyperlinks, pictures, shapes and column charts. New external links allocate relationships on
 the actual document part. Replacement refuses to discard unrecognized properties
 or markup; unused existing relationships are retained. A direct bold patch on a
 supported run sets only `w:rPr/w:b`, preserving other properties (including
@@ -113,6 +114,64 @@ properties and active supported field/range boundaries reject the batch.
 `inline_changes()` / `inline_changes` / `inlineChanges()` return original
 (body, inline) index pairs in document order; an already-matching direct bold
 value is omitted. There are no character-range addresses in these operations.
+
+### Drawing and fraction occurrences
+
+Use the direct body paragraph's structured inline view. A run's optional
+`drawing` describes the occurrence: `kind` (`image`, `shape`, `chart`),
+`placement` (`inline`, `floating`), explicit extent in EMUs, accessibility
+name/title/description, and owner-local relationship ID for embedded pictures
+and charts. Simple shapes expose preset geometry and plain text. Image crop
+is `[left, top, right, bottom]` in thousandths of a percent; rotation is in
+1/60000 degree units. Flips preserve explicit false versus absence. Rust and
+Python use `width_emu`, `relationship_id`, `shape_text`, `flip_horizontal`;
+JavaScript uses `widthEmu`, `relationshipId`, `shapeText`, `flipHorizontal`.
+The legacy flat projection still reports opaque XML at these locations.
+A simple stacked fraction exposes an inline anchor, numerator and denominator
+(`ImportedInlineNode::Fraction`, `ImportedFraction`, `kind: "fraction"`).
+Other math stays opaque.
+
+| Rust `InlineAction` | Python `InlineEdit` | JavaScript `inlineEdits` element |
+| --- | --- | --- |
+| `InsertAfter(inline)` / `Replace(inline)` | `insert_after(target, inline)` / `replace(target, inline)` | `{kind: "insertAfter" \| "replace", target, inline}` |
+| `RemoveObject` | `remove_object(target)` | `{kind: "removeObject", target}` |
+| `SetDrawingDescription(Some(text))` / `None` | `set_drawing_description(target, text)` / `None` | `{kind: "setDrawingDescription", target, value: text}` / `null` |
+| `SetImageAsset(image)` | `set_image_asset(target, resolved_image_run)` | `{kind: "setImageAsset", target, image: resolvedImageRun.view.image}` |
+| `PatchDrawing(DrawingProperty::Size, inline)` | `patch_drawing(target, "size", inline)` | `{kind: "patchDrawing", target, property: "size", inline}` |
+
+`PatchDrawing` copies **one property group** from a resolved declaration of
+the same object kind. Other declaration properties, drawing IDs and source
+relationships stay in place. A missing optional property in the declaration
+clears that group. Rust enum variants / Python and JavaScript selectors:
+
+* `Size` / `size`: update the outer and modeled inner extents.
+* `Placement` / `placement`: set inline/floating placement, including wrapping,
+  for a picture or shape. `Accessibility` / `accessibility`: copy occurrence
+  name/title/description. For a literal attribute removal use the separate
+  description action.
+* `Crop` / `crop` and `Transform` / `transform`: picture crop, or rotation and
+  flips. Asset replacement redirects only one `r:embed`; neither the peer
+  occurrence nor its bytes are changed.
+* `ShapeFill` / `shapeFill`, `ShapeOutline` / `shapeOutline`, `ShapeText` /
+  `shapeText`: geometric shape fill/line or simple text and its format.
+  Shape text requires compatible geometric-shape or standalone-text-box
+  declarations. Replace the whole shape to switch geometry.
+* `ChartSeries` / `chartSeries`: set categories and values in an existing
+  workbook-free, literal single column series with the same point count.
+  A changed series forks the chart part and redirects this occurrence only;
+  axis settings and unrelated chart XML are retained. Read the series via
+  `doc.chart_series(&anchor)` (Rust tuple), `doc.chart_series(anchor)` (Python
+  tuple), or `doc.chartSeries(anchor)` (`{categories, values}` in JavaScript).
+  Replace the occurrence with a new chart to change the number of points.
+
+One edit per original occurrence per preview. To patch another group on the
+same occurrence, reopen the preview bytes and obtain a fresh anchor. Whole
+replacements/removals refuse unrecognized markup in the occurrence being
+discarded. Patches preserve unrelated opaque drawing content and reject
+ambiguous targets or unsupported markup on a subtree they would discard.
+Unused relationships and old parts remain in the package. Complex equations,
+general charts/workbooks, rich text-box stories, VML, and nested or non-body
+object edits are outside this interface.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in

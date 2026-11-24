@@ -119,6 +119,18 @@ pub(crate) fn prepare(p: &mut Package, main: &str) -> Result<u32> {
     Ok(drawing_ceiling(p))
 }
 
+pub(crate) fn drawing_node_ceiling(n: &Node) -> u32 {
+    n.elements()
+        .map(drawing_node_ceiling)
+        .chain(
+            matches!(n.name.as_str(), "wp:docPr" | "a:cNvPr" | "pic:cNvPr")
+                .then(|| n.get("id").and_then(|i| i.trim().parse().ok()))
+                .flatten(),
+        )
+        .max()
+        .unwrap_or(0)
+}
+
 pub(super) fn drawing_ceiling(p: &Package) -> u32 {
     let mut drawing = 0;
     // OPC part names need not end in .xml, even for Word story parts.
@@ -133,18 +145,7 @@ pub(super) fn drawing_ceiling(p: &Package) -> u32 {
         if (utf16 || (looks_like_xml && utf8.windows(5).any(|w| w == b"docPr" || w == b"cNvPr")))
             && let Ok(node) = Node::parse(data)
         {
-            fn max_id(n: &Node) -> u32 {
-                n.elements()
-                    .map(max_id)
-                    .chain(
-                        matches!(n.name.as_str(), "wp:docPr" | "a:cNvPr" | "pic:cNvPr")
-                            .then(|| n.get("id").and_then(|i| i.trim().parse().ok()))
-                            .flatten(),
-                    )
-                    .max()
-                    .unwrap_or(0)
-            }
-            drawing = drawing.max(max_id(&node));
+            drawing = drawing.max(drawing_node_ceiling(&node));
         }
     }
     drawing

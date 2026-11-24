@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit,
+    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit, ImportedFraction,
     TableInsertion, TextRangeEdit, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
@@ -491,6 +491,27 @@ async def generate(output: pathlib.Path) -> bytes:
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
+    nodes = [n for b in imported.body for n in getattr(b, "inline_structure", ())]
+    def drawings(kind):
+        return [n.anchor for n in nodes if isinstance(n, ImportedRun) and n.drawing and n.drawing.kind == kind]
+    fraction = next(n for n in nodes if isinstance(n, ImportedFraction) and (n.numerator, n.denominator) == ("1", "2"))
+    edits = [InlineEdit.set_drawing_description(drawings("image")[0], "Edited picture"),
+             InlineEdit.set_image_asset(drawings("image")[1], await image("gif").resolve()),
+             InlineEdit.patch_drawing(drawings("shape")[2], "size", await d.ShapeRun(75, 25).resolve()),
+             InlineEdit.replace(drawings("shape")[0], await image("png").resolve()),
+             InlineEdit.remove_object(drawings("shape")[1]),
+             InlineEdit.replace(drawings("chart")[0], await d.ShapeRun(40, 20, text="Edited shape").resolve()),
+             InlineEdit.insert_after(label.anchor, await d.ColumnChartRun(120, 80, ["Edited"], [9]).resolve()),
+             InlineEdit.replace(fraction.anchor, await d.InlineFraction("3", "7").resolve())]
+    object_edit = imported.preview([], inline_edits=edits)
+    assert len(object_edit.inline_changes) == 8
+    next_doc = ImportedDocument.open(object_edit.to_docx())
+    chart = next(n for b in next_doc.body for n in getattr(b, "inline_structure", ())
+                 if isinstance(n, ImportedRun) and n.drawing and n.drawing.kind == "chart")
+    assert next_doc.chart_series(chart.anchor) == (["Edited"], [9.])
+    fork = next_doc.preview([], inline_edits=[InlineEdit.patch_drawing(chart.anchor, "chartSeries",
+        await d.ColumnChartRun(120, 80, ["Final"], [12]).resolve())])
+    output.with_suffix(".objects.docx").write_bytes(fork.to_docx())
     replacement = "Imported editor: replaced this run by its anchor. "
     inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
     targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]

@@ -4,6 +4,16 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+Drawings slice (#3): the [direct body object editor](EDITOR-PARITY.md#drawing-and-fraction-occurrences)
+inserts, replaces and removes embedded pictures, locked-canvas shapes,
+literal charts and simple fractions. Property-group patches include picture
+assets and copy-on-write chart data. All twelve DOCX catalog outputs matched
+across Rust, Python and packed Node. The object artifact passed independent
+readback and validation of 22 schema-covered parts plus OPC relationships.
+Independent shared-asset tests also cover opaque markup and mixed body/header
+drawing IDs. Nested and non-body object edits, shape geometry conversion in
+place, rich math/text-box input and workbook-backed chart edits remain open.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls

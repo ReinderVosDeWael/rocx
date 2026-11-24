@@ -164,13 +164,27 @@ fn paragraph_insertion(input: &Wire, path: &str) -> Result<ParagraphInsertion> {
 
 fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
     use rocx::editor::{InlineAction, InlineEdit};
-    let record = Record::new(input, path, &["target", "kind", "inline", "bold"])?;
+    let record = Record::new(
+        input,
+        path,
+        &[
+            "target", "kind", "inline", "bold", "value", "image", "property",
+        ],
+    )?;
     let kind = b::string(&record.get("kind")?, &record.path("kind"))?;
     let edit = Record::new(
         input,
         path,
         if kind == "setBold" {
             &["target", "kind", "bold"]
+        } else if kind == "patchDrawing" {
+            &["target", "kind", "property", "inline"]
+        } else if kind == "setImageAsset" {
+            &["target", "kind", "image"]
+        } else if kind == "removeObject" {
+            &["target", "kind"]
+        } else if kind == "setDrawingDescription" {
+            &["target", "kind", "value"]
         } else {
             &["target", "kind", "inline"]
         },
@@ -186,6 +200,25 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
         action: match kind.as_str() {
             "insertAfter" => InlineAction::InsertAfter(payload()?),
             "replace" => InlineAction::Replace(payload()?),
+            "removeObject" => InlineAction::RemoveObject,
+            "patchDrawing" => {
+                let p = edit.path("property");
+                let property =
+                    rocx::editor::DrawingProperty::parse(&b::string(&edit.get("property")?, &p)?)
+                        .ok_or_else(|| Failure::invalid(&p, "unknown drawing property"))?;
+                InlineAction::PatchDrawing(property, payload()?)
+            }
+            "setImageAsset" => InlineAction::SetImageAsset(
+                (*b::borrow::<ResolvedImage>(&edit.get("image")?, &edit.path("image"))?).clone(),
+            ),
+            "setDrawingDescription" => {
+                let value = edit.get("value")?;
+                InlineAction::SetDrawingDescription(if value.js().is_null() {
+                    None
+                } else {
+                    Some(b::string(&value, &edit.path("value"))?)
+                })
+            }
             "setBold" => InlineAction::SetBold(
                 edit.get("bold")?
                     .js()

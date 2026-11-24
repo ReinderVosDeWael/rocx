@@ -228,13 +228,65 @@ pub(super) fn inline_node(
             .clone()
     };
     Ok(match node {
-        ImportedInlineNode::Run(run) => record(
-            "run",
+        ImportedInlineNode::Fraction {
+            anchor,
+            numerator,
+            denominator,
+        } => record(
+            "fraction",
             &[
-                ("anchor", token(&run.anchor)),
-                ("items", items(&run.items)?),
+                ("anchor", token(anchor)),
+                ("numerator", numerator.as_str().into()),
+                ("denominator", denominator.as_str().into()),
             ],
         ),
+        ImportedInlineNode::Run(run) => {
+            let result = record(
+                "run",
+                &[
+                    ("anchor", token(&run.anchor)),
+                    ("items", items(&run.items)?),
+                ],
+            );
+            if let Some(d) = &run.drawing {
+                let drawing = record(d.kind, &[("placement", d.placement.into())]);
+                optional(&drawing, "relationshipId", d.relationship_id.as_deref());
+                optional(&drawing, "description", d.description.as_deref());
+                for (key, value) in [
+                    ("title", &d.title),
+                    ("name", &d.name),
+                    ("geometry", &d.geometry),
+                    ("shapeText", &d.shape_text),
+                ] {
+                    optional(&drawing, key, value.as_deref());
+                }
+                if let Some(crop) = d.crop {
+                    b::set(
+                        &drawing,
+                        "crop",
+                        &array(crop.into_iter().map(JsValue::from)),
+                    );
+                }
+                if let Some(rot) = d.rotation {
+                    b::set(&drawing, "rotation", &rot.into());
+                }
+                for (key, value) in [
+                    ("flipHorizontal", d.flip_horizontal),
+                    ("flipVertical", d.flip_vertical),
+                ] {
+                    if let Some(v) = value {
+                        b::set(&drawing, key, &v.into());
+                    }
+                }
+                for (key, v) in [("widthEmu", d.width_emu), ("heightEmu", d.height_emu)] {
+                    if let Some(v) = v {
+                        b::set(&drawing, key, &(v as f64).into());
+                    }
+                }
+                b::set(&result, "drawing", &drawing);
+            }
+            result
+        }
         ImportedInlineNode::Hyperlink(link) => {
             let result = record(
                 "hyperlink",
