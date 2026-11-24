@@ -2,13 +2,24 @@ import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 
 declare const anchor: unique symbol;
 
+export interface ControlAnchor { readonly [anchor]: "control" }
+export interface ImportedControl {
+  readonly anchor: ControlAnchor;
+  readonly context: "block" | "inline" | "row" | "cell";
+  readonly id?: string;
+  readonly tag?: string;
+  readonly alias?: string;
+  readonly lock?: string;
+  readonly bound: boolean;
+}
+
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
 /** Direct body table address for cell alignment edits. */
 export interface TableAnchor { readonly [anchor]: "table" }
 /** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement or removal. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
-/** Section-scoped target for a default or first-page header image edit. */
+/** Section-scoped target for a header/footer image edit. */
 export interface HeaderAnchor { readonly [anchor]: "header" }
 
 export type ImportedAlignment =
@@ -46,7 +57,7 @@ export interface ImportedHyperlink {
 
 export interface ImportedRevision {
   readonly kind: "revision";
-  readonly revisionKind: "insertion" | "deletion";
+  readonly revisionKind: "insertion" | "deletion" | "moveSource" | "moveDestination";
   readonly anchor: InlineAnchor;
   readonly id?: string;
   readonly author?: string;
@@ -140,8 +151,8 @@ export type ImportedStoryBlock = ImportedHeaderBlock;
 
 /** A section's effective reference to a physical header or footer part. */
 export interface ImportedStoryView {
-  /** Image-edit target for default and first-page headers; absent for other stories. */
-  readonly anchor?: HeaderAnchor;
+  /** Image-edit target for this section, story kind and variant. */
+  readonly anchor: HeaderAnchor;
   readonly sectionIndex: number;
   readonly kind: SectionStoryKind;
   /** The section reference slot, not a pagination result. */
@@ -185,6 +196,7 @@ export interface ImportedStyles {
   readonly styles: readonly ImportedStyle[];
 }
 export interface ImportedDocument {
+  controls(): readonly ImportedControl[];
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
   sections(): readonly ImportedSection[];
@@ -201,6 +213,15 @@ export interface ImportedDocument {
   entryStories(): readonly ImportedEntry[];
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
+  coreTitle(): string | undefined;
+  defaultAlignment(): ImportedAlignment | undefined;
+  abstractStarts(): readonly AbstractStart[];
+}
+
+export interface AbstractStart {
+  readonly abstractId: number;
+  readonly level: number;
+  readonly start?: number;
 }
 
 export interface OpenDocxOptions {

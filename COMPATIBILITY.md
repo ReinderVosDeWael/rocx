@@ -46,20 +46,31 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 
 | Imported DOCX operation | Rust | Python | JavaScript |
 | --- | --- | --- | --- |
-| Combine all supported edit kinds atomically | `doc.preview_mixed(...)` | `doc.preview(alignments, ...)` | `doc.preview(batch)` |
+| Combine ordinary edits atomically ([all batch fields](docs/EDITOR-PARITY.md#combine-ordinary-edits)) | `doc.preview_edits(EditBatch { .. })` | `doc.preview(alignments, ...)` | `doc.preview(batch)` |
 | Inspect footnotes, endnotes and comments | `doc.entry_stories()?` | `doc.entry_stories` | `doc.entryStories()` |
 | Inspect the styles part and direct style metadata | `doc.styles()?` | `doc.styles` | `doc.styles()` |
 | Inspect direct body control metadata | `BodyBlock::ContentControl` | `BodyContentControl` | `kind: "contentControl"` |
+| Inspect block/inline/row/cell controls and their physical anchors | `doc.controls()` | `doc.controls` | `doc.controls()` |
+| Patch an eligible control's alias, tag or single-text value | `ControlEdit` / `preview_with_controls` | `ControlEdit` / `preview([], controls=[edit])` | `preview({controls: [edit]})` |
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
+| Track a direct body text edit / paired move | `preview_tracked_text` / `preview_tracked_move` | `preview_tracked_text` / `preview_tracked_move` | `previewTrackedText` / `previewTrackedMove` |
+| Accept/reject supported anchored revision(s) | `preview_revision` | `preview_revision` | `previewRevision` |
 | Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
+| Replace/remove a paragraph, replace section content or patch keep-with-next | `BlockEdit` / `preview_blocks` | `preview([], block_edits=[edit])` | `preview({blockEdits: [edit]})` |
+| Insert/replace a direct inline or patch run bold | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
+| Insert/remove rows, cells or columns; replace cell contents | `TableStructureEdit` / `preview_with_table_structure` | `preview([], table_structure=[edit])` | `preview({tableStructure: [edit]})` |
+| Edit supported style definitions | `StyleEdit` / `preview_with_styles` | `preview([], style_edits=[edit])` | `preview({styleEdits: [edit]})` |
+| Set/clear title, default alignment or abstract level start | `ResourceEdit` / `preview_with_resources` | `preview([], resources=[edit])` | `preview({resources: [edit]})` |
+| Edit simple text in a physical header/footer, footnote/endnote or comment part | `edit_story_text(owner_part, edits)` | `edit_story_text(owner_part, edits)` | `editStoryText({ownerPart, runText})` |
 | Set a direct body table cell's vertical alignment | `preview_with_cells` / `CellAlignmentEdit` | `preview([], cell_alignments=[edit])` | `preview({cellAlignments: [edit]})` |
+| Replace a [plain paragraph scalar range](docs/EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs) | `preview_with_ranges` / `TextRangeEdit` | `preview([], text_ranges=[edit])` | `preview({textRanges: [edit]})` |
 | Replace text in a direct body run | `doc.preview_with_text(&[], &[], &[], &[edit])?` | `doc.preview([], run_text=[edit])` | `doc.preview({runText: [edit]})` |
 | Remove a direct body run | `doc.preview_with_run_removals(&[], &[], &[], &[], &[anchor])?` | `doc.preview([], run_removals=[anchor])` | `doc.preview({runRemovals: [anchor]})` |
 | Inspect removed runs | `preview.run_removals()` | `preview.run_removals` | `preview.runRemovals()` |
 | Inspect changed runs | `preview.run_text_changes()` | `preview.run_text_changes` | `preview.runTextChanges()` |
 
 Entries include the original ID, note type or comment
-metadata, and direct paragraphs with snapshot-scoped read-only inline anchors.
+metadata, and direct paragraphs with snapshot-scoped inline anchors.
 Tables and other block types are opaque in these stories.
 
 Use `RunTextEdit { target, text }` in Rust, `RunTextEdit(target, text)` in Python,
@@ -73,7 +84,7 @@ complex properties, revisions, mixed content and protected ranges are rejected.
 Replacement and removal of the same anchor conflict.
 
 - Rust consumes declarations; Python leaves them unchanged. [Resolve once](docs/DEFERRED-FIELDS.md) to render repeatedly without rerunning producers or rereading images.
-- **Compose** with an unsigned Transitional DOCX or DOTX template; output is DOCX. **Inspect and preview edits** on an unsigned DOCX: align direct body paragraphs, insert a supported paragraph or table, patch physical cell alignment, edit supported body runs, or append an inline image to an existing default or first-page header. A shared edit affects all aliases of that physical header; a section-local edit forks a supported header for the selected slot. Use targets from the same snapshot. See the [editor inventory](docs/EDITOR-PARITY.md) for target and preservation limits.
+- **Compose** with an unsigned Transitional DOCX or DOTX template; output is DOCX. **Inspect and preview edits** on an unsigned DOCX using targets from the same snapshot. Image appends support effective default, first and even headers **and footers**. A shared edit affects every alias of the physical part; a section-local edit forks the selected slot. See the [editor inventory](docs/EDITOR-PARITY.md) for target and preservation limits.
 - [Template replacement](https://reindervosdewael.github.io/rocx/recipes/#edit-an-existing-document) can span runs within a paragraph or hyperlink. It cannot cross structured boundaries or change fields, revisions or controls. Replacement text belongs to the first matched run; bookmark/comment markers and untouched break attributes stay in place.
 - Untouched **part payloads** retain their bytes. Edited XML and the ZIP container may be reserialized. Related parts are found by relationship, not filename; invalid internal relationships fail. Path output replaces the destination only after compilation, using a sibling temporary file.
 - Packages declaring a digital-signature origin are rejected, even without edits. Use an unsigned copy; rocx does not strip, verify or renew signatures.

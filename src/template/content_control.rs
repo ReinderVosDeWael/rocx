@@ -116,13 +116,19 @@ impl<'a> ContentControlEdits<'a> {
 }
 
 fn replace_plain_text(control: &mut Node, replacement: &str) -> Result<()> {
+    fn contains_binding(node: &Node) -> bool {
+        node.name.local() == "dataBinding" || node.elements().any(contains_binding)
+    }
     let properties = control
         .child("w:sdtPr")
         .ok_or_else(|| unsupported("control has no properties"))?;
     let text = properties
         .child("w:text")
         .ok_or_else(|| unsupported("only plain-text controls support tag replacements"))?;
-    if properties.child("w:dataBinding").is_some()
+    if control
+        .elements()
+        .filter(|node| node.name == "w:sdtPr")
+        .any(contains_binding)
         || properties.child("w:showingPlcHdr").is_some()
         || matches!(
             properties

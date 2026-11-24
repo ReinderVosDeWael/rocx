@@ -10,8 +10,8 @@ anchors. They are not persistent IDs and must not be serialized for later use.
 
 Inline anchors distinguish runs and hyperlinks by physical location, not text,
 relationship ID, or entry ID. Aliased section stories for the same physical part
-share inline identities; different physical parts do not. Header image
-targets instead select a section and variant, even when slots share a header. Duplicate
+share inline identities; different physical parts do not. Header/footer image
+targets select a section, kind and variant, even when slots share a part. Duplicate
 edits to one target and conflicting shared-header edits are rejected atomically.
 This is not a general contract for resolving duplicate source IDs.
 Rust and Python compare inline anchors by identity; JavaScript reuses the same
@@ -19,27 +19,71 @@ opaque handle for an inline identity in a snapshot. Other anchor types do not
 promise cross-binding value equality.
 
 Section body ranges are zero-based, half-open block indices, not editable text
-ranges. There are no text-offset or arbitrary range anchors. Opaque nodes, run
+ranges. For text offsets, use a snapshot paragraph anchor plus the scalar range below. Opaque nodes, run
 items, rows, cells and nested tables lack independent addresses. Paragraph or table insertion
 uses a direct-body paragraph and inserts after it; active or ambiguous supported
 fields and ranges prevent insertion there. Single-text direct-body run replacement or removal
 also rejects targets inside active or ambiguous supported ranges. These guards
 do not imply all OOXML range types are inspected or editable.
 
+## Character ranges in plain body paragraphs
+
+Use Rust `TextRangeEdit { target, start, end, text }` with `preview_with_ranges`,
+Python `preview([], text_ranges=[TextRangeEdit(target, start, end, text)])`, or
+JavaScript `preview({textRanges: [{target, start, end, text}]})`. `target` is the
+original direct-body paragraph anchor. `[start, end)` counts Unicode scalar values
+across consecutive direct runs. In `a😀é`, the emoji occupies one position and
+`e` plus the combining accent occupy two. Use `Array.from(text)` for scalar
+positions in JavaScript; string indexing there counts UTF-16 code units.
+
+The whole paragraph must consist of direct runs with one `w:t` each (plus optional
+properties). A field, hyperlink, control, revision, bookmark, tab, break, raw
+markup or other inline object makes its offsets unsupported, even for selections
+on just one side. A paragraph inside an active or ambiguous field/range is also
+ineligible. Offsets never span paragraphs or stories. There are no persistent
+range IDs: reopening even the same bytes requires fresh anchors.
+
+Selections must be nonempty and in bounds; empty replacement text deletes.
+Replacement text must be single-line XML text without tabs. The first selected
+scalar's run receives the replacement. Unselected prefixes and suffixes keep
+their formatting; all run containers and their properties survive. Replacing
+text with itself preserves the original distribution across runs. The run change
+report lists only changed runs, in source order. All ranges address the original
+snapshot: adjacent ranges may share a run, but overlapping/duplicate selections
+or a whole-run edit/removal on a touched run reject the entire batch.
+
 ## Supported imported targets
 
 The editor exposes direct body inspection with section ranges, explicit section
 types and ordered paragraph content. Default, first and even headers and footers
 expose section references, inherited status, physical part names and ordered
-direct paragraphs; other direct children are opaque. Only default and first-page
-header slots supply image-edit anchors. The [operation contract](#operation-contract)
+direct paragraphs; other direct children are opaque. All six kinds of section slots supply
+image-edit anchors when an effective reference exists. The [operation contract](#operation-contract)
 below describes the broader goal, not the currently supported surface.
 
 Direct body controls expose source tag, alias and lock: Rust
 `BodyBlock::ContentControl`, Python `BodyContentControl`, JavaScript
 `kind: "contentControl"`. Missing attributes are absent, empty strings remain
-empty and unknown lock values stay literal. There is no edit anchor or traversal
-of the contents. Controls in other contexts remain opaque.
+empty and unknown lock values stay literal.
+
+For physical control targets, use Rust `ImportedDocument::controls()`, Python
+`ImportedDocument.controls`, or JavaScript `ImportedDocument.controls()`. This
+ordered main-body view distinguishes `block`, `inline`, `row` and `cell`.
+It reports literal `id`, `tag`, `alias`, `lock`, a `bound` flag, and an opaque
+snapshot anchor. Neither `id` nor `tag` needs to be unique. The existing body,
+table and inline projections keep their original shape.
+
+Use Rust `ControlEdit` with `preview_with_controls`, Python `ControlEdit` with
+`preview([], controls=[...])`, or JavaScript `preview({controls: [...]})`.
+An edit sets the supplied tag, alias, or single-line text; omitted fields stay
+unchanged. The wrapper must contain a single run/text leaf, with the ordinary
+paragraph, row and cell containers for its context. Text edits preserve run
+formatting. Metadata edits preserve unrecognized extension properties; a text
+edit refuses unknown control properties. Content locks prohibit text edits,
+control locks prohibit metadata edits, and combined or unknown locks prohibit
+both. Bound controls, nested controls, protected ranges, ambiguous wrappers,
+and specialized controls (e.g. lists) are not editable. This does not insert
+or remove wrappers or edit controls in headers, footers or entry stories.
 
 Paragraph insertion adds a resolved paragraph immediately after a direct body paragraph.
 Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
@@ -47,8 +91,28 @@ Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
 `paragraphInsertions` in the preview batch. Payloads are resolved declarations;
 their supported inline content and referenced styles use the table-insertion
 guards. An anchor cannot receive both a paragraph and a table insertion in one
-batch. Paragraph replacement and removal, and paragraph insertion in other
-stories, are unsupported.
+batch. For guarded paragraph replacement/removal, see [body block edits](#body-block-edits).
+Paragraph insertion in other stories is unsupported.
+
+Whole-inline edits address a direct child of a direct body paragraph. Insert after
+or replace a single text, break or tab run, or a hyperlink containing only such
+runs. Payloads use the imported-paragraph codecs for resolved text, breaks, tabs,
+fractions and external hyperlinks. New external links allocate relationships on
+the actual document part. Replacement refuses to discard unrecognized properties
+or markup; unused existing relationships are retained. A direct bold patch on a
+supported run sets only `w:rPr/w:b`, preserving other properties (including
+unmodeled markup). Duplicate targets, nested targets, tracked or ambiguous
+properties and active supported field/range boundaries reject the batch.
+
+| Rust: `preview_with_inlines`, `InlineEdit { target, action }` | Python: `preview([], inline_edits=[…])` | JavaScript: `preview({inlineEdits: […]})` |
+| --- | --- | --- |
+| `InlineAction::InsertAfter(inline)` | `InlineEdit.insert_after(anchor, inline)` | `{kind: "insertAfter", target, inline}` |
+| `InlineAction::Replace(inline)` | `InlineEdit.replace(anchor, inline)` | `{kind: "replace", target, inline}` |
+| `InlineAction::SetBold(false)` | `InlineEdit.set_bold(anchor, False)` | `{kind: "setBold", target, bold: false}` |
+
+`inline_changes()` / `inline_changes` / `inlineChanges()` return original
+(body, inline) index pairs in document order; an already-matching direct bold
+value is omitted. There are no character-range addresses in these operations.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
@@ -70,6 +134,45 @@ use `preview({ cellAlignments: [...] })`. Indices refer to the original
 snapshot's inspected children, including opaque entries. Duplicate, missing,
 foreign-snapshot and structurally ambiguous targets reject the entire batch.
 
+### Structural edits to a direct body table
+
+Use the original table anchor with Rust `TableStructureEdit { target, operation }`
+(the last slice of `preview_with_table_structure`), Python
+`preview([], table_structure=[TableStructureEdit.insert_row(target, index)])`, or
+JavaScript `preview({tableStructure: [{target, kind: "insertRow", index}]})`.
+
+| Rust `TableOperation` | Python `TableStructureEdit` factory | JavaScript `kind` | Coordinate |
+| --- | --- | --- | --- |
+| `InsertRow` / `RemoveRow` | `insert_row` / `remove_row` | `insertRow` / `removeRow` | `index`: physical row |
+| `InsertCell` / `RemoveCell` | `insert_cell` / `remove_cell` | `insertCell` / `removeCell` | `row`, `cell`: physical row and cell |
+| `InsertColumn` / `RemoveColumn` | `insert_column` / `remove_column` | `insertColumn` / `removeColumn` | `index`: logical grid column, across all rows |
+| `ReplaceCell` | `replace_cell` | `replaceCell` | `row`, `cell`, `blocks`: physical target and ordered resolved paragraphs/tables |
+
+Indices are zero-based; insert before an index or append at the count. A cell
+spanning three grid columns still counts as **one physical cell**. A new row
+contains blank cells except where it must continue an existing vertical merge;
+those continuations inherit the exact logical interval, including horizontal span.
+A row-local cell insertion shifts the row's suffix right, consuming one unused
+trailing grid slot or appending a grid column and increasing `gridAfter` on
+other rows. Row-local deletion shifts the suffix left and adds a trailing gap;
+it does not delete a grid column. Whole-column edits require full rows and a
+common cell boundary. They change `tblGrid` and all physical rows together.
+
+Content replacement keeps `tcPr` and accepts resolved paragraphs and nested tables
+using the existing insertion guards, including external hyperlink support. Supply
+explicit nested table widths if the parent cell has no absolute `dxa` width.
+A trailing table gets a required empty paragraph after it. An empty list clears
+the contents to a required empty paragraph. Replace the origin of a merged cell,
+not its continuation. Destructive edits only discard plain paragraphs/runs and
+basic geometry; foreign markup, formatting outside the whitelist, revisions,
+fields, protected ranges, and merges that would be split or vertically misaligned cause
+rejection. Structural edits reject a target table containing spelling or grammar
+range markers, including ranges that span cells. Nested tables are preserved outside a destructive target. Removing
+the final row or final physical cell of a row is unsupported. A geometry edit
+needs exclusive access to its table for the batch; distinct content replacements
+can be batched on the same table. Other original body targets can be edited in
+the same transaction. Reopen the result for coordinates in the new geometry.
+
 Direct body, header, and footer paragraphs retain run and hyperlink boundaries through
 `inline_structure`. Hyperlinks expose their explicit owner-local relationship
 ID and bookmark reference, without resolving either. Runs expose ordered text,
@@ -83,8 +186,9 @@ even when both snapshots came from identical bytes. Individual run items and
 opaque nodes are not addressable. Direct body run anchors support a single-text
 replacement via `RunTextEdit`. Whole-run removal is stricter: the selected
 run must have recognized local formatting and no unsafe or unknown markup.
-Replacement and removal of the same run conflict. All other inline addresses
-remain read-only.
+Replacement and removal of the same run conflict. Direct-body whole-inline edits
+are described above. Cell run anchors are inspection-only; selected runs in
+other stories support the physical-owner operation below.
 
 Inline `w:ins` and `w:del` wrappers are also inspectable without applying them:
 Rust `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
@@ -93,7 +197,11 @@ and date, and ordered children. Deleted `w:delText` is represented as text
 inside the deletion; unsupported children and nested revisions remain opaque.
 Wrapper and child anchors resolve in their original snapshot but cannot be used
 for run-text edits. Flat projections continue to show an opaque wrapper;
-move revisions and revision editing are outside this slice.
+named move legs expose `moveSource` / `moveDestination` when the wrapper has an
+author. Direct body single-text runs support [explicit tracked text and move
+previews](REVISIONS.md#review-a-single-change-in-an-existing-docx), and supported
+wrapper anchors allow individual accept/reject (both anchors for a move).
+Child anchors and revisions in other locations remain inspection-only.
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in
@@ -122,7 +230,10 @@ wrong content type or missing entry ID fails without changing the snapshot.
 
 [Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
 part identity and direct style ID, kind, name, and base reference in all three
-bindings. Other style properties and resource editing remain outstanding.
+bindings. See [imported style edits](#imported-style-edits) for definition
+and property edits. The resource guide also covers direct [core title, default alignment
+and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
+Effective formatting and arbitrary resource editing remain outstanding.
 
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
@@ -133,19 +244,66 @@ Aliases of the same part produce equal inline anchors even across the two views,
 but distinct parts do not, even when their contents and relationship IDs match.
 `default_headers` retains its existing inspection scope and section-scoped
 `HeaderAnchor` for image edits; unrelated footer failures don't affect it.
-The broader story view also supplies an image-edit anchor for default and
-first-page headers. Other story slots have no such anchor. Local edits restore
-inheritance only for the selected variant; shared edits include all aliases.
+Every effective header/footer slot supplies an image-edit anchor. Local edits fork
+only the selected kind and variant and restore downstream inheritance. Shared
+edits include all aliases of the physical part.
 
-To combine **all seven edit kinds** in one call, Rust uses
-`preview_mixed(alignments, tables, header_images, run_text, paragraphs, cells, run_removals)`.
-Python uses `preview(alignments, table_insertions=..., header_images=..., run_text=...,
-paragraph_insertions=..., cell_alignments=..., run_removals=...)`; JavaScript uses
-`preview({alignments, tableInsertions, headerImages, runText, paragraphInsertions,
-cellAlignments, runRemovals})`. Every target comes from the original snapshot.
+For text edits use `edit_story_text(owner_part, edits)` in Rust and Python, or
+`editStoryText({ownerPart, runText})` in JavaScript. Pass the exact `part_name` /
+`partName` from inspection and snapshot `RunTextEdit` targets. The result is DOCX
+bytes. This separate atomic batch updates direct, single-text paragraph runs in
+one physical header, footer, or note/comment part. Inherited slots see the same
+text. References, range markers, note IDs and comment metadata stay intact.
+Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
+
+### Combine ordinary edits
+
+Rust accepts `doc.preview_edits(EditBatch { /* slices */, ..Default::default() })`;
+existing `preview_*` methods remain available. In Python use `doc.preview(alignments, ...)`;
+in JavaScript use `doc.preview({...})`. The corresponding batch fields are:
+
+| Rust slice | Python argument | JavaScript field |
+| --- | --- | --- |
+| `alignments` | `edits` (first argument; pass `[]` for none) | `alignments` |
+| `tables` | `table_insertions` | `tableInsertions` |
+| `header_images` | `header_images` | `headerImages` |
+| `run_text` | `run_text` | `runText` |
+| `paragraphs` | `paragraph_insertions` | `paragraphInsertions` |
+| `cells` | `cell_alignments` | `cellAlignments` |
+| `run_removals` | `run_removals` | `runRemovals` |
+| `ranges` | `text_ranges` | `textRanges` |
+| `blocks` | `block_edits` | `blockEdits` |
+| `inline_edits` | `inline_edits` | `inlineEdits` |
+| `structural` | `table_structure` | `tableStructure` |
+| `styles` | `style_edits` | `styleEdits` |
+| `resources` | `resources` | `resources` |
+| `controls` | `controls` | `controls` |
+
+Every target comes from the original snapshot. New content does not supply
+anchors until you reopen the result. Physical-owner story text edits and
+tracked/reviewed revisions have their own calls.
 A shared edit conflicts with any other image edit on that
-physical header. Distinct sections may each fork the same original header
+physical part. Distinct sections may each fork the same original story
 with section-local edits. A rejected operation produces no partial preview.
+
+For example:
+
+- Two disjoint scalar selections may share a run. A whole-inline action
+  (including insert-after or set-bold), run replacement or removal may not
+  target a run touched by a selection, even if the selected text is unchanged.
+- Paragraph replacement/removal reserves that entire original paragraph.
+  Section replacement also reserves the insertion slot immediately after
+  the preceding section break. Keep-with-next and direct alignment can
+  share a paragraph because they patch different properties.
+- A geometry change conflicts with another structural operation or a cell
+  alignment in the same table. Distinct cell content replacements may
+  share a table: replacing cell content preserves its cell properties.
+- A style edit and a default-alignment edit can share the styles part:
+  changing a definition and changing the document default are distinct
+  targets. New definitions are available to inserted content. A style
+  removal/replacement must be safe in both the original and staged content:
+  removing the last user in this batch does not free a previously used
+  style, and introducing a new user of the target also rejects the batch.
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
@@ -182,3 +340,60 @@ Conditions, components, property references, lazy/async/deferred values, reuse a
 ## Acceptance cross-check
 
 Milestone 2 uses fixtures generated independently with python-docx to prove body-anchor table insertion, a paragraph-property patch preserving unrelated markup, and image insertion into a header shared by two sections in both shared and section-local modes. Milestone 3 requires typed readback of the all-features DOCX against expected content, opaque-markup and unchanged-part preservation, unsafe-batch rejection, updated examples and coverage checks, and exact Rust/Python/JavaScript DOCX byte parity for equivalent edit batches. XML normalization is not a substitute for byte parity. See the [active plan](PLAN.md) for verification status.
+
+## Body block edits
+
+Use an original direct body paragraph anchor for these operations:
+
+| Operation | Rust `BlockEdit` | Python `BlockEdit` | JavaScript `blockEdits` item |
+|---|---|---|---|
+| Replace one paragraph | `Replace(anchor, Box::new(p))` | `replace(anchor, p)` | `{kind: "replace", target, paragraph}` |
+| Remove one paragraph | `Remove(anchor)` | `remove(anchor)` | `{kind: "remove", target}` |
+| Replace section content | `ReplaceSection(anchor, blocks)` | `replace_section(anchor, blocks)` | `{kind: "replaceSection", target, blocks}` |
+| Set direct keep-with-next | `KeepWithNext(anchor, bool)` | `keep_with_next(anchor, value)` | `{kind: "keepWithNext", target, value}` |
+
+Section payloads can mix resolved paragraphs and tables, subject to the same
+style, inline and geometry restrictions as insertion. Automatic table widths
+use the owning section. A section target must be its first body block,
+and that block must be a paragraph. A nonfinal section retains its original
+break paragraph, emptied of supported runs, **after** the declarations;
+terminal section properties stay in the body. An empty declaration list clears
+supported content. Source tables, controls, fields, relationships, anchors,
+unrecognized attributes and other opaque markup cannot be discarded. Section
+header/footer references are validated; the original owning properties remain
+in place, preserving inheritance. Direct replacement/removal of a break
+paragraph is refused. Keep-with-next patches the single direct `w:keepNext`
+property, retaining other properties, attributes, and inline content.
+
+Use Rust `preview_blocks` or `preview_with_blocks` for a mixed batch, Python
+`preview([], block_edits=[...])` or JavaScript `preview({blockEdits: [...]})`.
+Structural block operations reserve their entire original range against other body edits.
+Keep-with-next can accompany an alignment patch on the same paragraph.
+Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
+original start index per operation (unchanged direct keep-with-next omitted).
+
+## Imported style edits
+
+| Operation | Rust | Python (`rocx.editor`) | JavaScript |
+| --- | --- | --- | --- |
+| Address an exact style ID | `doc.style_anchor(id)?` | `doc.style_anchor(id)` | `doc.styleAnchor(id)` |
+| Add a declaration | `StyleEdit::Add(definition)` | `StyleEdit.add(definition)` | `{op: "add", definition}` |
+| Patch just bold / italic | `StyleEdit::Patch {target, bold, italic}` | `StyleEdit.patch(target, italic=True)` | `{op: "patch", target, italic: true}` |
+| Replace an unused definition | `StyleEdit::Replace {target, definition}` | `StyleEdit.replace(target, definition)` | `{op: "replace", target, definition}` |
+| Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
+| Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
+
+Add paragraph, character or table declarations to an existing relationship-selected
+styles part. Names, source aliases, and generated IDs must be unambiguous
+across styles under ASCII case-insensitive comparison. The authoring codec
+resolves forward references and checks their types and inheritance cycles.
+Patches address direct paragraph/character run properties, including explicit
+false; omitted properties, unknown siblings and attributes are preserved.
+
+Replace and remove require a nondefault custom style with a simple definition
+(name, base, empty paragraph properties and/or bold/italic). Replacement retains
+its type, ID, display name and source slot. Both operations reject potential
+references elsewhere in the package, including other styles, settings, stories,
+numbering and fields, and reject unsupported markup or parts when usage cannot
+be established. There is no automatic retargeting, numbering-style creation or
+synthesis of a missing styles part.

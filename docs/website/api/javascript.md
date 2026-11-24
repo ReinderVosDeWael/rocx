@@ -132,6 +132,11 @@ Transitional DOCX snapshot. Its methods are synchronous:
   with read-only inline anchors. Nested table blocks remain opaque.
   A direct block control (`kind: "contentControl"`) exposes optional literal
   `tag`, `alias` and `lock`; its contents are opaque and it has no edit anchor.
+- `controls()` lists physical block, inline, row and cell controls in the main
+  story. Each has an `anchor`, `context`, `bound`, and optional literal `id`,
+  `tag`, `alias`, and `lock`. Pass `anchor` to `preview({controls: [{target:
+  anchor, alias: "Caption"}]})` to patch an eligible control's alias, tag or
+  single-run text. Tags and IDs are not unique addresses.
 - `styles()` returns `undefined` when the styles relationship is absent.
   Otherwise it reports the physical part and direct style IDs, kinds, names
   and `basedOn` references in source order, without resolving inheritance.
@@ -150,8 +155,11 @@ Transitional DOCX snapshot. Its methods are synchronous:
   `[]` for an empty paragraph, or `undefined` for opaque or out-of-range blocks.
 - `inlineAt(anchor)` looks up a run, hyperlink or inline revision. Insertion
   and deletion wrappers expose `revisionKind`, literal optional `id`, `author`
-  and `date`, and ordered children. Nested revisions and moves remain opaque;
-  neither wrappers nor their children are editable. Hyperlinks expose the
+  and `date`, and ordered children. Move wrappers with authors expose
+  `moveSource` or `moveDestination`; nested revisions remain opaque.
+  `previewTrackedText` and `previewTrackedMove` track edits to supported direct
+  body runs. `previewRevision` accepts or rejects one wrapper or both legs of
+  a move; revision children remain inspection-only. Hyperlinks expose the
   source relationship ID or bookmark, not a resolved URL. Inline anchors
   are snapshot-local: aliases of one physical story reuse the same inline
   addresses, but reopening identical bytes produces a distinct snapshot.
@@ -163,17 +171,18 @@ round-trip authoring declaration.
 
 | Synchronous API | Behavior |
 | --- | --- |
-| `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `runText` and `runRemovals` in one transaction against the original snapshot. |
-| `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one default- or first-page-header image append. Obtain the latter target from `stories()`; `change()` reports the effect. |
+| `imported.preview(batch: EditBatch): EditPreview` | Stages ordinary edits against original snapshot targets. All fields are optional: `alignments`, `tableInsertions`, `paragraphInsertions`, `cellAlignments`, `headerImages`, `textRanges`, `runText`, `runRemovals`, `blockEdits`, `inlineEdits`, `tableStructure`, `styleEdits`, `resources`, `controls`. |
+| `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one image append to an effective header or footer slot. Obtain the target from `stories()`; `change()` reports the effect. |
+| `imported.editStoryText({ownerPart, runText}): Uint8Array` | Returns DOCX bytes for a separate atomic batch in one physical part. Supply the inspected part name and anchors for eligible direct runs in that header/footer or ordinary footnote/endnote/comment entry. All aliases see the edit. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
 Alignment edits take a `ParagraphAnchor` and `alignment`; table insertions
 take a `ParagraphAnchor` and a `ResolvedTable` and insert immediately after
-the original body paragraph. Header edits take a section-scoped
-`HeaderAnchor` from `header.view.anchor`, a `ResolvedImage` for an inline
-image, and `mode`. `"shared"` changes the physical header part for all its
-consumers. `"sectionLocal"` forks a supported header for the selected
-section and variant, preserving other slots' effective headers. To replace a direct body run containing
+the original body paragraph. Header/footer edits take a section-scoped
+`HeaderAnchor` from `story.view.anchor`, a `ResolvedImage` for an inline
+image, and `mode`. `"shared"` changes the physical part for all its
+consumers. `"sectionLocal"` forks the story for the selected
+section, kind and variant, preserving other slots' effective stories. To replace a direct body run containing
 one text element outside fields and ranges, pass `runText: [{target: run.anchor,
 text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineIndex`,
 `before` and `after` for changed runs. Formatting and adjacent runs survive.
@@ -192,6 +201,23 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   recognized local formatting. Unknown markup, protected ranges, or replacing
   the same run in this batch reject the edit. `runRemovals()` reports original
   body and inline indices and the removed text.
+- `textRanges: [{target, start, end, text}]` replaces a nonempty half-open range
+  of Unicode scalar positions in a plain direct-body paragraph. Count with
+  `Array.from(text)`, not `.length`. The replacement retains the formatting
+  of the first selected scalar; `runTextChanges()` reports changed runs.
+- `blockEdits` accepts `replace`, `remove`, `replaceSection` and `keepWithNext`
+  at eligible direct body paragraph anchors. `inlineEdits` accepts
+  `insertAfter`, `replace` and `setBold` at eligible direct inline anchors.
+- `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
+  `insertColumn`, `removeColumn` and `replaceCell`. Row/cell positions are
+  physical; column positions count logical grid columns.
+- `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
+  Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
+  without discarding other properties; replace/remove only safe unused custom styles.
+- `resources` accepts `kind: "coreTitle"`, `"defaultAlignment"` or `"abstractStart"`
+  with `value` (`null` clears). Abstract starts also require `abstractId` and
+  `level`. Inspect direct values with `coreTitle()`, `defaultAlignment()` and
+  `abstractStarts()`.
 
 ```javascript
 import { openDocx } from "rocx-docx";

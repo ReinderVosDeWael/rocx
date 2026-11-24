@@ -1,4 +1,8 @@
 //! Conservative edits to physical cells in direct body tables.
+mod structure;
+pub(super) use structure::apply as structure;
+pub use structure::{TableOperation, TableStructureEdit};
+
 use super::{ALTERNATE, TableAnchor, unsupported};
 use crate::xml::{Content, Node};
 use crate::{Result, VerticalAlignment};
@@ -32,7 +36,7 @@ fn unique<'a>(node: &'a Node, name: &str) -> Result<Option<&'a Node>> {
     Ok(first)
 }
 
-fn validate(table: &Node) -> Result<()> {
+fn validate(table: &Node, structural: bool) -> Result<()> {
     let bad = || unsupported("unsupported or malformed table grid or merge");
     if table.name != "w:tbl" || table.child(ALTERNATE).is_some() {
         return Err(bad());
@@ -53,10 +57,10 @@ fn validate(table: &Node) -> Result<()> {
         }
         if let Some(pr) = unique(row, "w:trPr")?
             && pr.elements().any(|n| {
-                matches!(
-                    n.name.as_str(),
-                    "w:gridBefore" | "w:gridAfter" | "w:trPrChange"
-                ) || n.name == ALTERNATE
+                matches!(n.name.as_str(), "w:gridBefore" | "w:trPrChange")
+                    || n.name == ALTERNATE
+                    || (structural && matches!(n.name.as_str(), "w:ins" | "w:del"))
+                    || (n.name == "w:gridAfter" && !structural)
             })
         {
             return Err(bad());
@@ -92,6 +96,9 @@ fn validate(table: &Node) -> Result<()> {
                 .ok_or_else(bad)?;
             if let Some(pr) = pr {
                 unique(pr, "w:vAlign")?;
+                if structural {
+                    unique(pr, "w:tcW")?;
+                }
                 if let Some(merge) = unique(pr, "w:vMerge")? {
                     match merge.get("w:val") {
                         Some("restart") => {
@@ -106,7 +113,7 @@ fn validate(table: &Node) -> Result<()> {
             }
             column = end;
         }
-        if column != columns {
+        if column == 0 || column.checked_add(trailing(row)?) != Some(columns) {
             return Err(bad());
         }
         active = next;
@@ -145,7 +152,7 @@ pub(super) fn apply(
         if next_body != body_index {
             continue;
         }
-        validate(table)?;
+        validate(table, false)?;
         for (row_index, row) in table
             .elements_mut()
             .filter(|n| n.name != "w:tblPr" && n.name != "w:tblGrid")
@@ -189,4 +196,15 @@ pub(super) fn apply(
         return Err(unsupported("cell alignment target not found"));
     }
     Ok(changes)
+}
+
+fn trailing(row: &Node) -> Result<usize> {
+    let Some(pr) = row.child("w:trPr") else {
+        return Ok(0);
+    };
+    unique(pr, "w:gridAfter")?.map_or(Ok(0), |n| {
+        n.get("w:val")
+            .and_then(|s| s.parse().ok())
+            .ok_or_else(|| unsupported("invalid trailing table grid"))
+    })
 }

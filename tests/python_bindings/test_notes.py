@@ -205,3 +205,44 @@ async def test_note_and_comment_snapshot_images_are_captured_before_rendering(tm
     image.unlink()
     data=await snapshot.to_bytes()
     assert data==await snapshot.to_bytes()
+
+
+@pytest.mark.parametrize("kind", ["footnote", "endnote"])
+async def test_physical_entry_text_preserves_definition_and_reference_identity(kind):
+    from rocx.editor import ImportedDocument, RunTextEdit
+
+    data = large_id_package(await declaration().to_bytes())
+    owner = f"word/{kind}s.xml"
+    imported = ImportedDocument.open(data)
+    note = next(e for e in imported.entry_stories if e.kind == kind and not e.note_type)
+    run = next(r for r in note.blocks[0].inline_structure if any(
+        i.kind == "text" for i in getattr(r, "items", [])))
+    change = RunTextEdit(run.anchor, "Revised story text")
+    wrong = "word/endnotes.xml" if kind == "footnote" else "word/footnotes.xml"
+    with pytest.raises(ValueError, match="owner mismatch"):
+        imported.edit_story_text(wrong, [change])
+    special = next(e for e in imported.entry_stories if e.kind == kind and e.note_type == "separator")
+    with pytest.raises(ValueError, match="reserved note entry"):
+        imported.edit_story_text(owner, [change, RunTextEdit(special.blocks[0].inline_structure[0].anchor, "unsafe")])
+    changed = imported.edit_story_text(owner, [change])
+    with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(io.BytesIO(changed)) as output:
+        assert set(source.namelist()) == set(output.namelist())
+        assert all(source.read(n) == output.read(n) for n in source.namelist() if n != owner)
+        root = etree.fromstring(source.read(owner))
+        selected, = [e for e in root if e.get(W + "id") == note.id]
+        next(t for t in selected.iter(W + "t") if t.text == run.items[0].value).text = "Revised story text"
+        assert etree.tostring(root, method="c14n", exclusive=True) == etree.tostring(
+            etree.fromstring(output.read(owner)), method="c14n", exclusive=True)
+
+
+async def test_entry_text_refuses_ambiguous_decimal_id():
+    from rocx.editor import ImportedDocument, RunTextEdit
+
+    owner = "word/footnotes.xml"
+    def duplicate(root):
+        next(e for e in root if e.get(W + "id") == "2").set(W + "id", "+000")
+    imported = ImportedDocument.open(rewrite(await declaration().to_bytes(), owner, duplicate))
+    note = next(e for e in imported.entry_stories if e.kind == "footnote" and e.id == "+000")
+    run = next(n for n in note.blocks[0].inline_structure if any(i.kind == "text" for i in n.items))
+    with pytest.raises(ValueError, match="ambiguous story entry ID"):
+        imported.edit_story_text(owner, [RunTextEdit(run.anchor, "ambiguous")])

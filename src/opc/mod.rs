@@ -299,7 +299,8 @@ impl Package {
             i += 1;
         }
     }
-    /// Keep relationship IDs and targets when copying a part within its own directory.
+    /// Fork a simple story in its own directory. Only hyperlink relationships
+    /// can be duplicated; unknown implicit dependencies may be owner-specific.
     pub(crate) fn copy_sibling_relationships(&mut self, from: &str, to: &str) -> Result<()> {
         let from = PartName::new(from)?;
         let to = PartName::new(to)?;
@@ -322,6 +323,19 @@ impl Package {
             .find(|(path, _)| path.eq_ignore_ascii_case(&source))
         {
             let bytes = bytes.clone();
+            let hyperlink = relationship_type("hyperlink");
+            if self
+                .xml(&source)?
+                .elements()
+                .any(|r| r.get("Type") != Some(&hyperlink))
+            {
+                return Err(crate::Diagnostic::new(
+                    crate::Rule::UnsupportedEdit,
+                    "story relationships cannot be safely copied",
+                )
+                .at(&source)
+                .into());
+            }
             if self.content_type_for(&destination)?.is_none() {
                 self.content_type(&destination, RELATIONSHIPS_MIME)?;
             }
@@ -392,6 +406,32 @@ impl Package {
                     defaults.get(&extension.to_ascii_lowercase()).cloned()
                 })
             }))
+    }
+    /// Visit all declared XML payloads, including relocated parts with arbitrary
+    /// extensions. An unreadable XML part cannot establish absence of references.
+    pub(crate) fn visit_source_xml(&self, mut visit: impl FnMut(&Node)) -> Result<()> {
+        fn walk(node: &Node, visit: &mut impl FnMut(&Node)) {
+            visit(node);
+            for child in node.elements() {
+                walk(child, visit);
+            }
+        }
+        let (defaults, overrides) = self.content_types()?;
+        for (path, bytes) in &self.parts {
+            let lower = path.to_ascii_lowercase();
+            let mime = overrides.get(&lower).or_else(|| {
+                lower
+                    .rsplit_once('.')
+                    .and_then(|(_, ext)| defaults.get(ext))
+            });
+            if mime.is_some_and(|m| {
+                let m = m.split(';').next().unwrap_or("").to_ascii_lowercase();
+                m.ends_with("+xml") || m.ends_with("/xml")
+            }) {
+                walk(&Node::parse_original(bytes)?, &mut visit);
+            }
+        }
+        Ok(())
     }
     fn validate_content_types(&self) -> Result<()> {
         let (defaults, overrides) = self.content_types()?;

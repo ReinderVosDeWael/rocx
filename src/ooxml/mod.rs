@@ -16,9 +16,13 @@ mod story;
 pub use story::{StoryContent, StoryDescriptor, StoryRegistry};
 mod editor;
 mod notes;
+pub(crate) use notes::decimal_id;
 mod ranges;
-mod revisions;
-pub(crate) use editor::{encode_editor_paragraphs, encode_editor_tables, encode_header_image};
+pub(crate) mod revisions;
+pub(crate) use editor::{
+    encode_editor_blocks, encode_editor_inlines, encode_editor_paragraphs, encode_editor_tables,
+    encode_header_image,
+};
 pub(crate) struct Compiler<'a> {
     package: Package,
     main: String,

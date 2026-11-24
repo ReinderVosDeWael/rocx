@@ -2,9 +2,10 @@
 
 Direct body controls expose source tag, alias, and lock as
 `BodyBlock::ContentControl` (Rust), `BodyContentControl` (Python), and
-`kind: "contentControl"` (JavaScript). Their contents remain opaque and have
-no edit anchors. The catalog asserts all three metadata values; the installed
-inspection fixture checks their JavaScript projection separately.
+`kind: "contentControl"` (JavaScript). The independent `controls()` view
+also lists inline, row and cell controls with physical snapshot anchors. The
+packed editor fixture uses repeated tags to check that the same control edits
+produce identical packages in Rust, Python and JavaScript.
 
 For the combined editor candidate based on `aefcec8`, see [current editor
 coverage](#editor-additions-for-3) and [gate status](PLAN.md). Historical
@@ -43,11 +44,17 @@ provides the catalog oracle, not the definition of completeness.
 
 ## Implementation and focused evidence
 
-Inline insertion/deletion inspection is read-only: Rust
+For the ten-way editor candidate's three-binding calls, supported targets and
+remaining gaps, see the [editor inventory](EDITOR-PARITY.md) and
+[acceptance status](PLAN.md#current-milestone-implement-the-remaining-editor-capabilities).
+The B-series results below concern earlier checkpoints.
+
+Inline insertion/deletion inspection uses Rust
 `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
 `ImportedRevision` expose literal revision metadata, nested runs, and
 snapshot-scoped anchors. Flat projections retain opaque revision boundaries.
-Move revisions, nested revision wrappers, and revision editing are not covered.
+The later revisions slice adds named move wrappers and explicit tracked/review
+operations for eligible direct body content; nested wrappers remain opaque.
 
 The linked `.mts` and `.mjs` fixtures exercise the installed declarations
 and adapter, respectively. Evidence is scoped to the assertions in the
@@ -316,7 +323,10 @@ only identical inline addresses in one physical part of one snapshot compare
 equal. Use a per-snapshot identity table and the Rust anchor, not caller-chosen
 part names/indices. A supported direct body run's `InlineAnchor` can target
 replacement or removal; a direct body `TableAnchor` plus physical row/cell
-indices can target a cell alignment.
+indices can target a cell alignment. The E01–E06 table records the **earlier
+B-series baseline**. In the ten-way candidate all six effective header/footer
+slots supply image targets; for current batch fields and standalone operations
+see [the editor inventory](EDITOR-PARITY.md#combine-ordinary-edits).
 
 | ID / owner | Rust baseline and capability | Proposed JavaScript API | Planned packed test case; Rust reference (`tests/imported_editor.rs` unless stated) |
 | --- | --- | --- | --- |
@@ -352,11 +362,12 @@ E04's report arrays; `before` is absent for a previously unset alignment.
 - Rust itself does not expose general imported OOXML editing. Direct body
   table-cell paragraphs expose both inline projections, but nested tables and
   row/cell wrappers may remain opaque. All six header/footer variants can be
-  inspected; only default and first-page headers accept the image edit.
+  inspected and accept shared or section-local inline images. `editStoryText`
+  edits supported direct runs in a named physical header/footer or entry part.
   Direct body paragraph alignment and physical cell vertical alignment are
-  separate patches. Body controls, inline insertions/deletions and styles
-  expose limited metadata but cannot be edited. See
-  [EDITOR-PARITY.md](EDITOR-PARITY.md) for separate Rust gaps.
+  separate patches. The editor also supports targeted control metadata/text,
+  tracked edits/review in direct body paragraphs, and guarded style edits;
+  bound/nested controls, rich revisions and computed styles are out of scope.
 - Cross-thread execution/transfer of Rust `Send`/`Sync` values and Rust
   executor/drop mechanics have no direct shared-object JS analogue. Same-instance
   concurrent promises, cancellation of a waiter and preservation of shared
@@ -402,7 +413,7 @@ E04's report arrays; `before` is absent for a previously unset alignment.
    aligned inputs/assets/timestamps. Compare complete ZIP bytes for final,
    `.template.docx`, `.edited.docx`, `.run-text.docx`, `.header-source.docx`,
    `.header-shared.docx`, `.header-local.docx`, `.header-first-shared.docx`
-   and `.header-first-local.docx` on each runtime; no XML
+   plus `.header-first-local.docx`, `.footer-even.docx` and `.entry-text.docx` on each runtime; no XML
    normalization. Keep Rust/Python catalog/schema/OPC checks. Use ZIP part
    diffs only to diagnose byte mismatches.
 5. **Independent assertions:** besides bytes, check typed resolved/imported

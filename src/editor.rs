@@ -15,20 +15,35 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, OnceLock};
 
+mod batch;
+pub use batch::EditBatch;
+mod blocks;
+pub use blocks::BlockEdit;
+mod controls;
 mod entries;
 mod header;
 mod insertion;
+pub(crate) use insertion::BoundaryState;
+mod ranges;
+pub use ranges::TextRangeEdit;
+mod resource_fields;
 mod resources;
+mod revisions;
+pub use revisions::TrackedText;
+mod style_edits;
 mod tables;
 mod text;
+pub use controls::{ControlAnchor, ControlContext, ControlEdit, ImportedControl};
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
+pub use resource_fields::{AbstractStart, ResourceEdit};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
-pub use tables::{CellAlignmentChange, CellAlignmentEdit};
-pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
+pub use style_edits::{StyleAnchor, StyleEdit};
+pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
+pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -226,8 +241,8 @@ pub enum ImportedInline {
 }
 
 /// Address of a run, hyperlink, or revision in a direct body, body table-cell,
-/// header, footer, or entry paragraph. Revision addresses and their children
-/// are read-only.
+/// header, footer, or entry paragraph. Supported direct body revision wrappers
+/// may be reviewed; anchors inside them are read-only.
 ///
 /// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
 /// bytes creates a different snapshot. Within a snapshot, section aliases of
@@ -279,12 +294,12 @@ pub enum ImportedInlineNode {
     Opaque(String),
 }
 
-/// Inline insertion or deletion with literal source metadata and read-only children.
+/// Inline insertion, deletion or move wrapper with literal source metadata.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedRevision {
     pub anchor: InlineAnchor,
-    /// `insertion` or `deletion`.
+    /// `insertion`, `deletion`, `moveSource` or `moveDestination`.
     pub kind: &'static str,
     pub id: Option<String>,
     pub author: Option<String>,
@@ -367,7 +382,9 @@ pub struct AlignmentChange {
 /// A validated edit batch and its independently writable output.
 #[derive(Debug)]
 pub struct EditPreview {
+    block_changes: Vec<usize>,
     run_text_changes: Vec<RunTextChange>,
+    inline_changes: Vec<(usize, usize)>,
     run_removals: Vec<RunRemovalChange>,
     cell_alignment_changes: Vec<CellAlignmentChange>,
     changes: Vec<AlignmentChange>,
@@ -378,9 +395,17 @@ pub struct EditPreview {
 }
 
 impl EditPreview {
+    /// Start indices of applied block operations in original body order.
+    pub fn block_changes(&self) -> &[usize] {
+        &self.block_changes
+    }
     /// Changed physical cells in original document order.
     pub fn cell_alignment_changes(&self) -> &[CellAlignmentChange] {
         &self.cell_alignment_changes
+    }
+    /// Changed (body index, direct inline index) pairs in original document order.
+    pub fn inline_changes(&self) -> &[(usize, usize)] {
+        &self.inline_changes
     }
     /// Removed direct body runs, in original document order.
     pub fn run_removals(&self) -> &[RunRemovalChange] {
@@ -421,6 +446,7 @@ pub struct ImportedDocument {
     package: Package,
     main: String,
     body: Vec<BodyBlock>,
+    controls: Vec<ImportedControl>,
     snapshot: Arc<()>,
     default_header_inspection: OnceLock<header::StoryInspection>,
     story_inspection: OnceLock<header::StoryInspection>,
@@ -480,7 +506,9 @@ impl ImportedDocument {
                 name => BodyBlock::Opaque(name.to_owned()),
             })
             .collect();
+        let controls = controls::inspect(root.child("w:body").ok_or_else(missing_body)?, &snapshot);
         Ok(Self {
+            controls,
             package,
             main,
             body,
@@ -647,6 +675,63 @@ impl ImportedDocument {
         cells: &[CellAlignmentEdit],
         run_removals: &[InlineAnchor],
     ) -> Result<EditPreview> {
+        self.preview_with_ranges(
+            edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            &[],
+        )
+    }
+
+    /// Stage a mixed transaction, including scalar ranges in plain body paragraphs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_with_ranges(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        paragraphs: &[ParagraphInsertion],
+        cells: &[CellAlignmentEdit],
+        run_removals: &[InlineAnchor],
+        ranges: &[TextRangeEdit],
+    ) -> Result<EditPreview> {
+        self.preview_edits(EditBatch {
+            alignments: edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            ranges,
+            ..EditBatch::default()
+        })
+    }
+
+    /// Stage a transaction against this snapshot. Every address and reported
+    /// change uses its original coordinates, even when siblings are spliced.
+    pub fn preview_edits(&self, batch: EditBatch<'_>) -> Result<EditPreview> {
+        let EditBatch {
+            alignments: edits,
+            tables,
+            header_images,
+            run_text,
+            paragraphs,
+            cells,
+            run_removals,
+            ranges,
+            blocks,
+            inline_edits,
+            structural,
+            styles,
+            resources,
+            controls,
+        } = batch;
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
@@ -655,7 +740,11 @@ impl ImportedDocument {
             .chain(run_text.iter().map(|edit| &edit.target.snapshot))
             .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
+            .chain(ranges.iter().map(|r| &r.target.snapshot))
+            .chain(inline_edits.iter().map(|edit| &edit.target.snapshot))
+            .chain(controls.iter().map(|edit| &edit.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
+            .chain(structural.iter().map(|edit| &edit.target._snapshot))
         {
             self.validate_snapshot(snapshot)?;
         }
@@ -680,6 +769,12 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        // Check unused definitions against the original snapshot, and make
+        // newly added definitions available to every payload codec.
+        self.stage_styles(&mut package, styles)?;
+        let destructive_styles = styles
+            .iter()
+            .any(|s| matches!(s, StyleEdit::Replace { .. } | StyleEdit::Remove(_)));
         let mut paragraph_targets = BTreeMap::new();
         for insertion in paragraphs {
             if paragraph_targets
@@ -699,20 +794,91 @@ impl ImportedDocument {
         let mut insertions = Vec::new();
         let mut header_changes = Vec::new();
         let mut run_text_changes = Vec::new();
+        let mut inline_changes = Vec::new();
         let mut removed_runs = Vec::new();
         let mut cell_alignment_changes = Vec::new();
+        let mut block_changes = Vec::new();
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
+            || !ranges.is_empty()
             || !run_text.is_empty()
+            || !inline_edits.is_empty()
             || !run_removals.is_empty()
             || !paragraph_targets.is_empty()
             || !cells.is_empty()
+            || !blocks.is_empty()
+            || !controls.is_empty()
+            || !structural.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
+            let occupied = by_index
+                .keys()
+                .chain(table_targets.keys())
+                .chain(paragraph_targets.keys())
+                .copied()
+                .chain(cells.iter().map(|e| e.target._body_index))
+                .chain(structural.iter().map(|e| e.target._body_index))
+                .chain(ranges.iter().map(|e| e.target.body_index))
+                .chain(
+                    run_text
+                        .iter()
+                        .map(|e| &e.target)
+                        .chain(inline_edits.iter().map(|e| &e.target))
+                        .chain(run_removals)
+                        .filter_map(|a| match a.location {
+                            InlineLocation::Body(i) => Some(i),
+                            _ => None,
+                        }),
+                )
+                .collect();
+            let inserted_after = table_targets
+                .keys()
+                .chain(paragraph_targets.keys())
+                .copied()
+                .collect();
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            (run_text_changes, removed_runs) = text::apply(body, run_text, run_removals)?;
+            let sites = if table_targets.is_empty() {
+                Vec::new()
+            } else {
+                insertion::table_sites(body, &table_targets)?
+            };
+            let paragraph_sites = if paragraph_targets.is_empty() {
+                Vec::new()
+            } else {
+                insertion::paragraph_sites(
+                    body,
+                    &paragraph_targets.keys().copied().collect::<BTreeSet<_>>(),
+                )?
+            };
+            let mut expanded = ranges::expand(body, ranges)?;
+            expanded.extend_from_slice(run_text);
+            // Plan destructive cross-family overlaps before rendering payloads.
+            let mut addressed = BTreeSet::new();
+            for anchor in expanded
+                .iter()
+                .map(|edit| &edit.target)
+                .chain(run_removals)
+                .chain(inline_edits.iter().map(|edit| &edit.target))
+            {
+                if let (InlineLocation::Body(body), [index]) =
+                    (&anchor.location, anchor.path.as_slice())
+                    && !addressed.insert((*body, *index))
+                {
+                    return Err(unsupported("duplicate or conflicting run target"));
+                }
+            }
+            // Control paths include raw XML child slots: resolve them before
+            // any property insertion or run, row, cell or block splice.
+            let controls_changed = self.apply_controls(body, controls)?;
+            let mut block_plan =
+                blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
+            let body = root.child_mut("w:body").ok_or_else(missing_body)?;
+            let (staged, actions) = text::prepare(package, &self.main, inline_edits)?;
+            package = tables::structure(body, staged, &self.main, structural, cells)?;
+            (run_text_changes, removed_runs) =
+                text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
             cell_alignment_changes = tables::apply(body, cells)?;
             for (body_index, paragraph) in body
                 .elements_mut()
@@ -736,19 +902,6 @@ impl ImportedDocument {
             if !by_index.is_empty() {
                 return Err(unsupported("target paragraph not found"));
             }
-            let sites = if table_targets.is_empty() {
-                Vec::new()
-            } else {
-                insertion::table_sites(body, &table_targets)?
-            };
-            let paragraph_sites = if paragraph_targets.is_empty() {
-                Vec::new()
-            } else {
-                insertion::paragraph_sites(
-                    body,
-                    &paragraph_targets.keys().copied().collect::<BTreeSet<_>>(),
-                )?
-            };
             // Header reference edits use original body slots, before splicing tables.
             let (staged, staged_headers) = headers.stage(package, &self.main, body)?;
             package = staged;
@@ -785,22 +938,16 @@ impl ImportedDocument {
                 package = staged;
                 pending.extend(slots.into_iter().zip(nodes));
             }
-            if !pending.is_empty() {
-                pending.sort_by_key(|(slot, _)| *slot);
-                let original = std::mem::take(&mut body.children);
-                let mut original = original.into_iter();
-                let mut offset = 0;
-                for (slot, node) in pending {
-                    body.children.extend(original.by_ref().take(slot - offset));
-                    body.children.push(Content::Element(node));
-                    offset = slot;
-                }
-                body.children.extend(original);
-            }
-            if !changes.is_empty()
+            package = block_plan.stage(package, &self.main, body, pending)?;
+            block_changes = block_plan.changes;
+            if controls_changed
+                || !changes.is_empty()
+                || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
+                || !inline_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
+                || !structural.is_empty()
                 || !insertions.is_empty()
                 || !paragraph_insertions.is_empty()
                 || header_changes
@@ -809,9 +956,19 @@ impl ImportedDocument {
             {
                 package.put_word(&self.main, root)?;
             }
+            if destructive_styles {
+                // Revalidate against the staged content, including implicit
+                // style references emitted by payload codecs. The plan always
+                // derives the catalog itself from the immutable source.
+                self.stage_styles(&mut package, styles)?;
+            }
         }
+        // A defaults patch shares the styles part. Read the staged version.
+        resource_fields::apply(&mut package, &self.main, resources)?;
         Ok(EditPreview {
+            block_changes,
             run_text_changes,
+            inline_changes,
             run_removals: removed_runs,
             cell_alignment_changes,
             changes,
@@ -893,7 +1050,11 @@ fn read_inline_nodes<'a>(
             let item = match node.name.as_str() {
                 "w:r" => {
                     let mut items = Vec::new();
-                    read_run(node, &mut items, revision == Some("deletion"));
+                    read_run(
+                        node,
+                        &mut items,
+                        matches!(revision, Some("deletion" | "moveSource")),
+                    );
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
@@ -906,11 +1067,16 @@ fn read_inline_nodes<'a>(
                     bookmark: node.get("w:anchor").map(str::to_owned),
                     children: read_inline_nodes(node.elements(), address, flat, revision),
                 }),
-                "w:ins" | "w:del" if revision.is_none() => {
-                    let kind = if node.name == "w:ins" {
-                        "insertion"
-                    } else {
-                        "deletion"
+                "w:ins" | "w:del" | "w:moveFrom" | "w:moveTo"
+                    if revision.is_none()
+                        && (matches!(node.name.as_str(), "w:ins" | "w:del")
+                            || node.get("w:author").is_some()) =>
+                {
+                    let kind = match node.name.as_str() {
+                        "w:ins" => "insertion",
+                        "w:del" => "deletion",
+                        "w:moveFrom" => "moveSource",
+                        _ => "moveDestination",
                     };
                     flat.push(ImportedInline::Opaque(node.name.to_string()));
                     ImportedInlineNode::Revision(ImportedRevision {
@@ -974,14 +1140,26 @@ fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
 
 /// Outer `None` means no write; inner `None` means no previous value.
 fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Option<String>>> {
+    patch_property(paragraph, "w:jc", after.xml())
+}
+
+fn patch_property(
+    paragraph: &mut Node,
+    property: &str,
+    value: &str,
+) -> Result<Option<Option<String>>> {
     if paragraph.elements().filter(|n| n.name == "w:pPr").count() > 1
         || paragraph.child(ALTERNATE).is_some()
         || paragraph.child("w:pPr").is_some_and(|props| {
-            props.elements().filter(|n| n.name == "w:jc").count() > 1
+            props.elements().filter(|n| n.name == property).count() > 1
                 || props.child(ALTERNATE).is_some()
         })
     {
-        return Err(unsupported("paragraph alignment is structurally ambiguous"));
+        return Err(unsupported(if property == "w:jc" {
+            "paragraph alignment is structurally ambiguous"
+        } else {
+            "paragraph property is structurally ambiguous"
+        }));
     }
 
     if paragraph.child("w:pPr").is_none() {
@@ -990,8 +1168,16 @@ fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Opti
             .insert(0, Content::Element(Node::new("w:pPr")));
     }
     let props = paragraph.child_mut("w:pPr").unwrap();
-    let jc = props.ensure("w:jc");
-    let value = after.xml();
+    if property == "w:keepNext"
+        && let Some(current) = props.child(property)
+        && matches!(
+            (current.get("w:val"), value),
+            (None | Some("true" | "on" | "1"), "1") | (Some("false" | "off" | "0"), "0")
+        )
+    {
+        return Ok(None);
+    }
+    let jc = props.ensure(property);
     if jc.get("w:val") == Some(value) {
         return Ok(None);
     }

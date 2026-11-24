@@ -12,6 +12,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.section import WD_HEADER_FOOTER
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml import OxmlElement
@@ -70,7 +71,87 @@ def png(rgb):
             + chunk(b"IEND", b""))
 
 
+def generate_controls(directory):
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    def wrap(node, *extra):
+        parent = node.getparent()
+        pos = parent.index(node)
+        control, props, cached = elem("sdt"), elem("sdtPr"), elem("sdtContent")
+        # Repeated tags intentionally identify several different controls.
+        props.extend([elem("tag", val="repeat"), *extra, elem("richText")])
+        cached.append(node)
+        control.extend([props, cached])
+        parent.insert(pos, control)
+        return props
+
+    wrap(doc.add_paragraph("block")._p, elem("lock", val="sdtLocked"))
+    run = doc.add_paragraph().add_run("inline")
+    run.bold = True
+    props = wrap(run._r, elem("lock", val="contentLocked"))
+    # Use an extension in a declared ignorable namespace; preserve it verbatim
+    # as an XML subtree even when inserting a new alias before the existing tag.
+    etree.SubElement(props, "{http://schemas.microsoft.com/office/word/2010/wordml}probe").text = "opaque"
+    for tag in ("row", "cell"):
+        t = doc.add_table(rows=1, cols=1)
+        t.cell(0, 0).text = tag
+        wrap(t.rows[0]._tr if tag == "row" else t.cell(0, 0)._tc)
+    wrap(doc.add_paragraph("bound")._p,
+         elem("dataBinding", xpath="/root", storeItemID="{00000000-0000-0000-0000-000000000001}"))
+    unsafe = doc.add_paragraph("first")
+    unsafe.add_run("second")
+    wrap(unsafe._p)
+    doc.add_paragraph("untouched")
+    doc.save(directory / "control-source.docx")
+
+
+def verify_controls(directory):
+    from rocx.editor import ControlEdit, ImportedDocument
+    path = directory / "control-source.docx"
+    data = path.read_bytes()
+    doc = ImportedDocument.open(data)
+    c = doc.controls
+    assert [v.context for v in c] == ["block", "inline", "row", "cell", "block", "block"]
+    assert all(v.tag == "repeat" and v.id is None for v in c) and c[4].bound
+    edits = [ControlEdit(c[0].anchor, text=" block "), ControlEdit(c[1].anchor, alias="caption"),
+             ControlEdit(c[2].anchor, text="new row"), ControlEdit(c[3].anchor, tag="cell", text="new cell")]
+    for target, batch, reason in [
+        (doc, [edits[0], ControlEdit(c[1].anchor, text="no")], "locked"),
+        (doc, [ControlEdit(c[0].anchor, tag="no")], "locked"),
+        (doc, [edits[0], ControlEdit(c[4].anchor, alias="no")], "XML-bound"),
+        (doc, [edits[0], ControlEdit(c[5].anchor, text="no")], "structure"),
+        (doc, [edits[0], edits[0]], "duplicate"),
+        (ImportedDocument.open(data), edits, "snapshot"),
+    ]:
+        try:
+            target.preview([], controls=batch)
+        except ValueError as exc:
+            assert reason in str(exc), exc
+        else:
+            raise AssertionError("expected " + reason)
+    output = directory / "controlEdits.docx"
+    assert doc.preview([], controls=edits).to_docx() == output.read_bytes()
+    src, out = parts(path), parts(output)
+    untouched(src, out, (MAIN,))
+    readback = Document(output)
+    assert readback.paragraphs[-1].text == "untouched"
+    assert readback.element.xpath("//w:sdtContent//w:t/text()") == [
+        " block ", "inline", "new row", "new cell", "bound", "first", "second"]
+    assert readback.element.xpath("//w:sdtPr/w:alias/@w:val") == ["caption"]
+    assert readback.element.xpath("//w:sdtPr/w:tag/@w:val").count("repeat") == 5
+    assert readback.element.xpath("//w:sdtPr/*[local-name()='probe']/text()") == ["opaque"]
+    assert readback.element.xpath("//w:sdtContent/w:r/w:rPr/w:b")
+    assert readback.element.xpath("//w:t[.=' block ']/@xml:space") == ["preserve"]
+
+
 def generate(directory):
+    generate_controls(directory)
+    catalog = Document()
+    catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
+        catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
+    catalog.sections[0].header.paragraphs[0].style = "Memo Active"
+    catalog.save(directory / "styles-source.docx")
     doc = Document()
     # python-docx's bundled template omits this required Transitional attribute.
     doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
@@ -110,6 +191,13 @@ def generate(directory):
 
     doc.save(directory / "base.docx")
     (directory / "image.png").write_bytes(png((100, 20, 30)))
+    ranged = Document(directory / "base.docx")
+    p = ranged.paragraphs[1]
+    p.clear()
+    p.add_run("a😀b").bold = True
+    p.add_run("e\u0301").underline = True
+    p.add_run("cd").italic = True
+    ranged.save(directory / "range-source.docx")
     base = parts(directory / "base.docx")
     assert base["word/media/image1.png"] == original_image
     assert HEADER in base and HEADER_RELS in base
@@ -236,7 +324,56 @@ def inspect_header(before, after, change, image):
     return int(xp(header, ".//wp:docPr/@id")[0])
 
 
+def verify_ordinary(directory):
+    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, TextRangeEdit
+    source = directory / "base.docx"
+    output = directory / "combined.docx"
+    doc = ImportedDocument.open(source.read_bytes())
+    assert doc.preview(
+        [],
+        text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
+        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
+        resources=[ResourceEdit.core_title("Combined editor")],
+    ).to_docx() == output.read_bytes()
+    original, result = parts(source), parts(output)
+    assert original.keys() == result.keys()
+    untouched(original, result, (MAIN, "docProps/core.xml"))
+    for query in (".//w:fldSimple", ".//w:drawing", ".//w:sectPr"):
+        assert [tree(n) for n in xp(etree.fromstring(original[MAIN]), query)] == [
+            tree(n) for n in xp(etree.fromstring(result[MAIN]), query)]
+    readback = Document(output)
+    assert readback.core_properties.title == "Combined editor"
+    p = readback.paragraphs
+    assert p[1].text == "Xnset alignment"
+    assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
+
+
 def verify(directory):
+    verify_controls(directory)
+    verify_ordinary(directory)
+    from rocx import declarative as d
+    from rocx.editor import ImportedDocument, StyleEdit
+    source_path = directory / "styles-source.docx"
+    style_path = directory / "styleEdits.docx"
+    styles_source = ImportedDocument.open(source_path.read_bytes())
+    edit = styles_source.preview([], style_edits=[
+        StyleEdit.add(d.ParagraphStyleDefinition(name="Memo Added", base_style="Memo Active")),
+        StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
+                          d.ParagraphStyleDefinition(name="Memo Replace", bold=True)),
+        StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
+        StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
+    ])
+    assert edit.to_docx() == style_path.read_bytes()
+    before, after = parts(source_path), parts(style_path)
+    assert before.keys() == after.keys()
+    untouched(before, after, ("word/styles.xml",))
+    readback = Document(style_path)
+    assert "Memo Drop" not in readback.styles
+    assert readback.styles["Memo Added"].base_style.name == "Memo Active"
+    assert readback.styles["Memo Replace"].font.bold and readback.styles["Memo Replace"].font.italic is None
+    assert readback.sections[0].header.paragraphs[0].style.font.italic
+    original_ids = [s.style_id for s in Document(source_path).styles if s.name != "Memo Drop"]
+    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded"]
     source = parts(directory / "base.docx")
     image = (directory / "image.png").read_bytes()
     reports = json.loads((directory / "reports.json").read_text(encoding="utf8"))
@@ -246,12 +383,59 @@ def verify(directory):
     assert Document(directory / "removal.docx").paragraphs[0].text == ""
     root = etree.fromstring(removal[MAIN])
     assert root.find(".//" + qn("w:fldSimple")) is not None
-    from rocx.editor import ImportedDocument
+    from rocx.editor import ImportedDocument, TextRangeEdit
+    range_source = parts(directory / "range-source.docx")
+    result = parts(directory / "range.docx")
+    assert result.keys() == range_source.keys()
+    untouched(range_source, result, (MAIN,))
+    # Preserve the opaque simple field in the neighboring paragraph.
+    assert tree(xp(etree.fromstring(range_source[MAIN]), "//w:fldSimple")[0]) == tree(xp(etree.fromstring(result[MAIN]), "//w:fldSimple")[0])
+    runs = Document(directory / "range.docx").paragraphs[1].runs
+    assert [r.text for r in runs] == ["a 🐈 ", "", "d"]
+    assert runs[0].bold and runs[1].underline and runs[2].italic
+    ranged = ImportedDocument.open((directory / "range-source.docx").read_bytes())
+    selection = TextRangeEdit(ranged.body[1].anchor, 1, 6, " 🐈 ")
+    assert ranged.preview([], text_ranges=[selection]).to_docx() == (directory / "range.docx").read_bytes()
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
+    date = "2024-02-29T12:34:56Z"
+    tracked = imported.preview_tracked_text(anchor, "replace", "A & B", text=" Revised ", date=date).to_docx()
+    reopened = ImportedDocument.open(tracked)
+    reviewed = reopened.preview_revision(reopened.body[0].inline_structure[1].anchor, "accept").to_docx()
+    moved = imported.preview_tracked_move(anchor, imported.body[1].inline_structure[0].anchor, "Move1", "A & B", date).to_docx()
+    pair = ImportedDocument.open(moved)
+    accepted = pair.preview_revision(pair.body[0].inline_structure[1].anchor, "accept", paired=pair.body[1].inline_structure[2].anchor).to_docx()
+    for name, data, expected in [("tracked", tracked, ["", "unset alignment"]),
+                                 ("reviewed", reviewed, [" Revised ", "unset alignment"]),
+                                 ("moved", moved, ["", "unset alignment"]),
+                                 ("moveAccepted", accepted, ["", "unset alignmentSource bold"])]:
+        assert (directory / f"{name}.docx").read_bytes() == data
+        payloads = parts(io.BytesIO(data))
+        untouched(source, payloads, (MAIN,))
+        assert tree(xp(etree.fromstring(source[MAIN]), ".//w:fldSimple")[0]) == tree(xp(etree.fromstring(payloads[MAIN]), ".//w:fldSimple")[0])
+        assert [p.text for p in Document(io.BytesIO(data)).paragraphs[:2]] == expected
     python_preview = imported.preview([], run_removals=[anchor])
     assert python_preview.run_removals[0].before == "Source bold"
     assert python_preview.to_docx() == (directory / "removal.docx").read_bytes()
+
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import InlineEdit
+
+    async def inline_batch():
+        target = lambda i: imported.body[i].inline_structure[0].anchor
+        link = await d.Hyperlink("https://example.invalid/inline", [d.TextRun("editable link")]).resolve()
+        return imported.preview([], inline_edits=[InlineEdit.insert_after(target(4), await d.Break().resolve()),
+            InlineEdit.set_bold(target(0), False), InlineEdit.replace(target(1), link)])
+
+    inline = asyncio.run(inline_batch())
+    assert inline.inline_changes == [(0, 0), (1, 0), (4, 0)]
+    assert inline.to_docx() == (directory / "inline.docx").read_bytes()
+    untouched(source, parts(directory / "inline.docx"), (MAIN, MAIN_RELS))
+    edited = Document(directory / "inline.docx").paragraphs
+    assert edited[0].runs[0].bold is False
+    assert edited[1].hyperlinks[0].url == "https://example.invalid/inline"
+    assert edited[1].text == "editable link" and edited[4].text == "next section\n"
 
     body = parts(directory / "body.docx")
     untouched(source, body, (MAIN, MAIN_RELS))
@@ -269,7 +453,31 @@ def verify(directory):
     assert cell_readback.tables[1].cell(0, 0).vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
     assert cell_readback.tables[1].cell(0, 0).text == "next A"
 
+    structure = directory / "tableStructure.docx"
+    untouched(body, parts(structure), (MAIN,))
+    row = Document(structure).tables[1].rows[0]
+    assert [cell.text for cell in row.cells] == ["next A", "inserted paragraph\n"]
+    assert [c.text for c in row.cells[1].tables[0].rows[0].cells] == ["next A", "next B"]
+    assert row.cells[1]._tc[-1].tag == qn("w:p")
+    assert row.grid_cols_after == 1
+
     mixed_body = directory / "mixedBody.docx"
+    blocks = parts(directory / "blocks.docx")
+    untouched(source, blocks, (MAIN,))
+    assert blocks.keys() == source.keys()
+    before = Document(directory / "base.docx")
+    after = Document(directory / "blocks.docx")
+    assert after.paragraphs[0].paragraph_format.keep_with_next is False
+    assert after.paragraphs[1].text == after.paragraphs[4].text == "inserted paragraph"
+    assert [c.text for c in after.tables[0].rows[0].cells] == ["next A", "next B"]
+    assert xp(etree.fromstring(blocks[MAIN]), ".//w:tblGrid/w:gridCol/@w:w") == ["5000", "5000"]
+    assert len(before.paragraphs) == len(after.paragraphs)
+    old, new = etree.fromstring(source[MAIN]), etree.fromstring(blocks[MAIN])
+    assert [tree(n) for n in xp(old, ".//w:sectPr")] == [tree(n) for n in xp(new, ".//w:sectPr")]
+    assert [tree(n) for n in xp(old, ".//w:fldSimple | .//w:drawing")] == [
+        tree(n) for n in xp(new, ".//w:fldSimple | .//w:drawing")]
+    assert [s.header.is_linked_to_previous for s in before.sections] == [
+        s.header.is_linked_to_previous for s in after.sections]
     untouched(body, parts(mixed_body), (MAIN,))
     combined = Document(mixed_body)
     assert [p.text for p in combined.paragraphs[:3]] == [readback.paragraphs[0].text, "inserted paragraph", ""]

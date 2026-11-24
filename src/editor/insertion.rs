@@ -73,17 +73,7 @@ pub(super) fn table_sites(
     let mut sites = Vec::with_capacity(targets.len());
     for (index, (slot, node)) in blocks.into_iter().enumerate().rev() {
         if let Some(table) = targets.get(&index) {
-            if table.columns() == 0 {
-                return Err(unsupported("an inserted table needs at least one column"));
-            }
-            let width = if let Some(widths) = table.column_widths()
-                && table.layout() != Some(TableLayout::Autofit)
-            {
-                // Explicit grids do not depend on the section's geometry.
-                widths.iter().copied().map(i64::from).sum()
-            } else {
-                width_for(next_section.map_err(unsupported)?)?
-            };
+            let width = table_width(table, next_section)?;
             sites.push((index, slot + 1, width));
         }
         if node.name == "w:p" {
@@ -114,6 +104,21 @@ fn unique_child<'a>(
     } else {
         Ok(first)
     }
+}
+
+pub(super) fn table_width(
+    table: &ResolvedTable,
+    section: std::result::Result<Option<&Node>, &'static str>,
+) -> Result<i64> {
+    if table.columns() == 0 {
+        return Err(unsupported("an inserted table needs at least one column"));
+    }
+    if let Some(widths) = table.column_widths()
+        && table.layout() != Some(TableLayout::Autofit)
+    {
+        return Ok(widths.iter().copied().map(i64::from).sum());
+    }
+    width_for(section.map_err(unsupported)?)
 }
 
 fn width_for(section: Option<&Node>) -> Result<i64> {
@@ -151,24 +156,51 @@ fn width_for(section: Option<&Node>) -> Result<i64> {
 /// Known body ranges must not silently gain content. Foreign branches are not
 /// resolved in this editor; if an alternate may carry body markers, refuse.
 #[derive(Default)]
-pub(super) struct BoundaryState {
+pub(crate) struct BoundaryState {
     fields: usize,
+    proof_ranges: [bool; 2],
     ranges: BTreeSet<(&'static str, String)>,
     uncertain: bool,
 }
 
 impl BoundaryState {
-    pub(super) fn safe(&self) -> bool {
-        self.fields == 0 && self.ranges.is_empty() && !self.uncertain
+    pub(crate) fn safe(&self) -> bool {
+        self.fields == 0
+            && !self.proof_ranges.contains(&true)
+            && self.ranges.is_empty()
+            && !self.uncertain
     }
 
-    pub(super) fn advance(&mut self, node: &Node) {
+    pub(crate) fn advance(&mut self, node: &Node) {
+        if self.enter(node) {
+            for child in node.elements() {
+                self.advance(child);
+            }
+        }
+    }
+
+    /// Observe this element alone; return whether its descendants share this state.
+    pub(crate) fn enter(&mut self, node: &Node) -> bool {
         let name = node.name.as_str();
         if name == ALTERNATE {
             self.uncertain = true;
         }
-        if node.name.namespace() != Some(W) || matches!(name, "w:pPr" | "w:rPr" | "w:txbxContent") {
-            return;
+        // Extension-defined range markers (for example conflict ranges) have
+        // no pairing model here, even when their lexical prefix is familiar.
+        if node.name.namespace() != Some(W)
+            && (node.name.local().ends_with("RangeStart")
+                || node.name.local().ends_with("RangeEnd"))
+        {
+            self.uncertain = true;
+        }
+        // Office Math belongs to the enclosing story: a Word range can open
+        // or close inside an equation and continue across ordinary runs.
+        if !matches!(
+            node.name.namespace(),
+            Some(W | "http://schemas.openxmlformats.org/officeDocument/2006/math")
+        ) || matches!(name, "w:pPr" | "w:rPr" | "w:txbxContent")
+        {
+            return false;
         }
         if name == "w:fldChar" {
             match node.get("w:fldCharType") {
@@ -177,6 +209,19 @@ impl BoundaryState {
                 Some("separate") if self.fields > 0 => (),
                 _ => self.uncertain = true,
             }
+        }
+        if name == "w:proofErr" {
+            let (index, open) = match node.get("w:type") {
+                Some("spellStart") => (0, true),
+                Some("spellEnd") => (0, false),
+                Some("gramStart") => (1, true),
+                Some("gramEnd") => (1, false),
+                _ => {
+                    self.uncertain = true;
+                    return false;
+                }
+            };
+            self.uncertain |= std::mem::replace(&mut self.proof_ranges[index], open) == open;
         }
         if let Some((range, start)) = range_marker(name) {
             if let Some(id) = node.get("w:id") {
@@ -191,9 +236,7 @@ impl BoundaryState {
                 self.uncertain = true;
             }
         }
-        for child in node.elements() {
-            self.advance(child);
-        }
+        true
     }
 }
 

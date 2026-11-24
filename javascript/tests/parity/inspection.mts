@@ -110,7 +110,6 @@ function sectionStory(story: ImportedStory, doc: ImportedDocument) {
   const variantLabel: Record<ImportedStoryVariant, string> = {
     default: "Default", first: "First", even: "Even",
   };
-  // @ts-expect-error Story slots do not have default-header edit anchors.
   const editTarget: HeaderAnchor = view.anchor;
   // @ts-expect-error A block index is numeric.
   story.inlineStructure("1");

@@ -4,11 +4,11 @@
 // With the default target directory, pass --native=/path/to/repo/target/debug/examples/javascript_editor_oracle.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { run } from "./editor.mts";
+import { editorSources, run } from "./editor.mts";
 
 function command(binary, args) {
   const result = spawnSync(binary, args, { stdio: "inherit" });
@@ -47,6 +47,7 @@ async function installedChromium(fixtures, expected, reports) {
       };
     }, input);
     assert.deepEqual(actual.reports, reports);
+    assert.deepEqual(Object.keys(actual.docx).sort(), Object.keys(expected).sort());
     for (const [name, bytes] of Object.entries(expected)) {
       assert.deepEqual(Buffer.from(actual.docx[name], "base64"), Buffer.from(bytes), name);
     }
@@ -61,15 +62,20 @@ async function installedChromium(fixtures, expected, reports) {
 try {
   command(python, [script, "generate", directory]);
   const fixtures = Object.fromEntries(await Promise.all(
-    ["base", "unsafe", "ambiguous", "drawing", "relocated", "styles-edge", "styles-missing", "styles-invalid", "image"].map(async (n) =>
+    [...editorSources, "image"].map(async (n) =>
       [n, await readFile(join(directory, n + (n === "image" ? ".png" : ".docx")))]),
   ));
   const { reports, mixedReports, ...outputs } = await run(fixtures);
   const allReports = { ...reports, mixed: mixedReports };
   await writeFile(join(directory, "reports.json"), JSON.stringify(allReports));
-  if (native) command(native, [directory]);
+  const outputFile = (name) => name === "relocated" ? "relocated-out.docx" : `${name}.docx`;
+  if (native) {
+    command(native, [directory]);
+    assert.deepEqual((await readdir(directory)).filter(name => /^native-.*\.docx$/.test(name)).sort(),
+      Object.keys(outputs).map(name => `native-${outputFile(name)}`).sort(), "native/JS editor output inventory");
+  }
   for (const [name, bytes] of Object.entries(outputs)) {
-    const file = name === "relocated" ? "relocated-out.docx" : `${name}.docx`;
+    const file = outputFile(name);
     await writeFile(join(directory, file), bytes);
     if (native) assert.deepEqual(Buffer.from(bytes), await readFile(join(directory, `native-${file}`)), file);
   }

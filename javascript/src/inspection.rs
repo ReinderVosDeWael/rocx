@@ -17,12 +17,20 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("openDocx", (open, Paths::Package)),
         ("importedBody", (body, Paths::Package)),
+        ("importedControls", (controls, Paths::Package)),
         ("importedSections", (sections, Paths::Package)),
         ("importedInlineAt", (inline_at, Paths::Package)),
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
         ("importedStories", (stories, Paths::Package)),
         ("importedEntryStories", (entry_stories, Paths::Package)),
         ("importedStyles", (styles, Paths::Package)),
+        ("importedStyleAnchor", (style_anchor, Paths::Package)),
+        ("importedCoreTitle", (core_title, Paths::Package)),
+        (
+            "importedDefaultAlignment",
+            (default_alignment, Paths::Package),
+        ),
+        ("importedAbstractStarts", (abstract_starts, Paths::Package)),
         (
             "importedStoryInlineStructure",
             (story_inline_structure, Paths::Package),
@@ -33,22 +41,33 @@ pub(crate) const HOOKS: Hooks = Hooks {
 
 const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("body", "importedBody"),
+    ("controls", "importedControls"),
     ("sections", "importedSections"),
     ("inlineAt", "importedInlineAt"),
     ("defaultHeaders", "importedDefaultHeaders"),
     ("stories", "importedStories"),
     ("entryStories", "importedEntryStories"),
     ("styles", "importedStyles"),
+    ("styleAnchor", "importedStyleAnchor"),
+    ("coreTitle", "importedCoreTitle"),
+    ("defaultAlignment", "importedDefaultAlignment"),
+    ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
+    ("editStoryText", "importedEditStoryText"),
+    ("previewTrackedText", "importedPreviewTrackedText"),
+    ("previewTrackedMove", "importedPreviewTrackedMove"),
+    ("previewRevision", "importedPreviewRevision"),
     ("preview", "importedPreview"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
 ];
 
 #[derive(Default)]
 struct Anchors {
+    styles: RefCell<HashMap<String, JsValue>>,
+    controls: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
-    headers: RefCell<HashMap<(usize, usize), JsValue>>,
+    headers: RefCell<HashMap<(usize, rocx::editor::SectionStoryKind, usize), JsValue>>,
     inlines: RefCell<HashMap<InlineKey, JsValue>>,
 }
 
@@ -87,6 +106,33 @@ fn entry_stories(input: &Wire) -> Result<JsValue> {
     )
 }
 
+fn controls(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        source.document.controls().iter().enumerate().map(|(i, c)| {
+            let value = b::record(&[
+                (
+                    "anchor",
+                    view::cached(&source.anchors.controls, i, "controlAnchor", &c.anchor),
+                ),
+                ("context", c.context.as_str().into()),
+                ("bound", c.bound.into()),
+            ]);
+            for (key, v) in [
+                ("id", &c.id),
+                ("tag", &c.tag),
+                ("alias", &c.alias),
+                ("lock", &c.lock),
+            ] {
+                if let Some(v) = v {
+                    b::set(&value, key, &v.as_str().into());
+                }
+            }
+            value
+        }),
+    ))
+}
+
 fn styles(input: &Wire) -> Result<JsValue> {
     let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(source
@@ -119,6 +165,50 @@ fn styles(input: &Wire) -> Result<JsValue> {
                 ("styles", view::array(items)),
             ])
         }))
+}
+
+fn style_anchor(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let id = b::string(&argument(&call, "id")?, "id")?;
+    let target = source.document().style_anchor(&id)?;
+    Ok(view::cached(
+        &source.anchors.styles,
+        id,
+        "styleAnchor",
+        &target,
+    ))
+}
+
+fn core_title(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(doc
+        .document()
+        .core_title()?
+        .map_or(JsValue::UNDEFINED, Into::into))
+}
+fn default_alignment(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(doc
+        .document()
+        .default_alignment()?
+        .as_ref()
+        .map_or(JsValue::UNDEFINED, crate::text_layout::alignment_view))
+}
+fn abstract_starts(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        doc.document().abstract_starts()?.into_iter().map(|s| {
+            let record = b::record(&[
+                ("abstractId", s.abstract_id.into()),
+                ("level", s.level.into()),
+            ]);
+            if let Some(v) = s.start {
+                b::set(&record, "start", &v.into());
+            }
+            record
+        }),
+    ))
 }
 
 pub(crate) struct ImportedSource {

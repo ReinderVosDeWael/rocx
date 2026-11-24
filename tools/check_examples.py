@@ -40,7 +40,7 @@ HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
                     ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
-                    ".header-first-local.docx", ".run-text.docx")
+                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -816,18 +816,49 @@ def verify_first_header_scopes(original: bytes, first_shared: bytes, first_local
                 assert source.read(name) == changed.read(name), name
 
 
+def verify_entry_text(original: bytes, changed: bytes) -> None:
+    owners = {f"word/{kind}s.xml" for kind in ("comment", "footnote", "endnote")}
+    with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(changed)) as output:
+        assert set(source.namelist()) == set(output.namelist())
+        assert {p for p in source.namelist() if source.read(p) != output.read(p)} == owners
+        for kind in ("comment", "footnote", "endnote"):
+            owner = f"word/{kind}s.xml"
+            before, after = [etree.fromstring(z.read(owner)) for z in (source, output)]
+            text, = after.xpath(".//w:t[text()=$label]", namespaces=NS, label=f"Edited {kind} entry")
+            idx = after.xpath(".//w:t", namespaces=NS).index(text)
+            before.xpath(".//w:t", namespaces=NS)[idx].text = text.text
+            assert etree.tostring(before, method="c14n", exclusive=True) == etree.tostring(after, method="c14n", exclusive=True)
+
+
+def verify_even_footer(data: bytes) -> None:
+    footers = [s.even_page_footer for s in docx.Document(io.BytesIO(data)).sections]
+    assert all("Edited shared even footer" in f.paragraphs[1].text for f in footers)
+    assert [len(f._element.xpath(".//w:drawing")) for f in footers] == [0, 1]
+    rid, = footers[1]._element.xpath(".//a:blip/@r:embed")
+    assert footers[1].part.related_parts[rid].blob == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
+
+
 def verify_run_text(original: bytes, replaced: bytes) -> None:
-    paragraphs = [p.text for p in docx.Document(io.BytesIO(replaced)).paragraphs]
+    edited_doc = docx.Document(io.BytesIO(replaced))
+    assert edited_doc.element.xpath("//w:sdtPr[w:id/@w:val='5001']/w:alias/@w:val") == ["Imported editor caption"]
+    assert edited_doc.core_properties.title == "Edited resource sample"
+    paragraphs = [p.text for p in edited_doc.paragraphs]
+    assert "Ranged 📝" + EDIT_LABEL[8:] in paragraphs
     anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
     assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:
         assert set(source.namelist()) == set(changed.namelist())
-        assert all(source.read(n) == changed.read(n) for n in source.namelist() if n != "word/document.xml")
+        mutable = {"word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml"}
+        assert {n for n in source.namelist() if source.read(n) != changed.read(n)} == mutable
+        styles = etree.fromstring(changed.read("word/styles.xml"))
+        assert styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:jc/@w:val", namespaces=NS) == ["center"]
+        numbers = etree.fromstring(changed.read("word/numbering.xml"))
+        assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["7"]
 
 
 def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:
     """Require every file and check content and untouched payloads separately."""
-    artifacts = []
+    artifacts = {}
     for suffix in CATALOG_SUFFIXES:
         path = directory / f"all_features-javascript{suffix}"
         data = path.read_bytes()
@@ -835,15 +866,21 @@ def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> No
             digest = exact_bytes(rust.with_suffix(suffix).read_bytes(), data, language="JavaScript")
         except AssertionError as error:
             raise AssertionError(f"{path}: {error}") from error
-        artifacts.append(data)
+        artifacts[suffix] = data
         print(f"Byte-identical {path}: {len(data)} bytes; SHA-256 {digest}")
-    final, template, edited, source, shared, local, first_shared, first_local, run_text = artifacts
-    # Compare source/result payloads within the JS artifacts, independent of the Rust oracle.
-    verify_content(final, template)
-    verify_run_text(final, run_text)
-    verify_edited(final, edited)
-    verify_header_scopes(source, shared, local)
-    verify_first_header_scopes(source, first_shared, first_local)
+    verify_catalog_readback(artifacts)
+
+
+def verify_catalog_readback(files: dict[str, bytes]) -> None:
+    """Inspect source/result payloads within a single binding's catalog."""
+    final, source = files[".docx"], files[".header-source.docx"]
+    verify_entry_text(final, files[".entry-text.docx"])
+    verify_even_footer(files[".footer-even.docx"])
+    verify_content(final, files[".template.docx"])
+    verify_run_text(final, files[".run-text.docx"])
+    verify_edited(final, files[".edited.docx"])
+    verify_header_scopes(source, files[".header-shared.docx"], files[".header-local.docx"])
+    verify_first_header_scopes(source, files[".header-first-shared.docx"], files[".header-first-local.docx"])
 
 
 def main() -> None:
@@ -855,28 +892,13 @@ def main() -> None:
     args = parser.parse_args()
     verify_inventory()
     rust, python = generate(args.output_dir)
-    digest = exact_bytes(rust.read_bytes(), python.read_bytes())
-    exact_bytes(rust.with_suffix(".template.docx").read_bytes(), python.with_suffix(".template.docx").read_bytes())
-    edited = rust.with_suffix(".edited.docx").read_bytes()
-    edited_digest = exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
-    replaced = rust.with_suffix(".run-text.docx").read_bytes()
-    exact_bytes(replaced, python.with_suffix(".run-text.docx").read_bytes())
-    verify_run_text(rust.read_bytes(), replaced)
-    verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
-    verify_edited(rust.read_bytes(), edited)
-    for suffix in [".header-source.docx", ".header-shared.docx", ".header-local.docx",
-                   ".header-first-shared.docx", ".header-first-local.docx"]:
+    native = {}
+    for suffix in CATALOG_SUFFIXES:
         data = rust.with_suffix(suffix).read_bytes()
-        header_digest = exact_bytes(data, python.with_suffix(suffix).read_bytes())
-        print(f"Byte-identical {suffix[1:]}: {len(data)} bytes; SHA-256 {header_digest}")
-    verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in [
-        ".header-source.docx", ".header-shared.docx", ".header-local.docx"
-    ]))
-    verify_first_header_scopes(rust.with_suffix(".header-source.docx").read_bytes(),
-                               rust.with_suffix(".header-first-shared.docx").read_bytes(),
-                               rust.with_suffix(".header-first-local.docx").read_bytes())
-    print(f"Byte-identical DOCX: {len(rust.read_bytes())} bytes; SHA-256 {digest}")
-    print(f"Byte-identical edited DOCX: {len(edited)} bytes; SHA-256 {edited_digest}")
+        digest = exact_bytes(data, python.with_suffix(suffix).read_bytes())
+        print(f"Byte-identical {suffix}: {len(data)} bytes; SHA-256 {digest}")
+        native[suffix] = data
+    verify_catalog_readback(native)
     print(f"Rust:   {rust}\nPython: {python}")
     for directory in args.javascript_dir:
         verify_javascript_catalog(rust, directory)

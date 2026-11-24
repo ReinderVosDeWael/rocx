@@ -35,6 +35,7 @@ pub struct ImportedEntry {
     pub author: Option<String>,
     pub date: Option<String>,
     pub initials: Option<String>,
+    pub(super) element_index: usize,
     content: StoryPart,
 }
 
@@ -80,10 +81,15 @@ impl ImportedDocument {
                 return Err(unsupported(&format!("invalid {relation} root")));
             }
             let tag = format!("w:{name}");
-            for node in root.elements().filter(|n| n.name == tag.as_str()) {
+            for (element_index, node) in root
+                .elements()
+                .enumerate()
+                .filter(|(_, n)| n.name == tag.as_str())
+            {
                 let index = entries.len();
                 let attribute = |key| node.get(key).map(str::to_owned);
                 entries.push(ImportedEntry {
+                    element_index,
                     kind,
                     part_name: path.clone(),
                     id: attribute("w:id").ok_or_else(|| unsupported("missing entry story ID"))?,

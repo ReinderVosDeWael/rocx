@@ -3,20 +3,14 @@ import {
   type AlignmentChange, type EditBatch, type EditPreview, type HeaderImageChange,
   type HeaderImageEdit, type HeaderImagePreview, type ImportedDocument, type ImportedParagraph,
   type ResolvedImage, type ResolvedTable, type TableCellDeclaration, type TableDeclaration,
-  type TableInsertionChange,
+  type TableInsertionChange, type TableStructureEdit, type TableAnchor,
 } from "rocx-docx";
 
-export interface Fixtures {
-  base: Uint8Array;
-  unsafe: Uint8Array;
-  ambiguous: Uint8Array;
-  drawing: Uint8Array;
-  relocated: Uint8Array;
-  "styles-edge": Uint8Array;
-  "styles-missing": Uint8Array;
-  "styles-invalid": Uint8Array;
-  image: Uint8Array;
-}
+export const editorSources = [
+  "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid",
+] as const;
+export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -218,7 +212,34 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   rejects(() => unsafe.preview({ tableInsertions: [{ ...insert, target: paragraph(unsafe, 0).anchor }] }), /range/);
   const ambiguous = await openDocx(input.ambiguous);
   rejects(() => ambiguous.preview({ alignments: [{ ...align, target: paragraph(ambiguous, 0).anchor }] }), /ambiguous/);
-  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes };
+  const blocks = doc.preview({ blockEdits: [
+    { kind: "keepWithNext", target: start, value: false },
+    { kind: "replace", target: unset, paragraph: insertedParagraph },
+    { kind: "replaceSection", target: paragraph(doc, 4).anchor, blocks: [insertedParagraph, insertedParagraph, auto] },
+  ] });
+  same(blocks.blockChanges(), [0, 1, 4], "block edit report");
+  const intermediate = await openDocx(blocks.toDocx());
+  const remove = { kind: "remove", target: paragraph(intermediate, 5).anchor } as const;
+  rejects(() => doc.preview({ blockEdits: [remove] }), /different document snapshot/);
+  rejects(() => intermediate.preview({ blockEdits: [remove, remove] }), /conflicting/);
+  const final = intermediate.preview({ blockEdits: [remove] });
+  same(final.blockChanges(), [5], "retry after rejected batch");
+  let tableStructure = bytes;
+  const steps: ((target: TableAnchor) => TableStructureEdit)[] = [
+    target => ({target, kind: "insertRow", index: 1}), target => ({target, kind: "removeRow", index: 1}),
+    target => ({target, kind: "insertColumn", index: 1}), target => ({target, kind: "removeColumn", index: 1}),
+    target => ({target, kind: "insertCell", row: 0, cell: 1}), target => ({target, kind: "removeCell", row: 0, cell: 1}),
+    target => ({target, kind: "replaceCell", row: 0, cell: 1, blocks: [insertedParagraph, auto]}),
+  ];
+  for (const step of steps) {
+    const source = await openDocx(tableStructure);
+    const table = source.body()[5]; check(table?.kind === "table", "structure target");
+    const edit = step(table.anchor);
+    rejects(() => reopened.preview({tableStructure: [edit]}), /different document snapshot/);
+    rejects(() => source.preview({tableStructure: [edit, edit]}), /exclusive|duplicate/);
+    tableStructure = source.preview({tableStructure: [edit]}).toDocx();
+  }
+  return { tableStructure, body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx(), mixedBody: mixedBytes, blocks: final.toDocx() };
 }
 
 export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {
@@ -376,7 +397,39 @@ export async function mixedTransactionAtomicityAndRepeatPreview(
   return { mixed: expected, mixedShared: cExpected, mixedReports: [...a.headerChanges()] };
 }
 
+async function editControls(fixtures: Fixtures) {
+  const controlled = await openDocx(fixtures["control-source"]);
+  const controls = controlled.controls();
+  same(controls.map(c => c.context), ["block", "inline", "row", "cell", "block", "block"], "contexts");
+  check(controls.every(c => c.tag === "repeat" && c.id === undefined) && controls[4].bound, "source metadata");
+  const [block, inline, row, cell, bound, unsafe] = controls.map(c => c.anchor);
+  const edits = [{target: block, text: " block "}, {target: inline, alias: "caption"},
+    {target: row, text: "new row"}, {target: cell, tag: "cell", text: "new cell"}];
+  rejects(() => controlled.preview({ controls: [edits[0], {target: inline, text: "no"}] }), /locked/);
+  rejects(() => controlled.preview({ controls: [{target: block, tag: "no"}] }), /locked/);
+  rejects(() => controlled.preview({ controls: [edits[0], {target: bound, alias: "no"}] }), /XML-bound/);
+  rejects(() => controlled.preview({ controls: [edits[0], {target: unsafe, text: "no"}] }), /structure/);
+  rejects(() => controlled.preview({ controls: [edits[0], edits[0]] }), /duplicate/);
+  const stale = await openDocx(fixtures["control-source"]);
+  rejects(() => stale.preview({ controls: edits }), /snapshot/);
+  return controlled.preview({ controls: edits }).toDocx();
+}
+
 export async function run(fixtures: Fixtures) {
+  const catalog = await openDocx(fixtures["styles-source"]);
+  const active = catalog.styleAnchor("MemoActive");
+  const batch: EditBatch = { styleEdits: [
+    { op: "add", definition: { kind: "paragraph", name: "Memo Added", baseStyle: "Memo Active" } },
+    { op: "replace", target: catalog.styleAnchor("MemoReplace"), definition: {kind: "paragraph", name: "Memo Replace", bold: true} },
+    { op: "remove", target: catalog.styleAnchor("MemoDrop") },
+    { op: "patch", target: active, italic: true },
+  ] };
+  rejects(() => catalog.preview({styleEdits: [...batch.styleEdits!, {op: "remove", target: active}]}), /duplicate/);
+  rejects(() => catalog.preview({styleEdits: [{op: "remove", target: active}]}), /references/);
+  const styleEdits = catalog.preview(batch).toDocx();
+  const reopened = await openDocx(styleEdits);
+  rejects(() => reopened.preview({styleEdits: [{op: "patch", target: active, bold: true}]}), /different document snapshot/);
+  check(reopened.styles()?.styles.find(s => s.id === "MemoAdded")?.basedOn === "MemoActive", "new style inheritance");
   const resolved = await payloads(fixtures.image);
   const doc = await openDocx(fixtures.base);
   const first = paragraph(doc, 0).inlineStructure[0];
@@ -387,9 +440,60 @@ export async function run(fixtures: Fixtures) {
   rejects(() => doc.preview({ runRemovals: [first.anchor], runText: [{ target: first.anchor, text: "x" }] }), /duplicate|conflicting/);
   const other = await openDocx(fixtures.base);
   rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
+  const ranged = await openDocx(fixtures["range-source"]);
+  const selection = {target: paragraph(ranged, 1).anchor, start: 1, end: 6, text: " 🐈 "};
+  rejects(() => ranged.preview({textRanges: [selection, selection]}), /overlapping/);
+  rejects(() => doc.preview({textRanges: [selection]}), /different document snapshot/);
+  rejects(() => doc.preview({textRanges: [{...selection, target: paragraph(doc, 0).anchor}]}), /plain direct body/);
+  same(ranged.preview({textRanges: [selection]}).runTextChanges().map(c => c.after), ["a 🐈 ", "", "d"], "scalar ranges retain run containers");
+  const ordinary: EditBatch = {
+    textRanges: [{target: paragraph(doc, 1).anchor, start: 0, end: 1, text: "X"}],
+    blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true}],
+    resources: [{kind: "coreTitle", value: "Combined editor"}],
+  };
+  const combined = doc.preview(ordinary).toDocx();
+  rejects(() => doc.preview({...ordinary, textRanges: [selection]}),
+    /different document snapshot/);
+  bytesEqual(doc.preview(ordinary).toDocx(), combined, "mixed retry after stale anchor");
   check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
+  const second = paragraph(doc, 1).inlineStructure[0];
+  const fourth = paragraph(doc, 4).inlineStructure[0];
+  check(second.kind === "run" && fourth.kind === "run", "inline targets");
+  const payload = await resolveComponent({kind: "paragraph", runs: [
+    {kind: "break", breakType: "line"}, {kind: "hyperlink", target: {kind: "external", url: "https://example.invalid/inline"}, children: [{kind: "text", text: "editable link"}]},
+  ]});
+  check(payload, "inline declarations resolved");
+  const inlineEdits: NonNullable<EditBatch["inlineEdits"]> = [
+    { kind: "insertAfter", target: fourth.anchor, inline: payload.view.runs[0] },
+    { kind: "setBold", target: first.anchor, bold: false },
+    { kind: "replace", target: second.anchor, inline: payload.view.runs[1] },
+  ];
+  const inline = doc.preview({inlineEdits});
+  same(inline.inlineChanges(), [[0,0],[1,0],[4,0]], "inline change sites");
+  rejects(() => other.preview({inlineEdits}), /different document snapshot/);
+  rejects(() => doc.preview({inlineEdits, runRemovals: [first.anchor]}), /conflicting/);
+  bytesEqual(doc.preview({inlineEdits}).toDocx(), inline.toDocx(), "inline retry");
+  const meta = {author: "A & B", date: "2024-02-29T12:34:56Z"};
+  const tracked = doc.previewTrackedText({target:first.anchor, kind:"replace", text:" Revised ", ...meta}).toDocx();
+  const changed = await openDocx(tracked);
+  const [deleted, added] = paragraph(changed,0).inlineStructure;
+  check(deleted.kind === "revision" && deleted.revisionKind === "deletion" && added.kind === "revision" && added.revisionKind === "insertion", "tracked replacement wrappers");
+  same([added.author,added.date, paragraph(changed,0).text], [meta.author,meta.date,""], "revision metadata and flat projection");
+  rejects(() => doc.previewRevision({target:added.anchor, action:"reject"}), /different document snapshot/);
+  const reviewed = changed.previewRevision({target:added.anchor, action:"accept"}).toDocx();
+  same(paragraph(await openDocx(reviewed),0).text," Revised ","accepted insertion");
+  const moved = doc.previewTrackedMove({target:first.anchor, after:second.anchor, name:"Move1", ...meta}).toDocx();
+  const pair = await openDocx(moved);
+  const source = paragraph(pair,0).inlineStructure[1];
+  const dest = paragraph(pair,1).inlineStructure[2];
+  check(source.kind === "revision" && dest.kind === "revision" && source.revisionKind === "moveSource" && dest.revisionKind === "moveDestination", "paired move anchors");
+  rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
+  const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(),
+    range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
+    controlEdits: await editControls(fixtures),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),
@@ -398,6 +502,13 @@ export async function run(fixtures: Fixtures) {
 
 // Compile only. Check public inputs and output types without letting invalid calls execute.
 export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  // @ts-expect-error source tags and IDs are not physical control anchors
+  doc.preview({ controls: [{ target: "repeat", tag: "new" }] });
+  for (const {abstractId, level} of doc.abstractStarts()) {
+    doc.preview({resources: [{kind: "abstractStart", abstractId, level, value: null}]});
+  }
+  // @ts-expect-error omitting the value is not a request to clear a title
+  doc.preview({resources: [{kind: "coreTitle"}]});
   for (const e of doc.entryStories()) {
     const id: string = e.id;
     for (const block of e.blocks) {
@@ -409,6 +520,10 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
   }
   const run = p.inlineStructure[0];
   if (run?.kind === "run") {
+    // @ts-expect-error tracked deletion has no insertion text
+    doc.previewTrackedText({target: run.anchor, kind: "delete", author: "Ada", text: "lost"});
+    // @ts-expect-error review requires an inline anchor from inspection
+    doc.previewRevision({target: p.anchor, action: "reject"});
     const text: string = doc.preview({runText: [{target: run.anchor, text: "New"}]}).runTextChanges()[0].after;
     const before: string = doc.preview({runRemovals: [run.anchor]}).runRemovals()[0].before;
   }

@@ -33,7 +33,7 @@ uv run --no-sync python tests/javascript_parity/generate_fixtures.py "$fixtures"
 uv run --no-sync python javascript/tests/parity/editor.py generate "$fixtures/editor"
 for mode in rust node browser-dev browser; do
     mkdir -p "$parity/$mode/editor"
-    cp "$fixtures/editor"/{base,relocated}.docx "$fixtures/editor/image.png" "$parity/$mode/editor/"
+    cp "$fixtures/editor/"* "$parity/$mode/editor/"
 done
 cargo run --quiet --locked --example javascript_parity_oracles -- "$oracles"
 cargo run --quiet --locked --example javascript_editor_oracle -- "$oracles/editor"

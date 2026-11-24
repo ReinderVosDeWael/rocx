@@ -20,8 +20,8 @@ Vite bundle; Wasm is fetched from the same origin in both modes.
 | Declarative factories (#29) | Typed/runtime namespace inventory, raw/factory composition, deferred and falsy values, strict invalid-input cases, and exact raw-program byte parity in all runtimes. Both the migrated workflow and original legacy input match Rust/Python exactly. The public Node plain quickstart matches both native quickstarts and passes independent python-docx readback |
 | T01–T06 | Owner Node suite incl. Node-only file I/O; portable repeat render, validation, template plan and exact Rust bytes in both Chromium modes |
 | E01–E03 | Owner Node and Chromium inspection suite, catalog readback and anchor identity checks |
-| E04–E06 | Same typed editor fixtures and seven exact Rust outputs in Node and both Chromium modes, independent python-docx and package preservation checks |
-| Six-artifact catalog | Each JS runtime compared against native Rust exact ZIP bytes. Rust/Python parity retained. Separate readback, schema, OPC and untouched-part assertions |
+| E04–E06 | Same typed editor fixtures compared to Rust in Node and both Chromium modes. The ordinary mixed batch also has a persisted installed Python output; independent python-docx, schema/OPC and untouched-part checks cover its result. |
+| All-features catalog | Each JS runtime compared against native Rust exact ZIP bytes. Rust/Python parity retained. Separate readback, schema, OPC and untouched-part assertions |
 
 This is a runner inventory, not an independent review or a claim that every
 field, variant, negative case or deferred path in those rows is covered.

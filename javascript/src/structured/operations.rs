@@ -27,7 +27,7 @@ fn inline_value(i: &Wire, path: &str) -> Result<ResolvedInline> {
     b::borrow::<ResolvedInline>(i, path).map(|v| (*v).clone())
 }
 
-fn block_value(i: &Wire, path: &str) -> Result<ResolvedBlock> {
+pub(crate) fn block_value(i: &Wire, path: &str) -> Result<ResolvedBlock> {
     b::borrow::<ResolvedBlock>(i, path)
         .map(|v| (*v).clone())
         .or_else(|_| {

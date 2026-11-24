@@ -119,9 +119,71 @@ fn story_blocks<'a>(
         .collect()
 }
 
+#[pyclass(name = "TextRangeEdit", frozen, module = "rocx.editor")]
+struct PyTextRangeEdit {
+    inner: editor::TextRangeEdit,
+}
+
+#[pymethods]
+impl PyTextRangeEdit {
+    #[new]
+    fn new(target: PyRef<'_, PyParagraphAnchor>, start: usize, end: usize, text: String) -> Self {
+        Self {
+            inner: editor::TextRangeEdit {
+                target: target.inner.clone(),
+                start,
+                end,
+                text,
+            },
+        }
+    }
+}
+
 #[pyclass(name = "RunTextEdit", frozen, module = "rocx.editor")]
 struct PyRunTextEdit {
     inner: editor::RunTextEdit,
+}
+
+#[pyclass(name = "ControlAnchor", frozen, module = "rocx.editor")]
+struct PyControlAnchor {
+    inner: editor::ControlAnchor,
+}
+
+#[pyclass(name = "ImportedControl", frozen, get_all, module = "rocx.editor")]
+struct PyImportedControl {
+    anchor: Py<PyControlAnchor>,
+    context: &'static str,
+    id: Option<String>,
+    tag: Option<String>,
+    alias: Option<String>,
+    lock: Option<String>,
+    bound: bool,
+}
+
+#[pyclass(name = "ControlEdit", frozen, module = "rocx.editor")]
+struct PyControlEdit {
+    inner: editor::ControlEdit,
+}
+
+#[pymethods]
+impl PyControlEdit {
+    #[new]
+    #[pyo3(signature = (target, *, tag=None, alias=None, text=None))]
+    fn new(
+        target: PyRef<'_, PyControlAnchor>,
+        tag: Option<String>,
+        alias: Option<String>,
+        text: Option<String>,
+    ) -> Self {
+        Self {
+            inner: editor::ControlEdit {
+                target: target.inner.clone(),
+                tag,
+                alias,
+                text,
+            },
+        }
+    }
 }
 
 #[pymethods]
@@ -542,6 +604,98 @@ struct PyParagraphAlignmentEdit {
     alignment: crate::Alignment,
 }
 
+#[pyclass(name = "TableStructureEdit", frozen, module = "rocx.editor")]
+struct PyTableStructureEdit {
+    inner: editor::TableStructureEdit,
+}
+#[pymethods]
+impl PyTableStructureEdit {
+    #[staticmethod]
+    fn insert_row(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::InsertRow(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_row(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveRow(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn insert_column(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::InsertColumn(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_column(target: PyRef<'_, PyTableAnchor>, index: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveColumn(index),
+            },
+        }
+    }
+    #[staticmethod]
+    fn insert_cell(target: PyRef<'_, PyTableAnchor>, row: usize, cell: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::InsertCell { row, cell },
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_cell(target: PyRef<'_, PyTableAnchor>, row: usize, cell: usize) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveCell { row, cell },
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace_cell(
+        target: PyRef<'_, PyTableAnchor>,
+        row: usize,
+        cell: usize,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::ReplaceCell {
+                    row,
+                    cell,
+                    blocks: blocks
+                        .iter()
+                        .map(|block| {
+                            let cls = block
+                                .py()
+                                .import("rocx.resolution.snapshot")?
+                                .getattr("ResolvedNode")?;
+                            if !block.is_instance(&cls)? {
+                                return Err(PyTypeError::new_err("expected a resolved cell block"));
+                            }
+                            super::content::block(block)?
+                                .ok_or_else(|| PyValueError::new_err("empty cell block"))
+                        })
+                        .collect::<PyResult<_>>()?,
+                },
+            },
+        })
+    }
+}
 #[pyclass(name = "CellAlignmentEdit", frozen, module = "rocx.editor")]
 struct PyCellAlignmentEdit {
     inner: editor::CellAlignmentEdit,
@@ -613,6 +767,57 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "InlineEdit", frozen, module = "rocx.editor")]
+struct PyInlineEdit {
+    inner: editor::InlineEdit,
+}
+
+fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
+    if !node.is_instance(
+        &node
+            .py()
+            .import("rocx.resolution.snapshot")?
+            .getattr("ResolvedNode")?,
+    )? {
+        return Err(PyTypeError::new_err("expected resolved inline"));
+    }
+    super::content::inline(node)?.ok_or_else(|| PyTypeError::new_err("expected resolved inline"))
+}
+
+#[pymethods]
+impl PyInlineEdit {
+    #[staticmethod]
+    fn insert_after(
+        target: PyRef<'_, PyInlineAnchor>,
+        inline: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::InsertAfter(inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn replace(target: PyRef<'_, PyInlineAnchor>, inline: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::Replace(inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn set_bold(target: PyRef<'_, PyInlineAnchor>, bold: bool) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetBold(bold),
+            },
+        }
+    }
+}
+
 #[pyclass(name = "ParagraphInsertion", frozen, module = "rocx.editor")]
 struct PyParagraphInsertion {
     target: editor::ParagraphAnchor,
@@ -626,22 +831,88 @@ impl PyParagraphInsertion {
         target: PyRef<'_, PyParagraphAnchor>,
         resolved_paragraph: &Bound<'_, PyAny>,
     ) -> PyResult<Self> {
-        let node_type = resolved_paragraph
-            .py()
-            .import("rocx.resolution.snapshot")?
-            .getattr("ResolvedNode")?;
-        if !resolved_paragraph.is_instance(&node_type)?
-            || resolved_paragraph
-                .getattr("_native_kind")?
-                .extract::<String>()?
-                != "Paragraph"
-        {
-            return Err(PyTypeError::new_err("expected a resolved Paragraph"));
-        }
         Ok(Self {
             target: target.inner.clone(),
-            paragraph: super::content::paragraph(resolved_paragraph)?,
+            paragraph: resolved_block_paragraph(resolved_paragraph)?,
         })
+    }
+}
+
+fn resolved_block_paragraph(
+    resolved_paragraph: &Bound<'_, PyAny>,
+) -> PyResult<crate::ResolvedParagraph> {
+    let node_type = resolved_paragraph
+        .py()
+        .import("rocx.resolution.snapshot")?
+        .getattr("ResolvedNode")?;
+    if !resolved_paragraph.is_instance(&node_type)?
+        || resolved_paragraph
+            .getattr("_native_kind")?
+            .extract::<String>()?
+            != "Paragraph"
+    {
+        return Err(PyTypeError::new_err("expected a resolved Paragraph"));
+    }
+    super::content::paragraph(resolved_paragraph)
+}
+
+#[pyclass(name = "BlockEdit", frozen, module = "rocx.editor")]
+struct PyBlockEdit {
+    inner: editor::BlockEdit,
+}
+
+#[pymethods]
+impl PyBlockEdit {
+    #[staticmethod]
+    fn replace(
+        target: PyRef<'_, PyParagraphAnchor>,
+        paragraph: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::BlockEdit::Replace(
+                target.inner.clone(),
+                Box::new(resolved_block_paragraph(paragraph)?),
+            ),
+        })
+    }
+    #[staticmethod]
+    fn remove(target: PyRef<'_, PyParagraphAnchor>) -> Self {
+        Self {
+            inner: editor::BlockEdit::Remove(target.inner.clone()),
+        }
+    }
+    #[staticmethod]
+    fn replace_section(
+        target: PyRef<'_, PyParagraphAnchor>,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::BlockEdit::ReplaceSection(
+                target.inner.clone(),
+                blocks
+                    .iter()
+                    .map(|block| {
+                        if matches!(
+                            block
+                                .getattr("_native_kind")
+                                .and_then(|v| v.extract::<String>())
+                                .as_deref(),
+                            Ok("Table")
+                        ) {
+                            resolved_block_table(block).map(crate::ResolvedBlock::Table)
+                        } else {
+                            resolved_block_paragraph(block).map(crate::ResolvedBlock::Paragraph)
+                        }
+                    })
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn keep_with_next(target: PyRef<'_, PyParagraphAnchor>, value: bool) -> Self {
+        Self {
+            inner: editor::BlockEdit::KeepWithNext(target.inner.clone(), value),
+        }
     }
 }
 
@@ -652,28 +923,32 @@ impl PyTableInsertion {
         target: PyRef<'_, PyParagraphAnchor>,
         resolved_table: &Bound<'_, PyAny>,
     ) -> PyResult<Self> {
-        let node_type = resolved_table
-            .py()
-            .import("rocx.resolution.snapshot")?
-            .getattr("ResolvedNode")?;
-        if !resolved_table.is_instance(&node_type)?
-            || resolved_table
-                .getattr("_native_kind")?
-                .extract::<String>()?
-                != "Table"
-        {
-            return Err(PyTypeError::new_err("expected a resolved Table"));
-        }
-        let table = super::tables::table(resolved_table)?
-            .ok_or_else(|| PyValueError::new_err("table must not be empty"))?;
-        if table.rows().iter().all(|row| row.cells().is_empty()) {
-            return Err(PyValueError::new_err("table must not be empty"));
-        }
         Ok(Self {
             target: target.inner.clone(),
-            table,
+            table: resolved_block_table(resolved_table)?,
         })
     }
+}
+
+fn resolved_block_table(resolved_table: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedTable> {
+    let node_type = resolved_table
+        .py()
+        .import("rocx.resolution.snapshot")?
+        .getattr("ResolvedNode")?;
+    if !resolved_table.is_instance(&node_type)?
+        || resolved_table
+            .getattr("_native_kind")?
+            .extract::<String>()?
+            != "Table"
+    {
+        return Err(PyTypeError::new_err("expected a resolved Table"));
+    }
+    let table = super::tables::table(resolved_table)?
+        .ok_or_else(|| PyValueError::new_err("table must not be empty"))?;
+    if table.rows().iter().all(|row| row.cells().is_empty()) {
+        return Err(PyValueError::new_err("table must not be empty"));
+    }
+    Ok(table)
 }
 
 #[pyclass(name = "AlignmentChange", frozen, module = "rocx.editor")]
@@ -703,6 +978,24 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    #[getter]
+    fn inline_changes(&self) -> PyResult<Vec<(usize, usize)>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .inline_changes()
+            .to_vec())
+    }
+    #[getter]
+    fn block_changes(&self) -> PyResult<Vec<usize>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .block_changes()
+            .to_vec())
+    }
     #[getter]
     fn paragraph_insertions(&self) -> PyResult<Vec<usize>> {
         Ok(self
@@ -820,6 +1113,52 @@ struct PyImportedDocument {
     inner: Mutex<editor::ImportedDocument>,
 }
 
+#[pyclass(name = "StyleAnchor", frozen, module = "rocx.editor")]
+struct PyStyleAnchor {
+    inner: editor::StyleAnchor,
+}
+
+#[pyclass(name = "StyleEdit", frozen, module = "rocx.editor")]
+struct PyStyleEdit {
+    inner: editor::StyleEdit,
+}
+
+#[pymethods]
+impl PyStyleEdit {
+    #[staticmethod]
+    fn add(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Add(super::style_definition(definition)?),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target, *, bold=None, italic=None))]
+    fn patch(target: PyRef<'_, PyStyleAnchor>, bold: Option<bool>, italic: Option<bool>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Patch {
+                target: target.inner.clone(),
+                bold,
+                italic,
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace(target: PyRef<'_, PyStyleAnchor>, definition: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Replace {
+                target: target.inner.clone(),
+                definition: super::style_definition(definition)?,
+            },
+        })
+    }
+    #[staticmethod]
+    fn remove(target: PyRef<'_, PyStyleAnchor>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Remove(target.inner.clone()),
+        }
+    }
+}
+
 #[pyclass(name = "ImportedStyle", module = "rocx.editor", get_all)]
 struct PyImportedStyle {
     id: Option<String>,
@@ -835,8 +1174,118 @@ struct PyImportedStyles {
     styles: Vec<Py<PyImportedStyle>>,
 }
 
+#[pyclass(name = "AbstractStart", module = "rocx.editor", frozen, get_all)]
+struct PyAbstractStart {
+    abstract_id: u32,
+    level: u8,
+    start: Option<u32>,
+}
+
+#[pyclass(name = "ResourceEdit", module = "rocx.editor", frozen)]
+struct PyResourceEdit {
+    inner: editor::ResourceEdit,
+}
+
+#[pymethods]
+impl PyResourceEdit {
+    #[staticmethod]
+    #[pyo3(signature=(value))]
+    fn core_title(value: Option<String>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::CoreTitle(value),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(value))]
+    fn default_alignment(value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::DefaultAlignment(value.map(super::alignment).transpose()?),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(abstract_id, level, start))]
+    fn abstract_start(abstract_id: u32, level: u8, start: Option<u32>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::AbstractStart(editor::AbstractStart {
+                abstract_id,
+                level,
+                start,
+            }),
+        }
+    }
+}
+
 #[pymethods]
 impl PyImportedDocument {
+    fn style_anchor(&self, id: &str) -> PyResult<PyStyleAnchor> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyStyleAnchor {
+            inner: doc.style_anchor(id).map_err(rust_error)?,
+        })
+    }
+    #[getter]
+    fn core_title(&self) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .core_title()
+            .map_err(rust_error)
+    }
+    #[getter]
+    fn default_alignment(&self) -> PyResult<Option<&'static str>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .default_alignment()
+            .map_err(rust_error)?
+            .map(alignment_name))
+    }
+    #[getter]
+    fn abstract_starts(&self) -> PyResult<Vec<PyAbstractStart>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .abstract_starts()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|s| PyAbstractStart {
+                abstract_id: s.abstract_id,
+                level: s.level,
+                start: s.start,
+            })
+            .collect())
+    }
+    #[getter]
+    fn controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.controls()
+            .iter()
+            .map(|c| {
+                Ok(PyImportedControl {
+                    anchor: Py::new(
+                        py,
+                        PyControlAnchor {
+                            inner: c.anchor.clone(),
+                        },
+                    )?,
+                    context: c.context.as_str(),
+                    id: c.id.clone(),
+                    tag: c.tag.clone(),
+                    alias: c.alias.clone(),
+                    lock: c.lock.clone(),
+                    bound: c.bound,
+                })
+            })
+            .collect()
+    }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
         let doc = self
@@ -981,6 +1430,24 @@ impl PyImportedDocument {
             .collect()
     }
 
+    fn edit_story_text<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyRunTextEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_text(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
     fn preview_header_image(
         &self,
         edit: PyRef<'_, PyHeaderImageEdit>,
@@ -1055,9 +1522,86 @@ impl PyImportedDocument {
         inline_object(py, doc.inline_at(&target.inner).map_err(rust_error)?)
     }
 
+    /// Track insertion after, replacement of, or deletion of one body run.
+    #[pyo3(signature = (target, kind, author, *, text=None, date=None))]
+    fn preview_tracked_text(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        kind: &str,
+        author: &str,
+        text: Option<String>,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        use editor::TrackedText::*;
+        let edit = match (kind, text) {
+            ("insertAfter", Some(t)) => InsertAfter(t),
+            ("replace", Some(t)) => Replace(t),
+            ("delete", None) => Delete,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected insertAfter/replace with text or delete without text",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_text(&target.inner, edit, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    fn preview_tracked_move(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        after: PyRef<'_, PyInlineAnchor>,
+        name: &str,
+        author: &str,
+        date: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_move(&target.inner, &after.inner, name, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    #[pyo3(signature = (target, action, *, paired=None))]
+    fn preview_revision(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        action: &str,
+        paired: Option<PyRef<'_, PyInlineAnchor>>,
+    ) -> PyResult<PyEditPreview> {
+        let action = match action {
+            "accept" => crate::TextRevisionAction::Accept,
+            "reject" => crate::TextRevisionAction::Reject,
+            _ => return Err(PyValueError::new_err("expected accept or reject")),
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_revision(&target.inner, action, paired.as_ref().map(|a| &a.inner))
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1067,6 +1611,13 @@ impl PyImportedDocument {
         run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
+        text_ranges: Option<Vec<PyRef<'_, PyTextRangeEdit>>>,
+        block_edits: Option<Vec<PyRef<'_, PyBlockEdit>>>,
+        inline_edits: Option<Vec<PyRef<'_, PyInlineEdit>>>,
+        table_structure: Option<Vec<PyRef<'_, PyTableStructureEdit>>>,
+        style_edits: Option<Vec<PyRef<'_, PyStyleEdit>>>,
+        resources: Option<Vec<PyRef<'_, PyResourceEdit>>>,
+        controls: Option<Vec<PyRef<'_, PyControlEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1083,10 +1634,22 @@ impl PyImportedDocument {
                 table: insertion.table.clone(),
             })
             .collect();
-        let header_images: Vec<_> = header_images
+        macro_rules! inner_edits {
+            ($items:ident) => {
+                $items
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|e| e.inner.clone())
+                    .collect::<Vec<_>>()
+            };
+        }
+        let paragraphs: Vec<_> = paragraph_insertions
             .unwrap_or_default()
             .iter()
-            .map(|edit| edit.inner.clone())
+            .map(|e| editor::ParagraphInsertion {
+                target: e.target.clone(),
+                paragraph: e.paragraph.clone(),
+            })
             .collect();
         let doc = self
             .inner
@@ -1094,34 +1657,22 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_mixed(
-                    &edits,
-                    &insertions,
-                    &header_images,
-                    &run_text
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|e| e.inner.clone())
-                        .collect::<Vec<_>>(),
-                    &paragraph_insertions
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|e| editor::ParagraphInsertion {
-                            target: e.target.clone(),
-                            paragraph: e.paragraph.clone(),
-                        })
-                        .collect::<Vec<_>>(),
-                    &cell_alignments
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|e| e.inner.clone())
-                        .collect::<Vec<_>>(),
-                    &run_removals
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|anchor| anchor.inner.clone())
-                        .collect::<Vec<_>>(),
-                )
+                doc.preview_edits(editor::EditBatch {
+                    alignments: &edits,
+                    tables: &insertions,
+                    header_images: &inner_edits!(header_images),
+                    run_text: &inner_edits!(run_text),
+                    paragraphs: &paragraphs,
+                    cells: &inner_edits!(cell_alignments),
+                    run_removals: &inner_edits!(run_removals),
+                    ranges: &inner_edits!(text_ranges),
+                    blocks: &inner_edits!(block_edits),
+                    inline_edits: &inner_edits!(inline_edits),
+                    structural: &inner_edits!(table_structure),
+                    styles: &inner_edits!(style_edits),
+                    resources: &inner_edits!(resources),
+                    controls: &inner_edits!(controls),
+                })
                 .map_err(rust_error)?,
             ),
         })
@@ -1129,6 +1680,14 @@ impl PyImportedDocument {
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyAbstractStart>()?;
+    module.add_class::<PyResourceEdit>()?;
+    module.add_class::<PyStyleAnchor>()?;
+    module.add_class::<PyStyleEdit>()?;
+    module.add_class::<PyControlAnchor>()?;
+    module.add_class::<PyControlEdit>()?;
+    module.add_class::<PyImportedControl>()?;
+    module.add_class::<PyBlockEdit>()?;
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;
@@ -1136,6 +1695,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedEntry>()?;
     module.add_class::<PyImportedStyle>()?;
     module.add_class::<PyImportedStyles>()?;
+    module.add_class::<PyTextRangeEdit>()?;
     module.add_class::<PyRunTextEdit>()?;
     module.add_class::<PyRunTextChange>()?;
     module.add_class::<PyRunRemovalChange>()?;
@@ -1152,6 +1712,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
+    module.add_class::<PyTableStructureEdit>()?;
     module.add_class::<PyCellAlignmentEdit>()?;
     module.add_class::<PyCellAlignmentChange>()?;
     module.add_class::<PyImportedTableRow>()?;
@@ -1162,6 +1723,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyParagraphAlignmentEdit>()?;
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyParagraphInsertion>()?;
+    module.add_class::<PyInlineEdit>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;
