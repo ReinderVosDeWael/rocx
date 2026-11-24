@@ -1,12 +1,7 @@
 //! Bind a named style to an existing concrete instance; create no lists or levels.
 use super::{ImportedDocument, Node, Package, Result, WordParts, unique_child, unsupported};
+use crate::editor::resource_fields::{Part, id as numeric};
 use crate::{NumberingStyleDefinition, editor::ALTERNATE, xml::val};
-
-fn numeric(n: &Node, key: &str) -> Result<u32> {
-    n.get(key)
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| unsupported("invalid numbering identity"))
-}
 
 pub(super) fn add(
     doc: &ImportedDocument,
@@ -15,21 +10,15 @@ pub(super) fn add(
     id: &str,
     s: &NumberingStyleDefinition,
 ) -> Result<()> {
-    if s.numbering_id == 0 || package.relationships(&doc.main, "numbering")?.len() != 1 {
+    if s.numbering_id == 0 {
         return Err(unsupported(
             "numbering style requires an existing numbering instance",
         ));
     }
-    let (_, path) = package
-        .related(&doc.main, "numbering")?
+    let (path, mut nums) = Part::Numbers
+        .load(package, &doc.main)?
         .ok_or_else(|| unsupported("missing numbering part"))?;
-    if package.content_type_for(&path)?.as_deref()
-        != Some("application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml")
-    {
-        return Err(unsupported("invalid numbering content type"));
-    }
-    let mut nums = package.word(&path)?;
-    if nums.name != "w:numbering" || nums.child(ALTERNATE).is_some() {
+    if nums.child(ALTERNATE).is_some() {
         return Err(unsupported("invalid or ambiguous numbering part"));
     }
     let mut concrete = std::collections::BTreeMap::new();

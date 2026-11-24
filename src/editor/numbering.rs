@@ -1,7 +1,7 @@
 //! Physical numbering identities in the relationship-selected part.
 use super::{
     ImportedDocument, ParagraphAnchor, ResourceEdit,
-    resource_fields::{Part, id, scalar, unique},
+    resource_fields::{Part, id, scalar, unique, unsigned_decimal},
     style_edits::{check_other_parts, opaque_reference_context},
     unsupported,
 };
@@ -55,9 +55,7 @@ pub struct ImportedNumberingInstance {
 }
 
 fn value(node: &Node) -> Result<u32> {
-    scalar(node, true)?
-        .parse()
-        .map_err(|_| unsupported("invalid numbering value"))
+    unsigned_decimal(&scalar(node, true)?).ok_or_else(|| unsupported("invalid numbering value"))
 }
 
 fn leaf(name: &str, val: impl ToString) -> Node {

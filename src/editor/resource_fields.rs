@@ -186,7 +186,7 @@ fn patch(root: &mut Node, path: &[&str], attr: bool, value: Option<String>) -> R
 fn parse_start(s: &str) -> Result<u32> {
     unsigned_decimal(s).ok_or_else(|| unsupported("invalid numbering start"))
 }
-fn unsigned_decimal(s: &str) -> Option<u32> {
+pub(super) fn unsigned_decimal(s: &str) -> Option<u32> {
     crate::ooxml::decimal_id(s)?.parse().ok()
 }
 fn parse_alignment(s: &str) -> Result<Alignment> {

@@ -81,9 +81,11 @@ pub(super) fn style_part(
     let (_, path) = package
         .related(main, "styles")?
         .ok_or_else(|| unsupported("missing styles part"))?;
-    if package.content_type_for(&path)?.as_deref()
-        != Some("application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml")
-    {
+    if !package.content_type_for(&path)?.is_some_and(|ty| {
+        ty.eq_ignore_ascii_case(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+        )
+    }) {
         return Err(unsupported("invalid styles content type"));
     }
     let root = package.word(&path)?;

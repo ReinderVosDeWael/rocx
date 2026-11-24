@@ -224,11 +224,11 @@ async function importedBodySectionsAndPhysicalCells() {
   const [tailRun] = tail.blocks[0].inlineStructure;
   const run = (node, value) => ({ kind: "run", format: {}, hasOpaqueFormatting: false, anchor: node.anchor, items: [text(value)] });
   assert.deepEqual(table, {
-    kind: "table", anchor: table.anchor,
+    kind: "table", anchor: table.anchor, gridWidths: [2880, 2880, 2880],
     children: [
       opaque("w:sdt"),
       { kind: "row", children: [
-        { kind: "cell", blocks: [
+        { kind: "cell", gridSpan: 2, blocks: [
           {
             kind: "paragraph",
             inlineItems: [text("Span"), opaque("w:fldSimple"), text("Cell"), text("Link")],

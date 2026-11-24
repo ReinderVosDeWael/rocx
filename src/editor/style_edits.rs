@@ -198,7 +198,10 @@ pub(super) fn check_other_parts(
         if part == "[Content_Types].xml" {
             continue;
         }
-        let typ = package.content_type_for(part)?.unwrap_or_default();
+        let typ = package
+            .content_type_for(part)?
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         if matches!(
             typ.as_str(),
             "image/png"
@@ -211,14 +214,14 @@ pub(super) fn check_other_parts(
                 | "application/vnd.openxmlformats-officedocument.extended-properties+xml"
                 | "application/vnd.openxmlformats-officedocument.custom-properties+xml"
                 | "application/vnd.openxmlformats-officedocument.theme+xml"
-                | "application/vnd.openxmlformats-officedocument.customXmlProperties+xml"
+                | "application/vnd.openxmlformats-officedocument.customxmlproperties+xml"
         ) {
             continue;
         }
         let word = typ
             .starts_with("application/vnd.openxmlformats-officedocument.wordprocessingml.")
             && typ.ends_with("+xml")
-            || typ == "application/vnd.ms-word.stylesWithEffects+xml";
+            || typ == "application/vnd.ms-word.styleswitheffects+xml";
         // The stock Word template ships an empty bibliography data store.
         if typ == "application/xml" {
             let n = package.xml(part)?;
