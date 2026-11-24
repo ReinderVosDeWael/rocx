@@ -36,6 +36,7 @@ export interface ImportedOpaque {
 
 export type ImportedInline =
   | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "footnoteReference" | "endnoteReference"; readonly id: string }
   | { readonly kind: "tab" }
   | { readonly kind: "break"; readonly breakType: ImportedBreakType }
   | ImportedOpaque;

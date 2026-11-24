@@ -21,6 +21,11 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
         ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
+        (
+            "importedEditNoteReference",
+            (note_reference, Paths::Package),
+        ),
+        ("importedEditEntry", (entry_edit, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
@@ -311,6 +316,90 @@ fn run_text_edit(input: &Wire, path: &str) -> Result<rocx::editor::RunTextEdit> 
         target: crate::inspection::inline_anchor(&edit.get("target")?, &edit.path("target"))?,
         text: b::string(&edit.get("text")?, &edit.path("text"))?,
     })
+}
+
+fn note_reference(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::NoteReferenceEdit::*;
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let w = argument(&call, "edit")?;
+    let kind = b::string(&b::member(&w.js(), "kind", "edit")?, "edit.kind")?;
+    let fields: &[&str] = match kind.as_str() {
+        "create" => &["ownerPart", "target", "kind", "id", "text"],
+        "delete" | "detach" => &["ownerPart", "target", "kind"],
+        "attach" | "retarget" | "renumber" => &["ownerPart", "target", "kind", "id"],
+        _ => return Err(Failure::invalid("edit.kind", "unknown note reference edit")),
+    };
+    let r = Record::new(&w, "edit", fields)?;
+    let owner = b::string(&r.get("ownerPart")?, "edit.ownerPart")?;
+    let target = crate::inspection::inline_anchor(&r.get("target")?, "edit.target")?;
+    let id = || -> Result<u32> {
+        u32::try_from(b::u64_number(&r.get("id")?, "edit.id")?)
+            .map_err(|_| Failure::invalid("edit.id", "expected an unsigned 32-bit ID"))
+    };
+    let edit = match kind.as_str() {
+        "create" => Create {
+            id: id()?,
+            text: b::string(&r.get("text")?, "edit.text")?,
+        },
+        "retarget" => Retarget(id()?),
+        "attach" => Attach(id()?),
+        "detach" => Detach,
+        "renumber" => Renumber(id()?),
+        _ => Delete,
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_note_reference(&owner, &target, edit)?
+            .as_slice(),
+    )
+    .into())
+}
+
+fn entry_edit(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::EntryEdit::*;
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let w = argument(&call, "edit")?;
+    let kind = b::string(&b::member(&w.js(), "kind", "edit")?, "edit.kind")?;
+    let fields: &[&str] = match kind.as_str() {
+        "insertParagraph" | "replaceParagraph" => &["ownerPart", "id", "kind", "index", "value"],
+        "removeParagraph" => &["ownerPart", "id", "kind", "index"],
+        "author" | "initials" | "date" => &["ownerPart", "id", "kind", "value"],
+        "clearDate" | "clearInitials" | "deleteUnusedNote" => &["ownerPart", "id", "kind"],
+        _ => return Err(Failure::invalid("edit.kind", "unknown entry edit")),
+    };
+    let r = Record::new(&w, "edit", fields)?;
+    let string = |name: &str| b::string(&r.get(name)?, &r.path(name));
+    let index = || -> Result<usize> {
+        usize::try_from(b::u64_number(&r.get("index")?, "edit.index")?)
+            .map_err(|_| Failure::invalid("edit.index", "index too large"))
+    };
+    let edit = match kind.as_str() {
+        "insertParagraph" => InsertParagraph {
+            index: index()?,
+            text: string("value")?,
+        },
+        "replaceParagraph" => ReplaceParagraph {
+            index: index()?,
+            text: string("value")?,
+        },
+        "removeParagraph" => RemoveParagraph(index()?),
+        "author" => CommentAuthor(string("value")?),
+        "initials" => CommentInitials(Some(string("value")?)),
+        "date" => CommentDate(Some(string("value")?)),
+        "clearDate" => CommentDate(None),
+        "deleteUnusedNote" => DeleteUnusedNote,
+        _ => CommentInitials(None),
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_entry(&string("ownerPart")?, &string("id")?, edit)?
+            .as_slice(),
+    )
+    .into())
 }
 
 fn entry_inlines(input: &Wire) -> Result<JsValue> {

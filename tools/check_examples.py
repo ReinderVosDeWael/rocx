@@ -40,7 +40,7 @@ HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
                     ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
-                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx")
+                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx", ".entry-edits.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -889,6 +889,19 @@ def verify_catalog_readback(files: dict[str, bytes]) -> None:
     """Inspect source/result payloads within a single binding's catalog."""
     final, source = files[".docx"], files[".header-source.docx"]
     verify_entry_text(final, files[".entry-text.docx"])
+    changed = files[".entry-edits.docx"]
+    comment, = [c for c in docx.Document(io.BytesIO(changed)).comments if c.author == "Structured reviewer"]
+    assert comment.initials == "ED"
+    with zipfile.ZipFile(io.BytesIO(final)) as before, zipfile.ZipFile(io.BytesIO(changed)) as after:
+        assert set(before.namelist()) == set(after.namelist())
+        assert {p for p in before.namelist() if before.read(p) != after.read(p)} == {"word/footnotes.xml", "word/comments.xml", "word/document.xml"}
+        notes = etree.fromstring(after.read("word/footnotes.xml"))
+        note, = notes.xpath("./w:footnote[@w:id='47']", namespaces=NS)
+        assert note.xpath("./w:p/w:r/w:t/text()", namespaces=NS) == ["Lifecycle note", "Second note paragraph"]
+        assert note.xpath("./w:p[1]/w:r[1]/w:footnoteRef", namespaces=NS)
+        main = etree.fromstring(after.read("word/document.xml"))
+        ref, = main.xpath(".//w:footnoteReference[@w:id='47']", namespaces=NS)
+        assert ref.getparent().getprevious().xpath("w:t/text()", namespaces=NS) == ["Footnote reference"]
     verify_even_footer(files[".footer-even.docx"])
     verify_content(final, files[".template.docx"])
     verify_run_text(final, files[".run-text.docx"])

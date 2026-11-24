@@ -10,6 +10,7 @@ import type {
 function inline(item: ImportedInline): string {
   switch (item.kind) {
     case "text": return item.text;
+    case "footnoteReference": case "endnoteReference": return `${item.kind}:${item.id}`;
     case "tab": return "\t";
     case "break": return item.breakType;
     case "opaque": return item.name;

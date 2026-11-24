@@ -93,6 +93,8 @@ const bytes = report.toDocx(); // synchronous; snapshot can be rendered again
 | Edit a copy | Combine ordinary edits and images in effective default/first/even header or footer slots in `preview(batch)`. Inspect the reports before calling `toDocx()`. |
 | Edit text in a story | `editStoryText({ownerPart, runText})` returns DOCX bytes for a separate batch of simple run edits in one physical header, footer, footnote, endnote or comment part. |
 | Edit ordinary note/comment inlines | `editEntryInlines({ownerPart, inlineEdits})` inserts or replaces supported direct inlines or patches run bold in one entry part. Use anchors from `entryStories()`; reference marks are protected. |
+| Edit a note definition and reference | `editNoteReference({ownerPart, target, kind, ...fields})` creates, attaches, detaches, retargets, renumbers or deletes a direct-body reference. |
+| Edit an existing entry | `editEntry({ownerPart, id, kind, ...fields})` updates simple paragraphs, sets base comment metadata, or deletes an unused simple note. |
 | Read/write in Node | `templateFile` reads on each render; `imageFile` captures bytes and basename at resolution. `saveDocx` encodes before replacing the destination. |
 
 Use anchors from the same snapshot. Untouched parts retain their payload bytes; edited XML and ZIP bytes may change. See [preview examples and shared-header modes](https://reindervosdewael.github.io/rocx/api/javascript/#preview-anchored-edits).

@@ -59,6 +59,7 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
     std::fs::remove_file(path.with_extension("edited.docx")).unwrap();
     for suffix in [
         "entry-text.docx",
+        "entry-edits.docx",
         "footer-even.docx",
         "run-text.docx",
         "header-source.docx",

@@ -21,6 +21,8 @@ mod blocks;
 pub use blocks::BlockEdit;
 mod controls;
 mod entries;
+mod entry_edits;
+pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
 pub(crate) use insertion::BoundaryState;
@@ -233,6 +235,11 @@ pub struct ImportedParagraph {
 #[non_exhaustive]
 pub enum ImportedInline {
     Text(String),
+    /// A simple source note reference; preserve lexical ID spelling.
+    NoteReference {
+        kind: crate::NoteKind,
+        id: String,
+    },
     Tab,
     /// `Line` denotes the `w:cr` form; an untyped `w:br` is `TextWrapping`.
     Break(BreakType),
@@ -1106,6 +1113,22 @@ fn read_inline_nodes<'a>(
 
 fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
     for item in node.elements() {
+        if let Some(kind) = match item.name.as_str() {
+            "w:footnoteReference" => Some(crate::NoteKind::Footnote),
+            "w:endnoteReference" => Some(crate::NoteKind::Endnote),
+            _ => None,
+        } && item.children.is_empty()
+            && !text::has_other_attrs(item, &["w:id"])
+            && let Some(id) = item
+                .get("w:id")
+                .filter(|id| crate::ooxml::decimal_id(id).is_some())
+        {
+            items.push(ImportedInline::NoteReference {
+                kind,
+                id: id.to_owned(),
+            });
+            continue;
+        }
         if deletion && item.name == "w:delText" {
             let text = item
                 .children

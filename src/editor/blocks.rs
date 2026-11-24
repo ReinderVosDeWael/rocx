@@ -18,7 +18,7 @@ pub enum BlockEdit {
 /// Allow-list *discardable* markup, including attributes and non-element
 /// children. In particular paragraph IDs, fields, ranges and relationship
 /// references cannot be silently dropped.
-fn local(node: &Node, parent: &str) -> bool {
+pub(super) fn local(node: &Node, parent: &str) -> bool {
     let name = node.name.as_str();
     let attrs: &[&str] = match (parent, name) {
         ("body", "w:p") | ("w:p", "w:r" | "w:pPr") | ("w:r", "w:rPr") => &[],
