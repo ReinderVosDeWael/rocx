@@ -586,6 +586,11 @@ async def generate(output: pathlib.Path) -> bytes:
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
     target = header_doc.body[2].anchor
+    addition = header_doc.preview_tracked_paragraph(target, "insertBefore", "Reviewer", text="Review this paragraph.", date=STAMP)
+    pending = ImportedDocument.open(addition.to_docx())
+    assert pending.body[2].mark_revision.kind == "insertion"
+    reviewed = pending.preview_paragraph_revision(pending.body[2].anchor, "reject")
+    assert len(ImportedDocument.open(reviewed.to_docx()).body) == len(header_doc.body)
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
                  BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True)):

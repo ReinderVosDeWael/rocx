@@ -265,6 +265,11 @@ export async function generateCatalog(fixtures, options) {
     paired: pair.body()[2].inlineStructure[2].anchor, action: "reject"});
   assert((await openDocx(restored.toDocx())).body()[0].text === HEADER_BATCH_LABEL, "rejected move");
   const blockTarget = headers.body()[2].anchor;
+  const addition = headers.previewTrackedParagraph({target:blockTarget,kind:"insertBefore",text:"Review this paragraph.",...metadata});
+  const pending = await openDocx(addition.toDocx());
+  assert(pending.body()[2].markRevision.kind === "insertion", "tracked paragraph mark");
+  const reviewed = pending.previewParagraphRevision({target:pending.body()[2].anchor,action:"reject"});
+  assert((await openDocx(reviewed.toDocx())).body().length === headers.body().length, "rejected paragraph");
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},

@@ -1030,6 +1030,24 @@ pub async fn generate(output: &Path) -> Result<()> {
         unreachable!()
     };
     let target = &last.anchor;
+    let addition = imported.preview_tracked_paragraph(
+        target,
+        editor::TrackedParagraph::InsertBefore("Review this paragraph.".into()),
+        "Reviewer",
+        Some(STAMP),
+    )?;
+    let pending = editor::ImportedDocument::open(&addition.to_docx()?)?;
+    let editor::BodyBlock::Paragraph(p) = &pending.body()[2] else {
+        unreachable!()
+    };
+    assert_eq!(p.mark_revision.as_ref().unwrap().kind, "insertion");
+    let reviewed = pending.preview_paragraph_revision(&p.anchor, TextRevisionAction::Reject)?;
+    assert_eq!(
+        editor::ImportedDocument::open(&reviewed.to_docx()?)?
+            .body()
+            .len(),
+        imported.body().len()
+    );
     let payload = Component::resolve(Paragraph::new("Block editor: replacement paragraph."))
         .await?
         .unwrap();

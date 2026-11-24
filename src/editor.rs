@@ -29,7 +29,7 @@ pub use ranges::TextRangeEdit;
 mod resource_fields;
 mod resources;
 mod revisions;
-pub use revisions::TrackedText;
+pub use revisions::{TrackedParagraph, TrackedText};
 mod style_edits;
 mod tables;
 mod text;
@@ -212,6 +212,8 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedParagraph {
+    /// First direct insertion/deletion of the paragraph terminator.
+    pub mark_revision: Option<ImportedPropertyRevision>,
     pub anchor: ParagraphAnchor,
     /// Text from ordinary runs and hyperlinks; not a rendered-text view.
     pub text: String,
@@ -320,9 +322,21 @@ pub struct ImportedRun {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ImportedPropertyRevision {
+    pub kind: &'static str,
     pub id: Option<String>,
     pub author: Option<String>,
     pub date: Option<String>,
+}
+
+impl ImportedPropertyRevision {
+    fn read(change: &Node, kind: &'static str) -> Self {
+        Self {
+            kind,
+            id: change.get("w:id").map(str::to_owned),
+            author: change.get("w:author").map(str::to_owned),
+            date: change.get("w:date").map(str::to_owned),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -502,6 +516,15 @@ impl ImportedDocument {
                         .and_then(|props| props.child("w:jc"))
                         .and_then(|jc| jc.get("w:val"));
                     BodyBlock::Paragraph(ImportedParagraph {
+                        mark_revision: node.child("w:pPr").and_then(|p| p.child("w:rPr")).and_then(
+                            |p| {
+                                p.elements().find_map(|c| match c.name.as_str() {
+                                    "w:ins" => Some(ImportedPropertyRevision::read(c, "insertion")),
+                                    "w:del" => Some(ImportedPropertyRevision::read(c, "deletion")),
+                                    _ => None,
+                                })
+                            },
+                        ),
                         anchor,
                         text,
                         alignment: alignment_xml.and_then(read_alignment),
@@ -1071,11 +1094,7 @@ fn read_inline_nodes<'a>(
                         property_revision: node
                             .child("w:rPr")
                             .and_then(|p| p.child("w:rPrChange"))
-                            .map(|change| ImportedPropertyRevision {
-                                id: change.get("w:id").map(str::to_owned),
-                                author: change.get("w:author").map(str::to_owned),
-                                date: change.get("w:date").map(str::to_owned),
-                            }),
+                            .map(|change| ImportedPropertyRevision::read(change, "runProperties")),
                         items,
                     })
                 }

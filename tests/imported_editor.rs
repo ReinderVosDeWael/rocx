@@ -460,6 +460,69 @@ fn block_edit_guards_validate_discarded_markup_and_section_ownership() {
 }
 
 #[test]
+fn paragraph_revisions_require_complete_matching_marks_and_a_safe_neighbor() {
+    use rocx::{TextRevisionAction::Reject, editor::TrackedParagraph};
+    let open = |xml: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}"><w:body>{xml}<w:sectPr/></w:body></w:document>"#
+        )))
+        .unwrap()
+    };
+    let marked = r#"<w:p><w:pPr><w:rPr><w:ins w:id="41" w:author="Ann"/></w:rPr></w:pPr><w:ins w:id="42" w:author="Ann"><w:r><w:t>pending</w:t></w:r></w:ins></w:p>"#;
+    for xml in [
+        marked.replace("42", "41"),
+        marked.replacen("Ann", "Other", 1),
+        marked.replace("Ann", " "),
+        marked.replace(r#"w:author="Ann""#, r#"w:author="Ann" w:date="not a date""#),
+        marked.replace("</w:pPr>", "<w:sectPr/></w:pPr>"),
+        marked.replace("</w:p>", "<!--keep--></w:p>"),
+        marked.replace("</w:p>", "<w:r><w:t>ordinary</w:t></w:r></w:p>"),
+    ] {
+        let doc = open(&format!("{xml}<w:p/>"));
+        assert!(
+            doc.preview_paragraph_revision(&paragraph(&doc, 0).anchor, Reject)
+                .is_err()
+        );
+    }
+    let plain = "<w:p><w:r><w:t>old</w:t></w:r></w:p>";
+    for following in [
+        "",
+        "<w:tbl/>",
+        "<w:p><w:pPr><w:sectPr/></w:pPr></w:p>",
+        "<!--keep--><w:p/>",
+    ] {
+        let doc = open(&format!("{plain}{following}"));
+        assert!(
+            doc.preview_tracked_paragraph(
+                &paragraph(&doc, 0).anchor,
+                TrackedParagraph::Delete,
+                "Reviewer",
+                None
+            )
+            .is_err()
+        );
+        let pending = open(&format!("{marked}{following}"));
+        assert!(
+            pending
+                .preview_paragraph_revision(&paragraph(&pending, 0).anchor, Reject)
+                .is_err()
+        );
+    }
+    let doc = open(&format!(
+        r#"<w:p><w:bookmarkStart w:id="10" w:name="guard"/></w:p>{plain}<w:p/><w:p><w:bookmarkEnd w:id="10"/></w:p>"#
+    ));
+    assert!(
+        doc.preview_tracked_paragraph(
+            &paragraph(&doc, 1).anchor,
+            TrackedParagraph::Delete,
+            "Ann",
+            None
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn tracked_bold_refuses_opaque_or_ambiguous_property_history() {
     use rocx::{TextRevisionAction, editor::ImportedInlineNode::Run};
     for history in [

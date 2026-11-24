@@ -163,6 +163,11 @@ declare module "./inspection.js" {
   interface ImportedDocument {
     styleAnchor(id: string): StyleAnchor;
     previewTrackedBold(edit: { readonly target: InlineAnchor; readonly bold: boolean; readonly author: string; readonly date?: string }): EditPreview;
+    previewTrackedParagraph(edit: { readonly target: ParagraphAnchor; readonly author: string; readonly date?: string } & (
+      | { readonly kind: "insertBefore"; readonly text: string }
+      | { readonly kind: "delete"; readonly text?: never }
+    )): EditPreview;
+    previewParagraphRevision(edit: { readonly target: ParagraphAnchor; readonly action: "accept" | "reject" }): EditPreview;
     /** Explicitly track a single-text direct body run edit. */
     previewTrackedText(edit: {
       readonly target: InlineAnchor; readonly author: string; readonly date?: string;

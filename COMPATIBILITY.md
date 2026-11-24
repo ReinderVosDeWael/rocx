@@ -55,6 +55,7 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
 | Track a direct body text edit / paired move | `preview_tracked_text` / `preview_tracked_move` | `preview_tracked_text` / `preview_tracked_move` | `previewTrackedText` / `previewTrackedMove` |
 | Track direct bold / inspect the pending property change on a run | `preview_tracked_bold` / `property_revision` | `preview_tracked_bold` / `property_revision` | `previewTrackedBold` / `propertyRevision` |
+| Track / review a whole direct body paragraph | `preview_tracked_paragraph` / `preview_paragraph_revision` | `preview_tracked_paragraph` / `preview_paragraph_revision` | `previewTrackedParagraph` / `previewParagraphRevision` |
 | Accept/reject supported anchored revision(s) | `preview_revision` | `preview_revision` | `previewRevision` |
 | Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
 | Replace/remove a paragraph, replace section content or patch keep-with-next | `BlockEdit` / `preview_blocks` | `preview([], block_edits=[edit])` | `preview({blockEdits: [edit]})` |

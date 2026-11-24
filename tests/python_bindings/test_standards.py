@@ -97,6 +97,46 @@ def test_direct_body_revision_previews_are_schema_valid(validator):
             original.preview_tracked_text(first.anchor, "delete", author, date=bad_date)
 
 
+def test_imported_paragraph_deletion_reviews_the_mark_and_run_together(validator):
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import ImportedDocument
+
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run("removed")
+    run.bold = True
+    run._r.find(qn("w:t")).tag = qn("w:delText")
+    props = OxmlElement("w:rPr")
+    paragraph._p.get_or_add_pPr().append(props)
+    mark, wrapper = [OxmlElement("w:del") for _ in range(2)]
+    for change, ident in [(mark, "12"), (wrapper, "13")]:
+        change.set(qn("w:id"), ident)
+        change.set(qn("w:author"), "External reviewer")
+    props.append(mark)
+    paragraph._p.append(wrapper)
+    wrapper.append(run._r)
+    doc.add_paragraph("following")
+    data = io.BytesIO()
+    doc.save(data)
+    original = ImportedDocument.open(data.getvalue())
+    p = original.body[0]
+    assert (p.mark_revision.kind, p.mark_revision.id, p.mark_revision.date) == ("deletion", "12", None)
+    with pytest.raises(ValueError):
+        ImportedDocument.open(data.getvalue()).preview_paragraph_revision(p.anchor, "reject")
+    with pytest.raises(ValueError):
+        original.preview_tracked_paragraph(p.anchor, "delete", "Reviewer")
+    for action, expected in [("accept", ["following"]), ("reject", ["removed", "following"])]:
+        result = original.preview_paragraph_revision(p.anchor, action).to_docx()
+        assert "word/document.xml" in validator.validate(result)
+        paragraphs = Document(io.BytesIO(result)).paragraphs
+        assert [p.text for p in paragraphs] == expected
+        if action == "reject":
+            assert paragraphs[0].runs[0].bold is True
+
+
 @pytest.fixture
 def chart_package():
     """Hand-authored workbook-free chart, independent of the native codec."""

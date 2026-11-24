@@ -36,6 +36,10 @@ JavaScript `previewTrackedText`, `previewTrackedMove`, `previewRevision`.
 The same sample independently proposes bold on a plain body run with
 Rust/Python `preview_tracked_bold` or JavaScript `previewTrackedBold` and
 inspects the reviewer's name on the reopened run.
+Each catalog also proposes a plain paragraph before a labeled paragraph,
+reads the mark and rejects the whole insertion using the paragraph anchor
+(`preview_tracked_paragraph` / `preview_paragraph_revision`, JavaScript
+`previewTrackedParagraph` / `previewParagraphRevision`).
 
 ## Generate and verify
 

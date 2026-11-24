@@ -82,3 +82,34 @@ bold-only run properties. Repeating its explicit value is a no-op; setting
 already-revised properties are not writable. Review requires a unique change
 ID, supported old and current properties, and valid author/date metadata.
 Paragraph-mark, paragraph-property and table-row revisions are not run changes.
+
+### Propose or review a whole paragraph
+
+| | Rust | Python | JavaScript |
+| --- | --- | --- | --- |
+| Insert before `p` | `doc.preview_tracked_paragraph(&p, TrackedParagraph::InsertBefore(text), "Ada", date)?` | `doc.preview_tracked_paragraph(p, "insertBefore", "Ada", text=text, date=date)` | `doc.previewTrackedParagraph({target: p, kind: "insertBefore", text, author: "Ada", date})` |
+| Delete `p` | `doc.preview_tracked_paragraph(&p, TrackedParagraph::Delete, "Ada", date)?` | `doc.preview_tracked_paragraph(p, "delete", "Ada", date=date)` | `doc.previewTrackedParagraph({target: p, kind: "delete", author: "Ada", date})` |
+| Inspect mark | `paragraph.mark_revision` | `paragraph.mark_revision` | `paragraph.markRevision` |
+| Review both mark and text | `doc.preview_paragraph_revision(&p, TextRevisionAction::Accept)?` | `doc.preview_paragraph_revision(p, "accept")` | `doc.previewParagraphRevision({target: p, action: "accept"})` |
+
+Insertion creates a plain paragraph from nonempty single-line text. Deletion
+requires a direct body paragraph containing only one supported text run and no
+paragraph properties. Both operations track the paragraph terminator **and**
+the run: the `w:pPr/w:rPr` mark and inline wrapper have distinct IDs and the
+same author/date. The ordinary text projection omits the pending run.
+
+Reopen the output and select the **paragraph anchor** to review the complete
+change. Accept insertion or reject deletion to keep a normal paragraph and
+its run formatting; reject insertion or accept deletion to remove the entire
+paragraph. The following block must be an ordinary paragraph without section
+properties, complex markup or a protected boundary. An insertion may precede
+the final paragraph, but the final paragraph cannot itself be marked for deletion.
+Table boundaries, opaque blocks and changes crossing sections are excluded.
+Inspection reads mark metadata even in shapes that cannot be reviewed.
+The paired review rejects mismatches, missing/ambiguous IDs, extra content,
+and unsupported formatting. If a caller reviews the inline wrapper separately,
+the remaining paragraph mark no longer qualifies for whole-paragraph review.
+
+Properties other than the supported run bold profile, block moves, tracked
+tables, partial paragraph-mark merges, rich/nested review and multi-operation
+revision batches are outside this profile.

@@ -22,6 +22,14 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedEditStoryText", (story_text, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedBold", (tracked_bold, Paths::Package)),
+        (
+            "importedPreviewTrackedParagraph",
+            (tracked_paragraph, Paths::Package),
+        ),
+        (
+            "importedPreviewParagraphRevision",
+            (paragraph_revision, Paths::Package),
+        ),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
@@ -476,17 +484,63 @@ fn tracked_move(input: &Wire) -> Result<JsValue> {
     )?)
 }
 
+fn tracked_paragraph(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "kind", "text", "author", "date"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let date = (!edit.get("date")?.js().is_undefined())
+        .then(|| string("date"))
+        .transpose()?;
+    let target = borrow_target::<ParagraphAnchor>(&edit, "edit.target")?;
+    let change = match string("kind")?.as_str() {
+        "insertBefore" => rocx::editor::TrackedParagraph::InsertBefore(string("text")?),
+        "delete" if edit.get("text")?.js().is_undefined() => rocx::editor::TrackedParagraph::Delete,
+        _ => {
+            return Err(Failure::invalid(
+                "edit.kind",
+                "expected insertBefore with text or delete without text",
+            ));
+        }
+    };
+    preview_handle(doc.document().preview_tracked_paragraph(
+        &target,
+        change,
+        &string("author")?,
+        date.as_deref(),
+    )?)
+}
+
+fn paragraph_revision(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "action"])?;
+    let target = borrow_target::<ParagraphAnchor>(&edit, "edit.target")?;
+    preview_handle(
+        doc.document()
+            .preview_paragraph_revision(&target, review_action(&edit)?)?,
+    )
+}
+
+fn review_action(edit: &Record) -> Result<rocx::TextRevisionAction> {
+    Ok(
+        match b::string(&edit.get("action")?, "edit.action")?.as_str() {
+            "accept" => rocx::TextRevisionAction::Accept,
+            "reject" => rocx::TextRevisionAction::Reject,
+            _ => return Err(Failure::invalid("edit.action", "expected accept or reject")),
+        },
+    )
+}
+
 fn revision(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
     let arg = argument(&call, "edit")?;
     let edit = Record::new(&arg, "edit", &["target", "action", "paired"])?;
     let anchor = |k: &str| crate::inspection::inline_anchor(&edit.get(k)?, &edit.path(k));
-    let action = match b::string(&edit.get("action")?, "edit.action")?.as_str() {
-        "accept" => rocx::TextRevisionAction::Accept,
-        "reject" => rocx::TextRevisionAction::Reject,
-        _ => return Err(Failure::invalid("edit.action", "expected accept or reject")),
-    };
+    let action = review_action(&edit)?;
     let paired = if edit.get("paired")?.js().is_undefined() {
         None
     } else {

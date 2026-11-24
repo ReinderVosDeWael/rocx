@@ -3,6 +3,8 @@ use super::{insertion::BoundaryState, *};
 use crate::ooxml::revisions::RevisionIds;
 use crate::{BookmarkName, RevisionKind, TextRevision, TextRevisionAction};
 use std::ops::Range;
+mod paragraphs;
+pub use paragraphs::TrackedParagraph;
 
 /// Explicit revision-producing edit for one supported imported body run.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -396,14 +398,16 @@ fn allowed(n: &Node, attrs: &[&str]) -> bool {
 }
 
 fn unwrap_run(wrapper: &Node, tag: &str) -> Result<Node> {
-    if !allowed(wrapper, &["w:id", "w:author", "w:date"])
-        || wrapper.get("w:author").is_none()
-        || wrapper.elements().count() != 1
-    {
+    if !allowed(wrapper, &["w:id", "w:author", "w:date"]) || wrapper.elements().count() != 1 {
         return Err(unsupported(
             "revision wrapper has unsupported metadata or content",
         ));
     }
+    metadata(
+        RevisionKind::Insertion,
+        wrapper.get("w:author").unwrap_or(""),
+        wrapper.get("w:date"),
+    )?;
     let run = wrapper.elements().next().unwrap();
     simple_text(run, tag)?;
     Ok(run.clone())

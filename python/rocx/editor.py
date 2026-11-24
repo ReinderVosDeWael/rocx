@@ -16,6 +16,10 @@ Track a direct body run with ``preview_tracked_text`` or move one with
 ``preview_tracked_move``. Reopen the preview and use ``preview_revision`` to
 accept or reject one wrapper (both wrappers for moves). Paragraph text omits
 unreviewed wrappers; ``inline_structure`` retains their text and metadata.
+Use ``preview_tracked_bold`` for a direct bold-only property change and
+inspect ``run.property_revision`` on reopen. ``preview_tracked_paragraph``
+marks a whole eligible paragraph plus its text; inspect ``mark_revision``
+and review the pair with ``preview_paragraph_revision``.
 
 Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
 accepts paragraph, character and table declarations. ``StyleEdit.patch`` sets

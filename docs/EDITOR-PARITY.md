@@ -203,6 +203,7 @@ previews](REVISIONS.md#review-a-single-change-in-an-existing-docx), and supporte
 wrapper anchors allow individual accept/reject (both anchors for a move).
 Child anchors and revisions in other locations remain inspection-only.
 Direct body runs can also carry [reviewable bold-only property changes](REVISIONS.md#propose-a-formatting-change).
+Supported direct body paragraphs can carry [paired mark and text revisions](REVISIONS.md#propose-or-review-a-whole-paragraph).
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in

@@ -80,6 +80,7 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
             );
             optional(&result, "alignment", p.alignment.map(alignment));
             optional(&result, "alignmentXml", p.alignment_xml.as_deref());
+            revision_metadata(&result, "markRevision", p.mark_revision.as_ref());
             result
         }
         BodyBlock::Table(t) => record(
@@ -236,13 +237,7 @@ pub(super) fn inline_node(
                     ("items", items(&run.items)?),
                 ],
             );
-            if let Some(change) = &run.property_revision {
-                let metadata = b::record(&[]);
-                optional(&metadata, "author", change.author.as_deref());
-                optional(&metadata, "id", change.id.as_deref());
-                optional(&metadata, "date", change.date.as_deref());
-                b::set(&result, "propertyRevision", &metadata);
-            }
+            revision_metadata(&result, "propertyRevision", run.property_revision.as_ref());
             result
         }
         ImportedInlineNode::Hyperlink(link) => {
@@ -277,6 +272,20 @@ pub(super) fn inline_node(
         ImportedInlineNode::Opaque(name) => opaque(name),
         _ => return Err(unmodeled("inline node")),
     })
+}
+
+fn revision_metadata(
+    result: &JsValue,
+    key: &str,
+    change: Option<&rocx::editor::ImportedPropertyRevision>,
+) {
+    if let Some(change) = change {
+        let metadata = record(change.kind, &[]);
+        optional(&metadata, "author", change.author.as_deref());
+        optional(&metadata, "id", change.id.as_deref());
+        optional(&metadata, "date", change.date.as_deref());
+        b::set(result, key, &metadata);
+    }
 }
 
 fn alignment(value: Alignment) -> &'static str {

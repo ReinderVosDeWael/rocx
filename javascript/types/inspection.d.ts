@@ -41,7 +41,7 @@ export type ImportedInline =
   | ImportedOpaque;
 
 export interface ImportedRun {
-  readonly propertyRevision?: { readonly id?: string; readonly author?: string; readonly date?: string };
+  readonly propertyRevision?: ImportedPropertyRevision<"runProperties">;
   readonly kind: "run";
   readonly anchor: InlineAnchor;
   readonly items: readonly ImportedInline[];
@@ -74,6 +74,7 @@ export interface ImportedFlatParagraph {
 }
 
 export interface ImportedParagraph extends ImportedFlatParagraph {
+  readonly markRevision?: ImportedPropertyRevision<"insertion" | "deletion">;
   readonly anchor: ParagraphAnchor;
   /** Projection of ordinary runs and links, not rendered text. */
   readonly text: string;
@@ -81,6 +82,10 @@ export interface ImportedParagraph extends ImportedFlatParagraph {
   readonly alignmentXml?: string;
   readonly hasOpaqueContent: boolean;
   readonly inlineStructure: readonly ImportedInlineNode[];
+}
+
+export interface ImportedPropertyRevision<K extends "runProperties" | "insertion" | "deletion"> {
+  readonly kind: K; readonly id?: string; readonly author?: string; readonly date?: string;
 }
 
 /** Direct cell paragraph; only runs and hyperlinks have anchors. */
