@@ -113,6 +113,22 @@ export interface HeaderImagePreview {
 
 declare module "./inspection.js" {
   interface ImportedDocument {
+    /** Explicitly track a single-text direct body run edit. */
+    previewTrackedText(edit: {
+      readonly target: InlineAnchor; readonly author: string; readonly date?: string;
+    } & (
+      | { readonly kind: "replace" | "insertAfter"; readonly text: string }
+      | { readonly kind: "delete"; readonly text?: never }
+    )): EditPreview;
+    /** Generate both move legs using a fresh name and a required UTC date. */
+    previewTrackedMove(edit: {
+      readonly target: InlineAnchor; readonly after: InlineAnchor;
+      readonly name: string; readonly author: string; readonly date: string;
+    }): EditPreview;
+    /** Review one insertion/deletion wrapper; moves require both wrappers. */
+    previewRevision(edit: {
+      readonly target: InlineAnchor; readonly action: "accept" | "reject"; readonly paired?: InlineAnchor;
+    }): EditPreview;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to the shared header or a section-local fork. */

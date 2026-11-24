@@ -388,8 +388,26 @@ export async function run(fixtures: Fixtures) {
   const other = await openDocx(fixtures.base);
   rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
   check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
+  const meta = {author: "A & B", date: "2024-02-29T12:34:56Z"};
+  const tracked = doc.previewTrackedText({target:first.anchor, kind:"replace", text:" Revised ", ...meta}).toDocx();
+  const changed = await openDocx(tracked);
+  const [deleted, added] = paragraph(changed,0).inlineStructure;
+  check(deleted.kind === "revision" && deleted.revisionKind === "deletion" && added.kind === "revision" && added.revisionKind === "insertion", "tracked replacement wrappers");
+  same([added.author,added.date, paragraph(changed,0).text], [meta.author,meta.date,""], "revision metadata and flat projection");
+  rejects(() => doc.previewRevision({target:added.anchor, action:"reject"}), /different document snapshot/);
+  const reviewed = changed.previewRevision({target:added.anchor, action:"accept"}).toDocx();
+  same(paragraph(await openDocx(reviewed),0).text," Revised ","accepted insertion");
+  const after = paragraph(doc,1).inlineStructure[0];
+  check(after.kind === "run", "destination run");
+  const moved = doc.previewTrackedMove({target:first.anchor, after:after.anchor, name:"Move1", ...meta}).toDocx();
+  const pair = await openDocx(moved);
+  const source = paragraph(pair,0).inlineStructure[1];
+  const dest = paragraph(pair,1).inlineStructure[2];
+  check(source.kind === "revision" && dest.kind === "revision" && source.revisionKind === "moveSource" && dest.revisionKind === "moveDestination", "paired move anchors");
+  rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
+  const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    removal: removal.toDocx(),
+    tracked, reviewed, moved, moveAccepted, removal: removal.toDocx(),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),
@@ -409,6 +427,10 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
   }
   const run = p.inlineStructure[0];
   if (run?.kind === "run") {
+    // @ts-expect-error tracked deletion has no insertion text
+    doc.previewTrackedText({target: run.anchor, kind: "delete", author: "Ada", text: "lost"});
+    // @ts-expect-error review requires an inline anchor from inspection
+    doc.previewRevision({target: p.anchor, action: "reject"});
     const text: string = doc.preview({runText: [{target: run.anchor, text: "New"}]}).runTextChanges()[0].after;
     const before: string = doc.preview({runRemovals: [run.anchor]}).runRemovals()[0].before;
   }

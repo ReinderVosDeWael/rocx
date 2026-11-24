@@ -393,6 +393,32 @@ impl Package {
                 })
             }))
     }
+    /// Visit all declared XML payloads, including relocated parts with arbitrary
+    /// extensions. An unreadable XML part cannot establish absence of references.
+    pub(crate) fn visit_source_xml(&self, mut visit: impl FnMut(&Node)) -> Result<()> {
+        fn walk(node: &Node, visit: &mut impl FnMut(&Node)) {
+            visit(node);
+            for child in node.elements() {
+                walk(child, visit);
+            }
+        }
+        let (defaults, overrides) = self.content_types()?;
+        for (path, bytes) in &self.parts {
+            let lower = path.to_ascii_lowercase();
+            let mime = overrides.get(&lower).or_else(|| {
+                lower
+                    .rsplit_once('.')
+                    .and_then(|(_, ext)| defaults.get(ext))
+            });
+            if mime.is_some_and(|m| {
+                let m = m.split(';').next().unwrap_or("").to_ascii_lowercase();
+                m.ends_with("+xml") || m.ends_with("/xml")
+            }) {
+                walk(&Node::parse_original(bytes)?, &mut visit);
+            }
+        }
+        Ok(())
+    }
     fn validate_content_types(&self) -> Result<()> {
         let (defaults, overrides) = self.content_types()?;
         for path in self

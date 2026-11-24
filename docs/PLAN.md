@@ -4,6 +4,18 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: qualify the combined #3 editor
 
+**Next revisions slice (#3):** qualify opt-in tracked insert-after, replace,
+delete and paired moves of simple direct body text runs, plus anchored review
+of existing wrappers. Keep the original editor's ordinary-text projections and
+snapshot contract. Four focused package oracles cover tracked replacement,
+reviewed insertion, paired move and accepted move. Mixed revision/ordinary
+batches, property changes and rich/nested revision editing are outside this slice.
+Focused verification passed: Rust editor/revision/showcase tests, native/Wasm
+Clippy, 58 Python tests with required schemas, and packed Node 24/Chromium
+editor tests. The four new DOCX outputs matched across Rust, installed Python,
+Node and Chromium, with independent readback, untouched-part and schema/OPC
+checks. All nine catalog artifacts matched across Rust, Python and Node.
+
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 [CLI contract](CLI.md) for its narrower, digest-bound alignment workflow.

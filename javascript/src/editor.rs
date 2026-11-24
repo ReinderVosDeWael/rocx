@@ -19,6 +19,9 @@ use wasm_bindgen::JsValue;
 
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
+        ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
+        ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
+        ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
         (
             "importedPreviewHeaderImage",
@@ -153,6 +156,74 @@ fn header_edit(input: &Wire, path: &str) -> Result<HeaderImageEdit> {
     })
 }
 
+fn tracked_text(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::TrackedText::*;
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "kind", "author", "date", "text"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let target = crate::inspection::inline_anchor(&edit.get("target")?, "edit.target")?;
+    let change = match string("kind")?.as_str() {
+        "replace" => Replace(string("text")?),
+        "insertAfter" => InsertAfter(string("text")?),
+        "delete" if edit.get("text")?.js().is_undefined() => Delete,
+        _ => {
+            return Err(Failure::invalid(
+                "edit.kind",
+                "expected insertAfter/replace with text or delete without text",
+            ));
+        }
+    };
+    let date = if edit.get("date")?.js().is_undefined() {
+        None
+    } else {
+        Some(string("date")?)
+    };
+    preview_handle(source.document().preview_tracked_text(
+        &target,
+        change,
+        &string("author")?,
+        date.as_deref(),
+    )?)
+}
+fn tracked_move(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "after", "name", "author", "date"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let anchor = |k: &str| crate::inspection::inline_anchor(&edit.get(k)?, &edit.path(k));
+    preview_handle(source.document().preview_tracked_move(
+        &anchor("target")?,
+        &anchor("after")?,
+        &string("name")?,
+        &string("author")?,
+        &string("date")?,
+    )?)
+}
+fn revision(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "action", "paired"])?;
+    let anchor = |k: &str| crate::inspection::inline_anchor(&edit.get(k)?, &edit.path(k));
+    let action = match b::string(&edit.get("action")?, "edit.action")?.as_str() {
+        "accept" => rocx::TextRevisionAction::Accept,
+        "reject" => rocx::TextRevisionAction::Reject,
+        _ => return Err(Failure::invalid("edit.action", "expected accept or reject")),
+    };
+    let paired = if edit.get("paired")?.js().is_undefined() {
+        None
+    } else {
+        Some(anchor("paired")?)
+    };
+    preview_handle(source.document().preview_revision(
+        &anchor("target")?,
+        action,
+        paired.as_ref(),
+    )?)
+}
 fn preview(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -187,6 +258,10 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
     )?;
+    preview_handle(preview)
+}
+
+fn preview_handle(preview: EditPreview) -> Result<JsValue> {
     Ok(b::handle_with_methods(
         "editPreview",
         preview,

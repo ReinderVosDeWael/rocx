@@ -150,8 +150,11 @@ Transitional DOCX snapshot. Its methods are synchronous:
   `[]` for an empty paragraph, or `undefined` for opaque or out-of-range blocks.
 - `inlineAt(anchor)` looks up a run, hyperlink or inline revision. Insertion
   and deletion wrappers expose `revisionKind`, literal optional `id`, `author`
-  and `date`, and ordered children. Nested revisions and moves remain opaque;
-  neither wrappers nor their children are editable. Hyperlinks expose the
+  and `date`, and ordered children. Move wrappers with authors expose
+  `moveSource` or `moveDestination`; nested revisions remain opaque.
+  `previewTrackedText` and `previewTrackedMove` track edits to supported direct
+  body runs. `previewRevision` accepts or rejects one wrapper or both legs of
+  a move; revision children remain inspection-only. Hyperlinks expose the
   source relationship ID or bookmark, not a resolved URL. Inline anchors
   are snapshot-local: aliases of one physical story reuse the same inline
   addresses, but reopening identical bytes produces a distinct snapshot.

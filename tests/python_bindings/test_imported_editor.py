@@ -79,6 +79,68 @@ def test_inline_revision_inspection_preserves_opaque_boundaries():
     assert _parts(imported.preview([]).to_docx()) == _parts(buf.getvalue())
 
 
+@pytest.mark.parametrize("damage", [
+    "orphan", "mismatched-end", "reused-id", "duplicate-name", "different-text",
+    "different-author", "field-reference", "hyperlink-reference", "opaque-child",
+    "crossing-range", "comment-between-markers",
+])
+def test_review_rejects_ambiguous_or_referenced_moves_atomically(damage):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from lxml import etree
+
+    date = "2024-02-29T12:34:56Z"
+    doc = docx.Document()
+    p = doc.add_paragraph()
+
+    def marker(tag, **attrs):
+        n = OxmlElement(f"w:{tag}")
+        for name, value in attrs.items():
+            n.set(qn(f"w:{name}"), value)
+        return n
+
+    for prefix, start, wid in [("moveFrom", "11", "12"), ("moveTo", "13", "14")]:
+        p._p.append(marker(prefix+"RangeStart", id=start, name="Move1", author="Editor", date=date))
+        wrapper = marker(prefix, id=wid, author="Editor", date=date)
+        wrapper.append(p.add_run("moved")._r)
+        p._p.append(wrapper)
+        p._p.append(marker(prefix+"RangeEnd", id=start))
+    final = p._p[-1]
+    dest = final.getprevious()
+    if damage == "orphan":
+        p._p.remove(final)
+    elif damage == "mismatched-end":
+        final.set(qn("w:id"), "11")
+    elif damage == "reused-id":
+        dest.set(qn("w:id"), "+0012")
+    elif damage == "duplicate-name":
+        doc.sections[0].header.paragraphs[0]._p.append(marker("bookmarkStart", id="17", name="move1"))
+    elif damage == "different-text":
+        dest.find(".//"+qn("w:t")).text = "other"
+    elif damage == "different-author":
+        dest.set(qn("w:author"), "Other")
+    elif damage == "field-reference":
+        p._p.append(marker("fldSimple", instr=" REF Move1 "))
+    elif damage == "hyperlink-reference":
+        doc.sections[0].footer.paragraphs[0]._p.append(marker("hyperlink", anchor="Move1"))
+    elif damage == "opaque-child":
+        dest.append(marker("drawing"))
+    elif damage == "crossing-range":
+        p._p.insert(0, marker("bookmarkStart", id="20", name="outside"))
+        p._p.append(marker("bookmarkEnd", id="20"))
+    else:
+        dest.addnext(etree.Comment("opaque"))
+    stream = io.BytesIO()
+    doc.save(stream)
+    source = ImportedDocument.open(stream.getvalue())
+    src, dst = [n for n in source.body[0].inline_structure if isinstance(n, ImportedRevision)]
+    for action in ("accept", "reject"):
+        with pytest.raises(ValueError):
+            source.preview_revision(src.anchor, action, paired=dst.anchor)
+        assert source.inline_at(src.anchor).kind == "moveSource"
+        assert _parts(source.preview([]).to_docx()) == _parts(stream.getvalue())
+
+
 async def test_mixed_cell_paragraph_and_run_edits_use_original_indices_atomically():
     from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 

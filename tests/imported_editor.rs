@@ -225,6 +225,91 @@ fn fixture_with_body(xml: &str) -> Vec<u8> {
     package_bytes(entries)
 }
 
+#[test]
+fn tracked_text_is_explicit_and_reviews_only_one_original_wrapper() {
+    use rocx::{
+        TextRevisionAction::*,
+        editor::{ImportedInlineNode::*, RunTextEdit, TrackedText},
+    };
+    let bytes = fixture();
+    let source = ImportedDocument::open(&bytes).unwrap();
+    let Run(run) = &paragraph(&source, 3).inline_structure[0] else {
+        panic!()
+    };
+    let tracked = |edit| source.preview_tracked_text(&run.anchor, edit, "Reviewer", None);
+    let on = tracked(TrackedText::Replace("new".into()))
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let ordinary = source
+        .preview_with_text(
+            &[],
+            &[],
+            &[],
+            &[RunTextEdit {
+                target: run.anchor.clone(),
+                text: "new".into(),
+            }],
+        )
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    assert_eq!(
+        paragraph(&ImportedDocument::open(&ordinary).unwrap(), 3).text,
+        "new"
+    );
+    let changed = ImportedDocument::open(&on).unwrap();
+    let p = paragraph(&changed, 3);
+    assert_eq!(p.text, "");
+    let [Revision(del), Revision(ins)] = p.inline_structure.as_slice() else {
+        panic!()
+    };
+    assert_ne!(del.id, ins.id);
+    assert_eq!(ins.author.as_deref(), Some("Reviewer"));
+    assert_eq!(ins.date, None);
+    for (anchor, action, text) in [
+        (&ins.anchor, Accept, "new"),
+        (&ins.anchor, Reject, ""),
+        (&del.anchor, Accept, ""),
+        (&del.anchor, Reject, "Second"),
+    ] {
+        assert!(source.preview_revision(anchor, action, None).is_err());
+        let out = changed
+            .preview_revision(anchor, action, None)
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        assert_eq!(
+            paragraph(&ImportedDocument::open(&out).unwrap(), 3).text,
+            text
+        );
+    }
+    let Run(protected) = &paragraph(&source, 0).inline_structure[1] else {
+        panic!()
+    };
+    assert!(
+        source
+            .preview_tracked_text(&protected.anchor, TrackedText::Delete, "Reviewer", None)
+            .is_err()
+    );
+    assert_eq!(
+        parts(
+            &tracked(TrackedText::Replace("Second".into()))
+                .unwrap()
+                .to_docx()
+                .unwrap()
+        ),
+        parts(&bytes)
+    );
+    assert_eq!(
+        tracked(TrackedText::Replace("new".into()))
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        on
+    );
+}
+
 fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (name, bytes) in entries {
@@ -234,6 +319,43 @@ fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
         writer.write_all(&bytes).unwrap();
     }
     writer.finish().unwrap().into_inner()
+}
+
+#[test]
+fn tracked_ids_reserve_relocated_xml_and_fail_closed_on_unreadable_xml() {
+    use rocx::editor::{ImportedInlineNode, TrackedText};
+    let mut entries = parts(&fixture());
+    let types = String::from_utf8(entries["[Content_Types].xml"].clone())
+        .unwrap()
+        .replace(
+            "</Types>",
+            r#"<Override PartName="/extra/reviewer.data" ContentType="application/xml"/></Types>"#,
+        );
+    entries.insert("[Content_Types].xml".into(), types.into_bytes());
+    // Valid XML without a leading '<', BOM or conventional extension.
+    let payload = format!(r#"  <extra xmlns:w="{W}"><w:ins w:id="+0001"/></extra>"#);
+    entries.insert("extra/reviewer.data".into(), payload.as_bytes().to_vec());
+    let preview = |doc: &ImportedDocument| {
+        let ImportedInlineNode::Run(r) = &paragraph(doc, 3).inline_structure[0] else {
+            panic!()
+        };
+        doc.preview_tracked_text(&r.anchor, TrackedText::Delete, "Reviewer", None)
+    };
+    let source = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    let bytes = preview(&source).unwrap().to_docx().unwrap();
+    assert_eq!(parts(&bytes)["extra/reviewer.data"], payload.as_bytes());
+    let reopened = ImportedDocument::open(&bytes).unwrap();
+    let ImportedInlineNode::Revision(r) = &paragraph(&reopened, 3).inline_structure[0] else {
+        panic!()
+    };
+    assert_ne!(r.id.as_deref(), Some("1"));
+    entries.insert("extra/reviewer.data".into(), b"<invalid".to_vec());
+    let source = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    assert!(preview(&source).is_err());
+    assert_eq!(
+        parts(&source.preview(&[]).unwrap().to_docx().unwrap()),
+        entries
+    );
 }
 
 #[test]

@@ -5,13 +5,21 @@ use crate::xml::{Node, validate_text};
 use crate::{Diagnostic, Result, RevisionKind, Rule, TextRevision};
 use std::collections::BTreeSet;
 
-pub(super) struct RevisionIds {
+pub(crate) struct RevisionIds {
     used: BTreeSet<u32>,
     imported_moves: Option<BTreeSet<String>>,
     last: u32,
 }
 
 impl RevisionIds {
+    pub(crate) fn reserved(used: BTreeSet<u32>, move_names: BTreeSet<String>) -> Self {
+        Self {
+            used,
+            imported_moves: Some(move_names),
+            last: 0,
+        }
+    }
+
     fn from_package(package: &Package) -> Self {
         let used = super::defaults::imported_word_values(package, |node| {
             node.get("w:id")?.trim().parse().ok()
@@ -55,12 +63,23 @@ impl Compiler<'_> {
         let ids = self
             .revisions
             .get_or_insert_with(|| RevisionIds::from_package(&self.package));
+        ids.wrap(&self.package, run, revision)
+    }
+}
+
+impl RevisionIds {
+    pub(crate) fn wrap(
+        &mut self,
+        package: &Package,
+        run: Node,
+        revision: &TextRevision,
+    ) -> Result<Vec<Node>> {
         let (tag, start_tag, end_tag) = match &revision.kind {
             RevisionKind::Insertion => {
-                return Ok(vec![annotate("w:ins", ids.next()?, revision).with(run)]);
+                return Ok(vec![annotate("w:ins", self.next()?, revision).with(run)]);
             }
             RevisionKind::Deletion => {
-                return Ok(vec![annotate("w:del", ids.next()?, revision).with(run)]);
+                return Ok(vec![annotate("w:del", self.next()?, revision).with(run)]);
             }
             RevisionKind::MoveSource(_) => {
                 ("w:moveFrom", "w:moveFromRangeStart", "w:moveFromRangeEnd")
@@ -70,8 +89,8 @@ impl Compiler<'_> {
             }
         };
         let name = revision.kind.move_name().expect("move revision").as_str();
-        let imported = ids.imported_moves.get_or_insert_with(|| {
-            super::defaults::imported_word_values(&self.package, |node| {
+        let imported = self.imported_moves.get_or_insert_with(|| {
+            super::defaults::imported_word_values(package, |node| {
                 if matches!(
                     node.name.as_str(),
                     "w:moveFromRangeStart" | "w:moveToRangeStart"
@@ -90,10 +109,10 @@ impl Compiler<'_> {
             .at("revision.move_name")
             .into());
         }
-        let range = ids.next()?;
+        let range = self.next()?;
         Ok(vec![
             annotate(start_tag, range, revision).attr("w:name", name),
-            annotate(tag, ids.next()?, revision).with(run),
+            annotate(tag, self.next()?, revision).with(run),
             Node::new(end_tag).attr("w:id", range),
         ])
     }

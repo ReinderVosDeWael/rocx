@@ -554,6 +554,15 @@ async def generate(output: pathlib.Path) -> bytes:
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
+    # Tracked replacement and paired move are independent opt-in previews.
+    start, after = (header_doc.body[i].inline_structure[0].anchor for i in (0, 2))
+    tracked = header_doc.preview_tracked_text(start, "replace", "Reviewer", text="Reviewed label", date=STAMP)
+    assert ImportedDocument.open(tracked.to_docx()).body[0].text == ""
+    moved = header_doc.preview_tracked_move(start, after, "CatalogMove", "Reviewer", STAMP)
+    pair = ImportedDocument.open(moved.to_docx())
+    restored = pair.preview_revision(pair.body[0].inline_structure[1].anchor, "reject",
+                                     paired=pair.body[2].inline_structure[2].anchor)
+    assert ImportedDocument.open(restored.to_docx()).body[0].text == HEADER_BATCH_LABEL
     first, target = header_doc.default_headers
     assert target.section_index == 1 and target.inherited and first.part_name == target.part_name
     empty, paragraph = target.blocks

@@ -818,6 +818,47 @@ pub async fn generate(output: &Path) -> Result<()> {
     let source = source.resolve().await?.to_docx()?;
     std::fs::write(output.with_extension("header-source.docx"), &source)?;
     let imported = editor::ImportedDocument::open(&source)?;
+    // Independent revision previews: track text or move a run, then review only the pair.
+    let run_at = |block: usize| {
+        let editor::BodyBlock::Paragraph(p) = &imported.body()[block] else {
+            panic!("body paragraph")
+        };
+        let Run(r) = &p.inline_structure[0] else {
+            panic!("body run")
+        };
+        r.anchor.clone()
+    };
+    let from = run_at(0);
+    let tracked = imported.preview_tracked_text(
+        &from,
+        editor::TrackedText::Replace("Reviewed label".into()),
+        "Reviewer",
+        Some(STAMP),
+    )?;
+    let tracked = editor::ImportedDocument::open(&tracked.to_docx()?)?;
+    assert!(matches!(&tracked.body()[0], editor::BodyBlock::Paragraph(p) if p.text.is_empty()));
+    let moved =
+        imported.preview_tracked_move(&from, &run_at(2), "CatalogMove", "Reviewer", STAMP)?;
+    let pair = editor::ImportedDocument::open(&moved.to_docx()?)?;
+    let wrapper = |block: usize, index: usize| {
+        let editor::BodyBlock::Paragraph(p) = &pair.body()[block] else {
+            panic!("body paragraph")
+        };
+        let editor::ImportedInlineNode::Revision(r) = &p.inline_structure[index] else {
+            panic!("move wrapper")
+        };
+        r.anchor.clone()
+    };
+    let restored = pair.preview_revision(
+        &wrapper(0, 1),
+        TextRevisionAction::Reject,
+        Some(&wrapper(2, 2)),
+    )?;
+    let restored = editor::ImportedDocument::open(&restored.to_docx()?)?;
+    assert!(
+        matches!(&restored.body()[0], editor::BodyBlock::Paragraph(p) if p.text == HEADER_BATCH_LABEL)
+    );
+
     assert_eq!(
         imported
             .sections()?

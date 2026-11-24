@@ -19,6 +19,8 @@ mod entries;
 mod header;
 mod insertion;
 mod resources;
+mod revisions;
+pub use revisions::TrackedText;
 mod tables;
 mod text;
 pub use entries::{EntryKind, ImportedEntry};
@@ -226,8 +228,8 @@ pub enum ImportedInline {
 }
 
 /// Address of a run, hyperlink, or revision in a direct body, body table-cell,
-/// header, footer, or entry paragraph. Revision addresses and their children
-/// are read-only.
+/// header, footer, or entry paragraph. Supported direct body revision wrappers
+/// may be reviewed; anchors inside them are read-only.
 ///
 /// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
 /// bytes creates a different snapshot. Within a snapshot, section aliases of
@@ -279,12 +281,12 @@ pub enum ImportedInlineNode {
     Opaque(String),
 }
 
-/// Inline insertion or deletion with literal source metadata and read-only children.
+/// Inline insertion, deletion or move wrapper with literal source metadata.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedRevision {
     pub anchor: InlineAnchor,
-    /// `insertion` or `deletion`.
+    /// `insertion`, `deletion`, `moveSource` or `moveDestination`.
     pub kind: &'static str,
     pub id: Option<String>,
     pub author: Option<String>,
@@ -893,7 +895,11 @@ fn read_inline_nodes<'a>(
             let item = match node.name.as_str() {
                 "w:r" => {
                     let mut items = Vec::new();
-                    read_run(node, &mut items, revision == Some("deletion"));
+                    read_run(
+                        node,
+                        &mut items,
+                        matches!(revision, Some("deletion" | "moveSource")),
+                    );
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
@@ -906,11 +912,16 @@ fn read_inline_nodes<'a>(
                     bookmark: node.get("w:anchor").map(str::to_owned),
                     children: read_inline_nodes(node.elements(), address, flat, revision),
                 }),
-                "w:ins" | "w:del" if revision.is_none() => {
-                    let kind = if node.name == "w:ins" {
-                        "insertion"
-                    } else {
-                        "deletion"
+                "w:ins" | "w:del" | "w:moveFrom" | "w:moveTo"
+                    if revision.is_none()
+                        && (matches!(node.name.as_str(), "w:ins" | "w:del")
+                            || node.get("w:author").is_some()) =>
+                {
+                    let kind = match node.name.as_str() {
+                        "w:ins" => "insertion",
+                        "w:del" => "deletion",
+                        "w:moveFrom" => "moveSource",
+                        _ => "moveDestination",
                     };
                     flat.push(ImportedInline::Opaque(node.name.to_string()));
                     ImportedInlineNode::Revision(ImportedRevision {

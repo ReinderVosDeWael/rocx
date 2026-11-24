@@ -23,7 +23,11 @@ around a shared prebuilt document or XML fixture:
 
 Each catalog inspects authored insertion and deletion wrappers through Rust
 `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
-`kind: "revision"`; these are read-only imported views, not revision edits.
+`kind: "revision"`. Using the header-source document, each catalog also stages
+a tracked replacement, then independently moves the labeled paragraph's run
+and rejects that move by its two wrapper anchors. These in-memory samples use
+Rust/Python `preview_tracked_text`, `preview_tracked_move`, `preview_revision`;
+JavaScript `previewTrackedText`, `previewTrackedMove`, `previewRevision`.
 
 ## Generate and verify
 

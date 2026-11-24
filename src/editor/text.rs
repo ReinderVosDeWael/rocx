@@ -121,36 +121,7 @@ pub(super) fn apply(
                     // Only discard markup whose semantics are known to be local to
                     // this run. Unknown attributes and nested nodes may carry IDs,
                     // relationships, revision data, or other opaque semantics.
-                    if child.attrs.iter().any(|(name, _)| name.declaration().is_none())
-                        || child.children.iter().any(|content| match content {
-                            Content::Element(_) => false,
-                            Content::Text(s) => !s.trim().is_empty(),
-                            Content::Raw(_) => true,
-                        })
-                        || child.child("w:t").is_some_and(|text| {
-                            text.attrs.iter().any(|(name, _)| name.declaration().is_none() && name != "xml:space")
-                        })
-                        || before.contains(['\t', '\r', '\n'])
-                        || child.elements().filter(|n| n.name == "w:rPr").count() > 1
-                        || child.child("w:rPr").is_some_and(|properties| {
-                        properties.attrs.iter().any(|(name, _)| name.declaration().is_none()) || properties.children.iter().any(|content| {
-                            let Content::Element(property) = content else {
-                                return !matches!(content, Content::Text(s) if s.trim().is_empty());
-                            };
-                            !matches!(
-                            property.name.as_str(),
-                            "w:rStyle" | "w:b" | "w:bCs" | "w:i" | "w:iCs"
-                                | "w:caps" | "w:smallCaps" | "w:strike" | "w:dstrike"
-                                | "w:outline" | "w:shadow" | "w:emboss" | "w:imprint"
-                                | "w:noProof" | "w:snapToGrid" | "w:vanish" | "w:webHidden"
-                                | "w:color" | "w:spacing" | "w:w" | "w:kern" | "w:position"
-                                | "w:sz" | "w:szCs" | "w:highlight" | "w:u" | "w:effect"
-                                | "w:vertAlign" | "w:rtl" | "w:cs" | "w:em"
-                                | "w:specVanish" | "w:oMath"
-                            ) || property.attrs.iter().any(|(name, _)| name.declaration().is_none() && name != "w:val")
-                                || property.children.iter().any(|c| !matches!(c, Content::Text(s) if s.trim().is_empty()))
-                        })
-                    }) {
+                    if !disposable_run(child, "w:t", &before) {
                         return Err(unsupported("run has unsupported properties"));
                     }
                     removed.push(RunRemovalChange {
@@ -184,4 +155,78 @@ pub(super) fn apply(
         return Err(unsupported("text target not found"));
     }
     Ok((changes, removed))
+}
+
+/// Only local, understood markup can be duplicated or discarded.
+pub(super) fn disposable_run(child: &Node, text_name: &str, before: &str) -> bool {
+    !(child
+        .attrs
+        .iter()
+        .any(|(name, _)| name.declaration().is_none())
+        || child.children.iter().any(|content| match content {
+            Content::Element(_) => false,
+            Content::Text(s) => !s.trim().is_empty(),
+            Content::Raw(_) => true,
+        })
+        || child.child(text_name).is_some_and(|text| {
+            text.attrs
+                .iter()
+                .any(|(name, _)| name.declaration().is_none() && name != "xml:space")
+        })
+        || before.contains(['\t', '\r', '\n'])
+        || child.elements().filter(|n| n.name == "w:rPr").count() > 1
+        || child.child("w:rPr").is_some_and(|properties| {
+            properties
+                .attrs
+                .iter()
+                .any(|(name, _)| name.declaration().is_none())
+                || properties.children.iter().any(|content| {
+                    let Content::Element(property) = content else {
+                        return !matches!(content, Content::Text(s) if s.trim().is_empty());
+                    };
+                    !matches!(
+                        property.name.as_str(),
+                        "w:rStyle"
+                            | "w:b"
+                            | "w:bCs"
+                            | "w:i"
+                            | "w:iCs"
+                            | "w:caps"
+                            | "w:smallCaps"
+                            | "w:strike"
+                            | "w:dstrike"
+                            | "w:outline"
+                            | "w:shadow"
+                            | "w:emboss"
+                            | "w:imprint"
+                            | "w:noProof"
+                            | "w:snapToGrid"
+                            | "w:vanish"
+                            | "w:webHidden"
+                            | "w:color"
+                            | "w:spacing"
+                            | "w:w"
+                            | "w:kern"
+                            | "w:position"
+                            | "w:sz"
+                            | "w:szCs"
+                            | "w:highlight"
+                            | "w:u"
+                            | "w:effect"
+                            | "w:vertAlign"
+                            | "w:rtl"
+                            | "w:cs"
+                            | "w:em"
+                            | "w:specVanish"
+                            | "w:oMath"
+                    ) || property
+                        .attrs
+                        .iter()
+                        .any(|(name, _)| name.declaration().is_none() && name != "w:val")
+                        || property
+                            .children
+                            .iter()
+                            .any(|c| !matches!(c, Content::Text(s) if s.trim().is_empty()))
+                })
+        }))
 }

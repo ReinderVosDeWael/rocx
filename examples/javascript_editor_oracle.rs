@@ -118,6 +118,63 @@ fn main() {
     let rocx::editor::ImportedInlineNode::Run(run) = &first.inline_structure[0] else {
         panic!("run")
     };
+    use rocx::{
+        TextRevisionAction,
+        editor::{
+            ImportedInlineNode::{Revision, Run},
+            TrackedText,
+        },
+    };
+    let paragraph = |doc: &ImportedDocument, block, inline| -> rocx::editor::InlineAnchor {
+        let BodyBlock::Paragraph(p) = &doc.body()[block] else {
+            panic!("paragraph")
+        };
+        match &p.inline_structure[inline] {
+            Run(r) => r.anchor.clone(),
+            Revision(r) => r.anchor.clone(),
+            _ => panic!("expected run or revision"),
+        }
+    };
+    let date = "2024-02-29T12:34:56Z";
+    let tracked = doc
+        .preview_tracked_text(
+            &run.anchor,
+            TrackedText::Replace(" Revised ".into()),
+            "A & B",
+            Some(date),
+        )
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let review = ImportedDocument::open(&tracked).unwrap();
+    write(
+        "native-reviewed.docx",
+        review
+            .preview_revision(&paragraph(&review, 0, 1), TextRevisionAction::Accept, None)
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
+    write("native-tracked.docx", tracked);
+    let moved = doc
+        .preview_tracked_move(&run.anchor, &paragraph(&doc, 1, 0), "Move1", "A & B", date)
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let review = ImportedDocument::open(&moved).unwrap();
+    write(
+        "native-moveAccepted.docx",
+        review
+            .preview_revision(
+                &paragraph(&review, 0, 1),
+                TextRevisionAction::Accept,
+                Some(&paragraph(&review, 1, 2)),
+            )
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
+    write("native-moved.docx", moved);
     write(
         "native-removal.docx",
         doc.preview_with_run_removals(&[], &[], &[], &[], std::slice::from_ref(&run.anchor))

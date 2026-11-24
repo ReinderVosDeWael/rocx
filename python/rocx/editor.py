@@ -10,6 +10,11 @@ also be used for text replacement or whole-run removal.
 ``header_images=``, ``run_text=``, and ``run_removals=`` in one transaction.
 All targets refer to the original snapshot.
 
+Track a direct body run with ``preview_tracked_text`` or move one with
+``preview_tracked_move``. Reopen the preview and use ``preview_revision`` to
+accept or reject one wrapper (both wrappers for moves). Paragraph text omits
+unreviewed wrappers; ``inline_structure`` retains their text and metadata.
+
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Default and first-page
 header stories expose image-edit anchors; ``ImportedDocument.default_headers``

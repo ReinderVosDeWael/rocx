@@ -207,6 +207,16 @@ export async function generateCatalog(fixtures, options) {
     "accepted a foreign edit anchor");
 
   const headers = await openDocx(headerSource);
+  // Tracked replacement and paired move are independent opt-in previews.
+  const [from, after] = [0, 2].map(i => headers.body()[i].inlineStructure[0].anchor);
+  const metadata = {author: "Reviewer", date: "2026-11-19T00:00:00Z"};
+  const tracked = headers.previewTrackedText({target: from, kind: "replace", text: "Reviewed label", ...metadata});
+  assert((await openDocx(tracked.toDocx())).body()[0].text === "", "tracked replacement projection");
+  const moved = headers.previewTrackedMove({target: from, after, name: "CatalogMove", ...metadata});
+  const pair = await openDocx(moved.toDocx());
+  const restored = pair.previewRevision({target: pair.body()[0].inlineStructure[1].anchor,
+    paired: pair.body()[2].inlineStructure[2].anchor, action: "reject"});
+  assert((await openDocx(restored.toDocx())).body()[0].text === HEADER_BATCH_LABEL, "rejected move");
   const sections = headers.sections();
   assert(sections.length === 2 && sections[0].bodyStart === 0 && sections[0].bodyEnd === 2 &&
     sections[1].bodyStart === 2 && sections[1].bodyEnd === 3, "unexpected section body ranges");
