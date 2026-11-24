@@ -247,6 +247,23 @@ pub(super) fn inline_node(
             optional(&result, "bookmark", link.bookmark.as_deref());
             result
         }
+        ImportedInlineNode::Revision(revision) => {
+            let result = record(
+                "revision",
+                &[
+                    ("anchor", token(&revision.anchor)),
+                    ("revisionKind", JsValue::from_str(revision.kind)),
+                    (
+                        "children",
+                        inline_nodes(&revision.children, anchors, story)?,
+                    ),
+                ],
+            );
+            optional(&result, "id", revision.id.as_deref());
+            optional(&result, "author", revision.author.as_deref());
+            optional(&result, "date", revision.date.as_deref());
+            result
+        }
         ImportedInlineNode::Opaque(name) => opaque(name),
         _ => return Err(unmodeled("inline node")),
     })

@@ -51,6 +51,15 @@ even when both snapshots came from identical bytes. Individual run items and
 opaque nodes are not addressable. Direct body run anchors support a single-text
 replacement via `RunTextEdit`; all other inline addresses remain read-only.
 
+Inline `w:ins` and `w:del` wrappers are also inspectable without applying them:
+Rust `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
+`kind: "revision"` expose insertion/deletion kind, literal optional ID, author
+and date, and ordered children. Deleted `w:delText` is represented as text
+inside the deletion; unsupported children and nested revisions remain opaque.
+Wrapper and child anchors resolve in their original snapshot but cannot be used
+for run-text edits. Flat projections continue to show an opaque wrapper;
+move revisions and revision editing are outside this slice.
+
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in
 `blocks`, including opaque blocks. An empty paragraph returns an empty slice;

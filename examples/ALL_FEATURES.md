@@ -13,6 +13,10 @@ around a shared prebuilt document or XML fixture:
 - [JavaScript program](javascript/catalog.mjs) using named `declarative` factories,
   with a [Node CLI](javascript/catalog-node.mjs).
 
+Each catalog inspects authored insertion and deletion wrappers through Rust
+`ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
+`kind: "revision"`; these are read-only imported views, not revision edits.
+
 ## Generate and verify
 
 From the repository root, using the provisioned development environment:
