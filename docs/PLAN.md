@@ -23,6 +23,16 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
+### Editor checkpoint (#3, PR #31)
+
+The hosted Rust showcase test left the seventh catalog output (`run-text.docx`)
+in its temporary directory. It now reopens that output and removes it alongside
+the header outputs. The packed JavaScript checks now build the native editor
+oracle as a Cargo example instead of guessing where rustc can find its
+dependencies. Locally the showcase test passed, python-docx reopened all seven
+native oracle outputs, and the no-op preserved every ZIP part payload. Require
+the hosted Rust and packed Node/Chromium checks before integrating this slice.
+
 ### Repository evaluation follow-ups
 
 Three independent probes on `19590c9` reproduced defects despite 261 passing

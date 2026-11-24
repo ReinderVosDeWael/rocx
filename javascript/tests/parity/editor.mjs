@@ -1,8 +1,7 @@
 // From an installed-package consumer directory: copy editor.{mts,mjs,py} here.
 // PYTHON=/path/to/python-with-python-docx node editor.mjs --chromium --native=/path/to/oracle
-// Oracle (from repo root): cargo build --locked --lib
-// rustc --edition 2024 -L dependency=target/debug/deps --extern rocx=target/debug/librocx.rlib \
-//   javascript/src/editor/parity_native.rs -o /path/to/oracle
+// Build the native oracle: cargo build --locked --example javascript_editor_oracle
+// With the default target directory, pass --native=/path/to/repo/target/debug/examples/javascript_editor_oracle.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";

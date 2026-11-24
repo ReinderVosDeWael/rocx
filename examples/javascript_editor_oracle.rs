@@ -1,4 +1,4 @@
-//! Standalone native oracle for `tests/parity/editor.mjs`; not linked into Wasm.
+//! Native reference packages for `javascript/tests/parity/editor.mjs`.
 use rocx::{
     Alignment, Component, Hyperlink, HyperlinkTarget, ImageRun, InlineFraction, Paragraph,
     RunFormat, Table, TableCell, TableCellProperties, TableProperties, TableRow, TextRun,
