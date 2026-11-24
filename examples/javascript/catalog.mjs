@@ -153,7 +153,12 @@ export async function generateCatalog(fixtures, options) {
   const reviewRun = review.blocks[0].inlineStructure[0];
   assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
-  const textPreview = imported.preview({runText: [textEdit]});
+  const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
+  const textPreview = imported.preview({
+    runText: [textEdit],
+    paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
+  });
+  assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");
   const [change] = textPreview.runTextChanges();
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
     change.bodyIndex === body.indexOf(inline) && change.inlineIndex === 0, "incorrect text change");

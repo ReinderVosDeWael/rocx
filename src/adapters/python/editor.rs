@@ -508,6 +508,38 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "ParagraphInsertion", frozen, module = "rocx.editor")]
+struct PyParagraphInsertion {
+    target: editor::ParagraphAnchor,
+    paragraph: crate::ResolvedParagraph,
+}
+
+#[pymethods]
+impl PyParagraphInsertion {
+    #[new]
+    fn new(
+        target: PyRef<'_, PyParagraphAnchor>,
+        resolved_paragraph: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let node_type = resolved_paragraph
+            .py()
+            .import("rocx.resolution.snapshot")?
+            .getattr("ResolvedNode")?;
+        if !resolved_paragraph.is_instance(&node_type)?
+            || resolved_paragraph
+                .getattr("_native_kind")?
+                .extract::<String>()?
+                != "Paragraph"
+        {
+            return Err(PyTypeError::new_err("expected a resolved Paragraph"));
+        }
+        Ok(Self {
+            target: target.inner.clone(),
+            paragraph: super::content::paragraph(resolved_paragraph)?,
+        })
+    }
+}
+
 #[pymethods]
 impl PyTableInsertion {
     #[new]
@@ -566,6 +598,15 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    #[getter]
+    fn paragraph_insertions(&self) -> PyResult<Vec<usize>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .paragraph_insertions()
+            .to_vec())
+    }
     #[getter]
     fn run_text_changes(&self) -> PyResult<Vec<PyRunTextChange>> {
         Ok(self
@@ -811,13 +852,14 @@ impl PyImportedDocument {
     }
 
     /// Stage alignment edits, table insertions and header images against one snapshot.
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, paragraph_insertions=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
         table_insertions: Option<Vec<PyRef<'_, PyTableInsertion>>>,
         header_images: Option<Vec<PyRef<'_, PyHeaderImageEdit>>>,
         run_text: Option<Vec<PyRef<'_, PyRunTextEdit>>>,
+        paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -845,7 +887,7 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_with_text(
+                doc.preview_with_paragraphs(
                     &edits,
                     &insertions,
                     &header_images,
@@ -853,6 +895,14 @@ impl PyImportedDocument {
                         .unwrap_or_default()
                         .iter()
                         .map(|e| e.inner.clone())
+                        .collect::<Vec<_>>(),
+                    &paragraph_insertions
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| editor::ParagraphInsertion {
+                            target: e.target.clone(),
+                            paragraph: e.paragraph.clone(),
+                        })
                         .collect::<Vec<_>>(),
                 )
                 .map_err(rust_error)?,
@@ -887,6 +937,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBodyOpaque>()?;
     module.add_class::<PyParagraphAlignmentEdit>()?;
     module.add_class::<PyTableInsertion>()?;
+    module.add_class::<PyParagraphInsertion>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;

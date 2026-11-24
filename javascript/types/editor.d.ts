@@ -2,6 +2,7 @@ import type { ResolvedImage } from "./drawings.js";
 import type { HeaderAnchor, InlineAnchor, ParagraphAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment } from "./text-layout.js";
+import type { ResolvedParagraph } from "./text-layout.js";
 
 export interface ParagraphAlignmentEdit {
   readonly target: ParagraphAnchor;
@@ -12,6 +13,12 @@ export interface TableInsertion {
   /** Insert immediately after this original body paragraph. */
   readonly target: ParagraphAnchor;
   readonly table: ResolvedTable;
+}
+
+export interface ParagraphInsertion {
+  /** Insert immediately after this original body paragraph. */
+  readonly target: ParagraphAnchor;
+  readonly paragraph: ResolvedParagraph;
 }
 
 export type HeaderEditMode = "shared" | "sectionLocal";
@@ -26,6 +33,7 @@ export interface EditBatch {
   readonly runText?: readonly RunTextEdit[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
   readonly tableInsertions?: readonly TableInsertion[];
+  readonly paragraphInsertions?: readonly ParagraphInsertion[];
   readonly headerImages?: readonly HeaderImageEdit[];
 }
 
@@ -66,6 +74,8 @@ export interface EditPreview {
   runTextChanges(): readonly RunTextChange[];
   /** Insertions in original body order. */
   insertions(): readonly TableInsertionChange[];
+  /** Original body indices after which paragraphs were inserted. */
+  paragraphInsertions(): readonly number[];
   /** Changes in target section order. */
   headerChanges(): readonly HeaderImageChange[];
   /** Encode a fresh copy; does not consume the preview or alter its source. */

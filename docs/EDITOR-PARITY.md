@@ -2,6 +2,14 @@
 
 This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Default, first, and even headers and footers expose section references, inherited status, physical part names, and ordered direct paragraphs; other direct children are opaque. The broader story view is read-only. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
 
+This worktree also stages direct-body paragraph insertions in the mixed preview.
+Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
+`ParagraphInsertion` with `paragraph_insertions=`, and JavaScript uses
+`paragraphInsertions` in the preview batch. Payloads are resolved declarations;
+their supported inline content and referenced styles use the table-insertion
+guards. An anchor cannot receive both a paragraph and a table insertion in one
+batch. Other stories, replacement, and removal remain outside this slice.
+
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
 Rust and Python. The table anchor is inspection-only: it cannot be used as a paragraph

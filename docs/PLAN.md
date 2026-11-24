@@ -209,6 +209,11 @@ relationship-based inspection of footnote, endnote and comment entries.
 Re-run release preflight on the integrated candidate, not the earlier docs commit.
 The working branch also stages plain single-text run replacements in the mixed
 transaction; property, block, table, resource and revision operations remain.
+Direct body paragraph insertion is being added to the same transaction. One
+packed artifact passed installed Node 22, 24 and 26 focused fixtures and
+Chromium development/production checks, including readback and invalid
+targets. Their catalog output matches Rust/Python byte for byte. Full packed
+Node 22 and 24 gates passed with schema/OPC and provenance checks.
 Every new editor slice must ship together in Rust, Python and JavaScript,
 including the installed JS package's Node and Chromium parity checks.
 

@@ -99,6 +99,23 @@ type Payloads = Awaited<ReturnType<typeof payloads>>;
 export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, { rich, auto }: Payloads) {
   const doc = await openDocx(input.base);
   const start = paragraph(doc, 0).anchor;
+  const insertedParagraph = await resolveComponent(text("inserted paragraph"));
+  check(insertedParagraph, "paragraph payload resolved");
+  const paragraphEdit = { target: start, paragraph: insertedParagraph };
+  const paragraphPreview = doc.preview({
+    alignments: [{ target: start, alignment: "center" }],
+    paragraphInsertions: [paragraphEdit],
+  });
+  same(paragraphPreview.paragraphInsertions(), [0], "paragraph insertion report");
+  const paragraphOutput = await openDocx(paragraphPreview.toDocx());
+  same(paragraph(paragraphOutput, 1).text, "inserted paragraph", "inserted paragraph readback");
+  rejects(() => doc.preview({ paragraphInsertions: [paragraphEdit, paragraphEdit] }), /multiple paragraph/);
+  const foreign = await openDocx(input.base);
+  rejects(() => foreign.preview({ paragraphInsertions: [paragraphEdit] }), /different document snapshot/);
+  const protectedSource = await openDocx(input.unsafe);
+  rejects(() => protectedSource.preview({ paragraphInsertions: [
+    { ...paragraphEdit, target: paragraph(protectedSource, 0).anchor },
+  ] }), /range/);
   const unset = paragraph(doc, 1).anchor;
   const sectionEnd = paragraph(doc, 3).anchor;
   const align = { target: start, alignment: "center" } as const;

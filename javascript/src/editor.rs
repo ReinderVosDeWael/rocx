@@ -8,10 +8,11 @@ use crate::{
 };
 use js_sys::{Array, Uint8Array};
 use rocx::{
-    ResolvedImage, ResolvedTable, Result,
+    ResolvedImage, ResolvedParagraph, ResolvedTable, Result,
     editor::{
         EditPreview, HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit,
-        HeaderImagePreview, ParagraphAlignmentEdit, ParagraphAnchor, TableInsertion,
+        HeaderImagePreview, ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion,
+        TableInsertion,
     },
 };
 use wasm_bindgen::JsValue;
@@ -29,6 +30,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
             (run_text_changes, Paths::Package),
         ),
         ("editPreviewInsertions", (insertions, Paths::Package)),
+        (
+            "editPreviewParagraphInsertions",
+            (paragraph_insertions, Paths::Package),
+        ),
         ("editPreviewHeaderChanges", (header_changes, Paths::Package)),
         ("editPreviewToDocx", (edit_docx, Paths::Package)),
         ("headerImagePreviewChange", (header_change, Paths::Package)),
@@ -81,6 +86,18 @@ fn table_insertion(input: &Wire, path: &str) -> Result<TableInsertion> {
     })
 }
 
+fn paragraph_insertion(input: &Wire, path: &str) -> Result<ParagraphInsertion> {
+    let edit = Record::new(input, path, &["target", "paragraph"])?;
+    Ok(ParagraphInsertion {
+        target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+        paragraph: (*b::borrow::<ResolvedParagraph>(
+            &edit.get("paragraph")?,
+            &edit.path("paragraph"),
+        )?)
+        .clone(),
+    })
+}
+
 fn header_edit(input: &Wire, path: &str) -> Result<HeaderImageEdit> {
     let edit = Record::new(input, path, &["target", "mode", "image"])?;
     let mode_path = edit.path("mode");
@@ -107,9 +124,15 @@ fn preview(input: &Wire) -> Result<JsValue> {
     let batch = Record::new(
         &argument(&call, "batch")?,
         "batch",
-        &["alignments", "tableInsertions", "headerImages", "runText"],
+        &[
+            "alignments",
+            "tableInsertions",
+            "headerImages",
+            "runText",
+            "paragraphInsertions",
+        ],
     )?;
-    let preview = source.document().preview_with_text(
+    let preview = source.document().preview_with_paragraphs(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -123,6 +146,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
                 text: b::string(&edit.get("text")?, &edit.path("text"))?,
             })
         })?,
+        &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",
@@ -132,6 +156,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
             ("changes", "editPreviewChanges"),
             ("runTextChanges", "editPreviewRunTextChanges"),
             ("insertions", "editPreviewInsertions"),
+            ("paragraphInsertions", "editPreviewParagraphInsertions"),
             ("headerChanges", "editPreviewHeaderChanges"),
             ("toDocx", "editPreviewToDocx"),
         ],
@@ -181,6 +206,17 @@ fn insertions(input: &Wire) -> Result<JsValue> {
             ("columns", change.columns.into()),
         ])
     })))
+}
+
+fn paragraph_insertions(input: &Wire) -> Result<JsValue> {
+    let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
+    Ok(array(
+        preview
+            .paragraph_insertions()
+            .iter()
+            .copied()
+            .map(JsValue::from),
+    ))
 }
 
 fn run_text_changes(input: &Wire) -> Result<JsValue> {

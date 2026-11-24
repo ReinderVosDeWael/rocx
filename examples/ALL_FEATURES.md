@@ -137,6 +137,16 @@ may fork the same original header independently; an adjacent local edit takes
 precedence over restoring inheritance at its section. Failed batches return no
 preview and leave the source unchanged.
 
+The labeled run-text catalog output also inserts a resolved paragraph after its
+original body anchor in the same transaction: Rust uses
+`preview_with_paragraphs` and `ParagraphInsertion`, Python uses `preview` with
+`paragraph_insertions=[ParagraphInsertion(...)]`, and JavaScript uses `preview`
+with `paragraphInsertions: [{ target, paragraph }]`. The report gives original
+body indices. Only direct body paragraph anchors are supported; duplicate
+insertions and a table and paragraph inserted at the same anchor are rejected.
+Inserted content follows the same supported-inline and style restrictions as
+inserted tables.
+
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle
 rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque
 extensions have dedicated tests; invalid structures do not belong in a visual

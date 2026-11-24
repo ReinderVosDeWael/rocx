@@ -30,6 +30,7 @@ from rocx.editor import (
     ImportedTableCell,
     ImportedTableRow,
     ParagraphAlignmentEdit,
+    ParagraphInsertion,
     RunTextEdit,
     TableInsertion,
     TableInsertionChange,
@@ -566,6 +567,38 @@ async def test_insert_resolved_table_with_alignment_edit():
     assert saved.paragraphs[0].alignment == 1
     assert saved.tables[0].cell(0, 0).text == "inserted"
     assert isinstance(ImportedDocument.open(preview.to_docx()).body[1], BodyTable)
+
+async def test_insert_resolved_paragraph_with_alignment_and_reject_invalid_batch():
+    source = docx.Document()
+    source.add_paragraph("first")
+    source.add_paragraph("second")
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    anchor = imported.body[0].anchor
+    content = await d.Paragraph(text="inserted").resolve()
+    edit = ParagraphInsertion(anchor, content)
+    preview = imported.preview(
+        [ParagraphAlignmentEdit(anchor, "center")], paragraph_insertions=[edit]
+    )
+    assert preview.paragraph_insertions == [0]
+    paragraphs = docx.Document(io.BytesIO(preview.to_docx())).paragraphs
+    assert [p.text for p in paragraphs] == ["first", "inserted", "second"]
+    assert paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+    for name, payload in _parts(data).items():
+        if name != "word/document.xml":
+            assert _parts(preview.to_docx())[name] == payload
+    with pytest.raises(ValueError):
+        imported.preview([], paragraph_insertions=[edit, edit])
+    table = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text="cell")])])]).resolve()
+    with pytest.raises(ValueError):
+        imported.preview([], paragraph_insertions=[edit], table_insertions=[TableInsertion(anchor, table)])
+    with pytest.raises(ValueError):
+        ImportedDocument.open(data).preview([], paragraph_insertions=[edit])
+    with pytest.raises(TypeError):
+        ParagraphInsertion(anchor, d.Paragraph(text="unresolved"))
+    assert _parts(imported.preview([]).to_docx()) == _parts(data)
 
 
 async def test_table_insertion_rejects_invalid_inputs_and_foreign_anchor():

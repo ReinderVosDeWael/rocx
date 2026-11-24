@@ -562,7 +562,19 @@ pub async fn generate(output: &Path) -> Result<()> {
         panic!("expected a standalone run and hyperlink");
     };
     let replacement = "Imported editor: replaced this run by its anchor. ";
-    let preview = imported.preview_with_text(
+    let paragraph_payload = Document::new(vec![
+        Section::new(vec![
+            Paragraph::new("Imported editor: inserted paragraph.").into(),
+        ])
+        .into(),
+    ])
+    .resolve()
+    .await?;
+    let ResolvedBlock::Paragraph(inserted_paragraph) = &paragraph_payload.sections()[0].blocks()[0]
+    else {
+        panic!("expected paragraph payload");
+    };
+    let preview = imported.preview_with_paragraphs(
         &[],
         &[],
         &[],
@@ -570,7 +582,12 @@ pub async fn generate(output: &Path) -> Result<()> {
             target: label.anchor.clone(),
             text: replacement.into(),
         }],
+        &[editor::ParagraphInsertion {
+            target: paragraph.anchor.clone(),
+            paragraph: inserted_paragraph.clone(),
+        }],
     )?;
+    assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);
     assert_eq!(preview.run_text_changes()[0].before, INLINE_LABEL);
     std::fs::write(output.with_extension("run-text.docx"), preview.to_docx()?)?;
     assert_eq!(

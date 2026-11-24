@@ -1,10 +1,15 @@
 """Check packed consumer output: exact Rust ZIP bytes, readback, and OPC/schema."""
 
 import argparse
+import io
+import zipfile
 from pathlib import Path
+
+import docx
 
 from check_examples import (
     CATALOG_SUFFIXES,
+    INLINE_LINK_RUNS,
     exact_bytes,
     verify_content,
     verify_edited,
@@ -43,7 +48,7 @@ def verify_catalog(validator: Validator, parity: Path) -> None:
             verify_file(validator, references / f"all_features-{language}{suffix}", data, language=language)
 
     for runtime in RUNTIMES:
-        final, template, edited, source, shared, local, _ = (
+        final, template, edited, source, shared, local, run_text = (
             verify_file(validator, parity / runtime / f"catalog{suffix}", data, language=runtime)
             for suffix, data in zip(CATALOG_SUFFIXES, native, strict=True)
         )
@@ -51,6 +56,13 @@ def verify_catalog(validator: Validator, parity: Path) -> None:
         verify_content(final, template)
         verify_edited(final, edited)
         verify_header_scopes(source, shared, local)
+        paragraphs = [p.text for p in docx.Document(io.BytesIO(run_text)).paragraphs]
+        anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
+        assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
+        with zipfile.ZipFile(io.BytesIO(final)) as source_zip, zipfile.ZipFile(io.BytesIO(run_text)) as result_zip:
+            assert set(source_zip.namelist()) == set(result_zip.namelist())
+            assert all(source_zip.read(name) == result_zip.read(name)
+                       for name in source_zip.namelist() if name != "word/document.xml")
         print(f"{runtime}: catalog, independent python-docx and untouched-part checks passed")
 
 
