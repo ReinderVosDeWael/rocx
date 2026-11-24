@@ -19,6 +19,21 @@ retained formatting and unchanged part payloads. All twelve catalog files
 matched across Rust, installed Python and packed Node. The two editor outputs
 also matched Chromium; both and the new catalog sample passed schema/OPC checks.
 
+#3 revision follow-up: add direct bold-only `w:rPrChange` proposals, typed
+run-property metadata and accept/reject on the reopened run anchor. Check
+the three preview outputs across bindings against independent Word-package
+readback; see [revision contexts](REVISIONS.md#propose-a-formatting-change).
+The proposal and both reviewed documents matched exactly in Rust, installed
+Python 3.12 and packed Node 26; all three passed schema/OPC validation.
+The block-context follow-up marks a plain paragraph's terminator and text
+together, exposes mark metadata, and accepts/rejects the pair only next to a
+safe following paragraph. Six paragraph outputs (insert, delete, both reviews
+for each) matched complete Rust/Python/packed Node bytes and passed schema,
+OPC, python-docx and untouched-payload checks.
+The 56 Rust imported-editor tests, 15 focused Python tests, native/Wasm
+Clippy and strict installed TypeScript passed. All eleven catalog artifacts
+matched across Rust, installed Python and packed Node.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -33,7 +48,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text edits in one physical story part. Ordinary note/comment entries also support direct inline insertion/replacement and run bold. | Entry/reference lifecycle, comment metadata changes, block editing, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
 | #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
-| #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
+| #49 Revisions and #3 follow-up | Track insertion, replacement, deletion and paired moves of simple direct body runs; track direct bold and simple whole-paragraph insert/delete; review eligible changes. | Mixed ordinary/revision transactions, other property changes, block moves and rich or nested revisions. |
 | #50 Controls | Inspect and wrap/replace/unwrap single-text block/inline/row/cell controls in the main story; patch tag, alias or content; select/replace block/inline drop-down choices. | Multi-run/structural payloads, nested and bound edits, other specialized types and other stories. |
 | #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |

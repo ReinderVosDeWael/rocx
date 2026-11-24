@@ -68,6 +68,12 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("editStoryText", "importedEditStoryText"),
     ("editEntryInlines", "importedEditEntryInlines"),
     ("previewTrackedText", "importedPreviewTrackedText"),
+    ("previewTrackedBold", "importedPreviewTrackedBold"),
+    ("previewTrackedParagraph", "importedPreviewTrackedParagraph"),
+    (
+        "previewParagraphRevision",
+        "importedPreviewParagraphRevision",
+    ),
     ("previewTrackedMove", "importedPreviewTrackedMove"),
     ("previewRevision", "importedPreviewRevision"),
     ("preview", "importedPreview"),

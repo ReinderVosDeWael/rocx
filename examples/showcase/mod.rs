@@ -1110,6 +1110,12 @@ pub async fn generate(output: &Path) -> Result<()> {
         r.anchor.clone()
     };
     let from = run_at(0);
+    let proposal = imported.preview_tracked_bold(&from, true, "Reviewer", Some(STAMP))?;
+    let formatted = editor::ImportedDocument::open(&proposal.to_docx()?)?;
+    assert!(
+        matches!(&formatted.body()[0], editor::BodyBlock::Paragraph(p)
+        if matches!(&p.inline_structure[0], Run(r) if r.property_revision.as_ref().unwrap().author.as_deref() == Some("Reviewer")))
+    );
     let tracked = imported.preview_tracked_text(
         &from,
         editor::TrackedText::Replace("Reviewed label".into()),
@@ -1145,6 +1151,24 @@ pub async fn generate(output: &Path) -> Result<()> {
         unreachable!()
     };
     let target = &last.anchor;
+    let addition = imported.preview_tracked_paragraph(
+        target,
+        editor::TrackedParagraph::InsertBefore("Review this paragraph.".into()),
+        "Reviewer",
+        Some(STAMP),
+    )?;
+    let pending = editor::ImportedDocument::open(&addition.to_docx()?)?;
+    let editor::BodyBlock::Paragraph(p) = &pending.body()[2] else {
+        unreachable!()
+    };
+    assert_eq!(p.mark_revision.as_ref().unwrap().kind, "insertion");
+    let reviewed = pending.preview_paragraph_revision(&p.anchor, TextRevisionAction::Reject)?;
+    assert_eq!(
+        editor::ImportedDocument::open(&reviewed.to_docx()?)?
+            .body()
+            .len(),
+        imported.body().len()
+    );
     let payload = Component::resolve(Paragraph::new("Block editor: replacement paragraph."))
         .await?
         .unwrap();

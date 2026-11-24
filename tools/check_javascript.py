@@ -27,7 +27,8 @@ EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "poin
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
                   "blocks", "inline", "runFormatting", "tableStructure", "styleEdits", "controlEdits",
                   "controlWrapped", "controlUnwrapped",
-                  "tracked", "reviewed", "moved", "moveAccepted", "combined")
+                  "tracked", "reviewed", "moved", "moveAccepted", "boldChange", "boldAccepted", "boldRejected",
+                  "paraInsert", "paraInsertAccepted", "paraInsertRejected", "paraDelete", "paraDeleteAccepted", "paraDeleteRejected", "combined")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:

@@ -371,6 +371,8 @@ impl PyHeaderImagePreview {
 #[pyclass(name = "BodyParagraph", frozen, module = "rocx.editor")]
 struct PyBodyParagraph {
     #[pyo3(get)]
+    mark_revision: Option<Py<PyImportedPropertyRevision>>,
+    #[pyo3(get)]
     anchor: Py<PyParagraphAnchor>,
     #[pyo3(get)]
     text: String,
@@ -405,9 +407,49 @@ struct PyImportedRun {
     #[pyo3(get)]
     hidden: Option<bool>,
     #[pyo3(get)]
+    property_revision: Option<Py<PyImportedPropertyRevision>>,
+    #[pyo3(get)]
     anchor: Py<PyInlineAnchor>,
     #[pyo3(get)]
     items: Vec<Py<PyImportedInline>>,
+}
+
+#[pyclass(name = "ImportedPropertyRevision", frozen, module = "rocx.editor")]
+struct PyImportedPropertyRevision {
+    #[pyo3(get)]
+    kind: &'static str,
+    #[pyo3(get)]
+    id: Option<String>,
+    #[pyo3(get)]
+    author: Option<String>,
+    #[pyo3(get)]
+    date: Option<String>,
+}
+
+fn revision_metadata(
+    py: Python<'_>,
+    r: Option<&editor::ImportedPropertyRevision>,
+) -> PyResult<Option<Py<PyImportedPropertyRevision>>> {
+    r.map(|r| {
+        Py::new(
+            py,
+            PyImportedPropertyRevision {
+                kind: r.kind,
+                id: r.id.clone(),
+                author: r.author.clone(),
+                date: r.date.clone(),
+            },
+        )
+    })
+    .transpose()
+}
+
+fn review_action(action: &str) -> PyResult<crate::TextRevisionAction> {
+    match action {
+        "accept" => Ok(crate::TextRevisionAction::Accept),
+        "reject" => Ok(crate::TextRevisionAction::Reject),
+        _ => Err(PyValueError::new_err("expected accept or reject")),
+    }
 }
 
 #[pyclass(name = "ImportedHyperlink", frozen, module = "rocx.editor")]
@@ -457,6 +499,7 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                 italic: run.italic,
                 strike: run.strike,
                 hidden: run.hidden,
+                property_revision: revision_metadata(py, run.property_revision.as_ref())?,
                 anchor: anchor(&run.anchor)?,
                 items: run
                     .items
@@ -1753,6 +1796,7 @@ impl PyImportedDocument {
                 BodyBlock::Paragraph(p) => Ok(Py::new(
                     py,
                     PyBodyParagraph {
+                        mark_revision: revision_metadata(py, p.mark_revision.as_ref())?,
                         anchor: Py::new(
                             py,
                             PyParagraphAnchor {
@@ -1835,6 +1879,73 @@ impl PyImportedDocument {
         })
     }
 
+    #[pyo3(signature = (target, bold, author, date=None))]
+    fn preview_tracked_bold(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        bold: bool,
+        author: &str,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_bold(&target.inner, bold, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    #[pyo3(signature = (target, kind, author, *, text=None, date=None))]
+    fn preview_tracked_paragraph(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        kind: &str,
+        author: &str,
+        text: Option<String>,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        let edit = match (kind, text) {
+            ("insertBefore", Some(t)) => editor::TrackedParagraph::InsertBefore(t),
+            ("delete", None) => editor::TrackedParagraph::Delete,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected insertBefore with text or delete without text",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_paragraph(&target.inner, edit, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    fn preview_paragraph_revision(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        action: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_paragraph_revision(&target.inner, review_action(action)?)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
     fn preview_tracked_move(
         &self,
         target: PyRef<'_, PyInlineAnchor>,
@@ -1862,11 +1973,7 @@ impl PyImportedDocument {
         action: &str,
         paired: Option<PyRef<'_, PyInlineAnchor>>,
     ) -> PyResult<PyEditPreview> {
-        let action = match action {
-            "accept" => crate::TextRevisionAction::Accept,
-            "reject" => crate::TextRevisionAction::Reject,
-            _ => return Err(PyValueError::new_err("expected accept or reject")),
-        };
+        let action = review_action(action)?;
         let doc = self
             .inner
             .lock()
@@ -1992,6 +2099,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedInline>()?;
     module.add_class::<PyInlineAnchor>()?;
     module.add_class::<PyImportedRun>()?;
+    module.add_class::<PyImportedPropertyRevision>()?;
     module.add_class::<PyImportedHyperlink>()?;
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;

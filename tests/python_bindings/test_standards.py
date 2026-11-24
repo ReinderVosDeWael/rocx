@@ -60,6 +60,20 @@ def test_direct_body_revision_previews_are_schema_valid(validator):
         return result
 
     ordinary = check(original.preview([], run_text=[RunTextEdit(first.anchor, "plain")]), "plainafter")
+    for index, run, previous in [(0, first, True), (1, last, None)]:
+        changed = check(original.preview_tracked_bold(run.anchor, False, "A & B", date), "beforeafter")
+        current = changed.body[0].inline_structure[index]
+        meta = current.property_revision
+        assert meta.id and (meta.author, meta.date) == ("A & B", date)
+        with pytest.raises(ValueError):
+            changed.preview_tracked_bold(current.anchor, True, "another")
+        with pytest.raises(ValueError):
+            original.preview_revision(current.anchor, "reject")
+        for action, value in [("accept", False), ("reject", previous)]:
+            preview = changed.preview_revision(current.anchor, action)
+            result = check(preview, "beforeafter")
+            assert result.body[0].inline_structure[index].property_revision is None
+            assert Document(io.BytesIO(preview.to_docx())).paragraphs[0].runs[index].bold is value
     assert len(ordinary.body[0].inline_structure) == 2
     for kind, kwargs, visible, slot, accepted, rejected in [
         ("insertAfter", {"text": " <added> "}, "beforeafter", 1, "before <added> after", "beforeafter"),
@@ -81,6 +95,46 @@ def test_direct_body_revision_previews_are_schema_valid(validator):
     for author, bad_date in [(" ", date), ("A", "2023-02-29T12:34:56Z"), ("A\x00", date)]:
         with pytest.raises(ValueError):
             original.preview_tracked_text(first.anchor, "delete", author, date=bad_date)
+
+
+def test_imported_paragraph_deletion_reviews_the_mark_and_run_together(validator):
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import ImportedDocument
+
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run("removed")
+    run.bold = True
+    run._r.find(qn("w:t")).tag = qn("w:delText")
+    props = OxmlElement("w:rPr")
+    paragraph._p.get_or_add_pPr().append(props)
+    mark, wrapper = [OxmlElement("w:del") for _ in range(2)]
+    for change, ident in [(mark, "12"), (wrapper, "13")]:
+        change.set(qn("w:id"), ident)
+        change.set(qn("w:author"), "External reviewer")
+    props.append(mark)
+    paragraph._p.append(wrapper)
+    wrapper.append(run._r)
+    doc.add_paragraph("following")
+    data = io.BytesIO()
+    doc.save(data)
+    original = ImportedDocument.open(data.getvalue())
+    p = original.body[0]
+    assert (p.mark_revision.kind, p.mark_revision.id, p.mark_revision.date) == ("deletion", "12", None)
+    with pytest.raises(ValueError):
+        ImportedDocument.open(data.getvalue()).preview_paragraph_revision(p.anchor, "reject")
+    with pytest.raises(ValueError):
+        original.preview_tracked_paragraph(p.anchor, "delete", "Reviewer")
+    for action, expected in [("accept", ["following"]), ("reject", ["removed", "following"])]:
+        result = original.preview_paragraph_revision(p.anchor, action).to_docx()
+        assert "word/document.xml" in validator.validate(result)
+        paragraphs = Document(io.BytesIO(result)).paragraphs
+        assert [p.text for p in paragraphs] == expected
+        if action == "reject":
+            assert paragraphs[0].runs[0].bold is True
 
 
 @pytest.fixture

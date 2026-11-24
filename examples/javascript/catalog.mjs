@@ -306,6 +306,8 @@ export async function generateCatalog(fixtures, options) {
   // Tracked replacement and paired move are independent opt-in previews.
   const [from, after] = [0, 2].map(i => headers.body()[i].inlineStructure[0].anchor);
   const metadata = {author: "Reviewer", date: "2026-11-19T00:00:00Z"};
+  const proposal = headers.previewTrackedBold({target: from, bold: true, ...metadata});
+  assert((await openDocx(proposal.toDocx())).body()[0].inlineStructure[0].propertyRevision.author === "Reviewer", "tracked bold author");
   const tracked = headers.previewTrackedText({target: from, kind: "replace", text: "Reviewed label", ...metadata});
   assert((await openDocx(tracked.toDocx())).body()[0].text === "", "tracked replacement projection");
   const moved = headers.previewTrackedMove({target: from, after, name: "CatalogMove", ...metadata});
@@ -314,6 +316,11 @@ export async function generateCatalog(fixtures, options) {
     paired: pair.body()[2].inlineStructure[2].anchor, action: "reject"});
   assert((await openDocx(restored.toDocx())).body()[0].text === HEADER_BATCH_LABEL, "rejected move");
   const blockTarget = headers.body()[2].anchor;
+  const addition = headers.previewTrackedParagraph({target:blockTarget,kind:"insertBefore",text:"Review this paragraph.",...metadata});
+  const pending = await openDocx(addition.toDocx());
+  assert(pending.body()[2].markRevision.kind === "insertion", "tracked paragraph mark");
+  const reviewed = pending.previewParagraphRevision({target:pending.body()[2].anchor,action:"reject"});
+  assert((await openDocx(reviewed.toDocx())).body().length === headers.body().length, "rejected paragraph");
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},

@@ -551,6 +551,31 @@ export async function run(fixtures: Fixtures) {
   rejects(() => doc.preview({inlineEdits, runRemovals: [first.anchor]}), /conflicting/);
   bytesEqual(doc.preview({inlineEdits}).toDocx(), inline.toDocx(), "inline retry");
   const meta = {author: "A & B", date: "2024-02-29T12:34:56Z"};
+  const blockRevisions: Record<string,Uint8Array> = {};
+  let current = doc;
+  for (const label of ["Insert","Delete"]) {
+    const edit = label === "Insert" ? {kind:"insertBefore" as const, text:" proposed "} : {kind:"delete" as const};
+    const tracked = current.previewTrackedParagraph({target:paragraph(current,1).anchor,...edit,...meta}).toDocx();
+    blockRevisions["para"+label] = tracked;
+    const reopened = await openDocx(tracked), p = paragraph(reopened,1);
+    same([p.markRevision?.kind,p.markRevision?.author,p.markRevision?.date,p.text],
+      [label==="Insert"?"insertion":"deletion",meta.author,meta.date,""],"paragraph mark and projection");
+    rejects(()=>current.previewParagraphRevision({target:p.anchor,action:"reject"}), /different document snapshot/);
+    for(const action of ["accept","reject"] as const){
+      const bytes=reopened.previewParagraphRevision({target:p.anchor,action}).toDocx();
+      blockRevisions["para"+label+(action==="accept"?"Accepted":"Rejected")] = bytes;
+      if(action==="accept") current=await openDocx(bytes);
+    }
+  }
+  const boldChange = doc.previewTrackedBold({target:first.anchor, bold:false, ...meta}).toDocx();
+  const formatted = await openDocx(boldChange);
+  const formattedRun = paragraph(formatted, 0).inlineStructure[0];
+  check(formattedRun.kind === "run" && !!formattedRun.propertyRevision?.id, "run property revision");
+  same([formattedRun.propertyRevision.author, formattedRun.propertyRevision.date], [meta.author, meta.date], "property revision metadata");
+  rejects(() => formatted.previewTrackedBold({target:first.anchor, bold:true, ...meta}), /different document snapshot/);
+  rejects(() => formatted.previewTrackedBold({target:formattedRun.anchor, bold:true, ...meta}), /supported formatting/);
+  const boldAccepted = formatted.previewRevision({target:formattedRun.anchor, action:"accept"}).toDocx();
+  const boldRejected = formatted.previewRevision({target:formattedRun.anchor, action:"reject"}).toDocx();
   const tracked = doc.previewTrackedText({target:first.anchor, kind:"replace", text:" Revised ", ...meta}).toDocx();
   const changed = await openDocx(tracked);
   const [deleted, added] = paragraph(changed,0).inlineStructure;
@@ -567,6 +592,8 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
+    boldChange, boldAccepted, boldRejected,
+    ...blockRevisions,
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),

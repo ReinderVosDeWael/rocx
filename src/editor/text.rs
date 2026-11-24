@@ -163,7 +163,7 @@ pub(super) fn direct_toggle(run: &Node, prop: RunToggle) -> Result<Option<bool>>
         .transpose()
 }
 
-fn patch_toggle(run: &mut Node, prop: RunToggle, value: Option<bool>) -> Result<bool> {
+pub(super) fn patch_toggle(run: &mut Node, prop: RunToggle, value: Option<bool>) -> Result<bool> {
     let tag = prop.tag();
     if direct_toggle(run, prop)? == value {
         return Ok(false);

@@ -619,6 +619,11 @@ async def generate(output: pathlib.Path) -> bytes:
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
     target = header_doc.body[2].anchor
+    addition = header_doc.preview_tracked_paragraph(target, "insertBefore", "Reviewer", text="Review this paragraph.", date=STAMP)
+    pending = ImportedDocument.open(addition.to_docx())
+    assert pending.body[2].mark_revision.kind == "insertion"
+    reviewed = pending.preview_paragraph_revision(pending.body[2].anchor, "reject")
+    assert len(ImportedDocument.open(reviewed.to_docx()).body) == len(header_doc.body)
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
                  BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True)):
@@ -626,6 +631,8 @@ async def generate(output: pathlib.Path) -> bytes:
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
     # Tracked replacement and paired move are independent opt-in previews.
     start, after = (header_doc.body[i].inline_structure[0].anchor for i in (0, 2))
+    proposal = header_doc.preview_tracked_bold(start, True, "Reviewer", STAMP)
+    assert ImportedDocument.open(proposal.to_docx()).body[0].inline_structure[0].property_revision.author == "Reviewer"
     tracked = header_doc.preview_tracked_text(start, "replace", "Reviewer", text="Reviewed label", date=STAMP)
     assert ImportedDocument.open(tracked.to_docx()).body[0].text == ""
     moved = header_doc.preview_tracked_move(start, after, "CatalogMove", "Reviewer", STAMP)

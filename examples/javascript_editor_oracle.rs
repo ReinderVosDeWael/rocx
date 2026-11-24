@@ -111,7 +111,7 @@ fn main() {
         edit(1, HeaderEditMode::SectionLocal),
     ];
     let shared = edit(1, HeaderEditMode::Shared);
-    let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    let write = |name: &str, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {
             ranges: &[rocx::editor::TextRangeEdit {
@@ -442,6 +442,58 @@ fn main() {
         }
     };
     let date = "2024-02-29T12:34:56Z";
+    use rocx::editor::TrackedParagraph;
+    let mut source =
+        ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
+    for (label, edit) in [
+        (
+            "Insert",
+            TrackedParagraph::InsertBefore(" proposed ".into()),
+        ),
+        ("Delete", TrackedParagraph::Delete),
+    ] {
+        let bytes = source
+            .preview_tracked_paragraph(&anchor(&source, 1), edit, "A & B", Some(date))
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        let changed = ImportedDocument::open(&bytes).unwrap();
+        write(&format!("native-para{label}.docx"), bytes);
+        for (action, suffix) in [
+            (TextRevisionAction::Accept, "Accepted"),
+            (TextRevisionAction::Reject, "Rejected"),
+        ] {
+            let bytes = changed
+                .preview_paragraph_revision(&anchor(&changed, 1), action)
+                .unwrap()
+                .to_docx()
+                .unwrap();
+            if action == TextRevisionAction::Accept {
+                source = ImportedDocument::open(&bytes).unwrap();
+            }
+            write(&format!("native-para{label}{suffix}.docx"), bytes);
+        }
+    }
+    let bold = doc
+        .preview_tracked_bold(&run.anchor, false, "A & B", Some(date))
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let review = ImportedDocument::open(&bold).unwrap();
+    write("native-boldChange.docx", bold);
+    for (action, name) in [
+        (TextRevisionAction::Accept, "native-boldAccepted.docx"),
+        (TextRevisionAction::Reject, "native-boldRejected.docx"),
+    ] {
+        write(
+            name,
+            review
+                .preview_revision(&paragraph(&review, 0, 0), action, None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
     let tracked = doc
         .preview_tracked_text(
             &run.anchor,

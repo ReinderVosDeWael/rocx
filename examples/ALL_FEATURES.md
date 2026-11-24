@@ -42,6 +42,13 @@ a tracked replacement, then independently moves the labeled paragraph's run
 and rejects that move by its two wrapper anchors. These in-memory samples use
 Rust/Python `preview_tracked_text`, `preview_tracked_move`, `preview_revision`;
 JavaScript `previewTrackedText`, `previewTrackedMove`, `previewRevision`.
+The same sample independently proposes bold on a plain body run with
+Rust/Python `preview_tracked_bold` or JavaScript `previewTrackedBold` and
+inspects the reviewer's name on the reopened run.
+Each catalog also proposes a plain paragraph before a labeled paragraph,
+reads the mark and rejects the whole insertion using the paragraph anchor
+(`preview_tracked_paragraph` / `preview_paragraph_revision`, JavaScript
+`previewTrackedParagraph` / `previewParagraphRevision`).
 
 ## Generate and verify
 

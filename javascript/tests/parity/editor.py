@@ -500,6 +500,38 @@ def verify(directory):
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
     date = "2024-02-29T12:34:56Z"
+    current = imported
+    original_text = [p.text for p in Document(directory / "base.docx").paragraphs]
+    for label, kind, args in [("Insert","insertBefore",{"text":" proposed "}),("Delete","delete",{})]:
+        data = current.preview_tracked_paragraph(current.body[1].anchor, kind, "A & B", date=date, **args).to_docx()
+        assert data == (directory / f"para{label}.docx").read_bytes()
+        untouched(source, parts(io.BytesIO(data)), (MAIN,))
+        reopened = ImportedDocument.open(data)
+        block = reopened.body[1]
+        mark, wrapper = block.mark_revision, block.inline_structure[0]
+        assert mark.id != wrapper.id and mark.kind == wrapper.kind
+        assert (mark.author, mark.date) == (wrapper.author, wrapper.date) == ("A & B", date)
+        for action, suffix in [("accept","Accepted"),("reject","Rejected")]:
+            data = reopened.preview_paragraph_revision(block.anchor, action).to_docx()
+            assert data == (directory / f"para{label}{suffix}.docx").read_bytes()
+            untouched(source, parts(io.BytesIO(data)), (MAIN,))
+            expected = original_text.copy()
+            if (kind == "insertBefore") == (action == "accept"):
+                expected.insert(1," proposed ")
+            assert [p.text for p in Document(io.BytesIO(data)).paragraphs] == expected
+            if action == "accept":
+                current = ImportedDocument.open(data)
+    changed = imported.preview_tracked_bold(anchor, False, "A & B", date).to_docx()
+    formatted = ImportedDocument.open(changed)
+    run = formatted.body[0].inline_structure[0]
+    assert run.property_revision.id and (run.property_revision.author, run.property_revision.date) == ("A & B", date)
+    for name, data, bold in [("boldChange", changed, False),
+                             ("boldAccepted", formatted.preview_revision(run.anchor, "accept").to_docx(), False),
+                             ("boldRejected", formatted.preview_revision(run.anchor, "reject").to_docx(), True)]:
+        assert (directory / f"{name}.docx").read_bytes() == data
+        untouched(source, parts(io.BytesIO(data)), (MAIN,))
+        assert Document(io.BytesIO(data)).paragraphs[0].runs[0].bold is bold
+        assert (ImportedDocument.open(data).body[0].inline_structure[0].property_revision is not None) == (name == "boldChange")
     tracked = imported.preview_tracked_text(anchor, "replace", "A & B", text=" Revised ", date=date).to_docx()
     reopened = ImportedDocument.open(tracked)
     reviewed = reopened.preview_revision(reopened.body[0].inline_structure[1].anchor, "accept").to_docx()
