@@ -18,6 +18,7 @@ enum Request {
         metadata_fields: Vec<String>,
         #[serde(default)]
         custom_properties: Vec<String>,
+        table_owner: Option<String>,
     },
     Preview {
         source: String,
@@ -45,8 +46,17 @@ fn execute(request: Request) -> Result<Value, String> {
         Request::Inspect {
             metadata_fields,
             custom_properties,
+            table_owner,
             ..
-        } => return rocx_protocol::inspect(&open()?, snapshot, metadata_fields, custom_properties),
+        } => {
+            return rocx_protocol::inspect(
+                &open()?,
+                snapshot,
+                metadata_fields,
+                custom_properties,
+                table_owner.as_deref(),
+            );
+        }
         Request::Preview {
             snapshot, edits, ..
         } => (snapshot, edits, None),
