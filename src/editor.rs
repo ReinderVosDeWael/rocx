@@ -19,6 +19,8 @@ mod batch;
 pub use batch::EditBatch;
 mod blocks;
 pub use blocks::BlockEdit;
+mod property_flags;
+pub use property_flags::{ParagraphFlag, SectionFlag};
 mod controls;
 mod entries;
 mod header;
@@ -212,6 +214,8 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedParagraph {
+    /// Recognized unambiguous direct flags; no inheritance is applied.
+    pub flags: BTreeMap<ParagraphFlag, bool>,
     pub anchor: ParagraphAnchor,
     /// Text from ordinary runs and hyperlinks; not a rendered-text view.
     pub text: String,
@@ -332,6 +336,8 @@ pub struct ImportedHyperlink {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedSection {
+    /// Recognized unambiguous direct flags; no defaults are inferred.
+    pub flags: BTreeMap<SectionFlag, bool>,
     pub body_start: usize,
     pub body_end: usize,
     /// Recognized explicit section type. No default is inferred.
@@ -492,6 +498,10 @@ impl ImportedDocument {
                         .and_then(|props| props.child("w:jc"))
                         .and_then(|jc| jc.get("w:val"));
                     BodyBlock::Paragraph(ImportedParagraph {
+                        flags: ParagraphFlag::read(node.child("w:pPr").filter(|_| {
+                            node.elements().filter(|c| c.name == "w:pPr").count() == 1
+                                && node.child(ALTERNATE).is_none()
+                        })),
                         anchor,
                         text,
                         alignment: alignment_xml.and_then(read_alignment),
@@ -1140,26 +1150,15 @@ fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
 
 /// Outer `None` means no write; inner `None` means no previous value.
 fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Option<String>>> {
-    patch_property(paragraph, "w:jc", after.xml())
-}
-
-fn patch_property(
-    paragraph: &mut Node,
-    property: &str,
-    value: &str,
-) -> Result<Option<Option<String>>> {
+    let value = after.xml();
     if paragraph.elements().filter(|n| n.name == "w:pPr").count() > 1
         || paragraph.child(ALTERNATE).is_some()
         || paragraph.child("w:pPr").is_some_and(|props| {
-            props.elements().filter(|n| n.name == property).count() > 1
+            props.elements().filter(|n| n.name == "w:jc").count() > 1
                 || props.child(ALTERNATE).is_some()
         })
     {
-        return Err(unsupported(if property == "w:jc" {
-            "paragraph alignment is structurally ambiguous"
-        } else {
-            "paragraph property is structurally ambiguous"
-        }));
+        return Err(unsupported("paragraph alignment is structurally ambiguous"));
     }
 
     if paragraph.child("w:pPr").is_none() {
@@ -1168,16 +1167,7 @@ fn patch_property(
             .insert(0, Content::Element(Node::new("w:pPr")));
     }
     let props = paragraph.child_mut("w:pPr").unwrap();
-    if property == "w:keepNext"
-        && let Some(current) = props.child(property)
-        && matches!(
-            (current.get("w:val"), value),
-            (None | Some("true" | "on" | "1"), "1") | (Some("false" | "off" | "0"), "0")
-        )
-    {
-        return Ok(None);
-    }
-    let jc = props.ensure(property);
+    let jc = props.ensure("w:jc");
     if jc.get("w:val") == Some(value) {
         return Ok(None);
     }

@@ -220,12 +220,12 @@ with an external hyperlink and verifies its relationship and exact package bytes
 
 Removal rejects opaque or unsafe run markup.
 
-The header-source catalog also previews four block edits independently using
+The header-source catalog also previews seven block edits independently using
 the first paragraph of the inherited section. Rust uses `preview_blocks` and
-`BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext}`. Python passes
-`BlockEdit.replace`, `.remove`, `.replace_section` or `.keep_with_next` in
+`BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext, ParagraphFlag, SectionFlag, SectionType}`. Python passes
+`BlockEdit.replace`, `.remove`, `.replace_section`, `.keep_with_next`, `.paragraph_flag`, `.section_flag` or `.section_type` in
 `preview([], block_edits=[...])`. JavaScript uses `preview({blockEdits: [...]})`
-with `kind` equal to `replace`, `remove`, `replaceSection` or `keepWithNext`.
+with `kind` equal to `replace`, `remove`, `replaceSection`, `keepWithNext`, `paragraphFlag`, `sectionFlag` or `sectionType`.
 See [the editor inventory](../docs/EDITOR-PARITY.md#body-block-edits) for target rules.
 
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle

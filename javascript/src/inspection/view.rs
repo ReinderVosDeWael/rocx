@@ -80,6 +80,16 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
             );
             optional(&result, "alignment", p.alignment.map(alignment));
             optional(&result, "alignmentXml", p.alignment_xml.as_deref());
+            b::set(
+                &result,
+                "flags",
+                &b::record(
+                    &p.flags
+                        .iter()
+                        .map(|(f, v)| (f.name(), (*v).into()))
+                        .collect::<Vec<_>>(),
+                ),
+            );
             result
         }
         BodyBlock::Table(t) => record(
@@ -286,6 +296,16 @@ fn alignment(value: Alignment) -> &'static str {
 pub(super) fn section(section: &ImportedSection) -> JsValue {
     let result = b::record(&[
         ("bodyStart", section.body_start.into()),
+        (
+            "flags",
+            b::record(
+                &section
+                    .flags
+                    .iter()
+                    .map(|(f, v)| (f.name(), (*v).into()))
+                    .collect::<Vec<_>>(),
+            ),
+        ),
         ("bodyEnd", section.body_end.into()),
     ]);
     optional(

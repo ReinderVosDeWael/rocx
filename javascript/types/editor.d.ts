@@ -1,6 +1,6 @@
 import type { ResolvedImage } from "./drawings.js";
 import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
-import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
+import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor, ParagraphFlag, SectionFlag, ImportedSectionType } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
 
@@ -39,6 +39,9 @@ export interface ParagraphInsertion {
 export type HeaderEditMode = "shared" | "sectionLocal";
 
 export type BlockEdit =
+  | { readonly kind: "paragraphFlag"; readonly target: ParagraphAnchor; readonly flag: ParagraphFlag; readonly value: boolean | null }
+  | { readonly kind: "sectionFlag"; readonly target: ParagraphAnchor; readonly flag: SectionFlag; readonly value: boolean | null }
+  | { readonly kind: "sectionType"; readonly target: ParagraphAnchor; readonly value: ImportedSectionType | null }
   | { readonly kind: "replace"; readonly target: ParagraphAnchor; readonly paragraph: ResolvedParagraph }
   | { readonly kind: "remove"; readonly target: ParagraphAnchor }
   | { readonly kind: "replaceSection"; readonly target: ParagraphAnchor; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[] }

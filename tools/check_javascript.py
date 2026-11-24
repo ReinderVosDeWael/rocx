@@ -154,10 +154,13 @@ def python_combined(source: Path) -> bytes:
     doc = ImportedDocument.open(original)
     preview = doc.preview(
         [], text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
-        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
+        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True),
+                     BlockEdit.paragraph_flag(doc.body[4].anchor, "page_break_before", False),
+                     BlockEdit.section_flag(doc.body[4].anchor, "title_page", True),
+                     BlockEdit.section_type(doc.body[0].anchor, "continuous")],
         resources=[ResourceEdit.core_title("Combined editor")],
     )
-    assert preview.block_changes == [4]
+    assert preview.block_changes == [0, 4, 4, 4]
     assert [(c.body_index, c.before, c.after) for c in preview.run_text_changes] == [
         (1, "unset alignment", "Xnset alignment")]
     data = preview.to_docx()
@@ -165,6 +168,8 @@ def python_combined(source: Path) -> bytes:
     assert readback.paragraphs[1].text == "Xnset alignment"
     assert readback.paragraphs[4].text == "next section"
     assert readback.paragraphs[4].paragraph_format.keep_with_next is True
+    assert readback.paragraphs[4].paragraph_format.page_break_before is False
+    assert readback.sections[1].different_first_page_header_footer is True
     assert readback.core_properties.title == "Combined editor"
     with zipfile.ZipFile(io.BytesIO(original)) as before, zipfile.ZipFile(io.BytesIO(data)) as after:
         assert set(before.namelist()) == set(after.namelist())

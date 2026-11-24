@@ -12,7 +12,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | Ticket | Supported in the candidate | Still outside the implementation |
 | --- | --- | --- |
 | #42 Text ranges | Replace or delete nonempty scalar ranges across simple, singly textual runs of a direct body paragraph, retaining formatting outside the selection. | Cross-paragraph offsets, mixed/opaque paragraphs, zero-length insertion and other stories. |
-| #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
+| #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables. Inspect and set/clear all nine declarative paragraph on/off flags, three section flags and section break type at anchored direct body targets. | Section insertion/removal; section geometry, borders, columns, grid, numbering and vertical alignment; paragraph style/heading, numbering, tabs, indents, spacing and line height; clearing direct alignment; nested/story and empty or non-paragraph-start section targets. |
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
@@ -33,6 +33,13 @@ consumers. Regressions cover crossing a bookmark inside math, live style
 aliases, protected move and bound-control template edits, proofing ranges
 across cells, and sharing a staged style catalog across operations.
 Keep #48 open for the remaining resource inventory; #52 is separate.
+
+The standalone #3 block-property slice from `b0a28b0` passed 55 Rust and 57
+installed-Python editor tests, native/Wasm Clippy, strict TypeScript, packed
+Node inspection and 23 native/Node editor byte comparisons. All eleven catalog
+files matched across Rust, Python 3.12 and Node 26. The mixed flag/break-type
+batch matched all three bindings, independent python-docx and XML/ZIP readback,
+and Transitional schema/OPC validation (11 schema-covered parts).
 
 ## Selected standalone topic results (before ten-way integration)
 

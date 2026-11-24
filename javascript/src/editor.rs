@@ -107,7 +107,8 @@ fn block_edit(input: &Wire, path: &str) -> Result<rocx::editor::BlockEdit> {
         "replace" => &["kind", "target", "paragraph"],
         "remove" => &["kind", "target"],
         "replaceSection" => &["kind", "target", "blocks"],
-        "keepWithNext" => &["kind", "target", "value"],
+        "keepWithNext" | "sectionType" => &["kind", "target", "value"],
+        "paragraphFlag" | "sectionFlag" => &["kind", "target", "flag", "value"],
         _ => return Err(Failure::invalid(path, "unknown block edit")),
     };
     let edit = Record::new(input, path, fields)?;
@@ -139,6 +140,43 @@ fn block_edit(input: &Wire, path: &str) -> Result<rocx::editor::BlockEdit> {
                     })
                     .collect::<Result<_>>()?,
             )
+        }
+        "sectionType" => {
+            let v = edit.get("value")?;
+            BlockEdit::SectionType(
+                target,
+                if v.js().is_null() {
+                    None
+                } else {
+                    Some(crate::text_layout::section_type(&v, &edit.path("value"))?)
+                },
+            )
+        }
+        "paragraphFlag" | "sectionFlag" => {
+            let flag = b::string(&edit.get("flag")?, &edit.path("flag"))?;
+            let v = edit.get("value")?.js();
+            let value = if v.is_null() {
+                None
+            } else {
+                Some(v.as_bool().ok_or_else(|| {
+                    Failure::invalid(&edit.path("value"), "expected boolean or null")
+                })?)
+            };
+            if kind == "paragraphFlag" {
+                let f = rocx::editor::ParagraphFlag::ALL
+                    .iter()
+                    .find(|f| f.name() == flag)
+                    .ok_or_else(|| {
+                        Failure::invalid(&edit.path("flag"), "unknown paragraph flag")
+                    })?;
+                BlockEdit::ParagraphFlag(target, *f, value)
+            } else {
+                let f = rocx::editor::SectionFlag::ALL
+                    .iter()
+                    .find(|f| f.name() == flag)
+                    .ok_or_else(|| Failure::invalid(&edit.path("flag"), "unknown section flag"))?;
+                BlockEdit::SectionFlag(target, *f, value)
+            }
         }
         _ => BlockEdit::KeepWithNext(
             target,

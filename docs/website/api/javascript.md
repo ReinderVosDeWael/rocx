@@ -205,8 +205,11 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   of Unicode scalar positions in a plain direct-body paragraph. Count with
   `Array.from(text)`, not `.length`. The replacement retains the formatting
   of the first selected scalar; `runTextChanges()` reports changed runs.
-- `blockEdits` accepts `replace`, `remove`, `replaceSection` and `keepWithNext`
-  at eligible direct body paragraph anchors. `inlineEdits` accepts
+- `blockEdits` accepts `replace`, `remove`, `replaceSection`, `keepWithNext`,
+  `paragraphFlag`, `sectionFlag` and `sectionType` at eligible direct body
+  paragraph anchors. Section edits target the section's first body block,
+  which must be a paragraph. Read direct on/off properties from `flags`.
+  A `null` value clears a flag or break type. `inlineEdits` accepts
   `insertAfter`, `replace` and `setBold` at eligible direct inline anchors.
 - `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
   `insertColumn`, `removeColumn` and `replaceCell`. Row/cell positions are
