@@ -1062,6 +1062,52 @@ struct PyImportedDocument {
     inner: Mutex<editor::ImportedDocument>,
 }
 
+#[pyclass(name = "StyleAnchor", frozen, module = "rocx.editor")]
+struct PyStyleAnchor {
+    inner: editor::StyleAnchor,
+}
+
+#[pyclass(name = "StyleEdit", frozen, module = "rocx.editor")]
+struct PyStyleEdit {
+    inner: editor::StyleEdit,
+}
+
+#[pymethods]
+impl PyStyleEdit {
+    #[staticmethod]
+    fn add(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Add(super::style_definition(definition)?),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target, *, bold=None, italic=None))]
+    fn patch(target: PyRef<'_, PyStyleAnchor>, bold: Option<bool>, italic: Option<bool>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Patch {
+                target: target.inner.clone(),
+                bold,
+                italic,
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace(target: PyRef<'_, PyStyleAnchor>, definition: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Replace {
+                target: target.inner.clone(),
+                definition: super::style_definition(definition)?,
+            },
+        })
+    }
+    #[staticmethod]
+    fn remove(target: PyRef<'_, PyStyleAnchor>) -> Self {
+        Self {
+            inner: editor::StyleEdit::Remove(target.inner.clone()),
+        }
+    }
+}
+
 #[pyclass(name = "ImportedStyle", module = "rocx.editor", get_all)]
 struct PyImportedStyle {
     id: Option<String>,
@@ -1079,6 +1125,15 @@ struct PyImportedStyles {
 
 #[pymethods]
 impl PyImportedDocument {
+    fn style_anchor(&self, id: &str) -> PyResult<PyStyleAnchor> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyStyleAnchor {
+            inner: doc.style_anchor(id).map_err(rust_error)?,
+        })
+    }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
         let doc = self

@@ -408,6 +408,56 @@ fn styles_absence_and_invalid_part_are_distinct() {
 }
 
 #[test]
+fn new_styles_resolve_in_same_transaction_and_failed_insertions_do_not_publish() {
+    use rocx::{
+        Component, ParagraphFormat, ParagraphStyleDefinition,
+        editor::{ParagraphInsertion, StyleEdit},
+    };
+    let source = fixture();
+    let doc = ImportedDocument::open(&source).unwrap();
+    let insert = |name| ParagraphInsertion {
+        target: paragraph(&doc, 0).anchor.clone(),
+        paragraph: block_on(Component::resolve(
+            Paragraph::new("Styled insertion")
+                .with_format(ParagraphFormat::default().with_style(name)),
+        ))
+        .unwrap()
+        .unwrap(),
+    };
+    let add = StyleEdit::Add(
+        ParagraphStyleDefinition::default()
+            .with_name("Imported Accent")
+            .with_base_style("Normal")
+            .into(),
+    );
+    let stage = |p| {
+        doc.preview_with_styles(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[p],
+            &[],
+            &[],
+            std::slice::from_ref(&add),
+        )
+    };
+    assert!(stage(insert("Absent")).is_err());
+    assert!(doc.style_anchor("ImportedAccent").is_err());
+    let out = parts(&stage(insert("Imported Accent")).unwrap().to_docx().unwrap());
+    assert!(
+        std::str::from_utf8(&out["word/document.xml"])
+            .unwrap()
+            .contains(r#"<w:pStyle w:val="ImportedAccent""#)
+    );
+    for (name, bytes) in parts(&source) {
+        if name != "word/styles.xml" && name != "word/document.xml" {
+            assert_eq!(out[&name], bytes);
+        }
+    }
+}
+
+#[test]
 fn styles_follow_relocated_relationship_and_reject_ambiguity() {
     let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
     let rels = String::from_utf8(entries["word/_rels/document.xml.rels"].clone()).unwrap();

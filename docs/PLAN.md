@@ -27,6 +27,14 @@ verify combined batches, preservation and exact cross-binding output again.
 
 ## Previous milestone: qualify the combined #3 editor
 
+Style editing slice (#3): paragraph/character/table additions, direct bold and
+italic patches, and guarded replacement/removal of simple unused custom styles
+are implemented on the topic branch. The four-operation independent fixture
+matched complete Rust, installed Python 3.12 and packed Node 24 output, passed
+schema/OPC validation, and preserved every other part payload. Focused Rust
+and Python tests cover rejection and transaction reuse. Numbering-style editing,
+broader property patching and umbrella qualification remain open.
+
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 [CLI contract](CLI.md) for its digest-bound mixed-edit workflow.

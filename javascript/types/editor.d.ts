@@ -1,4 +1,5 @@
 import type { ResolvedImage } from "./drawings.js";
+import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
 import type { HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";

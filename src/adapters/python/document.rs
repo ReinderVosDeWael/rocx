@@ -38,24 +38,26 @@ pub(super) fn document(o: &Bound<'_, PyAny>) -> PyResult<ResolvedDocument> {
             manager: field!(o, "manager", Option<String>),
         },
         comment_author: field!(o, "comment_author", Option<String>),
-        styles: list(&o.getattr("styles")?, |v| {
-            Ok(Some(match kind(v)?.as_str() {
-                "ParagraphStyleDefinition" => paragraphstyledefinition(v)?.into(),
-                "CharacterStyleDefinition" => character_style(v)?.into(),
-                "NumberingStyleDefinition" => crate::NumberingStyleDefinition {
-                    name: field!(v, "name", String),
-                    numbering_id: field!(v, "numbering_id", u32),
-                }
-                .into(),
-                "TableStyleDefinition" => tablestyledefinition(v)?.into(),
-                _ => return Err(PyTypeError::new_err("Unknown style definition")),
-            }))
-        })?,
+        styles: list(&o.getattr("styles")?, |v| style_definition(v).map(Some))?,
         numbering: list(&o.getattr("numbering")?, |n| {
             Ok(Some(numbering_definition(n)?))
         })?,
         timestamp: field!(o, "timestamp", String),
         defaults: optional_record(o, "defaults", document_defaults)?,
+    })
+}
+
+pub(super) fn style_definition(v: &Bound<'_, PyAny>) -> PyResult<crate::StyleDefinition> {
+    Ok(match kind(v)?.as_str() {
+        "ParagraphStyleDefinition" => paragraphstyledefinition(v)?.into(),
+        "CharacterStyleDefinition" => character_style(v)?.into(),
+        "NumberingStyleDefinition" => crate::NumberingStyleDefinition {
+            name: field!(v, "name", String),
+            numbering_id: field!(v, "numbering_id", u32),
+        }
+        .into(),
+        "TableStyleDefinition" => tablestyledefinition(v)?.into(),
+        _ => return Err(PyTypeError::new_err("Unknown style definition")),
     })
 }
 

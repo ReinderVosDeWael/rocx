@@ -10,6 +10,10 @@ also be used for text replacement or whole-run removal.
 ``header_images=``, ``text_ranges=``, ``run_text=``, and ``run_removals=`` in one transaction.
 All targets refer to the original snapshot.
 
+Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
+accepts paragraph, character and table declarations. ``StyleEdit.patch`` sets
+direct bold/italic flags; ``replace`` and ``remove`` require unused, simple custom styles.
+
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Every effective slot
 exposes an image-edit anchor; ``ImportedDocument.default_headers``

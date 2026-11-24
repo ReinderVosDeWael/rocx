@@ -13,3 +13,6 @@ kind as `kind_xml` / `kindXml` (absent for a missing kind); Rust retains an unkn
 `StyleKind::Unsupported`. References are not resolved or validated, and no
 effective formatting is inferred. Unmodeled properties remain in the original
 package, which is the source for subsequent previews.
+
+For authoring definitions, patching selected properties and conservatively
+replacing or removing unused styles, see [imported style edits](EDITOR-PARITY.md#imported-style-edits).

@@ -23,6 +23,7 @@ mod insertion;
 mod ranges;
 pub use ranges::TextRangeEdit;
 mod resources;
+mod style_edits;
 mod tables;
 mod text;
 pub use entries::{EntryKind, ImportedEntry};
@@ -31,6 +32,7 @@ pub use header::{
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
+pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit};
 pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit};
 
@@ -721,6 +723,7 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        self.stage_styles(&mut package, styles)?;
         let mut paragraph_targets = BTreeMap::new();
         for insertion in paragraphs {
             if paragraph_targets

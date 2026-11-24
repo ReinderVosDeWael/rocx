@@ -236,6 +236,12 @@ language string.
 
 ## Maintenance contract
 
+**Imported styles sample.** All three catalogs add “Catalog Imported Child”
+based on “Catalog Base” and patch the base's italic property in one preview.
+The installed editor fixture also replaces and removes unused custom definitions
+and compares the complete output with the native oracle. See the
+[three-binding style edit contract](../docs/EDITOR-PARITY.md#imported-style-edits).
+
 Every new feature must update the three catalog programs, this inventory, the machine
 inventory when APIs change, and independent `tools/check_examples.py` coverage
 assertions before being marked complete. Keep descriptions visible/literal and
