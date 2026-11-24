@@ -191,8 +191,9 @@ pub enum ImportedInline {
     Opaque(String),
 }
 
-/// Read-only address of a run or hyperlink in a direct body, body table-cell,
-/// header, or footer paragraph.
+/// Address of a run, hyperlink, or revision in a direct body, body table-cell,
+/// header, footer, or entry paragraph. Revision addresses and their children
+/// are read-only.
 ///
 /// Resolve it with [`ImportedDocument::inline_at`]. Reopening even identical
 /// bytes creates a different snapshot. Within a snapshot, section aliases of
@@ -239,8 +240,22 @@ impl Eq for InlineAnchor {}
 pub enum ImportedInlineNode {
     Run(ImportedRun),
     Hyperlink(ImportedHyperlink),
+    Revision(ImportedRevision),
     /// Unsupported element, retained in place without inspecting its contents.
     Opaque(String),
+}
+
+/// Inline insertion or deletion with literal source metadata and read-only children.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedRevision {
+    pub anchor: InlineAnchor,
+    /// `insertion` or `deletion`.
+    pub kind: &'static str,
+    pub id: Option<String>,
+    pub author: Option<String>,
+    pub date: Option<String>,
+    pub children: Vec<ImportedInlineNode>,
 }
 
 #[derive(Debug)]
@@ -467,10 +482,11 @@ impl ImportedDocument {
         };
         let (last, parents) = target.path.split_last().ok_or_else(invalid)?;
         for &index in parents {
-            let Some(ImportedInlineNode::Hyperlink(link)) = nodes.get(index) else {
-                return Err(invalid());
+            nodes = match nodes.get(index) {
+                Some(ImportedInlineNode::Hyperlink(link)) => &link.children,
+                Some(ImportedInlineNode::Revision(revision)) => &revision.children,
+                _ => return Err(invalid()),
             };
-            nodes = &link.children;
         }
         nodes.get(*last).ok_or_else(invalid)
     }
@@ -687,6 +703,7 @@ fn read_paragraph_inlines(
         node.elements().filter(|child| child.name != "w:pPr"),
         &mut address,
         &mut flat,
+        None,
     );
     (flat, structure)
 }
@@ -695,6 +712,7 @@ fn read_inline_nodes<'a>(
     nodes: impl Iterator<Item = &'a Node>,
     address: &mut InlineAnchor,
     flat: &mut Vec<ImportedInline>,
+    revision: Option<&str>,
 ) -> Vec<ImportedInlineNode> {
     nodes
         .enumerate()
@@ -703,7 +721,7 @@ fn read_inline_nodes<'a>(
             let item = match node.name.as_str() {
                 "w:r" => {
                     let mut items = Vec::new();
-                    read_run(node, &mut items);
+                    read_run(node, &mut items, revision == Some("deletion"));
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
@@ -714,8 +732,29 @@ fn read_inline_nodes<'a>(
                     anchor: address.clone(),
                     relationship_id: node.get("r:id").map(str::to_owned),
                     bookmark: node.get("w:anchor").map(str::to_owned),
-                    children: read_inline_nodes(node.elements(), address, flat),
+                    children: read_inline_nodes(node.elements(), address, flat, revision),
                 }),
+                "w:ins" | "w:del" if revision.is_none() => {
+                    let kind = if node.name == "w:ins" {
+                        "insertion"
+                    } else {
+                        "deletion"
+                    };
+                    flat.push(ImportedInline::Opaque(node.name.to_string()));
+                    ImportedInlineNode::Revision(ImportedRevision {
+                        anchor: address.clone(),
+                        kind,
+                        id: node.get("w:id").map(str::to_owned),
+                        author: node.get("w:author").map(str::to_owned),
+                        date: node.get("w:date").map(str::to_owned),
+                        children: read_inline_nodes(
+                            node.elements(),
+                            address,
+                            &mut Vec::new(),
+                            Some(kind),
+                        ),
+                    })
+                }
                 name => {
                     flat.push(ImportedInline::Opaque(name.to_owned()));
                     ImportedInlineNode::Opaque(name.to_owned())
@@ -727,8 +766,23 @@ fn read_inline_nodes<'a>(
         .collect()
 }
 
-fn read_run(node: &Node, items: &mut Vec<ImportedInline>) {
+fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
     for item in node.elements() {
+        if deletion && item.name == "w:delText" {
+            let text = item
+                .children
+                .iter()
+                .filter_map(|child| match child {
+                    crate::xml::Content::Text(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect();
+            items.push(ImportedInline::Text(text));
+            if item.elements().next().is_some() {
+                items.push(ImportedInline::Opaque(item.name.as_str().to_owned()));
+            }
+            continue;
+        }
         match RunChild::classify(item) {
             RunChild::Properties => (),
             RunChild::Text(text) => {

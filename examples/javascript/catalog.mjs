@@ -142,6 +142,12 @@ export async function generateCatalog(fixtures, options) {
 
   const imported = await openDocx(final);
   const body = imported.body();
+  const revisions = body.flatMap((block) => block.kind === "paragraph" ? block.inlineStructure : [])
+    .filter((node) => node.kind === "revision" && node.author === "Catalog editor");
+  for (const [kind, text] of [["insertion", "inserted wording"], ["deletion", "old wording"]]) {
+    const revision = revisions.find((node) => node.revisionKind === kind && node.children[0]?.items[0]?.text === text);
+    assert(revision && imported.inlineAt(revision.children[0].anchor).items[0].text === text, "missing typed revision");
+  }
   const inline = body.find((node) => node.kind === "paragraph" && node.text === INLINE_LABEL + INLINE_LINK_RUNS.join(""));
   assert(inline, "expected labeled body inline structure");
   const entries = imported.entryStories();

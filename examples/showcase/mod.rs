@@ -528,6 +528,34 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(bytes, plan.to_bytes()?);
     snapshot.save_with_template_and_options(output, &template, &options)?;
     let imported = editor::ImportedDocument::open(&bytes)?;
+    let revisions: Vec<_> = imported
+        .body()
+        .iter()
+        .filter_map(|block| match block {
+            editor::BodyBlock::Paragraph(p) => Some(p.inline_structure.iter()),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|node| match node {
+            editor::ImportedInlineNode::Revision(r)
+                if r.author.as_deref() == Some("Catalog editor") =>
+            {
+                Some(r)
+            }
+            _ => None,
+        })
+        .collect();
+    for (kind, text) in [
+        ("insertion", "inserted wording"),
+        ("deletion", "old wording"),
+    ] {
+        assert!(
+            revisions.iter().any(|revision| revision.kind == kind
+                && matches!(revision.children.as_slice(), [editor::ImportedInlineNode::Run(run)]
+                if run.items == [editor::ImportedInline::Text(text.into())] &&
+                matches!(imported.inline_at(&run.anchor), Ok(editor::ImportedInlineNode::Run(_)))))
+        );
+    }
     let entries = imported.entry_stories()?;
     for kind in [editor::EntryKind::Footnote, editor::EntryKind::Endnote] {
         assert!(entries.iter().any(|e| e.kind == kind && e.id == "0"));

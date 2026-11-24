@@ -1216,14 +1216,106 @@ fn header_story_preserves_order_and_opaque_children() {
     assert!(matches!(link.children.as_slice(), [
         ImportedInlineNode::Run(drawing),
         ImportedInlineNode::Opaque(start),
-        ImportedInlineNode::Opaque(revision),
+        ImportedInlineNode::Revision(revision),
         ImportedInlineNode::Run(empty),
         ImportedInlineNode::Opaque(end),
     ] if drawing.items == [ImportedInline::Opaque("w:drawing".into())]
-        && start == "w:bookmarkStart" && revision == "w:ins"
+        && start == "w:bookmarkStart" && revision.kind == "insertion"
+        && revision.id.as_deref() == Some("9")
+        && revision.author.as_deref() == Some("Reviewer")
+        && matches!(revision.children.as_slice(), [ImportedInlineNode::Run(run)]
+            if run.items == [ImportedInline::Text("hidden".into())]
+            && matches!(doc.inline_at(&run.anchor), Ok(ImportedInlineNode::Run(_))))
         && empty.items.is_empty() && end == "w:bookmarkEnd"
         && matches!(doc.inline_at(&empty.anchor).unwrap(), ImportedInlineNode::Run(found)
             if found.anchor == empty.anchor)));
+}
+
+#[test]
+fn revision_inspection_keeps_boundaries_metadata_and_read_only_anchors() {
+    use rocx::editor::{ImportedInline, ImportedInlineNode, RunTextEdit};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p>
+        <w:ins w:id="4" w:author="Ada" w:date="2024-01-01T00:00:00Z"><w:r><w:t>new</w:t></w:r><w:proofErr/></w:ins>
+        <w:del w:id="5"><w:r><w:delText>old</w:delText><w:drawing/></w:r></w:del>
+        <w:moveFrom w:id="6"><w:r><w:delText>move</w:delText></w:r></w:moveFrom>
+        </w:p><w:sectPr/></w:body></w:document>"#
+    );
+    let bytes = fixture_with_body(&xml);
+    let doc = ImportedDocument::open(&bytes).unwrap();
+    let p = paragraph(&doc, 0);
+    let [
+        ImportedInlineNode::Revision(ins),
+        ImportedInlineNode::Revision(del),
+        ImportedInlineNode::Opaque(moved),
+    ] = p.inline_structure.as_slice()
+    else {
+        panic!("expected two revisions and an opaque move");
+    };
+    assert_eq!(
+        (
+            ins.kind,
+            ins.id.as_deref(),
+            ins.author.as_deref(),
+            ins.date.as_deref()
+        ),
+        (
+            "insertion",
+            Some("4"),
+            Some("Ada"),
+            Some("2024-01-01T00:00:00Z")
+        )
+    );
+    assert_eq!(
+        (del.kind, del.id.as_deref(), del.author.as_deref()),
+        ("deletion", Some("5"), None)
+    );
+    assert_eq!(moved, "w:moveFrom");
+    let [
+        ImportedInlineNode::Run(inserted),
+        ImportedInlineNode::Opaque(unknown),
+    ] = ins.children.as_slice()
+    else {
+        panic!("insertion children");
+    };
+    assert_eq!(unknown, "w:proofErr");
+    assert_eq!(inserted.items, [ImportedInline::Text("new".into())]);
+    let [ImportedInlineNode::Run(deleted)] = del.children.as_slice() else {
+        panic!("deletion children");
+    };
+    assert_eq!(
+        deleted.items,
+        [
+            ImportedInline::Text("old".into()),
+            ImportedInline::Opaque("w:drawing".into())
+        ]
+    );
+    assert!(matches!(
+        doc.inline_at(&del.anchor),
+        Ok(ImportedInlineNode::Revision(_))
+    ));
+    assert!(matches!(
+        doc.inline_at(&deleted.anchor),
+        Ok(ImportedInlineNode::Run(_))
+    ));
+    assert!(
+        ImportedDocument::open(&bytes)
+            .unwrap()
+            .inline_at(&deleted.anchor)
+            .is_err()
+    );
+    assert!(
+        doc.preview_with_text(
+            &[],
+            &[],
+            &[],
+            &[RunTextEdit {
+                target: inserted.anchor.clone(),
+                text: "unsafe".into()
+            }]
+        )
+        .is_err()
+    );
 }
 
 #[test]

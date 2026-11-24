@@ -22,6 +22,7 @@ from rocx.editor import (
     ImportedHeader,
     ImportedHeaderParagraph,
     ImportedHyperlink,
+    ImportedRevision,
     ImportedRun,
     ImportedStory,
     ImportedStoryParagraph,
@@ -37,6 +38,42 @@ from rocx.editor import (
 )
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
+
+
+def test_inline_revision_inspection_preserves_opaque_boundaries():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    source = docx.Document()
+    paragraph = source.add_paragraph()
+    for name, text in [("ins", "new"), ("del", "old")]:
+        revision = OxmlElement("w:" + name)
+        revision.set(qn("w:id"), "7")
+        revision.set(qn("w:author"), "Ada")
+        run = OxmlElement("w:r")
+        value = OxmlElement("w:t" if name == "ins" else "w:delText")
+        value.text = text
+        run.append(value)
+        run.append(OxmlElement("w:drawing"))
+        revision.append(run)
+        paragraph._p.append(revision)
+    buf = io.BytesIO()
+    source.save(buf)
+    imported = ImportedDocument.open(buf.getvalue())
+    insertion, deletion = imported.body[0].inline_structure
+    assert isinstance(insertion, ImportedRevision)
+    assert (insertion.kind, insertion.id, insertion.author, insertion.date) == ("insertion", "7", "Ada", None)
+    assert deletion.kind == "deletion"
+    for revision, expected in [(insertion, "new"), (deletion, "old")]:
+        run, = revision.children
+        assert [(item.kind, item.value) for item in run.items] == [("text", expected), ("opaque", "w:drawing")]
+        assert imported.inline_at(revision.anchor).kind == revision.kind
+        assert imported.inline_at(run.anchor).items[0].value == expected
+        with pytest.raises(ValueError):
+            imported.preview([], run_text=[RunTextEdit(run.anchor, "unsafe")])
+        with pytest.raises(ValueError):
+            ImportedDocument.open(buf.getvalue()).inline_at(run.anchor)
+    assert _parts(imported.preview([]).to_docx()) == _parts(buf.getvalue())
 
 
 def test_run_text_batch_preserves_formatting_and_is_atomic():

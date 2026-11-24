@@ -23,6 +23,15 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
+The #3 revision-inspection slice adds read-only inline insertion/deletion
+metadata and children in Rust, Python and JavaScript. Flat projections retain
+opaque boundaries; move revisions and revision editing remain open. Separately
+packed Node 22.23.5 and 24.22.3 runs passed installed declarations, focused
+revision inspection, Chromium 159 development and production suites, schema
+and OPC validation, and exact catalog DOCX byte parity across bindings. The
+Rust all-targets suite and Clippy passed; 756 Python tests passed with 57
+schema tests skipped, and those 57 passed in a separate schema-required run.
+
 ### Editor checkpoint (#3, PR #31)
 
 The hosted Rust showcase test left the seventh catalog output (`run-text.docx`)

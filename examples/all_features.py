@@ -456,6 +456,11 @@ async def generate(output: pathlib.Path) -> bytes:
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)
     imported = ImportedDocument.open(data)
+    revisions = [node for block in imported.body for node in getattr(block, "inline_structure", [])
+                 if getattr(node, "author", None) == "Catalog editor"]
+    for kind, text in [("insertion", "inserted wording"), ("deletion", "old wording")]:
+        revision, = (r for r in revisions if r.kind == kind and r.children[0].items[0].value == text)
+        assert imported.inline_at(revision.children[0].anchor).items[0].value == text
     entries = imported.entry_stories
     assert {e.kind for e in entries if e.id == "0"} >= {"footnote", "endnote"}
     review, = (e for e in entries if e.author == "Structured reviewer")

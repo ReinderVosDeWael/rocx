@@ -29,6 +29,12 @@ provides the six-artifact oracle, not the definition of completeness.
 
 ## Implementation and focused evidence
 
+Inline insertion/deletion inspection is read-only: Rust
+`ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
+`ImportedRevision` expose literal revision metadata, nested runs, and
+snapshot-scoped anchors. Flat projections retain opaque revision boundaries.
+Move revisions, nested revision wrappers, and revision editing are not covered.
+
 The linked `.mts` and `.mjs` fixtures exercise the installed declarations
 and adapter, respectively. Evidence is scoped to the assertions in the
 fixtures and the runtimes run for each owner; optional native reference

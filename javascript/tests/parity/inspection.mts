@@ -29,6 +29,7 @@ function structure(node: ImportedInlineNode): readonly (string | undefined)[] {
   switch (node.kind) {
     case "run": return run(node);
     case "hyperlink": return link(node);
+    case "revision": return [node.revisionKind, node.id, node.author, node.date, ...node.children.map(structure).flat()];
     case "opaque": return [node.name];
     default: return node satisfies never;
   }

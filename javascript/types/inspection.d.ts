@@ -6,7 +6,7 @@ declare const anchor: unique symbol;
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
 /** Read-only direct body table address. */
 export interface TableAnchor { readonly [anchor]: "table" }
-/** Snapshot-local run or hyperlink address; eligible direct body runs support text replacement. */
+/** Snapshot-local run, hyperlink or revision address; eligible direct body runs support text replacement. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
 /** Section-scoped target for a default-header edit. */
 export interface HeaderAnchor { readonly [anchor]: "header" }
@@ -44,7 +44,17 @@ export interface ImportedHyperlink {
   readonly children: readonly ImportedInlineNode[];
 }
 
-export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedOpaque;
+export interface ImportedRevision {
+  readonly kind: "revision";
+  readonly revisionKind: "insertion" | "deletion";
+  readonly anchor: InlineAnchor;
+  readonly id?: string;
+  readonly author?: string;
+  readonly date?: string;
+  readonly children: readonly ImportedInlineNode[];
+}
+
+export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque;
 
 export interface ImportedFlatParagraph {
   readonly kind: "paragraph";

@@ -300,6 +300,22 @@ struct PyImportedHyperlink {
     children: Vec<Py<PyAny>>,
 }
 
+#[pyclass(name = "ImportedRevision", frozen, module = "rocx.editor")]
+struct PyImportedRevision {
+    #[pyo3(get)]
+    anchor: Py<PyInlineAnchor>,
+    #[pyo3(get)]
+    kind: &'static str,
+    #[pyo3(get)]
+    id: Option<String>,
+    #[pyo3(get)]
+    author: Option<String>,
+    #[pyo3(get)]
+    date: Option<String>,
+    #[pyo3(get)]
+    children: Vec<Py<PyAny>>,
+}
+
 fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<Py<PyAny>> {
     use editor::ImportedInlineNode;
     let anchor = |inner: &editor::InlineAnchor| {
@@ -330,6 +346,22 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                 relationship_id: link.relationship_id.clone(),
                 bookmark: link.bookmark.clone(),
                 children: link
+                    .children
+                    .iter()
+                    .map(|child| inline_object(py, child))
+                    .collect::<PyResult<_>>()?,
+            },
+        )?
+        .into_any(),
+        ImportedInlineNode::Revision(revision) => Py::new(
+            py,
+            PyImportedRevision {
+                anchor: anchor(&revision.anchor)?,
+                kind: revision.kind,
+                id: revision.id.clone(),
+                author: revision.author.clone(),
+                date: revision.date.clone(),
+                children: revision
                     .children
                     .iter()
                     .map(|child| inline_object(py, child))
@@ -879,6 +911,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyInlineAnchor>()?;
     module.add_class::<PyImportedRun>()?;
     module.add_class::<PyImportedHyperlink>()?;
+    module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
     module.add_class::<PyImportedTableRow>()?;
