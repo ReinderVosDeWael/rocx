@@ -260,6 +260,20 @@ fn check_run(run: &Node, discard: bool) -> Result<()> {
     }
 }
 
+/// Revision operations may copy or discard either ordinary or deleted text.
+/// The caller checks the leaf shape; use the same local-property allowlist as
+/// whole-inline replacement.
+pub(super) fn disposable_run(run: &Node, tag: &str, text: &str) -> bool {
+    !has_other_attrs(run, &[])
+        && !opaque_content(run)
+        && !text.contains(['\t', '\r', '\n'])
+        && run
+            .child(tag)
+            .is_some_and(|n| !has_other_attrs(n, &["xml:space"]))
+        && run.elements().filter(|n| n.name == "w:rPr").count() <= 1
+        && run.child("w:rPr").is_none_or(disposable_properties)
+}
+
 fn check_whole(node: &Node, discard: bool) -> Result<()> {
     if node.name != "w:hyperlink" {
         return check_run(node, discard);
@@ -312,10 +326,8 @@ pub(super) fn apply(
             return Err(unsupported("duplicate or conflicting run target"));
         }
     }
-    apply_targets(body, targets, true)
+    apply_targets(body, targets, true, inline_changes)
 }
-
-type Targets<'a> = BTreeMap<(usize, usize), Option<&'a String>>;
 
 fn validate_text(text: &str) -> Result<()> {
     if text.contains(['\t', '\r', '\n']) || crate::document::invalid_xml_character(text).is_some() {
@@ -328,8 +340,9 @@ fn validate_text(text: &str) -> Result<()> {
 
 fn apply_targets(
     body: &mut Node,
-    mut targets: Targets<'_>,
+    mut targets: Targets,
     main_body: bool,
+    inline_changes: &mut Vec<(usize, usize)>,
 ) -> Result<(Vec<RunTextChange>, Vec<RunRemovalChange>)> {
     let mut changes = Vec::new();
     let mut removed = Vec::new();
@@ -461,7 +474,9 @@ impl super::ImportedDocument {
                 }
                 InlineLocation::Entry { index, block_index } => {
                     let entries = self.entry_stories()?;
-                    let e = &entries[*index];
+                    let e = entries
+                        .get(*index)
+                        .ok_or_else(|| unsupported("story entry not found"))?;
                     if e.part_name != owner_part {
                         return Err(unsupported("story text owner mismatch"));
                     }
@@ -494,7 +509,7 @@ impl super::ImportedDocument {
             if groups
                 .entry(entry)
                 .or_default()
-                .insert((block, *inline), Some(&edit.text))
+                .insert((block, *inline), Action::Text(edit.text.clone()))
                 .is_some()
             {
                 return Err(unsupported("duplicate story text target"));
@@ -504,11 +519,15 @@ impl super::ImportedDocument {
         let mut root = package.word(owner_part)?;
         let mut changed = false;
         if let Some(targets) = groups.remove(&None) {
-            changed = !apply_targets(&mut root, targets, false)?.0.is_empty();
+            changed = !apply_targets(&mut root, targets, false, &mut Vec::new())?
+                .0
+                .is_empty();
         } else {
             for (i, entry) in root.elements_mut().enumerate() {
                 if let Some(targets) = groups.remove(&Some(i)) {
-                    changed |= !apply_targets(entry, targets, false)?.0.is_empty();
+                    changed |= !apply_targets(entry, targets, false, &mut Vec::new())?
+                        .0
+                        .is_empty();
                 }
             }
         }

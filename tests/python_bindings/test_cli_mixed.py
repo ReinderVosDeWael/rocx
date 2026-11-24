@@ -43,6 +43,31 @@ def parts(path):
         return {n: archive.read(n) for n in archive.namelist()}
 
 
+def test_header_targets_exclude_footer_and_even_slots(cli, tmp_path):
+    source, output = tmp_path / "slots.docx", tmp_path / "copy.docx"
+    doc = docx.Document()
+    doc.add_paragraph("Keep")
+    section = doc.sections[0]
+    section.footer.paragraphs[0].text = "Default footer only"
+    section.even_page_header.paragraphs[0].text = "Even header"
+    section.first_page_header.paragraphs[0].text = "Supported first header"
+    doc.save(source)
+    original = source.read_bytes()
+    seen = call(cli, "inspect", source)
+    assert [h["target"] for h in seen["headers"]] == [dict(section_index=0, variant="first")]
+    png = list((FIXTURES / "images/sample.png").read_bytes())
+    for variant in ("default", "even"):
+        batch = dict(snapshot=seen["snapshot"], edits=[
+            dict(target=0, alignment="center"),
+            dict(kind="header-image", target=dict(section_index=0, variant=variant),
+                 mode="shared", bytes=png),
+        ])
+        call(cli, "preview", source, success=False, **batch)
+        call(cli, "save-copy", source, success=False, output=str(output), **batch)
+        assert not output.exists()
+    assert source.read_bytes() == original
+
+
 @pytest.mark.parametrize(("variant", "mode"), [("default", "shared"), ("first", "section-local")])
 async def test_all_seven_edits(cli, tmp_path, variant, mode):
     source, output = tmp_path / "source.docx", tmp_path / "copy.docx"

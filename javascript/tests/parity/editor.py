@@ -145,6 +145,7 @@ def verify_controls(directory):
 
 
 def generate(directory):
+    generate_controls(directory)
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
@@ -323,7 +324,33 @@ def inspect_header(before, after, change, image):
     return int(xp(header, ".//wp:docPr/@id")[0])
 
 
+def verify_ordinary(directory):
+    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, TextRangeEdit
+    source = directory / "base.docx"
+    output = directory / "combined.docx"
+    doc = ImportedDocument.open(source.read_bytes())
+    assert doc.preview(
+        [],
+        text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
+        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
+        resources=[ResourceEdit.core_title("Combined editor")],
+    ).to_docx() == output.read_bytes()
+    original, result = parts(source), parts(output)
+    assert original.keys() == result.keys()
+    untouched(original, result, (MAIN, "docProps/core.xml"))
+    for query in (".//w:fldSimple", ".//w:drawing", ".//w:sectPr"):
+        assert [tree(n) for n in xp(etree.fromstring(original[MAIN]), query)] == [
+            tree(n) for n in xp(etree.fromstring(result[MAIN]), query)]
+    readback = Document(output)
+    assert readback.core_properties.title == "Combined editor"
+    p = readback.paragraphs
+    assert p[1].text == "Xnset alignment"
+    assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
+
+
 def verify(directory):
+    verify_controls(directory)
+    verify_ordinary(directory)
     from rocx import declarative as d
     from rocx.editor import ImportedDocument, StyleEdit
     source_path = directory / "styles-source.docx"

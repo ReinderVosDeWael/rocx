@@ -7,8 +7,15 @@ also be used for text replacement or whole-run removal.
 
 ``ImportedDocument.preview`` stages paragraph alignments together with any of
 ``table_insertions=``, ``paragraph_insertions=``, ``cell_alignments=``,
-``header_images=``, ``text_ranges=``, ``run_text=``, and ``run_removals=`` in one transaction.
+``header_images=``, ``text_ranges=``, ``run_text=``, ``run_removals=``,
+``block_edits=``, ``inline_edits=``, ``table_structure=``, ``style_edits=``,
+``resources=``, and ``controls=`` in one transaction.
 All targets refer to the original snapshot.
+
+Track a direct body run with ``preview_tracked_text`` or move one with
+``preview_tracked_move``. Reopen the preview and use ``preview_revision`` to
+accept or reject one wrapper (both wrappers for moves). Paragraph text omits
+unreviewed wrappers; ``inline_structure`` retains their text and metadata.
 
 Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
 accepts paragraph, character and table declarations. ``StyleEdit.patch`` sets
@@ -22,6 +29,13 @@ for single-text runs in a physical header/footer or note/comment owner.
 """
 
 from ._native import (
+    AbstractStart,
+    ResourceEdit,
+    StyleAnchor,
+    StyleEdit,
+    ControlAnchor,
+    ControlEdit,
+    ImportedControl,
     BlockEdit,
     AlignmentChange,
     BodyOpaque,
@@ -69,6 +83,13 @@ from ._native import (
 ImportedStoryParagraph = ImportedHeaderParagraph
 
 __all__ = [
+    "AbstractStart",
+    "ResourceEdit",
+    "StyleAnchor",
+    "StyleEdit",
+    "ControlAnchor",
+    "ControlEdit",
+    "ImportedControl",
     "BlockEdit",
     "AlignmentChange",
     "BodyOpaque",

@@ -24,6 +24,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedStories", (stories, Paths::Package)),
         ("importedEntryStories", (entry_stories, Paths::Package)),
         ("importedStyles", (styles, Paths::Package)),
+        ("importedStyleAnchor", (style_anchor, Paths::Package)),
         ("importedCoreTitle", (core_title, Paths::Package)),
         (
             "importedDefaultAlignment",
@@ -48,14 +49,21 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("entryStories", "importedEntryStories"),
     ("styles", "importedStyles"),
     ("styleAnchor", "importedStyleAnchor"),
+    ("coreTitle", "importedCoreTitle"),
+    ("defaultAlignment", "importedDefaultAlignment"),
+    ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
+    ("previewTrackedText", "importedPreviewTrackedText"),
+    ("previewTrackedMove", "importedPreviewTrackedMove"),
+    ("previewRevision", "importedPreviewRevision"),
     ("preview", "importedPreview"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
 ];
 
 #[derive(Default)]
 struct Anchors {
+    styles: RefCell<HashMap<String, JsValue>>,
     controls: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
@@ -157,6 +165,19 @@ fn styles(input: &Wire) -> Result<JsValue> {
                 ("styles", view::array(items)),
             ])
         }))
+}
+
+fn style_anchor(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let id = b::string(&argument(&call, "id")?, "id")?;
+    let target = source.document().style_anchor(&id)?;
+    Ok(view::cached(
+        &source.anchors.styles,
+        id,
+        "styleAnchor",
+        &target,
+    ))
 }
 
 fn core_title(input: &Wire) -> Result<JsValue> {

@@ -1,26 +1,18 @@
-import { generateCatalog } from "../../catalog.mjs";
-
-const suffixes = {
-  final: "",
-  template: ".template",
-  edited: ".edited",
-  headerSource: ".header-source",
-  headerShared: ".header-shared",
-  headerLocal: ".header-local",
-  headerFirstShared: ".header-first-shared",
-  headerFirstLocal: ".header-first-local",
-  entryText: ".entry-text",
-  footerEven: ".footer-even",
-  runText: ".run-text",
-};
+import { catalogNames, generateCatalog } from "../../catalog.mjs";
 
 export async function catalogFixtures(readFixture, options) {
   const catalog = await generateCatalog(readFixture, options);
-  return Object.fromEntries(Object.entries(suffixes).map(([key, suffix]) => {
+  const names = Object.entries(catalogNames);
+  if (Object.keys(catalog).length !== names.length || new Set(Object.values(catalogNames)).size !== names.length) {
+    throw new Error("catalog filenames and generated artifacts differ");
+  }
+  return Object.fromEntries(names.map(([key, filename]) => {
     const bytes = catalog[key];
     if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
       throw new TypeError(`catalog ${key}: expected nonempty Uint8Array`);
     }
-    return [`catalog${suffix}`, bytes];
+    const match = /^all_features-javascript((?:\.[\w-]+)?)\.docx$/.exec(filename);
+    if (!match) throw new Error(`unexpected catalog filename: ${filename}`);
+    return [`catalog${match[1]}`, bytes];
   }));
 }

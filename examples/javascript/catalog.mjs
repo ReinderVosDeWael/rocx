@@ -186,7 +186,13 @@ export async function generateCatalog(fixtures, options) {
   assert(editTargets.length === 1 && editTargets[0].alignment === "left", "expected unique left-aligned target");
   const [target] = editTargets;
   checkText(target.inlineItems, [EDIT_LABEL]);
+  assert(imported.coreTitle() === "All features visual inspection" && imported.defaultAlignment() === undefined,
+    "unexpected direct catalog defaults");
+  assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
+    "missing shared abstract numbering level");
   const textPreview = imported.preview({
+    controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
+      alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
@@ -195,6 +201,11 @@ export async function generateCatalog(fixtures, options) {
   });
   assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");
   const change = textPreview.runTextChanges().find(c => c.before === INLINE_LABEL);
+  const whole = imported.preview({inlineEdits: [
+    {kind: "setBold", target: textEdit.target, bold: false},
+    {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
+  ]});
+  assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");
   const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
   assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
@@ -241,6 +252,16 @@ export async function generateCatalog(fixtures, options) {
     "accepted a foreign edit anchor");
 
   const headers = await openDocx(headerSource);
+  // Tracked replacement and paired move are independent opt-in previews.
+  const [from, after] = [0, 2].map(i => headers.body()[i].inlineStructure[0].anchor);
+  const metadata = {author: "Reviewer", date: "2026-11-19T00:00:00Z"};
+  const tracked = headers.previewTrackedText({target: from, kind: "replace", text: "Reviewed label", ...metadata});
+  assert((await openDocx(tracked.toDocx())).body()[0].text === "", "tracked replacement projection");
+  const moved = headers.previewTrackedMove({target: from, after, name: "CatalogMove", ...metadata});
+  const pair = await openDocx(moved.toDocx());
+  const restored = pair.previewRevision({target: pair.body()[0].inlineStructure[1].anchor,
+    paired: pair.body()[2].inlineStructure[2].anchor, action: "reject"});
+  assert((await openDocx(restored.toDocx())).body()[0].text === HEADER_BATCH_LABEL, "rejected move");
   const blockTarget = headers.body()[2].anchor;
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [

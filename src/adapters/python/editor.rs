@@ -979,6 +979,15 @@ struct PyEditPreview {
 #[pymethods]
 impl PyEditPreview {
     #[getter]
+    fn inline_changes(&self) -> PyResult<Vec<(usize, usize)>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .inline_changes()
+            .to_vec())
+    }
+    #[getter]
     fn block_changes(&self) -> PyResult<Vec<usize>> {
         Ok(self
             .inner
@@ -1592,7 +1601,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1603,6 +1612,12 @@ impl PyImportedDocument {
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
         text_ranges: Option<Vec<PyRef<'_, PyTextRangeEdit>>>,
+        block_edits: Option<Vec<PyRef<'_, PyBlockEdit>>>,
+        inline_edits: Option<Vec<PyRef<'_, PyInlineEdit>>>,
+        table_structure: Option<Vec<PyRef<'_, PyTableStructureEdit>>>,
+        style_edits: Option<Vec<PyRef<'_, PyStyleEdit>>>,
+        resources: Option<Vec<PyRef<'_, PyResourceEdit>>>,
+        controls: Option<Vec<PyRef<'_, PyControlEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1619,10 +1634,22 @@ impl PyImportedDocument {
                 table: insertion.table.clone(),
             })
             .collect();
-        let header_images: Vec<_> = header_images
+        macro_rules! inner_edits {
+            ($items:ident) => {
+                $items
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|e| e.inner.clone())
+                    .collect::<Vec<_>>()
+            };
+        }
+        let paragraphs: Vec<_> = paragraph_insertions
             .unwrap_or_default()
             .iter()
-            .map(|edit| edit.inner.clone())
+            .map(|e| editor::ParagraphInsertion {
+                target: e.target.clone(),
+                paragraph: e.paragraph.clone(),
+            })
             .collect();
         let doc = self
             .inner
@@ -1630,39 +1657,22 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_with_ranges(
-                    &edits,
-                    &insertions,
-                    &header_images,
-                    &run_text
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|e| e.inner.clone())
-                        .collect::<Vec<_>>(),
-                    &paragraph_insertions
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|e| editor::ParagraphInsertion {
-                            target: e.target.clone(),
-                            paragraph: e.paragraph.clone(),
-                        })
-                        .collect::<Vec<_>>(),
-                    &cell_alignments
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|e| e.inner.clone())
-                        .collect::<Vec<_>>(),
-                    &run_removals
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|anchor| anchor.inner.clone())
-                        .collect::<Vec<_>>(),
-                    &text_ranges
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|r| r.inner.clone())
-                        .collect::<Vec<_>>(),
-                )
+                doc.preview_edits(editor::EditBatch {
+                    alignments: &edits,
+                    tables: &insertions,
+                    header_images: &inner_edits!(header_images),
+                    run_text: &inner_edits!(run_text),
+                    paragraphs: &paragraphs,
+                    cells: &inner_edits!(cell_alignments),
+                    run_removals: &inner_edits!(run_removals),
+                    ranges: &inner_edits!(text_ranges),
+                    blocks: &inner_edits!(block_edits),
+                    inline_edits: &inner_edits!(inline_edits),
+                    structural: &inner_edits!(table_structure),
+                    styles: &inner_edits!(style_edits),
+                    resources: &inner_edits!(resources),
+                    controls: &inner_edits!(controls),
+                })
                 .map_err(rust_error)?,
             ),
         })
@@ -1670,6 +1680,13 @@ impl PyImportedDocument {
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyAbstractStart>()?;
+    module.add_class::<PyResourceEdit>()?;
+    module.add_class::<PyStyleAnchor>()?;
+    module.add_class::<PyStyleEdit>()?;
+    module.add_class::<PyControlAnchor>()?;
+    module.add_class::<PyControlEdit>()?;
+    module.add_class::<PyImportedControl>()?;
     module.add_class::<PyBlockEdit>()?;
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;

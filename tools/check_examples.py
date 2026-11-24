@@ -839,8 +839,10 @@ def verify_even_footer(data: bytes) -> None:
 
 
 def verify_run_text(original: bytes, replaced: bytes) -> None:
-    assert docx.Document(io.BytesIO(replaced)).core_properties.title == "Edited resource sample"
-    paragraphs = [p.text for p in docx.Document(io.BytesIO(replaced)).paragraphs]
+    edited_doc = docx.Document(io.BytesIO(replaced))
+    assert edited_doc.element.xpath("//w:sdtPr[w:id/@w:val='5001']/w:alias/@w:val") == ["Imported editor caption"]
+    assert edited_doc.core_properties.title == "Edited resource sample"
+    paragraphs = [p.text for p in edited_doc.paragraphs]
     assert "Ranged 📝" + EDIT_LABEL[8:] in paragraphs
     anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
     assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
@@ -856,7 +858,7 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
 
 def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:
     """Require every file and check content and untouched payloads separately."""
-    artifacts = []
+    artifacts = {}
     for suffix in CATALOG_SUFFIXES:
         path = directory / f"all_features-javascript{suffix}"
         data = path.read_bytes()
@@ -864,17 +866,21 @@ def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> No
             digest = exact_bytes(rust.with_suffix(suffix).read_bytes(), data, language="JavaScript")
         except AssertionError as error:
             raise AssertionError(f"{path}: {error}") from error
-        artifacts.append(data)
+        artifacts[suffix] = data
         print(f"Byte-identical {path}: {len(data)} bytes; SHA-256 {digest}")
-    final, template, edited, source, shared, local, first_shared, first_local, run_text, footer_even, entry_text = artifacts
-    verify_entry_text(final, entry_text)
-    verify_even_footer(footer_even)
-    # Compare source/result payloads within the JS artifacts, independent of the Rust oracle.
-    verify_content(final, template)
-    verify_run_text(final, run_text)
-    verify_edited(final, edited)
-    verify_header_scopes(source, shared, local)
-    verify_first_header_scopes(source, first_shared, first_local)
+    verify_catalog_readback(artifacts)
+
+
+def verify_catalog_readback(files: dict[str, bytes]) -> None:
+    """Inspect source/result payloads within a single binding's catalog."""
+    final, source = files[".docx"], files[".header-source.docx"]
+    verify_entry_text(final, files[".entry-text.docx"])
+    verify_even_footer(files[".footer-even.docx"])
+    verify_content(final, files[".template.docx"])
+    verify_run_text(final, files[".run-text.docx"])
+    verify_edited(final, files[".edited.docx"])
+    verify_header_scopes(source, files[".header-shared.docx"], files[".header-local.docx"])
+    verify_first_header_scopes(source, files[".header-first-shared.docx"], files[".header-first-local.docx"])
 
 
 def main() -> None:
@@ -886,30 +892,13 @@ def main() -> None:
     args = parser.parse_args()
     verify_inventory()
     rust, python = generate(args.output_dir)
-    digest = exact_bytes(rust.read_bytes(), python.read_bytes())
-    exact_bytes(rust.with_suffix(".template.docx").read_bytes(), python.with_suffix(".template.docx").read_bytes())
-    edited = rust.with_suffix(".edited.docx").read_bytes()
-    edited_digest = exact_bytes(edited, python.with_suffix(".edited.docx").read_bytes())
-    replaced = rust.with_suffix(".run-text.docx").read_bytes()
-    exact_bytes(replaced, python.with_suffix(".run-text.docx").read_bytes())
-    verify_run_text(rust.read_bytes(), replaced)
-    verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
-    verify_edited(rust.read_bytes(), edited)
-    verify_even_footer(rust.with_suffix(".footer-even.docx").read_bytes())
-    verify_entry_text(rust.read_bytes(), rust.with_suffix(".entry-text.docx").read_bytes())
-    for suffix in [".entry-text.docx", ".footer-even.docx", ".header-source.docx", ".header-shared.docx", ".header-local.docx",
-                   ".header-first-shared.docx", ".header-first-local.docx"]:
+    native = {}
+    for suffix in CATALOG_SUFFIXES:
         data = rust.with_suffix(suffix).read_bytes()
-        header_digest = exact_bytes(data, python.with_suffix(suffix).read_bytes())
-        print(f"Byte-identical {suffix[1:]}: {len(data)} bytes; SHA-256 {header_digest}")
-    verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in [
-        ".header-source.docx", ".header-shared.docx", ".header-local.docx"
-    ]))
-    verify_first_header_scopes(rust.with_suffix(".header-source.docx").read_bytes(),
-                               rust.with_suffix(".header-first-shared.docx").read_bytes(),
-                               rust.with_suffix(".header-first-local.docx").read_bytes())
-    print(f"Byte-identical DOCX: {len(rust.read_bytes())} bytes; SHA-256 {digest}")
-    print(f"Byte-identical edited DOCX: {len(edited)} bytes; SHA-256 {edited_digest}")
+        digest = exact_bytes(data, python.with_suffix(suffix).read_bytes())
+        print(f"Byte-identical {suffix}: {len(data)} bytes; SHA-256 {digest}")
+        native[suffix] = data
+    verify_catalog_readback(native)
     print(f"Rust:   {rust}\nPython: {python}")
     for directory in args.javascript_dir:
         verify_javascript_catalog(rust, directory)

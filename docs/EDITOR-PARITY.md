@@ -91,8 +91,8 @@ Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
 `paragraphInsertions` in the preview batch. Payloads are resolved declarations;
 their supported inline content and referenced styles use the table-insertion
 guards. An anchor cannot receive both a paragraph and a table insertion in one
-batch. Paragraph replacement and removal, and paragraph insertion in other
-stories, are unsupported.
+batch. For guarded paragraph replacement/removal, see [body block edits](#body-block-edits).
+Paragraph insertion in other stories is unsupported.
 
 Whole-inline edits address a direct child of a direct body paragraph. Insert after
 or replace a single text, break or tab run, or a hyperlink containing only such
@@ -186,7 +186,8 @@ opaque nodes are not addressable. Direct body run anchors support a single-text
 replacement via `RunTextEdit`. Whole-run removal is stricter: the selected
 run must have recognized local formatting and no unsafe or unknown markup.
 Replacement and removal of the same run conflict. Direct-body whole-inline edits
-are described above; inline addresses in other stories and cells remain read-only.
+are described above. Cell run anchors are inspection-only; selected runs in
+other stories support the physical-owner operation below.
 
 Inline `w:ins` and `w:del` wrappers are also inspectable without applying them:
 Rust `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
@@ -229,7 +230,9 @@ wrong content type or missing entry ID fails without changing the snapshot.
 [Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
 part identity and direct style ID, kind, name, and base reference in all three
 bindings. See [imported style edits](#imported-style-edits) for definition
-and property edits. Effective formatting and arbitrary resource editing remain outstanding.
+and property edits. The resource guide also covers direct [core title, default alignment
+and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
+Effective formatting and arbitrary resource editing remain outstanding.
 
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
@@ -252,15 +255,54 @@ one physical header, footer, or note/comment part. Inherited slots see the same
 text. References, range markers, note IDs and comment metadata stay intact.
 Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 
-To combine these seven edit kinds in one call, Rust uses
-`preview_mixed(alignments, tables, header_images, run_text, paragraphs, cells, run_removals)`.
-Python uses `preview(alignments, table_insertions=..., header_images=..., run_text=...,
-paragraph_insertions=..., cell_alignments=..., run_removals=..., controls=...)`; JavaScript uses
-`preview({alignments, tableInsertions, headerImages, runText, paragraphInsertions,
-cellAlignments, runRemovals, controls})`. Every target comes from the original snapshot.
+### Combine ordinary edits
+
+Rust accepts `doc.preview_edits(EditBatch { /* slices */, ..Default::default() })`;
+existing `preview_*` methods remain available. In Python use `doc.preview(alignments, ...)`;
+in JavaScript use `doc.preview({...})`. The corresponding batch fields are:
+
+| Rust slice | Python argument | JavaScript field |
+| --- | --- | --- |
+| `alignments` | `edits` (first argument; pass `[]` for none) | `alignments` |
+| `tables` | `table_insertions` | `tableInsertions` |
+| `header_images` | `header_images` | `headerImages` |
+| `run_text` | `run_text` | `runText` |
+| `paragraphs` | `paragraph_insertions` | `paragraphInsertions` |
+| `cells` | `cell_alignments` | `cellAlignments` |
+| `run_removals` | `run_removals` | `runRemovals` |
+| `ranges` | `text_ranges` | `textRanges` |
+| `blocks` | `block_edits` | `blockEdits` |
+| `inline_edits` | `inline_edits` | `inlineEdits` |
+| `structural` | `table_structure` | `tableStructure` |
+| `styles` | `style_edits` | `styleEdits` |
+| `resources` | `resources` | `resources` |
+| `controls` | `controls` | `controls` |
+
+Every target comes from the original snapshot. New content does not supply
+anchors until you reopen the result. Physical-owner story text edits and
+tracked/reviewed revisions have their own calls.
 A shared edit conflicts with any other image edit on that
 physical part. Distinct sections may each fork the same original story
 with section-local edits. A rejected operation produces no partial preview.
+
+For example:
+
+- Two disjoint scalar selections may share a run. A whole-inline action
+  (including insert-after or set-bold), run replacement or removal may not
+  target a run touched by a selection, even if the selected text is unchanged.
+- Paragraph replacement/removal reserves that entire original paragraph.
+  Section replacement also reserves the insertion slot immediately after
+  the preceding section break. Keep-with-next and direct alignment can
+  share a paragraph because they patch different properties.
+- A geometry change conflicts with another structural operation or a cell
+  alignment in the same table. Distinct cell content replacements may
+  share a table: replacing cell content preserves its cell properties.
+- A style edit and a default-alignment edit can share the styles part:
+  changing a definition and changing the document default are distinct
+  targets. New definitions are available to inserted content. A style
+  removal/replacement must be safe in both the original and staged content:
+  removing the last user in this batch does not free a previously used
+  style, and introducing a new user of the target also rejects the batch.
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
@@ -328,3 +370,28 @@ Structural block operations reserve their entire original range against other bo
 Keep-with-next can accompany an alignment patch on the same paragraph.
 Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
 original start index per operation (unchanged direct keep-with-next omitted).
+
+## Imported style edits
+
+| Operation | Rust | Python (`rocx.editor`) | JavaScript |
+| --- | --- | --- | --- |
+| Address an exact style ID | `doc.style_anchor(id)?` | `doc.style_anchor(id)` | `doc.styleAnchor(id)` |
+| Add a declaration | `StyleEdit::Add(definition)` | `StyleEdit.add(definition)` | `{op: "add", definition}` |
+| Patch just bold / italic | `StyleEdit::Patch {target, bold, italic}` | `StyleEdit.patch(target, italic=True)` | `{op: "patch", target, italic: true}` |
+| Replace an unused definition | `StyleEdit::Replace {target, definition}` | `StyleEdit.replace(target, definition)` | `{op: "replace", target, definition}` |
+| Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
+| Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
+
+Add paragraph, character or table declarations to an existing relationship-selected
+styles part. Names and generated IDs must be unambiguous. The authoring codec
+resolves forward references and checks their types and inheritance cycles.
+Patches address direct paragraph/character run properties, including explicit
+false; omitted properties, unknown siblings and attributes are preserved.
+
+Replace and remove require a nondefault custom style with a simple definition
+(name, base, empty paragraph properties and/or bold/italic). Replacement retains
+its type, ID, display name and source slot. Both operations reject potential
+references elsewhere in the package, including other styles, settings, stories,
+numbering and fields, and reject unsupported markup or parts when usage cannot
+be established. There is no automatic retargeting, numbering-style creation or
+synthesis of a missing styles part.

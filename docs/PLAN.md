@@ -1,31 +1,45 @@
 # Active plan — editing existing DOCX files
 
-Blocks topic (#3): direct paragraph replacement/removal, paragraph-anchored
-section replacement with ordered resolved paragraphs/tables, and keep-with-next
-patches share the original-snapshot transaction. The section's original break
-and header/footer inheritance are preserved. Replacement of source sections
-containing tables or opaque content remains unsupported.
-
-Topic verification: 43 Rust editor tests plus the showcase, 32 installed
-Python editor tests, native/Wasm Clippy and strict installed TypeScript passed.
-Packed Node 24 and Chromium 159 matched 13 native editor outputs. The mixed
-block output matched Python and passed independent python-docx, unchanged-part,
-OPC and 11-part schema checks. All nine catalogs matched across the bindings.
-
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
 ## Current milestone: implement the remaining editor capabilities
 
-Ten parallel worktrees start from `fad29a9`. Track their acceptance separately
-under #3: text ranges (#42), paragraph and section edits (#43), inline edits
-(#44), row and cell edits (#45), story edits (#46), styles (#47), numbering,
-defaults and metadata (#48), revisions (#49), controls (#50), and CLI coverage
-of the seven previously integrated edit kinds (#51). A partial implementation
-leaves its ticket open. Before closing the umbrella, reconcile these results
-with the [operation inventory](EDITOR-PARITY.md#operation-contract) and
-verify combined batches, preservation and exact cross-binding output again.
+The ten topic branches start from `fad29a9`. This is the scope of the
+combined candidate, not a record of default-branch acceptance. #3 remains
+open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
+and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#operation-contract).
 
-## Previous milestone: qualify the combined #3 editor
+| Ticket | Supported in the candidate | Still outside the implementation |
+| --- | --- | --- |
+| #42 Text ranges | Replace or delete nonempty scalar ranges across simple, singly textual runs of a direct body paragraph, retaining formatting outside the selection. | Cross-paragraph offsets, mixed/opaque paragraphs, zero-length insertion and other stories. |
+| #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
+| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
+| #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
+| #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
+| #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
+| #48 Resources | Inspect and set/clear core title, paragraph-default alignment and shared abstract numbering level start. | Creating missing parts, editing instances/overrides or paragraph numbering references, other defaults and metadata. |
+| #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
+| #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
+| #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
+| #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
+
+**Qualification:** topic-specific Rust, installed Python and packed JavaScript
+results belong to the individual branches, which exercised different artifacts
+and runtimes. Before accepting the combined candidate, run the mixed-batch
+and conflict oracles, all eleven catalog comparisons, independent readback and
+untouched-part/schema checks across installed consumers, including Node and
+Chromium. Record the tested commit and results separately. Keep partially met
+tickets open.
+
+## Selected standalone topic results (before ten-way integration)
+
+For the individual verification records, read `docs/PLAN.md` at the topic
+tips: ranges `6baa54d`, blocks `f4d5a58`, inlines `069f5c6`, tables `ae725f9`,
+stories `07bb554`, styles `8e47b52`, resources `dc5c832`, revisions `cba0e66`,
+controls `7ac2012`, CLI `9c2a4aa`. For example, the stories branch compared
+eleven catalog artifacts across Rust, installed Python and packed Node, and
+the CLI branch compared two seven-kind batches with Python. Neither run
+exercised the ten-way transaction.
 
 Style editing slice (#3): paragraph/character/table additions, direct bold and
 italic patches, and guarded replacement/removal of simple unused custom styles
@@ -56,6 +70,8 @@ editor tests. The four new DOCX outputs matched across Rust, installed Python,
 Node and Chromium, with independent readback, untouched-part and schema/OPC
 checks. All nine catalog artifacts matched across Rust, Python and Node.
 
+## Previous milestone: qualify the #41 editor
+
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 [CLI contract](CLI.md) for its digest-bound mixed-edit workflow.
@@ -68,7 +84,7 @@ Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 | Stories | Append an inline image to a default or first-page header with explicit shared or section-local intent. |
 | Resources | Inspect relationship-selected style identities, kinds, names and base references. |
 | Controls and revisions | Inspect direct body control metadata and inline insertion/deletion wrappers; neither is editable. |
-| CLI | Inspect paragraph, run, physical cell and header-slot addresses; preview all seven core edit kinds together and save to a new path. |
+| CLI | Digest-bound alignment preview and save-copy. The later #51 topic adds the other six edit kinds. |
 
 **Combined verification passed locally on `6b34ff0`.** All Rust targets, three
 doctests, native/Wasm Clippy, the Rust 1.88 check, 822 schema-required Python
@@ -372,7 +388,7 @@ existing declarative and template APIs intact.
    parity and coverage checks. Require exact Rust/Python/JavaScript DOCX byte parity
    for equivalent edit batches, not just normalized XML equality.
 
-The editor opens an unsigned Transitional DOCX in all three bindings, exposes
+**Historical implementation baseline (before #42–#51):** the editor opens an unsigned Transitional DOCX in all three bindings, exposes
 direct body paragraphs, tables, control metadata and opaque blocks, and previews
 alignment patches and declarative paragraph and table insertions. Body, cell
 and inspected story paragraphs expose run, hyperlink and revision structure with
@@ -423,11 +439,9 @@ checks passed, with five byte-identical reports and schema/OPC validation.
 The full Rust/Python catalog also passed exact byte parity. The full JavaScript
 binding checkpoint above supersedes this initial slice.
 
-Tasks 1–3 passed on the original python-docx fixture. Tasks 4–9 have partial
-implementations; see the current milestone above. Entry story inspection includes
-notes and comments; table structure edits, general paragraph and inline editing,
-resource mutation and broader CLI coverage remain open. Task 10 requires the
-combined gate and completion of the feature inventory.
+Tasks 1–3 passed on the original python-docx fixture. For the coverage of
+tasks 4–9 after #42–#51, see the [current milestone](#current-milestone-implement-the-remaining-editor-capabilities).
+Task 10 requires the combined gate and completion of the feature inventory.
 
 1. Generate the [python-docx editor fixture](../tests/fixtures/README.md#python-docx-editor-fixture)
    with formatted body text, an insertion anchor, and two sections sharing a

@@ -13,6 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
+    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit,
     TableInsertion, TextRangeEdit, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
@@ -497,7 +498,16 @@ async def generate(output: pathlib.Path) -> bytes:
     assert [(item.kind, item.value) for item in targets[0].inline_items] == [
         ("text", EDIT_LABEL),
     ]
+    assert imported.core_title == "All features visual inspection" and imported.default_alignment is None
+    assert any((s.abstract_id, s.level, s.start) == (100, 0, 1) for s in imported.abstract_starts)
+    assert {(c.context, c.id) for c in imported.controls} >= {
+        ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
+    caption, = (c for c in imported.controls if c.id == "5001")
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
+                               resources=[ResourceEdit.core_title("Edited resource sample"),
+                                          ResourceEdit.default_alignment("center"),
+                                          ResourceEdit.abstract_start(100, 0, 7)],
+                               controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
                                run_text=[RunTextEdit(label.anchor, replacement)],
                                paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
     assert preview.paragraph_insertions == [
@@ -505,6 +515,9 @@ async def generate(output: pathlib.Path) -> bytes:
              if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     ]
     assert any(c.before == INLINE_LABEL for c in preview.run_text_changes)
+    whole = imported.preview([], inline_edits=[InlineEdit.set_bold(label.anchor, False),
+        InlineEdit.insert_after(inline_link.anchor, await d.TextRun("Imported editor: inserted paragraph.").resolve())])
+    assert whole.inline_changes[-1][1] == 1
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
     output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())

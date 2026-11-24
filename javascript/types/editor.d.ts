@@ -1,6 +1,6 @@
 import type { ResolvedImage } from "./drawings.js";
 import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
-import type { HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
+import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
 
@@ -56,6 +56,12 @@ export type InlineEdit = { readonly target: InlineAnchor } & (
 );
 
 export interface EditBatch {
+  readonly blockEdits?: readonly BlockEdit[];
+  readonly inlineEdits?: readonly InlineEdit[];
+  readonly tableStructure?: readonly TableStructureEdit[];
+  readonly styleEdits?: readonly StyleEdit[];
+  readonly resources?: readonly ResourceEdit[];
+  readonly controls?: readonly ControlEdit[];
   readonly textRanges?: readonly TextRangeEdit[];
   readonly runText?: readonly RunTextEdit[];
   readonly runRemovals?: readonly InlineAnchor[];
@@ -67,6 +73,32 @@ export interface EditBatch {
 }
 
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
+export type TableStructureEdit =
+  | { readonly target: TableAnchor; readonly kind: "insertRow" | "removeRow" | "insertColumn" | "removeColumn"; readonly index: number }
+  | { readonly target: TableAnchor; readonly kind: "insertCell" | "removeCell"; readonly row: number; readonly cell: number }
+  | { readonly target: TableAnchor; readonly kind: "replaceCell"; readonly row: number; readonly cell: number; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[] };
+
+declare const styleAnchor: unique symbol;
+export interface StyleAnchor { readonly [styleAnchor]: true }
+type EditableDefinition = Exclude<StyleDefinition, NumberingStyleDefinition>;
+export type StyleEdit =
+  | { readonly op: "add"; readonly definition: EditableDefinition }
+  | { readonly op: "patch"; readonly target: StyleAnchor; readonly bold?: boolean; readonly italic?: boolean }
+  | { readonly op: "replace"; readonly target: StyleAnchor; readonly definition: EditableDefinition }
+  | { readonly op: "remove"; readonly target: StyleAnchor };
+
+export type ResourceEdit =
+  | { readonly kind: "coreTitle"; readonly value: string | null }
+  | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
+  | { readonly kind: "abstractStart"; readonly abstractId: number; readonly level: number; readonly value: number | null };
+
+export interface ControlEdit {
+  readonly target: ControlAnchor;
+  readonly tag?: string;
+  readonly alias?: string;
+  readonly text?: string;
+}
+
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
 export interface RunRemovalChange {
   readonly bodyIndex: number;
@@ -112,8 +144,8 @@ export interface EditPreview {
   runRemovals(): readonly RunRemovalChange[];
   /** Insertions in original body order. */
   insertions(): readonly TableInsertionChange[];
-  /** Original body indices after which paragraphs were inserted. */
   inlineChanges(): readonly (readonly [number, number])[];
+  /** Original body indices after which paragraphs were inserted. */
   paragraphInsertions(): readonly number[];
   /** Changes in target section order. */
   headerChanges(): readonly HeaderImageChange[];
@@ -129,6 +161,23 @@ export interface HeaderImagePreview {
 
 declare module "./inspection.js" {
   interface ImportedDocument {
+    styleAnchor(id: string): StyleAnchor;
+    /** Explicitly track a single-text direct body run edit. */
+    previewTrackedText(edit: {
+      readonly target: InlineAnchor; readonly author: string; readonly date?: string;
+    } & (
+      | { readonly kind: "replace" | "insertAfter"; readonly text: string }
+      | { readonly kind: "delete"; readonly text?: never }
+    )): EditPreview;
+    /** Generate both move legs using a fresh name and a required UTC date. */
+    previewTrackedMove(edit: {
+      readonly target: InlineAnchor; readonly after: InlineAnchor;
+      readonly name: string; readonly author: string; readonly date: string;
+    }): EditPreview;
+    /** Review one insertion/deletion wrapper; moves require both wrappers. */
+    previewRevision(edit: {
+      readonly target: InlineAnchor; readonly action: "accept" | "reject"; readonly paired?: InlineAnchor;
+    }): EditPreview;
     /** Change single-text runs in the named physical story part, including all aliases. */
     editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */

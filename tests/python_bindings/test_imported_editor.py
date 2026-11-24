@@ -94,6 +94,37 @@ async def test_block_edits_protect_ranges_conflicts_and_original_addresses():
     assert len(readback.sections) == 2 and len(readback.paragraphs) == 4
 
 
+def test_mixed_control_edit_and_removal_use_original_run_positions():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    source = docx.Document()
+    paragraph = source.add_paragraph("remove")
+    run = paragraph.add_run("keep")
+    run.italic = True
+    control, props, content = (OxmlElement("w:" + tag) for tag in ("sdt", "sdtPr", "sdtContent"))
+    tag = OxmlElement("w:tag")
+    tag.set(qn("w:val"), "sample")
+    props.append(tag)
+    content.append(run._r)
+    control.extend((props, content))
+    paragraph._p.append(control)
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    target = imported.controls[0].anchor
+    noop = imported.preview([], controls=[ControlEdit(target, tag="sample", text="keep")]).to_docx()
+    with ZipFile(io.BytesIO(data)) as before, ZipFile(io.BytesIO(noop)) as after:
+        assert before.read("word/document.xml") == after.read("word/document.xml")
+    preview = imported.preview([], run_removals=[imported.body[0].inline_structure[0].anchor],
+                               controls=[ControlEdit(target, text="changed")])
+    changed = docx.Document(io.BytesIO(preview.to_docx()))
+    assert changed.element.xpath("//w:p/w:r") == []
+    assert changed.element.xpath("//w:sdtContent/w:r/w:t/text()") == ["changed"]
+    assert changed.element.xpath("//w:sdtContent/w:r/w:rPr/w:i")
+
+
 def test_inline_revision_inspection_preserves_opaque_boundaries():
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -190,6 +221,44 @@ def test_review_rejects_ambiguous_or_referenced_moves_atomically(damage):
             source.preview_revision(src.anchor, action, paired=dst.anchor)
         assert source.inline_at(src.anchor).kind == "moveSource"
         assert _parts(source.preview([]).to_docx()) == _parts(stream.getvalue())
+
+
+async def test_mixed_new_edits_preserve_original_coordinates_across_parts():
+    from rocx.editor import InlineEdit, ResourceEdit
+
+    original = (FIXTURES / "imported-editor.docx").read_bytes()
+    source = ImportedDocument.open(original)
+    tail = source.body[3]
+    run = tail.inline_structure[0].anchor
+    inline = InlineEdit.replace(run, await d.TextRun("Edited tail").resolve())
+    title = ResourceEdit.core_title("Mixed transaction")
+
+    def stage(remove):
+        return source.preview([], inline_edits=[inline], block_edits=[BlockEdit.remove(remove)],
+                              resources=[title])
+
+    with pytest.raises(ValueError):
+        stage(tail.anchor)
+    before = _parts(original)
+    assert _parts(source.preview([]).to_docx()) == before
+    preview = stage(source.body[1].anchor)
+    assert preview.block_changes == [1] and preview.inline_changes == [(3, 0)]
+    data = preview.to_docx()
+    after = _parts(data)
+    assert before.keys() == after.keys()
+    assert {k for k in before if before[k] != after[k]} == {"word/document.xml", "docProps/core.xml"}
+    independent = docx.Document(io.BytesIO(data))
+    assert [p.text for p in independent.paragraphs] == ["Patch me", "", "Edited tail"]
+    assert independent.paragraphs[0].hyperlinks[0].url == "https://example.invalid/body"
+    assert independent.core_properties.title == "Mixed transaction"
+    assert len(independent.sections) == 2 and independent.sections[1].header.is_linked_to_previous
+    reopened = ImportedDocument.open(data)
+    fresh = reopened.body[2].inline_structure[0].anchor
+    assert fresh != run and reopened.inline_at(fresh).anchor == fresh
+    with pytest.raises(ValueError, match="snapshot"):
+        reopened.preview([], inline_edits=[inline], resources=[ResourceEdit.core_title(None)])
+    assert _parts(reopened.preview([]).to_docx()) == after
+    assert stage(source.body[1].anchor).to_docx() == data
 
 
 async def test_mixed_cell_paragraph_and_run_edits_use_original_indices_atomically():
@@ -1166,3 +1235,71 @@ async def test_inline_range_and_ambiguous_properties_reject_batch():
         with pytest.raises(ValueError):
             doc.preview([], run_text=[RunTextEdit(first.anchor, "other")], inline_edits=[bad])
     assert _parts(doc.preview([]).to_docx()) == _parts(out.getvalue())
+
+
+async def test_table_structure_merged_fixture_and_atomic_rejection():
+    from rocx.editor import TableStructureEdit as E
+
+    source = docx.Document()
+    source.add_paragraph("before")
+    table = source.add_table(rows=2, cols=3)
+    table.cell(0, 0).merge(table.cell(1, 1)).text = "merged"
+    table.cell(0, 2).text = "content"
+    # An unmodeled nested block must survive work elsewhere in this table.
+    nested = table.cell(1, 2).add_table(rows=1, cols=1)
+    nested.cell(0, 0).text = "opaque table"
+    source.add_paragraph("after")
+    stream = io.BytesIO()
+    source.save(stream)
+    original = stream.getvalue()
+    imported = ImportedDocument.open(original)
+    before, target, after = imported.body
+    a = target.anchor
+    insertion = ParagraphInsertion(before.anchor, await d.Paragraph(text="new body block").resolve())
+    replacement = await d.Paragraph(children=[d.Hyperlink("https://example.org/cell", [d.TextRun("link")])]).resolve()
+
+    def stage(*edits):
+        return imported.preview([], paragraph_insertions=[insertion], table_structure=list(edits)).to_docx()
+
+    def read(data):
+        result = docx.Document(io.BytesIO(data))
+        assert [p.text for p in result.paragraphs] == ["before", "new body block", "after"]
+        return result.tables[0]
+
+    added = stage(E.insert_row(a, 1))
+    rows = read(added).rows
+    assert [[c.text for c in r.cells[:2]] for r in rows] == [["merged", "merged"]] * 3
+    assert len(rows[1]._tr.tc_lst) == 2
+    assert rows[1].cells[2].text == ""
+    assert rows[2].cells[2].tables[0].cell(0, 0).text == "opaque table"
+    before_parts, after_parts = _parts(original), _parts(added)
+    assert before_parts.keys() == after_parts.keys()
+    assert all(v == after_parts[k] for k, v in before_parts.items() if k != "word/document.xml")
+
+    # Physical cell 1 begins at logical column 2. Local changes must not
+    # shift the vertical chain in columns [0,2), even in the shorter row.
+    local = read(stage(E.insert_cell(a, 0, 1)))
+    assert [c.text for c in local.rows[0].cells] == ["merged", "merged", "", "content"]
+    assert local.rows[1].grid_cols_after == 1
+    shifted = read(stage(E.insert_column(a, 0)))
+    assert [c.text for c in shifted.rows[0].cells] == ["", "merged", "merged", "content"]
+    assert [c.text for c in shifted.rows[1].cells[:3]] == ["", "merged", "merged"]
+
+    change = E.replace_cell(a, 0, 1, [replacement, await d.Paragraph(text="last").resolve()])
+    replaced = stage(change)
+    paragraphs = read(replaced).rows[0].cells[2].paragraphs
+    assert [p.text for p in paragraphs] == ["link", "last"]
+    assert paragraphs[0].hyperlinks[0].url == "https://example.org/cell"
+    assert read(stage(E.replace_cell(a, 0, 1, []))).rows[0].cells[2].text == ""
+
+    for edits in ([E.remove_row(a, 0)], [E.insert_column(a, 1)], [E.remove_column(a, 0)],
+                  [E.insert_cell(a, 0, 0)], [E.remove_cell(a, 1, 0)],
+                  [E.replace_cell(a, 1, 0, [])], [E.remove_cell(a, 1, 1)],
+                  [change, E.replace_cell(a, 1, 1, [])], [change, change],
+                  [E.insert_row(a, 3)], [E.insert_row(a, 1), change]):
+        with pytest.raises(ValueError):
+            stage(*edits)
+    with pytest.raises(ValueError, match="different document snapshot"):
+        ImportedDocument.open(original).preview([], table_structure=[change])
+    assert stage(change) == replaced
+    assert _parts(imported.preview([]).to_docx()) == before_parts

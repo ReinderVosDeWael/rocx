@@ -124,6 +124,8 @@ impl ImportedDocument {
         }
         Ok(EditPreview {
             output: PackagePlan::new(package)?,
+            block_changes: vec![],
+            inline_changes: vec![],
             changes: vec![],
             insertions: vec![],
             paragraph_insertions: vec![],

@@ -34,6 +34,99 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn mixed_new_edits_preserve_original_coordinates_across_parts() {
+    use rocx::editor::{
+        BlockEdit, EditBatch, ImportedInlineNode::Run, InlineAction, InlineEdit, ResourceEdit,
+    };
+    let input = include_bytes!("fixtures/imported-editor.docx");
+    let source = ImportedDocument::open(input).unwrap();
+    let original = parts(input);
+    let target = paragraph(&source, 3);
+    let Run(run) = &target.inline_structure[0] else {
+        panic!("run")
+    };
+    let replacement = InlineAction::Replace(rocx::ResolvedInline::Text {
+        text: "Edited tail".into(),
+        format: Default::default(),
+        comment: None,
+        revision: None,
+    });
+    let inline = [InlineEdit {
+        target: run.anchor.clone(),
+        action: replacement,
+    }];
+    let title = [ResourceEdit::CoreTitle(Some("Mixed transaction".into()))];
+    let remove = [BlockEdit::Remove(paragraph(&source, 1).anchor.clone())];
+    let batch = |blocks| EditBatch {
+        blocks,
+        inline_edits: &inline,
+        resources: &title,
+        ..Default::default()
+    };
+    let overlap = [BlockEdit::Remove(target.anchor.clone())];
+    assert!(source.preview_edits(batch(&overlap)).is_err());
+    assert_eq!(
+        parts(&source.preview(&[]).unwrap().to_docx().unwrap()),
+        original
+    );
+
+    let preview = source.preview_edits(batch(&remove)).unwrap();
+    assert_eq!(preview.block_changes(), &[1]);
+    assert_eq!(preview.inline_changes(), &[(3, 0)]);
+    let bytes = preview.to_docx().unwrap();
+    let result = parts(&bytes);
+    assert_eq!(
+        original.keys().collect::<Vec<_>>(),
+        result.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        original
+            .iter()
+            .filter(|(k, v)| result.get(*k) != Some(*v))
+            .map(|(k, _)| k.as_str())
+            .collect::<Vec<_>>(),
+        ["docProps/core.xml", "word/document.xml"]
+    );
+    let reopened = ImportedDocument::open(&bytes).unwrap();
+    assert_eq!(
+        reopened.core_title().unwrap().as_deref(),
+        Some("Mixed transaction")
+    );
+    assert_eq!(reopened.body().len(), 3);
+    assert_eq!(paragraph(&reopened, 0).text, "Patch me");
+    assert_eq!(paragraph(&reopened, 1).text, "");
+    assert_eq!(paragraph(&reopened, 2).text, "Edited tail");
+    assert!(
+        reopened
+            .preview_edits(EditBatch {
+                inline_edits: &inline,
+                resources: &[ResourceEdit::CoreTitle(None)],
+                ..Default::default()
+            })
+            .is_err()
+    );
+    assert_eq!(
+        parts(&reopened.preview(&[]).unwrap().to_docx().unwrap()),
+        result
+    );
+    let Run(fresh) = &paragraph(&reopened, 2).inline_structure[0] else {
+        panic!("run")
+    };
+    assert_ne!(fresh.anchor, run.anchor);
+    assert!(
+        matches!(reopened.inline_at(&fresh.anchor).unwrap(), Run(r) if r.anchor == fresh.anchor)
+    );
+    assert_eq!(
+        source
+            .preview_edits(batch(&remove))
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        bytes
+    );
+}
+
+#[test]
 fn text_ranges_use_snapshot_coordinates_at_run_boundaries() {
     use rocx::editor::TextRangeEdit;
     let source = fixture_with_body(&BODY.replace(
@@ -63,6 +156,45 @@ fn text_ranges_use_snapshot_coordinates_at_run_boundaries() {
             .collect::<Vec<_>>(),
         [(0, "first"), (2, "neẃ")]
     );
+}
+
+#[test]
+fn resource_numbering_starts_reject_duplicate_identities_and_preserve_lexical_noop() {
+    use rocx::editor::{AbstractStart, ResourceEdit};
+    let fixture = include_bytes!("fixtures/imported-editor.docx");
+    let mut entries = parts(fixture);
+    let name = "word/numbering.xml";
+    for (levels, expected_ok) in [
+        (r#"<w:lvl w:ilvl="00"><w:start w:val="007"/></w:lvl>"#, true),
+        (r#"<w:lvl w:ilvl="0"/><w:lvl w:ilvl="00"/>"#, false),
+        (r#"<w:lvl w:ilvl="0"><w:start w:val="-3"/></w:lvl>"#, false),
+    ] {
+        entries.insert(name.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="0">{levels}</w:abstractNum></w:numbering>"#).into_bytes());
+        let doc = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+        let start = AbstractStart {
+            abstract_id: 0,
+            level: 0,
+            start: Some(7),
+        };
+        let read = doc.abstract_starts();
+        let preview = doc.preview_with_resources(
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[ResourceEdit::AbstractStart(start.clone())],
+        );
+        if expected_ok {
+            assert_eq!(read.unwrap(), [start]);
+            assert_eq!(entries, parts(&preview.unwrap().to_docx().unwrap()));
+        } else {
+            assert!(read.is_err());
+            assert!(preview.is_err());
+        }
+    }
 }
 
 #[test]
@@ -325,6 +457,91 @@ fn block_edit_guards_validate_discarded_markup_and_section_ownership() {
                 .is_err()
         );
     }
+}
+
+#[test]
+fn tracked_text_is_explicit_and_reviews_only_one_original_wrapper() {
+    use rocx::{
+        TextRevisionAction::*,
+        editor::{ImportedInlineNode::*, RunTextEdit, TrackedText},
+    };
+    let bytes = fixture();
+    let source = ImportedDocument::open(&bytes).unwrap();
+    let Run(run) = &paragraph(&source, 3).inline_structure[0] else {
+        panic!()
+    };
+    let tracked = |edit| source.preview_tracked_text(&run.anchor, edit, "Reviewer", None);
+    let on = tracked(TrackedText::Replace("new".into()))
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let ordinary = source
+        .preview_with_text(
+            &[],
+            &[],
+            &[],
+            &[RunTextEdit {
+                target: run.anchor.clone(),
+                text: "new".into(),
+            }],
+        )
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    assert_eq!(
+        paragraph(&ImportedDocument::open(&ordinary).unwrap(), 3).text,
+        "new"
+    );
+    let changed = ImportedDocument::open(&on).unwrap();
+    let p = paragraph(&changed, 3);
+    assert_eq!(p.text, "");
+    let [Revision(del), Revision(ins)] = p.inline_structure.as_slice() else {
+        panic!()
+    };
+    assert_ne!(del.id, ins.id);
+    assert_eq!(ins.author.as_deref(), Some("Reviewer"));
+    assert_eq!(ins.date, None);
+    for (anchor, action, text) in [
+        (&ins.anchor, Accept, "new"),
+        (&ins.anchor, Reject, ""),
+        (&del.anchor, Accept, ""),
+        (&del.anchor, Reject, "Second"),
+    ] {
+        assert!(source.preview_revision(anchor, action, None).is_err());
+        let out = changed
+            .preview_revision(anchor, action, None)
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        assert_eq!(
+            paragraph(&ImportedDocument::open(&out).unwrap(), 3).text,
+            text
+        );
+    }
+    let Run(protected) = &paragraph(&source, 0).inline_structure[1] else {
+        panic!()
+    };
+    assert!(
+        source
+            .preview_tracked_text(&protected.anchor, TrackedText::Delete, "Reviewer", None)
+            .is_err()
+    );
+    assert_eq!(
+        parts(
+            &tracked(TrackedText::Replace("Second".into()))
+                .unwrap()
+                .to_docx()
+                .unwrap()
+        ),
+        parts(&bytes)
+    );
+    assert_eq!(
+        tracked(TrackedText::Replace("new".into()))
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        on
+    );
 }
 
 fn package_bytes(entries: BTreeMap<String, Vec<u8>>) -> Vec<u8> {
@@ -2920,4 +3137,64 @@ fn table_structure_rejects_invalid_chains_ranges_and_foreign_anchors_atomically(
             .unwrap(),
         good
     );
+}
+
+#[test]
+fn physical_header_text_batch_rejects_alias_duplicates_and_protected_ranges() {
+    use rocx::editor::{ImportedInlineNode::Run, RunTextEdit};
+    let bytes = header_fixture(
+        r#"<w:p><w:r><w:t>safe</w:t></w:r><w:bookmarkStart w:id="7" w:name="spot"/><w:r><w:t>protected</w:t></w:r><w:bookmarkEnd w:id="7"/></w:p><w:customXml/>"#,
+        false,
+    );
+    let doc = ImportedDocument::open(&bytes).unwrap();
+    let headers = doc.default_headers().unwrap();
+    let owner = &headers[0].part_name;
+    let edit = |section: usize, index: usize| {
+        let Run(run) = &headers[section].inline_structure(0).unwrap()[index] else {
+            panic!()
+        };
+        RunTextEdit {
+            target: run.anchor.clone(),
+            text: "changed".into(),
+        }
+    };
+    for invalid in [edit(1, 0), edit(1, 2)] {
+        assert!(doc.edit_story_text(owner, &[edit(0, 0), invalid]).is_err());
+    }
+    let mut actual = parts(&doc.edit_story_text(owner, &[edit(1, 0)]).unwrap());
+    let mut original = parts(&bytes);
+    let changed = String::from_utf8(actual.remove(owner).unwrap()).unwrap();
+    assert!(
+        changed.contains(">changed</w:t>")
+            && changed.contains("protected")
+            && changed.contains("w:customXml")
+    );
+    original.remove(owner);
+    assert_eq!(actual, original);
+}
+
+#[test]
+fn local_story_fork_rejects_unknown_implicit_relationships() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit};
+    let mut input = parts(&header_fixture("<w:p/>", true));
+    let rels = "word/_rels/headerTest.xml.rels";
+    let xml = String::from_utf8(input[rels].clone())
+        .unwrap()
+        .replace("relationships/hyperlink", "relationships/unknown");
+    input.insert(rels.into(), xml.into_bytes());
+    let doc = ImportedDocument::open(&package_bytes(input)).unwrap();
+    let target = doc.default_headers().unwrap().remove(1).anchor;
+    let mut edit = HeaderImageEdit {
+        target,
+        mode: HeaderEditMode::SectionLocal,
+        image: header_image(),
+    };
+    assert!(
+        doc.preview_header_image(&edit)
+            .unwrap_err()
+            .to_string()
+            .contains("relationships cannot be safely copied")
+    );
+    edit.mode = HeaderEditMode::Shared;
+    assert!(doc.preview_header_image(&edit).is_ok());
 }

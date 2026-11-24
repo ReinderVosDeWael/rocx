@@ -20,8 +20,10 @@ use wasm_bindgen::JsValue;
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
+        ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
+        ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
+        ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
-        ("importedStyleAnchor", (style_anchor, Paths::Package)),
         (
             "importedPreviewHeaderImage",
             (preview_header, Paths::Package),
@@ -328,6 +330,152 @@ fn story_text(input: &Wire) -> Result<JsValue> {
     .into())
 }
 
+fn range_edit(input: &Wire, path: &str) -> Result<rocx::editor::TextRangeEdit> {
+    let edit = Record::new(input, path, &["target", "start", "end", "text"])?;
+    let offset = |name: &str| -> Result<usize> {
+        usize::try_from(b::u64_number(&edit.get(name)?, &edit.path(name))?)
+            .map_err(|_| Failure::invalid(&edit.path(name), "offset is too large"))
+    };
+    Ok(rocx::editor::TextRangeEdit {
+        target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+        start: offset("start")?,
+        end: offset("end")?,
+        text: b::string(&edit.get("text")?, &edit.path("text"))?,
+    })
+}
+
+fn control_edit(input: &Wire, path: &str) -> Result<rocx::editor::ControlEdit> {
+    let edit = Record::new(input, path, &["target", "alias", "tag", "text"])?;
+    let string = |field: &str| -> Result<Option<String>> {
+        let value = edit.get(field)?;
+        if value.js().is_undefined() {
+            Ok(None)
+        } else {
+            b::string(&value, &edit.path(field)).map(Some)
+        }
+    };
+    Ok(rocx::editor::ControlEdit {
+        target: (*borrow_target::<rocx::editor::ControlAnchor>(&edit, &edit.path("target"))?)
+            .clone(),
+        alias: string("alias")?,
+        tag: string("tag")?,
+        text: string("text")?,
+    })
+}
+
+fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit> {
+    use rocx::editor::{AbstractStart, ResourceEdit};
+    let edit = Record::new(input, path, &["kind", "value", "abstractId", "level"])?;
+    let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
+    if kind != "abstractStart" {
+        Record::new(input, path, &["kind", "value"])?;
+    }
+    let v = edit.get("value")?;
+    let clear = v.js().is_null();
+    let vp = edit.path("value");
+    let uint = |wire: &Wire, p: &str| -> Result<u32> {
+        b::u64_number(wire, p)?
+            .try_into()
+            .map_err(|_| Failure::invalid(p, "expected u32"))
+    };
+    Ok(match kind.as_str() {
+        "coreTitle" => ResourceEdit::CoreTitle(if clear {
+            None
+        } else {
+            Some(b::string(&v, &vp)?)
+        }),
+        "defaultAlignment" => ResourceEdit::DefaultAlignment(if clear {
+            None
+        } else {
+            Some(alignment(&v, &vp)?)
+        }),
+        "abstractStart" => ResourceEdit::AbstractStart(AbstractStart {
+            abstract_id: uint(&edit.get("abstractId")?, &edit.path("abstractId"))?,
+            level: uint(&edit.get("level")?, &edit.path("level"))?
+                .try_into()
+                .map_err(|_| Failure::invalid(&edit.path("level"), "invalid level"))?,
+            start: if clear { None } else { Some(uint(&v, &vp)?) },
+        }),
+        _ => {
+            return Err(Failure::invalid(
+                &edit.path("kind"),
+                "unknown resource edit",
+            ));
+        }
+    })
+}
+
+fn tracked_text(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::TrackedText::*;
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "kind", "author", "date", "text"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let target = crate::inspection::inline_anchor(&edit.get("target")?, "edit.target")?;
+    let change = match string("kind")?.as_str() {
+        "replace" => Replace(string("text")?),
+        "insertAfter" => InsertAfter(string("text")?),
+        "delete" if edit.get("text")?.js().is_undefined() => Delete,
+        _ => {
+            return Err(Failure::invalid(
+                "edit.kind",
+                "expected insertAfter/replace with text or delete without text",
+            ));
+        }
+    };
+    let date = if edit.get("date")?.js().is_undefined() {
+        None
+    } else {
+        Some(string("date")?)
+    };
+    preview_handle(source.document().preview_tracked_text(
+        &target,
+        change,
+        &string("author")?,
+        date.as_deref(),
+    )?)
+}
+
+fn tracked_move(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "after", "name", "author", "date"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let anchor = |k: &str| crate::inspection::inline_anchor(&edit.get(k)?, &edit.path(k));
+    preview_handle(source.document().preview_tracked_move(
+        &anchor("target")?,
+        &anchor("after")?,
+        &string("name")?,
+        &string("author")?,
+        &string("date")?,
+    )?)
+}
+
+fn revision(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "action", "paired"])?;
+    let anchor = |k: &str| crate::inspection::inline_anchor(&edit.get(k)?, &edit.path(k));
+    let action = match b::string(&edit.get("action")?, "edit.action")?.as_str() {
+        "accept" => rocx::TextRevisionAction::Accept,
+        "reject" => rocx::TextRevisionAction::Reject,
+        _ => return Err(Failure::invalid("edit.action", "expected accept or reject")),
+    };
+    let paired = if edit.get("paired")?.js().is_undefined() {
+        None
+    } else {
+        Some(anchor("paired")?)
+    };
+    preview_handle(source.document().preview_revision(
+        &anchor("target")?,
+        action,
+        paired.as_ref(),
+    )?)
+}
+
 fn preview(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -344,30 +492,29 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "paragraphInsertions",
             "cellAlignments",
             "blockEdits",
+            "inlineEdits",
+            "tableStructure",
+            "styleEdits",
+            "resources",
+            "controls",
         ],
     )?;
-    let preview = source.document().preview_with_ranges(
-        &edits(&batch, "alignments", alignment_edit)?,
-        &edits(&batch, "tableInsertions", table_insertion)?,
-        &edits(&batch, "headerImages", header_edit)?,
-        &edits(&batch, "runText", run_text_edit)?,
-        &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
-        &edits(&batch, "cellAlignments", cell_alignment_edit)?,
-        &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
-        &edits(&batch, "textRanges", |input, path| {
-            let edit = Record::new(input, path, &["target", "start", "end", "text"])?;
-            let offset = |name: &str| -> Result<usize> {
-                usize::try_from(b::u64_number(&edit.get(name)?, &edit.path(name))?)
-                    .map_err(|_| Failure::invalid(&edit.path(name), "offset is too large"))
-            };
-            Ok(rocx::editor::TextRangeEdit {
-                target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
-                start: offset("start")?,
-                end: offset("end")?,
-                text: b::string(&edit.get("text")?, &edit.path("text"))?,
-            })
-        })?,
-    )?;
+    let preview = source.document().preview_edits(rocx::editor::EditBatch {
+        alignments: &edits(&batch, "alignments", alignment_edit)?,
+        tables: &edits(&batch, "tableInsertions", table_insertion)?,
+        header_images: &edits(&batch, "headerImages", header_edit)?,
+        run_text: &edits(&batch, "runText", run_text_edit)?,
+        paragraphs: &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
+        cells: &edits(&batch, "cellAlignments", cell_alignment_edit)?,
+        run_removals: &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
+        ranges: &edits(&batch, "textRanges", range_edit)?,
+        blocks: &edits(&batch, "blockEdits", block_edit)?,
+        inline_edits: &edits(&batch, "inlineEdits", inline_edit)?,
+        structural: &edits(&batch, "tableStructure", structure_edit)?,
+        styles: &edits(&batch, "styleEdits", style_edit)?,
+        resources: &edits(&batch, "resources", resource_edit)?,
+        controls: &edits(&batch, "controls", control_edit)?,
+    })?;
     preview_handle(preview)
 }
 
@@ -388,17 +535,6 @@ fn preview_handle(preview: EditPreview) -> Result<JsValue> {
             ("headerChanges", "editPreviewHeaderChanges"),
             ("toDocx", "editPreviewToDocx"),
         ],
-    ))
-}
-
-fn style_anchor(input: &Wire) -> Result<JsValue> {
-    let call = call(input)?;
-    let doc = borrow_target::<ImportedSource>(&call, "document")?;
-    let id = b::string(&argument(&call, "id")?, "id")?;
-    Ok(b::handle(
-        "styleAnchor",
-        doc.document().style_anchor(&id)?,
-        JsValue::UNDEFINED,
     ))
 }
 
@@ -535,7 +671,7 @@ fn insertions(input: &Wire) -> Result<JsValue> {
 fn inline_changes(input: &Wire) -> Result<JsValue> {
     let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
     Ok(array(preview.inline_changes().iter().map(
-        |&(body, inline)| array([JsValue::from(body), JsValue::from(inline)].into_iter()),
+        |&(body, inline)| array([JsValue::from(body), JsValue::from(inline)]),
     )))
 }
 

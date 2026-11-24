@@ -58,8 +58,13 @@ Output:
   independent transactions, each combining an alignment patch, a table insertion,
   and a default-header image. The `.header-first-shared.docx` and
   `.header-first-local.docx` artifacts separately preview first-page images.
-- Paired `.run-text.docx` artifacts: replace a scalar range and a direct body run's text, and
-  insert a resolved paragraph after the original body anchor in the same batch.
+- `.footer-even.docx` edits text in the shared footer and forks an image into
+  only the second section's even footer. `.entry-text.docx` edits a footnote,
+  an endnote with the same ID in another part, and a comment.
+- `.run-text.docx` combines scalar-range and run text edits, a resolved paragraph
+  insertion, a caption control alias patch, and three resource edits: core title
+  “Edited resource sample”, centered paragraph-default alignment and shared
+  abstract numbering level (100, 0) start 7.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -85,14 +90,14 @@ The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
 `all_features-javascript.header-first-local.docx`, `all_features-javascript.run-text.docx`,
 `all_features-javascript.footer-even.docx`, and `all_features-javascript.entry-text.docx`. Repeat `--javascript-dir` to check
-multiple runtime outputs. The checker requires all nine exact byte matches and
+multiple runtime outputs. The checker requires all eleven exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
 In Chromium, import `generateCatalog` from `catalog.mjs` with the installed
 package resolved by a bundler or import map. Pass a filename-to-`Uint8Array`
 map of the six image fixtures, or an async function that reads a fixture by
 basename. The function returns `final`, `template`, `edited`, `headerSource`,
-`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal` and `runText` byte arrays; use the exported `catalogNames`
+`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal`, `footerEven`, `entryText` and `runText` byte arrays; use the exported `catalogNames`
 to name output files. The common module never reads DOCX fixtures or performs I/O
 except through the caller's image loader. Node uses `imageFile()` for the
 named-image sample; the browser supplies named bytes.
@@ -132,7 +137,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | Defaults and Properties dialog | Run defaults (Calibri 11 pt), paragraph defaults (4 pt after, 1.1 lines); creator/title/subject/description/keywords/category/comments/version; fixed snapshot/render timestamps. Defaults remain separate from direct content properties. |
 | 01 Paragraphs/headings | Heading 0/no heading through 9; all nine alignments; multiplier/exact/minimum line heights and legacy line spacing; before/after spacing; left/right/first-line/hanging point indents; keep-lines/next, widow control, page-break-before and explicit false values. |
 | 01 Imported editor | All three APIs inspect the generated body and preview an anchored center-alignment patch followed by a declarative two-column fixed-width table. Each reopens the edited package, inspects the physical cells, and resolves a read-only run anchor in the second cell. The first cell has a bold label; the second has two distinct runs that read “Fixed-width second column.” Coverage rejects merging those runs even when their visible text is unchanged. The table appears only in the edited catalog; other package parts retain their exact payload bytes. |
-| Combined body and default-header transaction | One default header is shared by two sections. The APIs resolve the labeled header run and hyperlink's snapshot-scoped read-only anchors with `inline_at` or `inlineAt`. Inherited aliases of the same physical part yield equal inline anchors; the image edit target is still section-scoped. Both previews center the labeled body paragraph and insert a table immediately after it, in the same transaction as the header edit targeting the second section. Shared mode changes the header used by both; section-local copies it and changes only the second section. Exact byte parity and package checks cover all three artifacts, including body changes, part-local relationships, image counts, and untouched payloads. |
+| Combined body and default-header transaction | One default header is shared by two sections. The APIs resolve the labeled header run and hyperlink's snapshot-scoped anchors with `inline_at` or `inlineAt`. Inherited aliases of the same physical part yield equal inline anchors; the image edit target is still section-scoped. Both previews center the labeled body paragraph and insert a table immediately after it, in the same transaction as the header edit targeting the second section. Shared mode changes the header used by both; section-local copies it and changes only the second section. Exact byte parity and package checks cover all three artifacts, including body changes, part-local relationships, image counts, and untouched payloads. |
 | Inherited header/footer inspection | The same source labels five additional slots: first/even headers and default/first/even footers. The first section defines each; the second inherits each. All three APIs inspect all six slots in order and resolve their physical inline anchors. Package and python-docx checks verify that editing the default header leaves the other slots inherited with unchanged content. |
 | 01 Tabs | All eight alignments including start/end/bar/clear; all six leaders; signed positions and explicit clear at −12 pt. |
 | 02 Runs | Bold/italic/strike/caps/small-caps/super/subscript; false overrides; literal fonts and point sizes; RGB/automatic color; all 16 theme slots with tint/shade; all seven underline styles; Unicode, preserved spaces, empty runs, literal tabs/newlines. A labeled chainable-setter sample shows omitted, enabled and explicitly disabled bold (with italic enabled); builders alter Rust authoring syntax only, not OOXML features. See [the builder contract](../docs/FORMATTING.md#rust-chainable-authoring-setters). |
@@ -143,7 +148,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | 05 Conditional styles | Separate labeled tables for all 13 region inputs, including base whole-table; all six TableLook activation flags explicitly enabled (mask 01E0); run/font/color/script/language requests, paragraph alignment/spacing/line-height/tabs/bidi and cell shading. Properties stay in style definitions, not direct cells. |
 | 06 Lists | Nine levels/references, decimal/lowerRoman/bullet formats, abstract starts and literal text, concrete level-0 restart at 7 and level-8 override at zero; concrete level-0 lowerLetter replacement combined with restart, and level-1 upperRoman replacement-only. Abstracts remain unchanged. Format/text are open strings, not finite enum galleries. Legal-numbering requests (including false), suffix choices, level restarts (zero never restarts; trigger 1 is one-based), start overrides, label alignment, bold/italic, point indents and registered heading styles are labeled on abstract/replacement levels; omitted levels retain consumer defaults. Concrete instances 61/62 share abstract bullet definition 100, with a start override on 62; Catalog Bullets links instance 61 reciprocally to abstract 100, and instance 63 inherits through a level-free abstract definition. Separators and label positioning are consumer-generated; the viewer computes labels, while checks inspect `numFmt` and `isLgl`. |
 | 06 Links/ranges | External URL with tooltip/history and explicit display formatting; internal bookmark link; overlapping/cross-paragraph bookmarks and comment range; history=false; text/image/tab/break hyperlink children. Header/comment/note links use owner-local relationships. |
-| 06 Imported editor inline structure | The labeled paragraph has one direct run followed by a bookmark hyperlink containing two separate runs. Each editor inspects the boundaries and reads nodes back by their snapshot-scoped anchors. Coverage checks the original and batch-edited packages and rejects merged runs even when the visible text is unchanged. Hyperlinks and their child runs are read-only. |
+| 06 Imported editor inline structure | The labeled paragraph has one direct run followed by a bookmark hyperlink containing two separate runs. Each editor inspects the boundaries and reads nodes back by their snapshot-scoped anchors. Coverage checks the original and batch-edited packages and rejects merged runs even when the visible text is unchanged. The hyperlink can be a whole-inline target; its child runs are inspection-only. |
 | 06 Comments | Plain cross-paragraph range; structured paragraph/table/image/link story with author/date/initials; paragraph/run convenience comments with author overrides. Inspect the comments pane. |
 | 06 Notes | Footnote/endnote references and distinct kind/id=0 definitions; rich footnote paragraph/table/image/link story and endnote body. Document-wide placement, formats, starts and restart modes are labeled separately. Automatic special note entries are infrastructure, not ordinary visible notes. |
 | 06 Fields | PAGE/NUMPAGES/REF/TOC/raw DATE in simple and complex forms; nested cache, dirty/locked true/false. Caches are labeled placeholders, not evaluated values. |
@@ -191,7 +196,7 @@ preview has two rows. See [structural table edits](../docs/EDITOR-PARITY.md#stru
 for the physical cell and logical column operations and merge guards.
 
 For the run-text output Rust passes `ParagraphInsertion` to
-`preview_with_ranges`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
+`EditBatch.paragraphs` in `preview_edits`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
 to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`
 alongside the run-text replacement. The insertion report gives the original
 anchor's body index. Inserted content follows the same inline and style
@@ -205,7 +210,7 @@ ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
 for clearing, absence, and shared-numbering semantics.
 
 Separately, all three catalogs preview removal of the labeled single-text body
-run without writing a tenth file: Rust `preview_with_run_removals`, Python
+run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
 The catalogs also stage a direct bold patch and an insertion after a hyperlink:
 Rust `preview_with_inlines` with `InlineEdit`/`InlineAction`, Python `inline_edits`

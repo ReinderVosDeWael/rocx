@@ -35,14 +35,7 @@ pub(crate) fn encode_editor_blocks(
 ) -> Result<(Package, Vec<Node>)> {
     let mut style_refs = BTreeSet::new();
     let path = DeclarationPath::root("sections").index(0).field("children");
-    for (index, paragraph) in paragraphs.iter().enumerate() {
-        check_blocks(
-            &[ResolvedBlock::Paragraph(paragraph.clone())],
-            &path.index(index),
-            &mut style_refs,
-            "editor.paragraph",
-        )?;
-    }
+    check_blocks(blocks, &path, &mut style_refs, scope)?;
     let styles = editor_styles(&package, main, style_refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
     let story =

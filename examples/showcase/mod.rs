@@ -702,27 +702,66 @@ pub async fn generate(output: &Path) -> Result<()> {
         targets[0].inline_items,
         [editor::ImportedInline::Text(EDIT_LABEL.into())]
     );
-    let preview = imported.preview_with_ranges(
-        &[],
-        &[],
-        &[],
-        &[editor::RunTextEdit {
+    assert_eq!(
+        imported.core_title()?.as_deref(),
+        Some("All features visual inspection")
+    );
+    assert_eq!(imported.default_alignment()?, None);
+    assert!(
+        imported
+            .abstract_starts()?
+            .iter()
+            .any(|s| (s.abstract_id, s.level, s.start) == (100, 0, Some(1)))
+    );
+    let controls = imported.controls();
+    for (context, id) in [
+        ("inline", "5001"),
+        ("block", "5002"),
+        ("row", "5003"),
+        ("cell", "5004"),
+    ] {
+        assert!(
+            controls
+                .iter()
+                .any(|c| c.context.as_str() == context && c.id.as_deref() == Some(id))
+        );
+    }
+    let caption = controls
+        .iter()
+        .find(|c| c.id.as_deref() == Some("5001"))
+        .unwrap();
+    let preview = imported.preview_edits(editor::EditBatch {
+        run_text: &[editor::RunTextEdit {
             target: label.anchor.clone(),
             text: replacement.into(),
         }],
-        &[editor::ParagraphInsertion {
+        paragraphs: &[editor::ParagraphInsertion {
             target: paragraph.anchor.clone(),
             paragraph: inserted_paragraph.clone(),
         }],
-        &[],
-        &[],
-        &[editor::TextRangeEdit {
+        ranges: &[editor::TextRangeEdit {
             target: targets[0].anchor.clone(),
             start: 0,
             end: 8,
             text: "Ranged 📝".into(),
         }],
-    )?;
+        resources: &[
+            editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
+            editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
+            editor::ResourceEdit::AbstractStart(editor::AbstractStart {
+                abstract_id: 100,
+                level: 0,
+                start: Some(7),
+            }),
+        ],
+        controls: &[editor::ControlEdit {
+            target: caption.anchor.clone(),
+            alias: Some("Imported editor caption".into()),
+            tag: None,
+            text: None,
+        }],
+        ..Default::default()
+    })?;
     assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);
     assert!(
         preview
@@ -730,6 +769,26 @@ pub async fn generate(output: &Path) -> Result<()> {
             .iter()
             .any(|c| c.before == INLINE_LABEL)
     );
+    let whole = imported.preview_with_inlines(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[
+            editor::InlineEdit {
+                target: label.anchor.clone(),
+                action: editor::InlineAction::SetBold(false),
+            },
+            editor::InlineEdit {
+                target: link.anchor.clone(),
+                action: editor::InlineAction::InsertAfter(inserted_paragraph.runs()[0].clone()),
+            },
+        ],
+    )?;
+    assert_eq!(whole.inline_changes().last(), Some(&(paragraph_index, 1)));
     let removal = imported.preview_with_run_removals(
         &[],
         &[],
@@ -919,6 +978,47 @@ pub async fn generate(output: &Path) -> Result<()> {
     let source = source.resolve().await?.to_docx()?;
     std::fs::write(output.with_extension("header-source.docx"), &source)?;
     let imported = editor::ImportedDocument::open(&source)?;
+    // Independent revision previews: track text or move a run, then review only the pair.
+    let run_at = |block: usize| {
+        let editor::BodyBlock::Paragraph(p) = &imported.body()[block] else {
+            panic!("body paragraph")
+        };
+        let Run(r) = &p.inline_structure[0] else {
+            panic!("body run")
+        };
+        r.anchor.clone()
+    };
+    let from = run_at(0);
+    let tracked = imported.preview_tracked_text(
+        &from,
+        editor::TrackedText::Replace("Reviewed label".into()),
+        "Reviewer",
+        Some(STAMP),
+    )?;
+    let tracked = editor::ImportedDocument::open(&tracked.to_docx()?)?;
+    assert!(matches!(&tracked.body()[0], editor::BodyBlock::Paragraph(p) if p.text.is_empty()));
+    let moved =
+        imported.preview_tracked_move(&from, &run_at(2), "CatalogMove", "Reviewer", STAMP)?;
+    let pair = editor::ImportedDocument::open(&moved.to_docx()?)?;
+    let wrapper = |block: usize, index: usize| {
+        let editor::BodyBlock::Paragraph(p) = &pair.body()[block] else {
+            panic!("body paragraph")
+        };
+        let editor::ImportedInlineNode::Revision(r) = &p.inline_structure[index] else {
+            panic!("move wrapper")
+        };
+        r.anchor.clone()
+    };
+    let restored = pair.preview_revision(
+        &wrapper(0, 1),
+        TextRevisionAction::Reject,
+        Some(&wrapper(2, 2)),
+    )?;
+    let restored = editor::ImportedDocument::open(&restored.to_docx()?)?;
+    assert!(
+        matches!(&restored.body()[0], editor::BodyBlock::Paragraph(p) if p.text == HEADER_BATCH_LABEL)
+    );
+
     // Independent block previews use the first paragraph of the inherited section.
     let editor::BodyBlock::Paragraph(last) = &imported.body()[2] else {
         unreachable!()

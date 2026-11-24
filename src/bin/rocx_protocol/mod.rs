@@ -117,14 +117,29 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
     }
 }
 
+// The public story API also exposes editable footers and even-page headers.
+// The CLI address has no story-kind field and supports only these two slots.
+fn cli_headers(doc: &ImportedDocument) -> Result<impl Iterator<Item = ImportedStory>, String> {
+    Ok(doc
+        .stories()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|s| {
+            s.kind == SectionStoryKind::Header
+                && matches!(
+                    s.variant,
+                    HeaderFooterType::Default | HeaderFooterType::First
+                )
+                && s.anchor.is_some()
+        }))
+}
+
 pub(super) fn inspect(doc: &ImportedDocument, snapshot: String) -> Value {
     let body: Vec<_> = doc.body().iter().enumerate().map(inspect_block).collect();
     let mut result = json!({"snapshot":snapshot,"body":body});
-    match doc.stories() {
+    match cli_headers(doc) {
         Ok(stories) => {
             result["headers"] = stories
-                .iter()
-                .filter(|s| s.anchor.is_some())
                 .map(|s| {
                     let variant = match s.variant {
                         HeaderFooterType::Default => "default",
@@ -218,7 +233,7 @@ pub(super) fn preview(doc: &ImportedDocument, edits: Vec<Edit>) -> Result<EditPr
                     _ => return Err("unknown header edit mode".into()),
                 };
                 if stories.is_none() {
-                    stories = Some(doc.stories().map_err(|e| e.to_string())?);
+                    stories = Some(cli_headers(doc)?.collect::<Vec<_>>());
                 }
                 let anchor = stories
                     .iter()

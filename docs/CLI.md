@@ -102,3 +102,9 @@ variants. For a future core edit kind, expose any new address in `inspect`, bind
 it against the same open document, and map the core's change record into the
 report. Preserve the existing spellings and test the new form alongside mixed
 batches, stale digests and byte-equivalent binding output.
+
+This is the seven-kind JSON CLI (#51). Later library operations such as
+scalar ranges, structural table edits, style edits and tracked revisions
+have no CLI request variant here. Each CLI request opens its own snapshot.
+The proposed stdio MCP server with discovery and persistent handles is
+tracked separately in [#52](https://github.com/ReinderVosDeWael/rocx/issues/52).
