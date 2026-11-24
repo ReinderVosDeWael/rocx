@@ -617,7 +617,22 @@ pub async fn generate(output: &Path) -> Result<()> {
     else {
         panic!("expected paragraph payload");
     };
-    let preview = imported.preview_with_paragraphs(
+    let targets: Vec<_> = imported
+        .body()
+        .iter()
+        .filter_map(|block| match block {
+            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == EDIT_LABEL => {
+                Some(paragraph)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(
+        targets[0].inline_items,
+        [editor::ImportedInline::Text(EDIT_LABEL.into())]
+    );
+    let preview = imported.preview_with_ranges(
         &[],
         &[],
         &[],
@@ -629,9 +644,22 @@ pub async fn generate(output: &Path) -> Result<()> {
             target: paragraph.anchor.clone(),
             paragraph: inserted_paragraph.clone(),
         }],
+        &[],
+        &[],
+        &[editor::TextRangeEdit {
+            target: targets[0].anchor.clone(),
+            start: 0,
+            end: 8,
+            text: "Ranged 📝".into(),
+        }],
     )?;
     assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);
-    assert_eq!(preview.run_text_changes()[0].before, INLINE_LABEL);
+    assert!(
+        preview
+            .run_text_changes()
+            .iter()
+            .any(|c| c.before == INLINE_LABEL)
+    );
     let removal = imported.preview_with_run_removals(
         &[],
         &[],
@@ -659,21 +687,6 @@ pub async fn generate(output: &Path) -> Result<()> {
             matches!(imported.inline_at(&run.anchor)?, Run(found) if found.anchor == run.anchor)
         );
     }
-    let targets: Vec<_> = imported
-        .body()
-        .iter()
-        .filter_map(|block| match block {
-            editor::BodyBlock::Paragraph(paragraph) if paragraph.text == EDIT_LABEL => {
-                Some(paragraph)
-            }
-            _ => None,
-        })
-        .collect();
-    assert_eq!(targets.len(), 1);
-    assert_eq!(
-        targets[0].inline_items,
-        [editor::ImportedInline::Text(EDIT_LABEL.into())]
-    );
     let mut table = Table::new(vec![
         TableRow::new(vec![
             TableCell::new(vec![run(

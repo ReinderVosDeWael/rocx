@@ -19,12 +19,38 @@ opaque handle for an inline identity in a snapshot. Other anchor types do not
 promise cross-binding value equality.
 
 Section body ranges are zero-based, half-open block indices, not editable text
-ranges. There are no text-offset or arbitrary range anchors. Opaque nodes, run
+ranges. For text offsets, use a snapshot paragraph anchor plus the scalar range below. Opaque nodes, run
 items, rows, cells and nested tables lack independent addresses. Paragraph or table insertion
 uses a direct-body paragraph and inserts after it; active or ambiguous supported
 fields and ranges prevent insertion there. Single-text direct-body run replacement or removal
 also rejects targets inside active or ambiguous supported ranges. These guards
 do not imply all OOXML range types are inspected or editable.
+
+## Character ranges in plain body paragraphs
+
+Use Rust `TextRangeEdit { target, start, end, text }` with `preview_with_ranges`,
+Python `preview([], text_ranges=[TextRangeEdit(target, start, end, text)])`, or
+JavaScript `preview({textRanges: [{target, start, end, text}]})`. `target` is the
+original direct-body paragraph anchor. `[start, end)` counts Unicode scalar values
+across consecutive direct runs. In `a😀é`, the emoji occupies one position and
+`e` plus the combining accent occupy two. Use `Array.from(text)` for scalar
+positions in JavaScript; string indexing there counts UTF-16 code units.
+
+The whole paragraph must consist of direct runs with one `w:t` each (plus optional
+properties). A field, hyperlink, control, revision, bookmark, tab, break, raw
+markup or other inline object makes its offsets unsupported, even for selections
+on just one side. A paragraph inside an active or ambiguous field/range is also
+ineligible. Offsets never span paragraphs or stories. There are no persistent
+range IDs: reopening even the same bytes requires fresh anchors.
+
+Selections must be nonempty and in bounds; empty replacement text deletes.
+Replacement text must be single-line XML text without tabs. The first selected
+scalar's run receives the replacement. Unselected prefixes and suffixes keep
+their formatting; all run containers and their properties survive. Replacing
+text with itself preserves the original distribution across runs. The run change
+report lists only changed runs, in source order. All ranges address the original
+snapshot: adjacent ranges may share a run, but overlapping/duplicate selections
+or a whole-run edit/removal on a touched run reject the entire batch.
 
 ## Supported imported targets
 

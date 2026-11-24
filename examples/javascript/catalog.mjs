@@ -167,12 +167,17 @@ export async function generateCatalog(fixtures, options) {
   assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
+  const editTargets = body.filter((node) => node.kind === "paragraph" && node.text === EDIT_LABEL);
+  assert(editTargets.length === 1 && editTargets[0].alignment === "left", "expected unique left-aligned target");
+  const [target] = editTargets;
+  checkText(target.inlineItems, [EDIT_LABEL]);
   const textPreview = imported.preview({
     runText: [textEdit],
+    textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
     paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
   });
   assert(textPreview.paragraphInsertions()[0] === body.indexOf(inline), "incorrect paragraph insertion");
-  const [change] = textPreview.runTextChanges();
+  const change = textPreview.runTextChanges().find(c => c.before === INLINE_LABEL);
   const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
   assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
@@ -181,10 +186,6 @@ export async function generateCatalog(fixtures, options) {
   const runText = textPreview.toDocx();
   const internalLink = checkLink(imported, inline.inlineStructure, INLINE_LABEL, INLINE_LINK_RUNS);
   assert(internalLink.bookmark === "CatalogBookmark" && internalLink.relationshipId === undefined, "expected bookmark hyperlink");
-  const editTargets = body.filter((node) => node.kind === "paragraph" && node.text === EDIT_LABEL);
-  assert(editTargets.length === 1 && editTargets[0].alignment === "left", "expected unique left-aligned target");
-  const [target] = editTargets;
-  checkText(target.inlineItems, [EDIT_LABEL]);
   const bodyIndex = body.indexOf(target);
   const preview = previewTable(imported, target, bodyIndex, resolvedTable);
   let edited = preview.toDocx();

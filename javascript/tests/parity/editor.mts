@@ -12,6 +12,7 @@ export interface Fixtures {
   ambiguous: Uint8Array;
   drawing: Uint8Array;
   relocated: Uint8Array;
+  "range-source": Uint8Array;
   "styles-edge": Uint8Array;
   "styles-missing": Uint8Array;
   "styles-invalid": Uint8Array;
@@ -387,8 +388,15 @@ export async function run(fixtures: Fixtures) {
   rejects(() => doc.preview({ runRemovals: [first.anchor], runText: [{ target: first.anchor, text: "x" }] }), /duplicate|conflicting/);
   const other = await openDocx(fixtures.base);
   rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
+  const ranged = await openDocx(fixtures["range-source"]);
+  const selection = {target: paragraph(ranged, 1).anchor, start: 1, end: 6, text: " 🐈 "};
+  rejects(() => ranged.preview({textRanges: [selection, selection]}), /overlapping/);
+  rejects(() => doc.preview({textRanges: [selection]}), /different document snapshot/);
+  rejects(() => doc.preview({textRanges: [{...selection, target: paragraph(doc, 0).anchor}]}), /plain direct body/);
+  same(ranged.preview({textRanges: [selection]}).runTextChanges().map(c => c.after), ["a 🐈 ", "", "d"], "scalar ranges retain run containers");
   check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
   return {
+    range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),

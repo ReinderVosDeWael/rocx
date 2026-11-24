@@ -49,7 +49,7 @@ Output:
   independent transactions, each combining an alignment patch, a table insertion,
   and a default-header image. The `.header-first-shared.docx` and
   `.header-first-local.docx` artifacts separately preview first-page images.
-- Paired `.run-text.docx` artifacts: replace a direct body run's text and
+- Paired `.run-text.docx` artifacts: replace a scalar range and a direct body run's text, and
   insert a resolved paragraph after the original body anchor in the same batch.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
@@ -101,8 +101,9 @@ checked against the other implementation, not against a permanently fixed hash.
 The editor reads the labeled footnote, endnote and structured comment back as
 separate entries. The two ordinary notes both use ID `0` in different parts.
 
-The Rust, Python and JavaScript `.run-text.docx` examples replace only the labeled direct run before
-the bookmark hyperlink. The checker compares exact bytes, reopens the paragraph
+The Rust, Python and JavaScript `.run-text.docx` examples replace the labeled direct run before
+the bookmark hyperlink and replace `[0, 8)` of the separate alignment label
+with `Ranged 📝`. The checker compares exact bytes, reopens the paragraph
 and verifies every untouched package payload against the source catalog.
 
 Each sample names its requested feature in ordinary text before/within it.
@@ -174,7 +175,7 @@ and JavaScript uses `preview({cellAlignments: [...]})`. The target is the new
 snapshot's table anchor plus physical row and cell indices.
 
 For the run-text output Rust passes `ParagraphInsertion` to
-`preview_with_paragraphs`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
+`preview_with_ranges`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`
 to `preview`, and JavaScript uses `preview({paragraphInsertions: [{target, paragraph}], ...})`
 alongside the run-text replacement. The insertion report gives the original
 anchor's body index. Inserted content follows the same inline and style

@@ -112,6 +112,22 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    let ranged =
+        ImportedDocument::open(&fs::read(directory.join("range-source.docx")).unwrap()).unwrap();
+    let selection = rocx::editor::TextRangeEdit {
+        target: anchor(&ranged, 1),
+        start: 1,
+        end: 6,
+        text: " 🐈 ".into(),
+    };
+    write(
+        "native-range.docx",
+        ranged
+            .preview_with_ranges(&[], &[], &[], &[], &[], &[], &[], &[selection])
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     let BodyBlock::Paragraph(first) = &doc.body()[0] else {
         panic!("paragraph")
     };
