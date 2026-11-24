@@ -38,7 +38,7 @@ fn splice(body: &mut Node, p: usize, slots: Range<usize>, nodes: Vec<Node>) {
         .splice(slots, nodes.into_iter().map(Content::Element));
 }
 
-fn site(body: &Node, anchor: &InlineAnchor) -> Result<Site> {
+pub(super) fn site(body: &Node, anchor: &InlineAnchor) -> Result<Site> {
     let (InlineLocation::Body(b), [i]) = (&anchor.location, anchor.path.as_slice()) else {
         return Err(unsupported("revision target must be a direct body inline"));
     };
@@ -61,7 +61,7 @@ fn site(body: &Node, anchor: &InlineAnchor) -> Result<Site> {
     Ok((p, slot))
 }
 
-fn guard_boundary(body: &Node, (p, slot): Site) -> Result<()> {
+pub(super) fn guard_boundary(body: &Node, (p, slot): Site) -> Result<()> {
     let mut state = BoundaryState::default();
     for c in body.children[..p]
         .iter()

@@ -428,11 +428,17 @@ children remain opaque. Inspecting an ambiguous relationship, wrong root,
 wrong content type or missing entry ID fails without changing the snapshot.
 
 [Style resource inspection](EDITOR-RESOURCES.md) covers relationship-selected
-part identity and direct style ID, kind, name, and base reference in all three
+part identity, direct style ID, kind, name, base/next/linked references, and property groups in all three
 bindings. See [imported style edits](#imported-style-edits) for definition
 and property edits. The resource guide also covers direct [core title, default alignment
 and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
+For definition and instance creation/removal, concrete overrides and body
+paragraph list assignments, see [numbering operations](EDITOR-RESOURCES.md#numbering-definitions-instances-and-paragraph-references).
 Effective formatting and arbitrary resource editing remain outstanding.
+The [defaults field inventory](EDITOR-RESOURCES.md#editing-document-defaults)
+covers direct run/paragraph properties, tabs, footnote/endnote settings, page
+switches and revision tracking with independent set/clear semantics.
+
 For timestamps, other core fields, extended company/manager and named string
 or boolean custom properties, see [package metadata](EDITOR-RESOURCES.md#package-metadata).
 
@@ -474,6 +480,62 @@ Embedded pictures in direct entry paragraphs also support occurrence insertion,
 replacement, removal, asset redirection and image property groups. The actual
 entry part owns its image relationships; shared bytes elsewhere remain intact.
 Shape, chart and fraction edits require a direct body paragraph.
+
+### Note references and entry definitions
+
+`doc.edit_note_reference(owner, &target, NoteReferenceEdit::…)` (Rust),
+`doc.edit_note_reference(owner, target, kind, **fields)` (Python) and
+`doc.editNoteReference({ownerPart, target, kind, ...fields})` (JavaScript)
+return a separate atomic DOCX copy. A simple reference item exposes its
+source ID as a string: Rust `ImportedInline::NoteReference {kind,id}`,
+Python `kind` (`footnoteReference`/`endnoteReference`) and `value`, JavaScript
+`kind` and `id`. The anchor belongs to the enclosing run.
+
+| Rust variant | Python/JS `kind` and fields | Effect |
+| --- | --- | --- |
+| `Create {id,text}` | `"create"`, `id`, `text` | After a supported direct body run, insert a reference and add its one-paragraph definition. |
+| `Attach(id)` | `"attach"`, `id` | Insert a reference after the target run to an existing unused ordinary definition. |
+| `Detach` | `"detach"` | Remove the reference run, retaining its definition. |
+| `Retarget(id)` | `"retarget"`, `id` | Change the reference to an existing unused ordinary definition of the same kind. Both definitions remain. |
+| `Renumber(id)` | `"renumber"`, `id` | Change a definition and its sole reference together to a free ID. |
+| `Delete` | `"delete"` | Remove the reference and its sole discardable definition. |
+
+For `Create` and `Attach`, the anchor must identify a supported direct run in
+a body paragraph, outside fields and ranges. For the remaining operations it
+must identify the simple reference run itself. The owner is the physical
+footnotes or endnotes part. A first `Create` can initialize `word/footnotes.xml`
+or `word/endnotes.xml` when that kind has no relationship, the paths are free
+and there are no existing note references, definitions, or special-entry
+settings of that kind. The new part, content type and relationship are created
+together; automatic Word numbering is independent of the supplied ID.
+New IDs are unsigned 32-bit values. Imported IDs are compared as arbitrary-
+precision decimal integers, separately by kind. Allocation and destruction
+check all declared XML payloads, including settings and opaque descendants.
+Ambiguous/shared references, custom marks, reserved entries, protected ranges,
+and deletion of nodes with unmodeled content are rejected.
+
+`doc.edit_entry(owner, id, EntryEdit::…)` (Rust),
+`doc.edit_entry(owner, id, kind, **fields)` (Python), and
+`doc.editEntry({ownerPart, id, kind, ...fields})` (JavaScript) address an
+ordinary definition with its physical owner and decimal **string** ID.
+
+| Rust variant | Python/JS `kind` and fields | Effect |
+| --- | --- | --- |
+| `DeleteUnusedNote` | `"deleteUnusedNote"` | Remove a discardable ordinary definition only if it has no reference anywhere in the declared XML graph. |
+| `InsertParagraph {index,text}` / `ReplaceParagraph {index,text}` | `"insertParagraph"` / `"replaceParagraph"`, `index`, `value` | Insert before the original physical block (count to append), or replace a discardable paragraph, with single-line text. |
+| `RemoveParagraph(index)` | `"removeParagraph"`, `index` | Remove a simple paragraph while retaining an entry block. |
+| `CommentAuthor(s)` | `"author"`, `value` | Set a base comment's author. |
+| `CommentInitials(Some(s))` / `CommentInitials(None)` | `"initials"`, `value` / `"clearInitials"` | Set or clear initials. |
+| `CommentDate(Some(s))` / `CommentDate(None)` | `"date"`, `value` / `"clearDate"` | Set a validated `YYYY-MM-DDTHH:MM:SSZ` timestamp or clear it. |
+
+Block indices include opaque blocks. The first note paragraph cannot be moved
+or removed; eligible replacement preserves its reference-mark run. The same
+guard applies to the standard first comment annotation mark. Tables and rich
+or opaque paragraphs cannot be discarded. Extended/threaded comment metadata
+is unsupported. These APIs do not create or delete comment ranges, their
+main-story reference runs or comment definitions. A range operation and a
+definition edit compose by reopening between calls; see the
+[fields/stories ownership contract](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7145560023).
 
 ### Combine ordinary edits
 
@@ -571,6 +633,36 @@ Use an original direct body paragraph anchor for these operations:
 | Remove one paragraph | `Remove(anchor)` | `remove(anchor)` | `{kind: "remove", target}` |
 | Replace section content | `ReplaceSection(anchor, blocks)` | `replace_section(anchor, blocks)` | `{kind: "replaceSection", target, blocks}` |
 | Set direct keep-with-next | `KeepWithNext(anchor, bool)` | `keep_with_next(anchor, value)` | `{kind: "keepWithNext", target, value}` |
+| Patch one paragraph flag | `ParagraphFlag(anchor, flag, value)` | `paragraph_flag(anchor, flag, value)` | `{kind: "paragraphFlag", target, flag, value}` |
+| Patch one section flag | `SectionFlag(anchor, flag, value)` | `section_flag(anchor, flag, value)` | `{kind: "sectionFlag", target, flag, value}` |
+| Patch section break type | `SectionType(anchor, value)` | `section_type(anchor, value)` | `{kind: "sectionType", target, value}` |
+
+For these last three operations, pass `None` / `None` / `null` to clear the
+direct property. Explicit false and an absent flag are distinct. Read direct
+flags from the paragraph or section's `flags` map. It contains recognized
+unambiguous on/off values only; it does not calculate effective formatting.
+Read the break type from `section_type` / `section_type` / `sectionType`.
+The section target is its first direct body paragraph, including when the
+properties are owned by a later break paragraph or by the terminal body.
+
+| Rust flag (`ParagraphFlag` unless indicated) | Python flag key | JavaScript flag key |
+|---|---|---|
+| `KeepWithNext` | `keep_with_next` | `keepWithNext` |
+| `KeepTogether` | `keep_together` | `keepTogether` |
+| `PageBreakBefore` | `page_break_before` | `pageBreakBefore` |
+| `WidowControl` | `widow_control` | `widowControl` |
+| `SuppressLineNumbers` | `suppress_line_numbers` | `suppressLineNumbers` |
+| `SnapToGrid` | `snap_to_grid` | `snapToGrid` |
+| `ContextualSpacing` | `contextual_spacing` | `contextualSpacing` |
+| `MirrorIndents` | `mirror_indents` | `mirrorIndents` |
+| `Bidi` (paragraph or section) | `bidi` | `bidi` |
+| `SectionFlag::TitlePage` | `title_page` | `titlePage` |
+| `SectionFlag::RtlGutter` | `rtl_gutter` | `rtlGutter` |
+
+Setting a flag preserves attributes besides its value. Clearing a flag or type
+refuses to discard extension attributes, children or comments. A duplicate
+request for the same physical property (including the keep-with-next alias),
+an ambiguous property owner or a protected target rejects the batch.
 
 Section payloads can mix resolved paragraphs and tables, subject to the same
 style, inline and geometry restrictions as insertion. Automatic table widths
@@ -590,7 +682,8 @@ Use Rust `preview_blocks` or `preview_with_blocks` for a mixed batch, Python
 Structural block operations reserve their entire original range against other body edits.
 Keep-with-next can accompany an alignment patch on the same paragraph.
 Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
-original start index per operation (unchanged direct keep-with-next omitted).
+original start index per changed operation, sorted in body order. Distinct
+property patches can therefore report the same index; no-op patches are omitted.
 
 ## Imported style edits
 
@@ -599,21 +692,46 @@ original start index per operation (unchanged direct keep-with-next omitted).
 | Address an exact style ID | `doc.style_anchor(id)?` | `doc.style_anchor(id)` | `doc.styleAnchor(id)` |
 | Add a declaration | `StyleEdit::Add(definition)` | `StyleEdit.add(definition)` | `{op: "add", definition}` |
 | Patch just bold / italic | `StyleEdit::Patch {target, bold, italic}` | `StyleEdit.patch(target, italic=True)` | `{op: "patch", target, italic: true}` |
+| Set or clear a direct scalar | `StyleEdit::Field {target, field, value, region}` | `StyleEdit.field(target, field, value, region=region)` | `{op: "field", target, field, value, region}` |
+| Set or clear an entire physical conditional region | `StyleEdit::Region {target, region, format}` | `StyleEdit.region(target, region, format)` | `{op: "region", target, region, format}` |
 | Replace an unused definition | `StyleEdit::Replace {target, definition}` | `StyleEdit.replace(target, definition)` | `{op: "replace", target, definition}` |
 | Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
 | Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
 
-Add paragraph, character or table declarations to an existing relationship-selected
-styles part. Names, source aliases, and generated IDs must be unambiguous
+Add paragraph, character, table or numbering declarations to the relationship-selected
+styles part. An addition can create a missing part. Names, source aliases, and generated IDs must be unambiguous
 across styles under ASCII case-insensitive comparison. The authoring codec
 resolves forward references and checks their types and inheritance cycles.
 Patches address direct paragraph/character run properties, including explicit
 false; omitted properties, unknown siblings and attributes are preserved.
 
-Replace and remove require a nondefault custom style with a simple definition
-(name, base, empty paragraph properties and/or bold/italic). Replacement retains
+`Field` uses the same OOXML local names and string values in all three bindings:
+`basedOn`, `next`, `link` take an exact style ID; `jc` takes supported
+paragraph justification tokens (e.g. `center`, `both`). The run flags
+`b`, `i`, `bCs`, `iCs`, `rtl`, `cs`, `strike`, `caps`, `smallCaps`, `vanish`
+and paragraph flags `keepNext`, `keepLines`, `pageBreakBefore`, `widowControl`,
+`bidi`, `contextualSpacing`, `mirrorIndents`, `snapToGrid` take OOXML on/off
+strings. `None`/`null` removes the field; clearing an annotated leaf is refused.
+A character style cannot carry paragraph fields. One edit per style ID per batch.
+
+Omitting the region addresses the style's direct properties, including the
+base formatting of a table style. A region name addresses an actual
+`w:tblStylePr` wrapper: `wholeTable`, `firstRow`, `lastRow`, `firstCol`,
+`lastCol`, `band1Horz`, `band2Horz`, `band1Vert`, `band2Vert`, `nwCell`,
+`neCell`, `swCell`, or `seCell`. `Region` takes a `TableSectionFormat` (boxed
+in Rust) or `None`/`null` to clear the wrapper. Replacement discards **all**
+formatting inside that wrapper; use `Field` to retain its siblings. Duplicate
+wrappers or opaque markup that would be discarded reject the operation.
+
+Adding `NumberingStyleDefinition` requires a nonzero concrete ID (existing or added in the same preview)
+whose abstract has local levels and no existing style owner. The edit writes
+the style's `numId` and the abstract's reciprocal `styleLink`. It allocates
+no numbering IDs and leaves levels, overrides and paragraph references intact.
+
+Replace and remove require a nondefault custom style with recognized markup
+(including supported direct formatting groups and conditional regions). Replacement retains
 its type, ID, display name and source slot. Both operations reject potential
 references elsewhere in the package, including other styles, settings, stories,
 numbering and fields, and reject unsupported markup or parts when usage cannot
-be established. There is no automatic retargeting, numbering-style creation or
-synthesis of a missing styles part.
+be established. Live references are not retargeted. Linked numbering styles
+cannot be replaced or removed.

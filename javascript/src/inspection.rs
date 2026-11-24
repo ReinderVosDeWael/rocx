@@ -37,10 +37,22 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedMetadataField", (metadata_field, Paths::Package)),
         ("importedCustomProperty", (custom_property, Paths::Package)),
         (
+            "importedDocumentDefaults",
+            (document_defaults, Paths::Package),
+        ),
+        (
             "importedDefaultAlignment",
             (default_alignment, Paths::Package),
         ),
         ("importedAbstractStarts", (abstract_starts, Paths::Package)),
+        (
+            "importedNumberingInstances",
+            (numbering_instances, Paths::Package),
+        ),
+        (
+            "importedParagraphNumbering",
+            (paragraph_numbering, Paths::Package),
+        ),
         (
             "importedStoryInlineStructure",
             (story_inline_structure, Paths::Package),
@@ -69,10 +81,13 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("styleAnchor", "importedStyleAnchor"),
     ("coreTitle", "importedCoreTitle"),
     ("coreSubject", "importedCoreSubject"),
+    ("documentDefaults", "importedDocumentDefaults"),
     ("metadataField", "importedMetadataField"),
     ("customProperty", "importedCustomProperty"),
     ("defaultAlignment", "importedDefaultAlignment"),
     ("abstractStarts", "importedAbstractStarts"),
+    ("numberingInstances", "importedNumberingInstances"),
+    ("paragraphNumbering", "importedParagraphNumbering"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
     ("editEntryInlines", "importedEditEntryInlines"),
@@ -81,6 +96,8 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("patchField", "importedPatchField"),
     ("setPairedRange", "importedSetPairedRange"),
     ("editRunFormat", "importedEditRunFormat"),
+    ("editNoteReference", "importedEditNoteReference"),
+    ("editEntry", "importedEditEntry"),
     ("previewTrackedText", "importedPreviewTrackedText"),
     ("previewTrackedBold", "importedPreviewTrackedBold"),
     ("previewTrackedParagraph", "importedPreviewTrackedParagraph"),
@@ -229,6 +246,8 @@ fn styles(input: &Wire) -> Result<JsValue> {
                     ("id", style.id.as_deref()),
                     ("name", style.name.as_deref()),
                     ("basedOn", style.based_on.as_deref()),
+                    ("nextStyle", style.next_style.as_deref()),
+                    ("linkedStyle", style.linked_style.as_deref()),
                     (
                         "kindXml",
                         match &style.kind {
@@ -242,6 +261,11 @@ fn styles(input: &Wire) -> Result<JsValue> {
                         b::set(&value, key, &item.into());
                     }
                 }
+                b::set(
+                    &value,
+                    "propertyXml",
+                    &view::array(style.property_xml.iter().map(|s| s.as_str().into())),
+                );
                 value
             });
             b::record(&[
@@ -325,6 +349,33 @@ fn default_alignment(input: &Wire) -> Result<JsValue> {
         .as_ref()
         .map_or(JsValue::UNDEFINED, crate::text_layout::alignment_view))
 }
+fn document_defaults(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::DefaultValue as V;
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    let record = b::record(&[]);
+    for (field, v) in doc.document().document_defaults()? {
+        b::set(
+            &record,
+            field.key(),
+            &match v {
+                V::Bool(b) => b.into(),
+                V::Integer(i) => (i as f64).into(),
+                V::Text(s) => s.into(),
+                V::Tabs(tabs) => view::array(tabs.into_iter().map(|t| {
+                    let tab = b::record(&[
+                        ("positionTwips", t.position_twips.into()),
+                        ("alignment", t.alignment.into()),
+                    ]);
+                    if let Some(s) = t.leader {
+                        b::set(&tab, "leader", &s.into());
+                    }
+                    tab
+                })),
+            },
+        );
+    }
+    Ok(record)
+}
 fn abstract_starts(input: &Wire) -> Result<JsValue> {
     let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(view::array(
@@ -339,6 +390,41 @@ fn abstract_starts(input: &Wire) -> Result<JsValue> {
             record
         }),
     ))
+}
+
+fn numbering_instances(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        doc.document().numbering_instances()?.into_iter().map(|n| {
+            b::record(&[
+                ("numId", n.num_id.into()),
+                (
+                    "replacementLevels",
+                    view::array(n.replacement_levels.into_iter().map(Into::into)),
+                ),
+                ("abstractId", n.abstract_id.into()),
+                (
+                    "startOverrides",
+                    view::array(n.start_overrides.into_iter().map(|s| {
+                        b::record(&[("level", s.level.into()), ("start", s.start.into())])
+                    })),
+                ),
+            ])
+        }),
+    ))
+}
+
+fn paragraph_numbering(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let p =
+        b::borrow::<rocx::editor::ParagraphAnchor>(&argument(&call, "paragraph")?, "paragraph")?;
+    Ok(doc
+        .document()
+        .paragraph_numbering(&p)?
+        .map_or(JsValue::UNDEFINED, |r| {
+            b::record(&[("id", r.id.into()), ("level", r.level.into())])
+        }))
 }
 
 pub(crate) struct ImportedSource {

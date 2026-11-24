@@ -22,10 +22,12 @@ spellings (`control_sites` is a property); JavaScript uses `controlSites`,
 Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 `ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
 JavaScript. The optional result identifies the source part and lists direct
-style IDs, kinds, names, and `basedOn` references, not effective formatting.
-Missing kinds and unknown kind values are distinct. Inspection does not rewrite
-the source package; style editing and inherited property resolution are not yet
-supported.
+style IDs, kinds, names, base/next/linked references and property-group XML.
+Missing kinds and unknown kind values are distinct. An in-memory sample clears
+a first-row bold toggle, replaces last-row formatting and adds a numbering style
+for the existing list 60. These use Rust `StyleEdit::{Field,Region,Add}`,
+Python `StyleEdit.field/region/add`, and JavaScript `field`/`region`/`add`
+style edits. Inspection reports direct stored markup, not inherited formatting.
 
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:
@@ -83,6 +85,10 @@ Output:
   only the second section's even footer. `.entry-text.docx` inserts a labeled
   external hyperlink into a footnote, an endnote with the same ID in another
   part, and a comment. Each relationship belongs to its respective entry part.
+- `.entry-edits.docx` inserts a reference after “Footnote reference”, creates
+  footnote 47 (“Lifecycle note”), appends “Second note paragraph” and updates
+  the structured reviewer's initials to “ED”. The rest of the package is checked
+  against the original payloads.
 - `.run-text.docx` combines scalar-range edits, point insertion and run text edits, a resolved paragraph
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared
@@ -118,9 +124,10 @@ The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
 `all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
 `all_features-javascript.header-first-local.docx`, `all_features-javascript.run-text.docx`,
-`all_features-javascript.footer-even.docx`, `all_features-javascript.entry-text.docx`
+`all_features-javascript.footer-even.docx`, `all_features-javascript.entry-text.docx`,
+`all_features-javascript.entry-edits.docx`,
 `all_features-javascript.controls.docx` and `all_features-javascript.objects.docx`. Repeat `--javascript-dir` to check
-multiple runtime outputs. The checker requires all thirteen exact byte matches and
+multiple runtime outputs. The checker requires all fourteen exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
 In Chromium, import `generateCatalog` from `catalog.mjs` with the installed
@@ -244,12 +251,28 @@ ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
 `coreTitle`, `coreSubject`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
 for clearing, absence, and shared-numbering semantics.
 
+The same batch reads the 11-point run default, sets default bold to explicit
+false, clears paragraph space-after, and changes the document footnote start
+to 5. Rust uses `document_defaults()` and `ResourceEdit::Default`; Python uses
+`document_defaults` and `ResourceEdit.document_default(field, value)`; JavaScript
+uses `documentDefaults()` and `{kind: "documentDefault", field, value}`.
+
 In the same run-text sample the reviewer and manager are set with Rust
 `ResourceEdit::Metadata`, Python `ResourceEdit.metadata`, or JavaScript
 `{kind: "metadata", field, value}`. `Reviewed` is explicitly false through
 `ResourceEdit::CustomProperty`, `ResourceEdit.custom_property`, or
 `{kind: "customProperty", name, value}`. The parity checker reopens the
 document and verifies each value in its own package part.
+
+In the same sample, the ranged paragraph receives list instance **9049**, linked
+to abstract **9048**, with a Roman label replacement and a separate start of 6.
+The new numbering style `Reviewed List` owns that instance, and the abstract's
+reciprocal `styleLink` identifies `ReviewedList`. The preview sets the core
+subject to `Imported resource edits` alongside the other metadata and defaults edits.
+The Rust `NumberingEdit::{AddAbstract, AddInstance, InstanceLevel, InstanceStart, Paragraph}`,
+Python `ResourceEdit.{add_abstract, add_instance, instance_level, instance_start, paragraph_numbering}`
+and JavaScript `addAbstract`, `addInstance`, `instanceLevel`, `instanceStart`,
+`paragraphNumbering` forms produce the same `.run-text.docx`.
 
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
@@ -282,12 +305,12 @@ The installed `formatOwners` oracle exercises the same call on a linked run
 containing text, a tab, a drawing and a nonbreaking hyphen in a body cell and
 in shared header/footer parts.
 
-The header-source catalog also previews four block edits independently using
+The header-source catalog also previews seven block edits independently using
 the first paragraph of the inherited section. Rust uses `preview_blocks` and
-`BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext}`. Python passes
-`BlockEdit.replace`, `.remove`, `.replace_section` or `.keep_with_next` in
+`BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext, ParagraphFlag, SectionFlag, SectionType}`. Python passes
+`BlockEdit.replace`, `.remove`, `.replace_section`, `.keep_with_next`, `.paragraph_flag`, `.section_flag` or `.section_type` in
 `preview([], block_edits=[...])`. JavaScript uses `preview({blockEdits: [...]})`
-with `kind` equal to `replace`, `remove`, `replaceSection` or `keepWithNext`.
+with `kind` equal to `replace`, `remove`, `replaceSection`, `keepWithNext`, `paragraphFlag`, `sectionFlag` or `sectionType`.
 See [the editor inventory](../docs/EDITOR-PARITY.md#body-block-edits) for target rules.
 
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle

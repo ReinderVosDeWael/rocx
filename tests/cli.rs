@@ -51,6 +51,9 @@ fn duplicate_json_fields_are_not_last_value_wins() {
         r#"{"kind":"run-remove","kind":"alignment","target":0,"alignment":"left"}"#,
         r#"{"kind":"run-text","target":0,"inline_index":1,"text":"a","text":"b"}"#,
         r#"{"kind":"header-image","target":{"section_index":1,"section_index":0,"variant":"first"},"mode":"shared","bytes":[0]}"#,
+        r#"{"kind":"core-title","value":"keep","value":null}"#,
+        r#"{"kind":"table-structure","target":1,"operation":{"kind":"insert-column","index":0,"index":1}}"#,
+        r#"{"kind":"story-text","part":"p","runs":[{"entry_index":0,"entry_index":1,"block_index":0,"inline_index":0,"text":"x"}]}"#,
     ] {
         let (ok, response) = run_raw(&format!(
             r#"{{"command":"preview","source":"unused","snapshot":"unused","edits":[{edit}]}}"#

@@ -81,6 +81,16 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
             optional(&result, "alignment", p.alignment.map(alignment));
             optional(&result, "alignmentXml", p.alignment_xml.as_deref());
             revision_metadata(&result, "markRevision", p.mark_revision.as_ref());
+            b::set(
+                &result,
+                "flags",
+                &b::record(
+                    &p.flags
+                        .iter()
+                        .map(|(f, v)| (f.name(), (*v).into()))
+                        .collect::<Vec<_>>(),
+                ),
+            );
             result
         }
         BodyBlock::Table(t) => {
@@ -196,6 +206,13 @@ fn items(items: &[ImportedInline]) -> Result<JsValue> {
     try_array(items.iter().map(|item| {
         Ok(match item {
             ImportedInline::Text(value) => record("text", &[("text", value.as_str().into())]),
+            ImportedInline::NoteReference { kind, id } => record(
+                match kind {
+                    rocx::NoteKind::Footnote => "footnoteReference",
+                    rocx::NoteKind::Endnote => "endnoteReference",
+                },
+                &[("id", id.as_str().into())],
+            ),
             ImportedInline::Tab => record("tab", &[]),
             ImportedInline::Break(value) => record(
                 "break",
@@ -397,6 +414,16 @@ fn alignment(value: Alignment) -> &'static str {
 pub(super) fn section(section: &ImportedSection) -> JsValue {
     let result = b::record(&[
         ("bodyStart", section.body_start.into()),
+        (
+            "flags",
+            b::record(
+                &section
+                    .flags
+                    .iter()
+                    .map(|(f, v)| (f.name(), (*v).into()))
+                    .collect::<Vec<_>>(),
+            ),
+        ),
         ("bodyEnd", section.body_end.into()),
     ]);
     optional(

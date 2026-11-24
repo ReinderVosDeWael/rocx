@@ -388,6 +388,7 @@ def generate(directory):
     q.add_run()._r.append(elem("sym", font="Wingdings", char="F0FD"))
     paired.save(directory / "field-batch-source.docx")
     catalog = Document()
+    catalog.add_paragraph("Numbering target")
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
         catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
@@ -569,27 +570,53 @@ def inspect_header(before, after, change, image):
 
 
 def verify_ordinary(directory):
-    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, TextRangeEdit
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, StyleEdit, TextRangeEdit
     source = directory / "base.docx"
     output = directory / "combined.docx"
     doc = ImportedDocument.open(source.read_bytes())
     assert doc.preview(
         [],
         text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
-        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
-        resources=[ResourceEdit.core_title("Combined editor")],
+        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True),
+                     BlockEdit.paragraph_flag(doc.body[4].anchor, "page_break_before", False),
+                     BlockEdit.section_flag(doc.body[4].anchor, "title_page", True),
+                     BlockEdit.section_type(doc.body[0].anchor, "continuous")],
+        style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Batch List", 702))],
+        resources=[ResourceEdit.document_default("tabStops", [(720, "right", "dot")]),
+                   ResourceEdit.core_title("Combined editor"), ResourceEdit.metadata("subject", "Batch resources"),
+                   ResourceEdit.document_default("bold", False), ResourceEdit.add_instance(702,701),
+                   ResourceEdit.add_abstract(701, [d.NumberingLevel()])],
     ).to_docx() == output.read_bytes()
     original, result = parts(source), parts(output)
     assert original.keys() == result.keys()
-    untouched(original, result, (MAIN, "docProps/core.xml"))
-    for query in (".//w:fldSimple", ".//w:drawing", ".//w:sectPr"):
+    untouched(original, result, (MAIN, "docProps/core.xml", "word/styles.xml", "word/numbering.xml"))
+    tab, = xp(etree.fromstring(result["word/styles.xml"]), "w:docDefaults/w:pPrDefault/w:pPr/w:tabs/w:tab")
+    assert [tab.get(qn("w:" + attr)) for attr in ("val", "pos", "leader")] == ["right", "720", "dot"]
+    for query in (".//w:fldSimple", ".//w:drawing"):
         assert [tree(n) for n in xp(etree.fromstring(original[MAIN]), query)] == [
             tree(n) for n in xp(etree.fromstring(result[MAIN]), query)]
     readback = Document(output)
     assert readback.core_properties.title == "Combined editor"
+    assert readback.core_properties.subject == "Batch resources"
+    assert readback.styles["Batch List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["702"]
+    assert readback.part.numbering_part.element.xpath("w:abstractNum[@w:abstractNumId='701']/w:styleLink/@w:val") == ["BatchList"]
     p = readback.paragraphs
     assert p[1].text == "Xnset alignment"
     assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
+    assert p[4].paragraph_format.page_break_before is False
+    before_sections = xp(etree.fromstring(original[MAIN]), ".//w:sectPr")
+    after_sections = xp(etree.fromstring(result[MAIN]), ".//w:sectPr")
+    assert len(before_sections) == len(after_sections)
+    for i, (old, new) in enumerate(zip(before_sections, after_sections)):
+        if i < 2:
+            name, expected = [("type", "continuous"), ("titlePg", "1")][i]
+            assert new.find(qn("w:" + name)).get(qn("w:val")) == expected
+            for node in (old, new):
+                prop = node.find(qn("w:" + name))
+                if prop is not None:
+                    node.remove(prop)
+        assert tree(old) == tree(new)
 
 
 def verify_field_batch(directory):
@@ -714,28 +741,49 @@ def verify(directory):
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d
-    from rocx.editor import ImportedDocument, StyleEdit
+    from rocx.editor import ImportedDocument, ResourceEdit, StyleEdit
     source_path = directory / "styles-source.docx"
     style_path = directory / "styleEdits.docx"
     styles_source = ImportedDocument.open(source_path.read_bytes())
+    numbered = directory / "numberingEdits.docx"
+    assert styles_source.preview([], resources=[
+        ResourceEdit.add_abstract(90, [d.NumberingLevel()]), ResourceEdit.add_instance(91, 90),
+        ResourceEdit.paragraph_numbering(styles_source.body[0].anchor, (91, 0)),
+    ]).to_docx() == numbered.read_bytes()
+    untouched(parts(source_path), parts(numbered), (MAIN, "word/numbering.xml"))
+    assert Document(numbered).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
     edit = styles_source.preview([], style_edits=[
         StyleEdit.add(d.ParagraphStyleDefinition(name="Memo Added", base_style="Memo Active")),
         StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
                           d.ParagraphStyleDefinition(name="Memo Replace", bold=True)),
         StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
+        StyleEdit.field(styles_source.style_anchor("Heading1"), "next", "MemoAdded"),
+        StyleEdit.region(styles_source.style_anchor("TableGrid"), "nwCell", d.TableSectionFormat(bold=True, background=(10,20,30))),
+        StyleEdit.add(d.NumberingStyleDefinition(name="Memo List", numbering_id=1)),
         StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
     ])
     assert edit.to_docx() == style_path.read_bytes()
     before, after = parts(source_path), parts(style_path)
     assert before.keys() == after.keys()
-    untouched(before, after, ("word/styles.xml",))
+    untouched(before, after, ("word/styles.xml","word/numbering.xml"))
     readback = Document(style_path)
     assert "Memo Drop" not in readback.styles
     assert readback.styles["Memo Added"].base_style.name == "Memo Active"
     assert readback.styles["Memo Replace"].font.bold and readback.styles["Memo Replace"].font.italic is None
     assert readback.sections[0].header.paragraphs[0].style.font.italic
     original_ids = [s.style_id for s in Document(source_path).styles if s.name != "Memo Drop"]
-    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded"]
+    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded","MemoList"]
+    assert readback.styles["Heading 1"].next_paragraph_style.name == "Memo Added"
+    grid = readback.styles["Table Grid"].element
+    assert grid.xpath('./w:tblStylePr[@w:type="nwCell"]/w:tcPr/w:shd/@w:fill') == ["0A141E"]
+    num = etree.fromstring(after["word/numbering.xml"])
+    aid = xp(num,'w:num[@w:numId="1"]/w:abstractNumId/@w:val')[0]
+    backlink = xp(num,f'w:abstractNum[@w:abstractNumId="{aid}"]/w:styleLink')[0]
+    assert backlink.get(qn("w:val")) == "MemoList"
+    backlink.getparent().remove(backlink)
+    def tree(node):
+        return (node.tag, dict(node.attrib), node.text, [tree(n) for n in node])
+    assert tree(num) == tree(etree.fromstring(before["word/numbering.xml"]))
     source = parts(directory / "base.docx")
     image = (directory / "image.png").read_bytes()
     reports = json.loads((directory / "reports.json").read_text(encoding="utf8"))

@@ -18,7 +18,7 @@ mod dto;
 pub(crate) use dto::{
     alignment, alignment_view, document_defaults, line_height, line_height_view, paragraph_format,
     paragraph_format_view, rgb, rgb_view, run_format, run_format_view, run_language,
-    run_language_view, section_properties, tab_stop, tab_stop_view,
+    run_language_view, section_properties, section_type, tab_stop, tab_stop_view,
 };
 
 pub(crate) const SECTION: Option<Decode<Section>> = Some(section);

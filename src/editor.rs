@@ -19,8 +19,12 @@ mod batch;
 pub use batch::EditBatch;
 mod blocks;
 pub use blocks::BlockEdit;
+mod property_flags;
+pub use property_flags::{ParagraphFlag, SectionFlag};
 mod controls;
 mod entries;
+mod entry_edits;
+pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
 mod objects;
@@ -32,7 +36,9 @@ pub use objects::{DrawingOccurrence, DrawingProperty};
 pub use paired::{BodyRangeMarker, PairedRangeEdit};
 mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
+mod numbering;
 mod resource_fields;
+pub use numbering::{ImportedNumberingInstance, NumberingEdit};
 mod resources;
 mod revisions;
 pub use revisions::{TrackedParagraph, TrackedText};
@@ -47,7 +53,9 @@ pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
-pub use resource_fields::{AbstractStart, CustomValue, MetadataField, ResourceEdit};
+pub use resource_fields::{
+    AbstractStart, CustomValue, DefaultField, DefaultTab, DefaultValue, MetadataField, ResourceEdit,
+};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
@@ -258,6 +266,8 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 pub struct ImportedParagraph {
     /// First direct insertion/deletion of the paragraph terminator.
     pub mark_revision: Option<ImportedPropertyRevision>,
+    /// Recognized unambiguous direct flags; no inheritance is applied.
+    pub flags: BTreeMap<ParagraphFlag, bool>,
     pub anchor: ParagraphAnchor,
     /// Text from ordinary runs and hyperlinks; not a rendered-text view.
     pub text: String,
@@ -279,6 +289,11 @@ pub struct ImportedParagraph {
 #[non_exhaustive]
 pub enum ImportedInline {
     Text(String),
+    /// A simple source note reference; preserve lexical ID spelling.
+    NoteReference {
+        kind: crate::NoteKind,
+        id: String,
+    },
     Tab,
     /// `Line` denotes the `w:cr` form; an untyped `w:br` is `TextWrapping`.
     Break(BreakType),
@@ -417,6 +432,8 @@ pub struct ImportedHyperlink {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedSection {
+    /// Recognized unambiguous direct flags; no defaults are inferred.
+    pub flags: BTreeMap<SectionFlag, bool>,
     pub body_start: usize,
     pub body_end: usize,
     /// Recognized explicit section type. No default is inferred.
@@ -587,6 +604,10 @@ impl ImportedDocument {
                                 })
                             },
                         ),
+                        flags: ParagraphFlag::read(node.child("w:pPr").filter(|_| {
+                            node.elements().filter(|c| c.name == "w:pPr").count() == 1
+                                && node.child(ALTERNATE).is_none()
+                        })),
                         anchor,
                         text,
                         alignment: alignment_xml.and_then(read_alignment),
@@ -852,6 +873,7 @@ impl ImportedDocument {
             self.validate_snapshot(snapshot)?;
         }
         let mut by_index = BTreeMap::new();
+        let number_refs = numbering::paragraph_targets(self, resources)?;
         for edit in edits {
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
@@ -872,6 +894,9 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        // Numbering identities must be visible to both styles and body
+        // payloads. Validate removals only after their final users are staged.
+        let removed_numbers = numbering::stage(&mut package, &self.main, resources)?;
         // Check unused definitions against the original snapshot, and make
         // newly added definitions available to every payload codec.
         self.stage_styles(&mut package, styles)?;
@@ -903,6 +928,7 @@ impl ImportedDocument {
         let mut block_changes = Vec::new();
         let mut wrapper_ids = BTreeSet::new();
         if !by_index.is_empty()
+            || !number_refs.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
@@ -959,6 +985,7 @@ impl ImportedDocument {
             )?;
             let mut occupied: BTreeSet<usize> = by_index
                 .keys()
+                .chain(number_refs.keys())
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
                 .copied()
@@ -1047,7 +1074,9 @@ impl ImportedDocument {
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             let (staged, actions) =
                 text::prepare(package, self, inline_edits, &mut wrapper_plan.images)?;
-            package = tables::structure(body, staged, &self.main, structural, cells)?;
+            let (staged, structural_changed) =
+                tables::structure(body, staged, &self.main, structural, cells)?;
+            package = staged;
             (run_text_changes, removed_runs) = text::apply(
                 body,
                 &expanded,
@@ -1058,6 +1087,7 @@ impl ImportedDocument {
             )?;
             inline_changes.dedup();
             cell_alignment_changes = tables::apply(body, cells)?;
+            let numbering_changed = numbering::patch_paragraphs(body, &number_refs)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -1121,13 +1151,14 @@ impl ImportedDocument {
             block_changes = block_plan.changes;
             if controls_changed
                 || wrapper_plan.changed
+                || numbering_changed
                 || !changes.is_empty()
                 || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
                 || !inline_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
-                || !structural.is_empty()
+                || structural_changed
                 || !insertions.is_empty()
                 || !paragraph_insertions.is_empty()
                 || header_changes
@@ -1135,12 +1166,6 @@ impl ImportedDocument {
                     .any(|change| change.mode == HeaderEditMode::SectionLocal)
             {
                 package.put_word(&self.main, root)?;
-            }
-            if destructive_styles {
-                // Revalidate against the staged content, including implicit
-                // style references emitted by payload codecs. The plan always
-                // derives the catalog itself from the immutable source.
-                self.stage_styles(&mut package, styles)?;
             }
         }
         // A defaults patch shares the styles part. Read the staged version.
@@ -1167,6 +1192,12 @@ impl ImportedDocument {
             }
         }
         paired::recheck_removals(&package, &self.main, paired_ranges)?;
+        if destructive_styles {
+            self.check_final_style_uses(&package, styles)?;
+        }
+        if let Some(removed) = removed_numbers {
+            removed.check(&package)?;
+        }
         Ok(EditPreview {
             block_changes,
             run_text_changes,
@@ -1330,6 +1361,22 @@ fn read_inline_nodes<'a>(
 
 fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
     for item in node.elements() {
+        if let Some(kind) = match item.name.as_str() {
+            "w:footnoteReference" => Some(crate::NoteKind::Footnote),
+            "w:endnoteReference" => Some(crate::NoteKind::Endnote),
+            _ => None,
+        } && item.children.is_empty()
+            && !text::has_other_attrs(item, &["w:id"])
+            && let Some(id) = item
+                .get("w:id")
+                .filter(|id| crate::ooxml::decimal_id(id).is_some())
+        {
+            items.push(ImportedInline::NoteReference {
+                kind,
+                id: id.to_owned(),
+            });
+            continue;
+        }
         if deletion && item.name == "w:delText" {
             let text = item
                 .children
@@ -1364,26 +1411,15 @@ fn read_run(node: &Node, items: &mut Vec<ImportedInline>, deletion: bool) {
 
 /// Outer `None` means no write; inner `None` means no previous value.
 fn patch_alignment(paragraph: &mut Node, after: Alignment) -> Result<Option<Option<String>>> {
-    patch_property(paragraph, "w:jc", after.xml())
-}
-
-fn patch_property(
-    paragraph: &mut Node,
-    property: &str,
-    value: &str,
-) -> Result<Option<Option<String>>> {
+    let value = after.xml();
     if paragraph.elements().filter(|n| n.name == "w:pPr").count() > 1
         || paragraph.child(ALTERNATE).is_some()
         || paragraph.child("w:pPr").is_some_and(|props| {
-            props.elements().filter(|n| n.name == property).count() > 1
+            props.elements().filter(|n| n.name == "w:jc").count() > 1
                 || props.child(ALTERNATE).is_some()
         })
     {
-        return Err(unsupported(if property == "w:jc" {
-            "paragraph alignment is structurally ambiguous"
-        } else {
-            "paragraph property is structurally ambiguous"
-        }));
+        return Err(unsupported("paragraph alignment is structurally ambiguous"));
     }
 
     if paragraph.child("w:pPr").is_none() {
@@ -1392,16 +1428,7 @@ fn patch_property(
             .insert(0, Content::Element(Node::new("w:pPr")));
     }
     let props = paragraph.child_mut("w:pPr").unwrap();
-    if property == "w:keepNext"
-        && let Some(current) = props.child(property)
-        && matches!(
-            (current.get("w:val"), value),
-            (None | Some("true" | "on" | "1"), "1") | (Some("false" | "off" | "0"), "0")
-        )
-    {
-        return Ok(None);
-    }
-    let jc = props.ensure(property);
+    let jc = props.ensure("w:jc");
     if jc.get("w:val") == Some(value) {
         return Ok(None);
     }

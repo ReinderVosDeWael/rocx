@@ -412,7 +412,7 @@ pub(super) fn disposable_properties(props: &Node) -> bool {
         })
 }
 
-fn check_run(run: &Node, discard: bool) -> Result<()> {
+pub(super) fn check_run(run: &Node, discard: bool) -> Result<()> {
     check_run_children(run, discard, false)
 }
 
@@ -592,7 +592,7 @@ pub(super) fn apply(
     apply_targets(body, targets, true, inline_changes, slots)
 }
 
-fn validate_text(text: &str) -> Result<()> {
+pub(super) fn validate_text(text: &str) -> Result<()> {
     if text.contains(['\t', '\r', '\n']) || crate::document::invalid_xml_character(text).is_some() {
         return Err(unsupported(
             "replacement must be single-line XML text without tabs",

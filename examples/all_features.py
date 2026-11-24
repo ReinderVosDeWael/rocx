@@ -460,6 +460,9 @@ async def generate(output: pathlib.Path) -> bytes:
     styled = imported.preview([], style_edits=[
         StyleEdit.add(d.ParagraphStyleDefinition(name="Catalog Imported Child", base_style="Catalog Base")),
         StyleEdit.patch(imported.style_anchor("CatalogBase"), italic=True),
+        StyleEdit.field(imported.style_anchor("Regionfirst_row"), "b", None, region="firstRow"),
+        StyleEdit.region(imported.style_anchor("Regionlast_row"), "lastRow", d.TableSectionFormat(italic=True)),
+        StyleEdit.add(d.NumberingStyleDefinition(name="Catalog Imported List", numbering_id=60)),
     ])
     assert any(s.id == "CatalogImportedChild" and s.based_on == "CatalogBase"
                for s in ImportedDocument.open(styled.to_docx()).styles.styles)
@@ -499,6 +502,12 @@ async def generate(output: pathlib.Path) -> bytes:
                         and n.children[0].items[0].value == "Review link")
         entries_output = source.edit_run_format([InlineEdit.patch_format(link_run.anchor, size=13.5)], owner_part=entry.part_name)
     output.with_suffix(".entry-text.docx").write_bytes(entries_output)
+    owner = next(e.part_name for e in entries if e.kind == "footnote")
+    note_body = next(p for p in imported.body if getattr(p, "text", None) == "Footnote reference; endnote reference")
+    created = imported.edit_note_reference(owner, note_body.inline_structure[0].anchor, "create", id=47, text="Lifecycle note")
+    appended = ImportedDocument.open(created).edit_entry(owner, "47", "insertParagraph", index=1, value="Second note paragraph")
+    lifecycle = ImportedDocument.open(appended).edit_entry(review.part_name, review.id, "initials", value="ED")
+    output.with_suffix(".entry-edits.docx").write_bytes(lifecycle)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
@@ -541,6 +550,7 @@ async def generate(output: pathlib.Path) -> bytes:
         ("text", EDIT_LABEL),
     ]
     assert imported.core_title == "All features visual inspection" and imported.default_alignment is None
+    assert imported.document_defaults["sizeHalfPoints"] == 22
     assert any((s.abstract_id, s.level, s.start) == (100, 0, 1) for s in imported.abstract_starts)
     assert {(c.context, c.id) for c in imported.controls} >= {
         ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
@@ -559,6 +569,7 @@ async def generate(output: pathlib.Path) -> bytes:
     plain.preview_unwrap_control(sample.anchor)
     output.with_suffix(".controls.docx").write_bytes(qualified)
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
+                               style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Reviewed List", 9049))],
                                text_insertions=[TextInsertion(targets[0].anchor, 8, " + point")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
                                           ResourceEdit.core_subject("Imported resource edits"),
@@ -566,7 +577,15 @@ async def generate(output: pathlib.Path) -> bytes:
                                           ResourceEdit.metadata("manager", "Review lead"),
                                           ResourceEdit.custom_property("Reviewed", False),
                                           ResourceEdit.default_alignment("center"),
-                                          ResourceEdit.abstract_start(100, 0, 7)],
+                                          ResourceEdit.document_default("bold", False),
+                                          ResourceEdit.document_default("footnoteStart", 5),
+                                          ResourceEdit.document_default("afterTwips", None),
+                                          ResourceEdit.abstract_start(100, 0, 7),
+                                          ResourceEdit.add_abstract(9048, [d.NumberingLevel(start=2)]),
+                                          ResourceEdit.instance_level(9049, 0, d.NumberingLevel(format="lowerRoman", text="(%1)")),
+                                          ResourceEdit.add_instance(9049, 9048),
+                                          ResourceEdit.instance_start(9049, 0, 6),
+                                          ResourceEdit.paragraph_numbering(targets[0].anchor, (9049, 0))],
                                controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
                                run_text=[RunTextEdit(label.anchor, replacement)],
                                paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
@@ -675,7 +694,9 @@ async def generate(output: pathlib.Path) -> bytes:
     assert len(ImportedDocument.open(reviewed.to_docx()).body) == len(header_doc.body)
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
-                 BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True)):
+                 BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True),
+                 BlockEdit.paragraph_flag(target, "keep_together", True),
+                 BlockEdit.section_flag(target, "rtl_gutter", True), BlockEdit.section_type(target, "evenPage")):
         assert header_doc.preview([], block_edits=[edit]).block_changes == [2]
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
     # Tracked replacement and paired move are independent opt-in previews.

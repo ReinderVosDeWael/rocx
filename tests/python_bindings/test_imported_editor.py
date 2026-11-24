@@ -45,6 +45,33 @@ from rocx.editor import (
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 
+def test_direct_flags_and_section_type_round_trip_with_snapshot_checks():
+    source = docx.Document()
+    source.add_paragraph("first").paragraph_format.widow_control = False
+    source.add_section()
+    source.add_paragraph("last")
+    data = io.BytesIO()
+    source.save(data)
+    doc = ImportedDocument.open(data.getvalue())
+    first, last = doc.body[0].anchor, doc.body[-1].anchor
+    assert doc.body[0].flags == {"widow_control": False}
+    edits = [BlockEdit.section_flag(first, "title_page", True),
+             BlockEdit.paragraph_flag(first, "widow_control", None),
+             BlockEdit.paragraph_flag(last, "keep_together", False),
+             BlockEdit.section_type(last, "evenPage")]
+    for bad in [BlockEdit.section_type(doc.body[1].anchor, None), edits[0]]:
+        with pytest.raises(ValueError):
+            doc.preview([], block_edits=[*edits, bad])
+    output = doc.preview([], block_edits=edits).to_docx()
+    result = ImportedDocument.open(output)
+    assert result.body[0].flags == {} and result.body[-1].flags == {"keep_together": False}
+    assert result.sections[0].flags == {"title_page": True}
+    assert result.sections[1].section_type == "evenPage"
+    with pytest.raises(ValueError, match="different document snapshot"):
+        result.preview([], block_edits=edits)
+    assert docx.Document(io.BytesIO(output)).paragraphs[0].paragraph_format.widow_control is None
+
+
 async def test_block_edits_protect_ranges_conflicts_and_original_addresses():
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn

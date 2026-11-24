@@ -1,5 +1,6 @@
 """Exercise the JSON process boundary, with an installed Python API byte oracle."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -180,3 +181,364 @@ async def test_all_seven_edits(cli, tmp_path, variant, mode):
         assert old[name] == new[name], name
     if os.environ.get("ROCX_REQUIRE_SCHEMAS") == "1":
         subprocess.run([sys.executable, ROOT / "tools/validate_ooxml.py", output], check=True)
+
+
+def checked_copy(cli, source, output, edits):
+    snapshot = hashlib.sha256(source.read_bytes()).hexdigest()
+    batch = dict(snapshot=snapshot, edits=edits)
+    preview = call(cli, "preview", source, **batch)
+    assert not output.exists()
+    assert call(cli, "save-copy", source, output=str(output), **batch) == preview
+    assert preview["output_snapshot"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert snapshot == hashlib.sha256(source.read_bytes()).hexdigest()
+    if os.environ.get("ROCX_REQUIRE_SCHEMAS") == "1":
+        subprocess.run([sys.executable, ROOT / "tools/validate_ooxml.py", output], check=True)
+    return call(cli, "inspect", output)
+
+
+def independent_document():
+    # The python-docx default template omits the schema-required zoom percentage.
+    from docx.oxml.ns import qn
+    doc = docx.Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    return doc
+
+
+def test_structural_property_transport(cli, tmp_path):
+    from rocx.editor import BlockEdit, ResourceEdit, TableStructureEdit, TextInsertion
+
+    source, output = tmp_path / "source.docx", tmp_path / "edited.docx"
+    doc = independent_document()
+    doc.add_paragraph("body").paragraph_format.widow_control = False
+    doc.add_table(rows=1, cols=2).autofit = True
+    doc.add_paragraph("a😀b")
+    doc.save(source)
+    seen = call(cli, "inspect", source)
+    start = seen["sections"][0]["body_start"]
+    assert seen["body"][start]["flags"]["widow_control"] is False
+    edits = [dict(kind="paragraph-flag", target=start, flag="widow_control", value=None),
+             dict(kind="section-flag", target=start, flag="rtl_gutter", value=False),
+             dict(kind="section-type", target=start, value="evenPage"),
+             dict(kind="table-structure", target=1, operation=dict(kind="layout", value="fixed")),
+             dict(kind="text-insertion", target=2, position=2, text="!"),
+             dict(kind="core-subject", value=""),
+             dict(kind="metadata", field="manager", value="Editor"),
+             dict(kind="custom-property", name="Reviewed", value=False)]
+    for invalid in [dict(kind="section-type", target=start),
+                    dict(kind="table-structure", target=1, operation=dict(kind="layout")),
+                    dict(kind="metadata", field="manager"),
+                    dict(kind="custom-property", name="Reviewed", value=1),
+                    dict(kind="text-insertion", target=2, position=4, text="!")]:
+        call(cli, "save-copy", source, success=False, snapshot=seen["snapshot"],
+             output=str(output), edits=[edits[0], invalid])
+        assert not output.exists()
+    result = checked_copy(cli, source, output, edits)
+    details = call(cli, "inspect", output, metadata_fields=["manager"], custom_properties=["Reviewed", "Missing"])
+    assert details["core_subject"] == ""
+    assert details["metadata"] == {"manager": "Editor"}
+    assert details["custom_properties"] == {"Reviewed": False, "Missing": None}
+    assert result["body"][2]["text"] == "a😀!b"
+    assert result["body"][start]["flags"] == {}
+    assert result["sections"][0]["flags"]["rtl_gutter"] is False
+    assert result["sections"][0]["section_type_xml"] == "evenPage"
+    assert result["body"][1]["layout"] == "fixed"
+    assert result["body"][1]["grid_widths"] == seen["body"][1]["grid_widths"]
+    imported = ImportedDocument.open(source.read_bytes())
+    p, t, text = imported.body
+    assert output.read_bytes() == imported.preview([], block_edits=[
+        BlockEdit.paragraph_flag(p.anchor, "widow_control", None),
+        BlockEdit.section_flag(p.anchor, "rtl_gutter", False),
+        BlockEdit.section_type(p.anchor, "evenPage")],
+        table_structure=[TableStructureEdit.layout(t.anchor, "fixed")],
+        text_insertions=[TextInsertion(text.anchor, 2, "!")],
+        resources=[ResourceEdit.core_subject(""), ResourceEdit.metadata("manager", "Editor"),
+                   ResourceEdit.custom_property("Reviewed", False)]).to_docx()
+
+
+def test_extended_mixed_binding_and_atomic_rejection(cli, tmp_path):
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+    from rocx.editor import (
+        BlockEdit, ControlEdit, InlineEdit, ResourceEdit, StyleEdit, TableStructureEdit, TextRangeEdit,
+    )
+
+    source, output = tmp_path / "original.docx", tmp_path / "copy.docx"
+    doc = independent_document()
+    p = doc.add_paragraph()
+    p.add_run("a😀").bold = True
+    p.add_run("bc").italic = True
+    doc.add_paragraph("keep")
+    doc.add_paragraph("inline")
+    doc.add_table(rows=1, cols=2)
+    doc.add_paragraph()._p.append(parse_xml(
+        f'<w:sdt {nsdecls("w")}><w:sdtPr><w:tag w:val="original"/><w:text/></w:sdtPr>'
+        '<w:sdtContent><w:r><w:t>old</w:t></w:r></w:sdtContent></w:sdt>'))
+    doc.save(source)
+    seen = call(cli, "inspect", source)
+    a = seen["abstract_starts"][0]
+    control, = seen["controls"]
+    assert control["context"] == "inline"
+    edits = [
+        dict(kind="core-title", value="CLI title"), dict(kind="default-alignment", value="justify"),
+        dict(kind="abstract-start", **(a | {"value": 9})),
+        dict(kind="style-add", definition=dict(kind="character", name="CliEmphasis", bold=True)),
+        dict(kind="text-range", target=0, start=1, end=3, text="!"),
+        dict(kind="keep-with-next", target=1, value=True),
+        dict(kind="run-bold", target=2, inline_index=0, value=True),
+        dict(kind="table-structure", target=3, operation=dict(kind="insert-column", index=1)),
+        dict(kind="control", target=control["target"], tag="changed", text="new"),
+    ]
+    for bad in [
+        dict(kind="core-title"), dict(kind="style-remove", id="Normal"),
+        dict(kind="insert-inline", target=1, inline_index=0, inline=dict(kind="text", txt="typo")),
+        dict(kind="table-structure", target=3, operation=dict(kind="remove-row", index=999)),
+        dict(kind="text-range", target=0, start=1, end=2, text="overlap"),
+        dict(kind="tracked-text", target=dict(target=2, inline_index=0), author="R", action=dict(kind="delete")),
+    ]:
+        call(cli, "save-copy", source, success=False, snapshot=seen["snapshot"],
+             output=str(output), edits=[edits[4], bad])
+        assert not output.exists()
+    after = checked_copy(cli, source, output, edits)
+    assert (after["core_title"], after["default_alignment"], after["abstract_starts"][0]["value"]) == (
+        "CLI title", "justify", 9)
+    assert after["controls"][0]["tag"] == "changed"
+    assert any(s["id"] == "CliEmphasis" for s in after["styles"]["definitions"])
+    saved = docx.Document(output)
+    assert saved.paragraphs[0].text == "a!c" and saved.paragraphs[0].runs[1].italic
+    assert saved.paragraphs[1].paragraph_format.keep_with_next and saved.paragraphs[2].runs[0].bold
+    assert len(saved.tables[0].columns) == 3
+    original = ImportedDocument.open(source.read_bytes())
+    p, q, r, t, _ = original.body
+    expected = original.preview([], resources=[
+        ResourceEdit.core_title("CLI title"), ResourceEdit.default_alignment("justify"),
+        ResourceEdit.abstract_start(a["abstract_id"], a["level"], 9)],
+        style_edits=[StyleEdit.add(d.CharacterStyleDefinition(name="CliEmphasis", bold=True))],
+        text_ranges=[TextRangeEdit(p.anchor, 1, 3, "!")],
+        block_edits=[BlockEdit.keep_with_next(q.anchor, True)],
+        inline_edits=[InlineEdit.set_bold(r.inline_structure[0].anchor, True)],
+        table_structure=[TableStructureEdit.insert_column(t.anchor, 1)],
+        controls=[ControlEdit(original.controls[0].anchor, tag="changed", text="new")])
+    assert output.read_bytes() == expected.to_docx()
+    before, final = parts(source), parts(output)
+    assert before.keys() == final.keys()
+    assert {n for n in before if before[n] != final[n]} == {
+        "word/document.xml", "word/styles.xml", "word/numbering.xml", "docProps/core.xml"}
+    cleared = checked_copy(cli, output, tmp_path / "clear.docx", [
+        dict(kind="core-title", value=None), dict(kind="default-alignment", value=None),
+        a | dict(kind="abstract-start", value=None)])
+    assert cleared["core_title"] is cleared["default_alignment"] is cleared["abstract_starts"][0]["value"] is None
+
+
+def test_discovered_footer_and_revision_scopes(cli, tmp_path):
+    source, story, moved = [tmp_path / f"{n}.docx" for n in ("source", "story", "moved")]
+    doc = independent_document()
+    p = doc.add_paragraph("left")
+    p.add_run("right")
+    doc.sections[0].even_page_footer.paragraphs[0].text = "Shared"
+    doc.save(source)
+    seen = call(cli, "inspect", source)
+    slot, = seen["stories"]
+    assert slot["target"] == dict(section_index=0, kind="footer", variant="even")
+    block, = slot["blocks"]
+    run, = block["inlines"]
+    original = ImportedDocument.open(source.read_bytes())
+    checked_copy(cli, source, story, [dict(kind="story-text", part=slot["part"], runs=[
+        dict(block_index=block["block_index"], inline_index=run["inline_index"], text="Edited")])])
+    physical, = original.stories
+    assert story.read_bytes() == original.edit_story_text(slot["part"], [
+        RunTextEdit(physical.blocks[0].inline_structure[0].anchor, "Edited")])
+    assert docx.Document(story).sections[0].even_page_footer.paragraphs[0].text == "Edited"
+    image_path = tmp_path / "image.docx"
+    png = (FIXTURES / "images/sample.png").read_bytes()
+    checked_copy(cli, source, image_path, [dict(kind="story-image", target=slot["target"], mode="shared", bytes=list(png))])
+    footer = docx.Document(image_path).sections[0].even_page_footer
+    rid, = footer._element.xpath(".//a:blip/@r:embed")
+    assert footer.part.related_parts[rid].blob == png
+
+    addr = lambda i: dict(target=0, inline_index=i)
+    date = "2024-02-29T12:34:56Z"
+    result = checked_copy(cli, source, moved, [dict(kind="tracked-move", target=addr(0),
+        after=addr(1), name="Move1", author="Reviewer", date=date)])
+    first, second = original.body[0].inline_structure
+    assert moved.read_bytes() == original.preview_tracked_move(
+        first.anchor, second.anchor, "Move1", "Reviewer", date).to_docx()
+    moves = {n["revision_kind"]:addr(n["inline_index"]) for n in result["body"][0]["inlines"]
+             if n["kind"] == "revision"}
+    accepted = tmp_path / "accepted.docx"
+    checked_copy(cli, moved, accepted, [dict(kind="review-revision", target=moves["moveSource"],
+        action="accept", paired=moves["moveDestination"])])
+    assert docx.Document(accepted).paragraphs[0].text == "rightleft"
+
+    tracked = tmp_path / "replaced.docx"
+    result = checked_copy(cli, source, tracked, [dict(kind="tracked-text", target=addr(0),
+        author="Reviewer", date=date, action=dict(kind="replace", text="new"))])
+    assert tracked.read_bytes() == original.preview_tracked_text(first.anchor, "replace", "Reviewer",
+        text="new", date=date).to_docx()
+    assert [n["revision_kind"] for n in result["body"][0]["inlines"] if n["kind"] == "revision"] == [
+        "deletion", "insertion"]
+
+
+def test_declarations_bind_original_indices_and_reresolve_styles(cli, tmp_path):
+    source, output, second = [tmp_path / f"{n}.docx" for n in ("source", "copy", "next")]
+    doc = independent_document()
+    for text in ["drop", "old block", "turn into link", "last"]:
+        doc.add_paragraph(text)
+    doc.add_table(1, 1)
+    doc.save(source)
+    edited = checked_copy(cli, source, output, [
+        dict(kind="remove-paragraph", target=0),
+        dict(kind="replace-paragraph", target=1, text="new block"),
+        dict(kind="replace-inline", target=2, inline_index=0,
+             inline=dict(kind="hyperlink", text="link", url="https://example.org/cli")),
+        dict(kind="insert-inline", target=3, inline_index=0,
+             inline=dict(kind="text", text=" after", italic=True)),
+        dict(kind="table-structure", target=4, operation=dict(kind="replace-cell", row=0, cell=0,
+             blocks=[dict(kind="table", rows=[["nested"]]), dict(kind="paragraph", text="end")])),
+        dict(kind="style-add", definition=dict(kind="paragraph", name="Memo"))])
+    saved = docx.Document(output)
+    assert [p.text for p in saved.paragraphs] == ["new block", "link", "last after"]
+    assert saved.paragraphs[1].hyperlinks[0].url == "https://example.org/cli"
+    assert saved.paragraphs[2].runs[-1].italic
+    assert saved.tables[0].cell(0, 0).tables[0].cell(0, 0).text == "nested"
+    assert edited["body"][1]["inlines"] == [dict(kind="hyperlink", inline_index=0)]
+    definition = next(s for s in edited["styles"]["definitions"] if s["name"] == "Memo")
+    checked_copy(cli, output, second, [
+        dict(kind="replace-inline", target=1, inline_index=0, inline=dict(kind="text", text="plain")),
+        dict(kind="style-patch", id=definition["id"], bold=True)])
+    assert docx.Document(second).styles["Memo"].font.bold
+    assert not docx.Document(second).paragraphs[1].hyperlinks
+
+
+def test_entry_text_cannot_select_another_owner(cli, tmp_path):
+    source, output = tmp_path / "comments.docx", tmp_path / "edited.docx"
+    doc = independent_document()
+    run = doc.add_paragraph("annotated").runs[0]
+    doc.add_comment(run, "original", author="Reviewer")
+    doc.save(source)
+    seen = call(cli, "inspect", source)
+    entry, = seen["entries"]
+    block, = entry["blocks"]
+    target, = [n for n in block["inlines"] if n.get("text") == "original"]
+    edit = dict(kind="story-text", part=entry["part"], runs=[dict(entry_index=entry["entry_index"],
+        block_index=block["block_index"], inline_index=target["inline_index"], text="updated")])
+    call(cli, "save-copy", source, success=False, output=str(output), snapshot=seen["snapshot"],
+         edits=[edit | dict(part="word/document.xml")])
+    assert not output.exists()
+    checked_copy(cli, source, output, [edit])
+    comment, = docx.Document(output).comments
+    assert comment.author == "Reviewer" and comment.text == "updated"
+    old, new = parts(source), parts(output)
+    assert {n for n in old.keys() | new.keys() if old.get(n) != new.get(n)} == {entry["part"].lstrip("/")}
+
+
+def test_section_replacement_and_geometry_use_original_coordinates(cli, tmp_path):
+    from rocx.editor import TableStructureEdit
+
+    source, output = tmp_path / "section.docx", tmp_path / "tables.docx"
+    doc = independent_document()
+    doc.add_paragraph("old").add_run(" section")
+    doc.sections[0].left_margin = docx.shared.Inches(1.5)
+    doc.save(source)
+    blocks = [dict(kind="table", rows=[["a", "b"], ["c", "d"]]) for _ in range(6)]
+    checked_copy(cli, source, output, [dict(kind="replace-section", target=0, blocks=blocks)])
+    copy = docx.Document(output)
+    assert len(copy.tables) == 6 and not copy.paragraphs
+    assert copy.sections[0].left_margin == doc.sections[0].left_margin
+    operations = [
+        ("insert-row", {"index": 1}), ("remove-row", {"index": 1}),
+        ("insert-column", {"index": 1}), ("remove-column", {"index": 1}),
+        ("insert-cell", {"row": 1, "cell": 0}), ("remove-cell", {"row": 1, "cell": 0}),
+    ]
+    geometry = tmp_path / "geometry.docx"
+    checked_copy(cli, output, geometry, [dict(kind="table-structure", target=i,
+        operation=dict(kind=k, **indices)) for i, (k, indices) in enumerate(operations)])
+    imported = ImportedDocument.open(output.read_bytes())
+    edits = [getattr(TableStructureEdit, k.replace("-", "_"))(t.anchor, *indices.values())
+             for t, (k, indices) in zip(imported.body, operations, strict=True)]
+    assert geometry.read_bytes() == imported.preview([], table_structure=edits).to_docx()
+
+
+def test_resource_and_style_transport(cli, tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+    from rocx.editor import ResourceEdit as R, StyleEdit as S
+
+    source, output = tmp_path / "resources.docx", tmp_path / "edited.docx"
+    word = independent_document()
+    word.add_paragraph("List entry")
+    word.styles.add_style("CLI Table", WD_STYLE_TYPE.TABLE)
+    word.styles.add_style("CLI Paragraph", WD_STYLE_TYPE.PARAGRAPH)
+    word.save(source)
+    original = source.read_bytes()
+    imported = ImportedDocument.open(original)
+    paragraph = imported.body[0].anchor
+    table = imported.style_anchor("CLITable")
+    paragraph_style = imported.style_anchor("CLIParagraph")
+    level = dict(level=0, start=1, format="decimal", text="%1.")
+    replacement = level | dict(start=2, format="lowerRoman")
+    definition = dict(kind="numbering", name="CLI List", numbering_id=702)
+    edits = [
+        dict(kind="style-add", definition=definition),
+        dict(kind="style-region", id="CLITable", region="firstRow", value={"bold": True}),
+        dict(kind="style-field", id="CLIParagraph", field="i", region=None, value="0"),
+        dict(kind="core-subject", value="Review"),
+        dict(kind="document-default", field="bold", value=False),
+        dict(kind="document-default", field="tabStops", value=[
+            dict(position_twips=720, alignment="right", leader="dot")]),
+        dict(kind="add-instance", num_id=703, abstract_id=701),
+        dict(kind="add-instance", num_id=702, abstract_id=701),
+        dict(kind="add-abstract", abstract_id=701, levels=[level]),
+        dict(kind="instance-start", num_id=703, level=0, value=6),
+        dict(kind="instance-level", num_id=703, level=0, value=replacement),
+        dict(kind="paragraph-numbering", target=0, value=dict(id=703, level=0)),
+        dict(kind="add-abstract", abstract_id=704, levels=[level]),
+    ]
+    snapshot = call(cli, "inspect", source, numbering_targets=[0])
+    assert snapshot["paragraph_numbering"] == {"0": None}
+    for bad in (dict(kind="metadata", field="subject", value="Duplicate"),
+                dict(kind="document-default", field="italic"),
+                dict(kind="paragraph-numbering", target=1, value=None)):
+        call(cli, "save-copy", source, success=False, output=str(output),
+             snapshot=snapshot["snapshot"], edits=[*edits, bad])
+        assert not output.exists()
+    inspected = checked_copy(cli, source, output, edits)
+    assert inspected["core_subject"] == "Review"
+    assert inspected["document_defaults"]["bold"] is False
+    assert inspected["document_defaults"]["tabStops"] == edits[5]["value"]
+    instance, = [i for i in inspected["numbering_instances"] if i["num_id"] == 703]
+    assert instance == dict(num_id=703, abstract_id=701, replacement_levels=[0],
+                            start_overrides=[dict(level=0, start=6)])
+    result = call(cli, "inspect", output, numbering_targets=[0])
+    assert result["paragraph_numbering"] == {"0": {"id": 703, "level": 0}}
+    output_bytes = output.read_bytes()
+    assert output_bytes == imported.preview([], style_edits=[
+        S.add(d.NumberingStyleDefinition("CLI List", 702)),
+        S.region(table, "firstRow", d.TableSectionFormat(bold=True)),
+        S.field(paragraph_style, "i", "0"),
+    ], resources=[
+        R.core_subject("Review"), R.document_default("bold", False),
+        R.document_default("tabStops", [(720, "right", "dot")]),
+        R.add_instance(703, 701), R.add_instance(702, 701),
+        R.add_abstract(701, [d.NumberingLevel(**level)]), R.instance_start(703, 0, 6),
+        R.instance_level(703, 0, d.NumberingLevel(**replacement)),
+        R.paragraph_numbering(paragraph, (703, 0)), R.add_abstract(704, [d.NumberingLevel(**level)]),
+    ]).to_docx()
+    assert docx.Document(output).styles["CLI List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["702"]
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {p for p in before if before[p] != after[p]} == {
+        "word/document.xml", "word/styles.xml", "word/numbering.xml", "docProps/core.xml"}
+
+    target = tmp_path / "cleared.docx"
+    call(cli, "save-copy", output, success=False, output=str(target),
+         snapshot=result["snapshot"], edits=[dict(kind="remove-instance", num_id=703)])
+    assert not target.exists()
+    cleared = checked_copy(cli, output, target, [
+        dict(kind="paragraph-numbering", target=0, value=None),
+        dict(kind="style-region", id="CLITable", region="firstRow", value=None),
+        dict(kind="remove-instance", num_id=703),
+        dict(kind="remove-abstract", abstract_id=704),
+    ])
+    assert all(i["num_id"] != 703 for i in cleared["numbering_instances"])
+    assert all(a["abstract_id"] != 704 for a in cleared["abstract_starts"])
+    assert call(cli, "inspect", target, numbering_targets=[0])["paragraph_numbering"] == {"0": None}
+    assert source.read_bytes() == original and output.read_bytes() == output_bytes

@@ -1,4 +1,7 @@
-use super::{ImportedDocument, ParagraphAnchor, insertion::BoundaryState, unsupported};
+use super::{
+    ImportedDocument, ParagraphAnchor, ParagraphFlag, SectionFlag, insertion::BoundaryState,
+    unsupported,
+};
 use crate::opc::Package;
 use crate::xml::{Content, Node};
 use crate::{ResolvedBlock, ResolvedParagraph, Result};
@@ -13,6 +16,9 @@ pub enum BlockEdit {
     /// is retained as a separate empty boundary paragraph.
     ReplaceSection(ParagraphAnchor, Vec<ResolvedBlock>),
     KeepWithNext(ParagraphAnchor, bool),
+    ParagraphFlag(ParagraphAnchor, ParagraphFlag, Option<bool>),
+    SectionFlag(ParagraphAnchor, SectionFlag, Option<bool>),
+    SectionType(ParagraphAnchor, Option<crate::SectionType>),
 }
 
 /// Allow-list *discardable* markup, including attributes and non-element
@@ -71,10 +77,14 @@ impl Plan {
         if edits.is_empty() {
             return Ok(plan);
         }
-        let sections = if edits
-            .iter()
-            .any(|e| matches!(e, BlockEdit::ReplaceSection(..)))
-        {
+        let sections = if edits.iter().any(|e| {
+            matches!(
+                e,
+                BlockEdit::ReplaceSection(..)
+                    | BlockEdit::SectionFlag(..)
+                    | BlockEdit::SectionType(..)
+            )
+        }) {
             super::header::rewrite_section_ranges(root, &doc.package, &doc.main)?
         } else {
             Vec::new()
@@ -91,16 +101,52 @@ impl Plan {
             terminal = n.name == "w:sectPr";
         }
         let mut assigned = BTreeMap::new();
+        let mut properties = BTreeMap::new();
+        let mut section_properties = Vec::new();
+        let slots = if sections.is_empty() {
+            vec![]
+        } else {
+            super::header::section_slots(root)?
+        };
         let mut section_payloads = BTreeMap::new();
         for edit in edits {
             let target = match edit {
                 BlockEdit::Replace(a, _)
                 | BlockEdit::Remove(a)
                 | BlockEdit::ReplaceSection(a, _)
+                | BlockEdit::ParagraphFlag(a, ..)
+                | BlockEdit::SectionFlag(a, ..)
+                | BlockEdit::SectionType(a, ..)
                 | BlockEdit::KeepWithNext(a, _) => a,
             };
             doc.validate_snapshot(&target.snapshot)?;
             let start = target.body_index;
+            let flag_value = |v: bool| if v { "1" } else { "0" };
+            let property = match edit {
+                BlockEdit::ParagraphFlag(_, f, v) => Some((false, f.xml(), v.map(flag_value))),
+                BlockEdit::KeepWithNext(_, v) => Some((false, "w:keepNext", Some(flag_value(*v)))),
+                BlockEdit::SectionFlag(_, f, v) => Some((true, f.xml(), v.map(flag_value))),
+                BlockEdit::SectionType(_, v) => {
+                    Some((true, "w:type", v.map(crate::SectionType::xml)))
+                }
+                _ => None,
+            };
+            if let Some((section, name, value)) = property {
+                let fields = properties.entry(start).or_insert_with(BTreeMap::new);
+                if fields.insert((section, name), value).is_some() {
+                    return Err(unsupported("duplicate property edit"));
+                }
+                if section {
+                    let i = sections
+                        .iter()
+                        .position(|(range, _)| range.start == start && !range.is_empty())
+                        .ok_or_else(|| unsupported("section target must be its first paragraph"))?;
+                    if value.is_some() || slots[i].2.is_some() {
+                        section_properties.push((start, slots[i].0, name, value));
+                    }
+                }
+                continue;
+            }
             let end = if let BlockEdit::ReplaceSection(_, payload) = edit {
                 // The slot after the preceding break is inside this section.
                 if start
@@ -134,8 +180,7 @@ impl Plan {
                 start + 1
             };
             for index in start..end {
-                if (other_targets.contains(&index) && !matches!(edit, BlockEdit::KeepWithNext(..)))
-                    || assigned.insert(index, (start, edit)).is_some()
+                if other_targets.contains(&index) || assigned.insert(index, (start, edit)).is_some()
                 {
                     return Err(unsupported("conflicting edits target the same body block"));
                 }
@@ -143,6 +188,13 @@ impl Plan {
         }
         let mut boundaries = BoundaryState::default();
         let body = root.child_mut("w:body").ok_or_else(super::missing_body)?;
+        let owners: BTreeSet<_> = section_properties
+            .iter()
+            .filter_map(|(_, slot, _, _)| match slot {
+                super::header::Slot::Paragraph(i) => Some(*i),
+                super::header::Slot::Terminal => None,
+            })
+            .collect();
         let mut index = 0;
         for (slot, content) in body.children.iter_mut().enumerate() {
             let Content::Element(node) = content else {
@@ -159,86 +211,118 @@ impl Plan {
             }
             let before = boundaries.safe();
             boundaries.advance(node);
+            if owners.contains(&slot)
+                && (!before
+                    || !boundaries.safe()
+                    || node.child("w:pPr").is_some_and(|p| {
+                        p.child("w:pPrChange").is_some() || p.child(super::ALTERNATE).is_some()
+                    }))
+            {
+                return Err(unsupported("protected section property owner"));
+            }
+            if let Some(fields) = properties.remove(&index) {
+                if !before
+                    || !boundaries.safe()
+                    || node.name != "w:p"
+                    || assigned.contains_key(&index)
+                {
+                    return Err(unsupported("conflicting or protected property target"));
+                }
+                for ((section, name), value) in fields {
+                    if section {
+                        continue;
+                    }
+                    if node.child(super::ALTERNATE).is_some()
+                        || node.elements().filter(|n| n.name == "w:pPr").count() > 1
+                    {
+                        return Err(unsupported("paragraph property is structurally ambiguous"));
+                    }
+                    if node.child("w:pPr").is_none() {
+                        if value.is_none() {
+                            continue;
+                        }
+                        node.children
+                            .insert(0, Content::Element(Node::new("w:pPr")));
+                    }
+                    if super::property_flags::patch(node.child_mut("w:pPr").unwrap(), name, value)?
+                    {
+                        plan.changes.push(index);
+                    }
+                }
+            }
             if let Some((start, edit)) = assigned.remove(&index) {
                 if !before || !boundaries.safe() || node.name != "w:p" {
                     return Err(unsupported(
                         "target must be a direct paragraph outside protected ranges",
                     ));
                 }
-                match edit {
-                    BlockEdit::KeepWithNext(_, after) => {
-                        if super::patch_property(
-                            node,
-                            "w:keepNext",
-                            if *after { "1" } else { "0" },
-                        )?
-                        .is_some()
-                        {
-                            plan.changes.push(index);
-                        }
-                    }
-                    _ => {
-                        let boundary = node
+                let boundary = node
+                    .child("w:pPr")
+                    .is_some_and(|p| p.child("w:sectPr").is_some());
+                if boundary && matches!(edit, BlockEdit::ReplaceSection(..)) {
+                    // Keep the original ancestor chain (namespace bindings and
+                    // inherited attributes) around the original sectPr.
+                    if node
+                        .elements()
+                        .any(|n| n.name != "w:pPr" && !local(n, "w:p"))
+                        || node.attrs.iter().any(|(n, _)| n.declaration().is_none())
+                        || node
                             .child("w:pPr")
-                            .is_some_and(|p| p.child("w:sectPr").is_some());
-                        if boundary && matches!(edit, BlockEdit::ReplaceSection(..)) {
-                            // Keep the original ancestor chain (namespace bindings and
-                            // inherited attributes) around the original sectPr.
-                            if node
-                                .elements()
-                                .any(|n| n.name != "w:pPr" && !local(n, "w:p"))
-                                || node.attrs.iter().any(|(n, _)| n.declaration().is_none())
-                                || node
-                                    .child("w:pPr")
+                            .unwrap()
+                            .elements()
+                            .any(|p| p.name != "w:sectPr" && !local(p, "w:pPr"))
+                        || node.children.iter().any(|c| {
+                            matches!(c, Content::Raw(_))
+                                || matches!(c, Content::Text(t) if !t.trim().is_empty())
+                        })
+                    {
+                        return Err(unsupported("section break contains unsupported content"));
+                    }
+                    node.children
+                        .retain(|c| !matches!(c, Content::Element(n) if n.name != "w:pPr"));
+                } else if local(node, "body") {
+                    plan.deletes.insert(slot);
+                } else {
+                    return Err(unsupported(
+                        "paragraph contains references or unsupported markup",
+                    ));
+                }
+                if index == start {
+                    plan.changes.push(index);
+                    match edit {
+                        BlockEdit::Replace(_, p) => plan.payloads.push((
+                            slot,
+                            ResolvedBlock::Paragraph(p.as_ref().clone()),
+                            0,
+                        )),
+                        BlockEdit::ReplaceSection(..) => {
+                            plan.payloads.extend(
+                                section_payloads
+                                    .remove(&start)
                                     .unwrap()
-                                    .elements()
-                                    .any(|p| p.name != "w:sectPr" && !local(p, "w:pPr"))
-                                || node.children.iter().any(|c| {
-                                    matches!(c, Content::Raw(_))
-                                        || matches!(c, Content::Text(t) if !t.trim().is_empty())
-                                })
-                            {
-                                return Err(unsupported(
-                                    "section break contains unsupported content",
-                                ));
-                            }
-                            node.children
-                                .retain(|c| !matches!(c, Content::Element(n) if n.name != "w:pPr"));
-                        } else if local(node, "body") {
-                            plan.deletes.insert(slot);
-                        } else {
-                            return Err(unsupported(
-                                "paragraph contains references or unsupported markup",
-                            ));
+                                    .into_iter()
+                                    .map(|(b, w)| (slot, b, w)),
+                            );
                         }
-                        if index == start {
-                            plan.changes.push(index);
-                            match edit {
-                                BlockEdit::Replace(_, p) => plan.payloads.push((
-                                    slot,
-                                    ResolvedBlock::Paragraph(p.as_ref().clone()),
-                                    0,
-                                )),
-                                BlockEdit::ReplaceSection(..) => {
-                                    plan.payloads.extend(
-                                        section_payloads
-                                            .remove(&start)
-                                            .unwrap()
-                                            .into_iter()
-                                            .map(|(b, w)| (slot, b, w)),
-                                    );
-                                }
-                                _ => (),
-                            }
-                        }
+                        _ => (),
                     }
                 }
             }
             index += 1;
         }
-        if !assigned.is_empty() {
+        if !assigned.is_empty() || !properties.is_empty() {
             return Err(unsupported("body block not found"));
         }
+        for (start, slot, name, value) in section_properties {
+            if matches!(slot, super::header::Slot::Terminal) && !boundaries.safe() {
+                return Err(unsupported("protected terminal section property owner"));
+            }
+            if super::property_flags::patch(super::header::section_props(body, slot)?, name, value)?
+            {
+                plan.changes.push(start);
+            }
+        }
+        plan.changes.sort_unstable();
         Ok(plan)
     }
 

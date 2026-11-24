@@ -27,6 +27,18 @@ def validator():
     return validation.Validator(directory)
 
 
+def test_new_resource_parts_in_one_transaction_are_schema_valid(validator):
+    from rocx.editor import ImportedDocument
+    from test_mixed_resource_edit import fixture, mixed_edits, pack
+
+    styles, edits = mixed_edits()
+    source = ImportedDocument.open(pack(fixture()))
+    checked = validator.validate(source.preview([], resources=edits, style_edits=styles).to_docx())
+    # The core-properties namespace is OPC, outside the Part 1 schema set.
+    assert {"docProps/app1.xml", "docProps/custom.xml", "word/rocx-numbering1.xml",
+            "word/rocx-styles1.xml", "word/rocx-settings1.xml"} <= set(checked)
+
+
 def test_direct_body_revision_previews_are_schema_valid(validator):
     from docx import Document
     from docx.oxml.ns import qn
@@ -378,6 +390,8 @@ def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fails(va
     data = catalog.read_bytes()
     checked = validator.validate(data)
     assert {"word/charts/chart1.xml", "docProps/custom.xml", "docProps/app.xml"} <= set(checked)
+    entry_parts = validator.validate(catalog.with_suffix(".entry-edits.docx").read_bytes())
+    assert {"word/document.xml", "word/footnotes.xml", "word/comments.xml"} <= set(entry_parts)
     for suffix in [".header-shared.docx", ".header-local.docx"]:
         mixed = validator.validate(catalog.with_suffix(suffix).read_bytes())
         assert {"word/document.xml", "word/header1.xml"} <= set(mixed)

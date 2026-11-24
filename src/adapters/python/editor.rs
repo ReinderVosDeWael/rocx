@@ -358,6 +358,8 @@ struct PyRunRemovalChange {
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
 struct PyImportedSection {
     #[pyo3(get)]
+    flags: std::collections::BTreeMap<&'static str, bool>,
+    #[pyo3(get)]
     body_start: usize,
     #[pyo3(get)]
     body_end: usize,
@@ -472,6 +474,7 @@ impl PyHeaderImagePreview {
 struct PyBodyParagraph {
     #[pyo3(get)]
     mark_revision: Option<Py<PyImportedPropertyRevision>>,
+    flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     anchor: Py<PyParagraphAnchor>,
     #[pyo3(get)]
@@ -798,6 +801,13 @@ impl From<&editor::ImportedInline> for PyImportedInline {
         use editor::ImportedInline::*;
         let (kind, value) = match item {
             Text(text) => ("text", Some(text.clone())),
+            NoteReference { kind, id } => (
+                match kind {
+                    crate::NoteKind::Footnote => "footnoteReference",
+                    crate::NoteKind::Endnote => "endnoteReference",
+                },
+                Some(id.clone()),
+            ),
             Tab => ("tab", None),
             Break(value) => (
                 "break",
@@ -1549,6 +1559,46 @@ impl PyBlockEdit {
             inner: editor::BlockEdit::KeepWithNext(target.inner.clone(), value),
         }
     }
+    #[staticmethod]
+    fn paragraph_flag(
+        target: PyRef<'_, PyParagraphAnchor>,
+        flag: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let flag = editor::ParagraphFlag::ALL
+            .iter()
+            .find(|f| f.python_name() == flag)
+            .ok_or_else(|| PyValueError::new_err("unknown paragraph flag"))?;
+        Ok(Self {
+            inner: editor::BlockEdit::ParagraphFlag(target.inner.clone(), *flag, value),
+        })
+    }
+    #[staticmethod]
+    fn section_flag(
+        target: PyRef<'_, PyParagraphAnchor>,
+        flag: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let flag = editor::SectionFlag::ALL
+            .iter()
+            .find(|f| f.python_name() == flag)
+            .ok_or_else(|| PyValueError::new_err("unknown section flag"))?;
+        Ok(Self {
+            inner: editor::BlockEdit::SectionFlag(target.inner.clone(), *flag, value),
+        })
+    }
+    #[staticmethod]
+    fn section_type(
+        target: PyRef<'_, PyParagraphAnchor>,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::BlockEdit::SectionType(
+                target.inner.clone(),
+                value.map(super::sectiontype).transpose()?,
+            ),
+        })
+    }
 }
 
 #[pymethods]
@@ -1761,6 +1811,41 @@ struct PyStyleEdit {
 #[pymethods]
 impl PyStyleEdit {
     #[staticmethod]
+    #[pyo3(signature=(target, field, value, *, region=None))]
+    fn field(
+        target: PyRef<'_, PyStyleAnchor>,
+        field: String,
+        value: Option<String>,
+        region: Option<String>,
+    ) -> Self {
+        Self {
+            inner: editor::StyleEdit::Field {
+                target: target.inner.clone(),
+                field,
+                value,
+                region,
+            },
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target, region, format))]
+    fn region(
+        target: PyRef<'_, PyStyleAnchor>,
+        region: String,
+        format: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Region {
+                target: target.inner.clone(),
+                region,
+                format: format
+                    .map(super::values::tablesectionformat)
+                    .transpose()?
+                    .map(Box::new),
+            },
+        })
+    }
+    #[staticmethod]
     fn add(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
             inner: editor::StyleEdit::Add(super::style_definition(definition)?),
@@ -1801,6 +1886,9 @@ struct PyImportedStyle {
     kind_xml: Option<String>,
     name: Option<String>,
     based_on: Option<String>,
+    next_style: Option<String>,
+    linked_style: Option<String>,
+    property_xml: Vec<String>,
 }
 
 #[pyclass(name = "ImportedStyles", module = "rocx.editor", get_all)]
@@ -1816,6 +1904,20 @@ struct PyAbstractStart {
     start: Option<u32>,
 }
 
+#[pyclass(
+    name = "ImportedNumberingInstance",
+    module = "rocx.editor",
+    frozen,
+    get_all
+)]
+struct PyImportedNumberingInstance {
+    num_id: u32,
+    abstract_id: u32,
+    /// Pairs of (level, direct starting value) in source order.
+    start_overrides: Vec<(u8, u32)>,
+    replacement_levels: Vec<u32>,
+}
+
 #[pyclass(name = "ResourceEdit", module = "rocx.editor", frozen)]
 struct PyResourceEdit {
     inner: editor::ResourceEdit,
@@ -1823,6 +1925,38 @@ struct PyResourceEdit {
 
 #[pymethods]
 impl PyResourceEdit {
+    #[staticmethod]
+    #[pyo3(signature=(field,value))]
+    fn document_default(field: &str, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        use editor::{DefaultField, DefaultValue as V};
+        let field = DefaultField::from_key(field)
+            .ok_or_else(|| PyValueError::new_err("unknown document default"))?;
+        let value = value
+            .map(|v| -> PyResult<_> {
+                if let Ok(b) = v.extract::<bool>() {
+                    Ok(V::Bool(b))
+                } else if let Ok(n) = v.extract::<i64>() {
+                    Ok(V::Integer(n))
+                } else if let Ok(s) = v.extract::<String>() {
+                    Ok(V::Text(s))
+                } else {
+                    Ok(V::Tabs(
+                        v.extract::<Vec<(i32, String, Option<String>)>>()?
+                            .into_iter()
+                            .map(|(position_twips, alignment, leader)| editor::DefaultTab {
+                                position_twips,
+                                alignment,
+                                leader,
+                            })
+                            .collect(),
+                    ))
+                }
+            })
+            .transpose()?;
+        Ok(Self {
+            inner: editor::ResourceEdit::Default(field, value),
+        })
+    }
     #[staticmethod]
     #[pyo3(signature=(field, value))]
     fn metadata(field: &str, value: Option<String>) -> PyResult<Self> {
@@ -1877,6 +2011,76 @@ impl PyResourceEdit {
                 abstract_id,
                 level,
                 start,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn add_abstract(abstract_id: u32, levels: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
+                abstract_id,
+                levels: super::list(levels, super::numbering_level)?,
+            }),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(num_id,level,value))]
+    fn instance_level(num_id: u32, level: u8, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceLevel {
+                num_id,
+                level,
+                value: value
+                    .map(super::numbering_level)
+                    .transpose()?
+                    .flatten()
+                    .map(Box::new),
+            }),
+        })
+    }
+    #[staticmethod]
+    fn remove_abstract(abstract_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::RemoveAbstract {
+                abstract_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn add_instance(num_id: u32, abstract_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
+                num_id,
+                abstract_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    fn remove_instance(num_id: u32) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::RemoveInstance {
+                num_id,
+            }),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(num_id,level,start))]
+    fn instance_start(num_id: u32, level: u8, start: Option<u32>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceStart {
+                num_id,
+                level,
+                start,
+            }),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,value))]
+    fn paragraph_numbering(target: PyRef<'_, PyParagraphAnchor>, value: Option<(u32, u8)>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::Numbering(editor::NumberingEdit::Paragraph {
+                target: target.inner.clone(),
+                value: value.map(|(id, level)| crate::NumberingReference { id, level }),
             }),
         }
     }
@@ -1940,6 +2144,31 @@ impl PyImportedDocument {
             .map(alignment_name))
     }
     #[getter]
+    fn document_defaults<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        use editor::DefaultValue as V;
+        let values = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .document_defaults()
+            .map_err(rust_error)?;
+        let dict = pyo3::types::PyDict::new(py);
+        for (f, v) in values {
+            match v {
+                V::Bool(b) => dict.set_item(f.key(), b)?,
+                V::Integer(i) => dict.set_item(f.key(), i)?,
+                V::Text(s) => dict.set_item(f.key(), s)?,
+                V::Tabs(t) => dict.set_item(
+                    f.key(),
+                    t.into_iter()
+                        .map(|t| (t.position_twips, t.alignment, t.leader))
+                        .collect::<Vec<_>>(),
+                )?,
+            }
+        }
+        Ok(dict)
+    }
+    #[getter]
     fn abstract_starts(&self) -> PyResult<Vec<PyAbstractStart>> {
         Ok(self
             .inner
@@ -1954,6 +2183,39 @@ impl PyImportedDocument {
                 start: s.start,
             })
             .collect())
+    }
+    #[getter]
+    fn numbering_instances(&self) -> PyResult<Vec<PyImportedNumberingInstance>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .numbering_instances()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|n| PyImportedNumberingInstance {
+                num_id: n.num_id,
+                replacement_levels: n.replacement_levels.into_iter().map(u32::from).collect(),
+                abstract_id: n.abstract_id,
+                start_overrides: n
+                    .start_overrides
+                    .into_iter()
+                    .map(|o| (o.level, o.start))
+                    .collect(),
+            })
+            .collect())
+    }
+    fn paragraph_numbering(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+    ) -> PyResult<Option<(u32, u8)>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .paragraph_numbering(&target.inner)
+            .map_err(rust_error)?
+            .map(|r| (r.id, r.level)))
     }
     #[getter]
     fn controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
@@ -2089,6 +2351,9 @@ impl PyImportedDocument {
                                 kind_xml,
                                 name: style.name,
                                 based_on: style.based_on,
+                                next_style: style.next_style,
+                                linked_style: style.linked_style,
+                                property_xml: style.property_xml,
                             },
                         )
                     })
@@ -2118,6 +2383,11 @@ impl PyImportedDocument {
             .map_err(rust_error)?
             .into_iter()
             .map(|section| PyImportedSection {
+                flags: section
+                    .flags
+                    .iter()
+                    .map(|(f, v)| (f.python_name(), *v))
+                    .collect(),
                 body_start: section.body_start,
                 body_end: section.body_end,
                 section_type: section.section_type.map(crate::SectionType::xml),
@@ -2283,6 +2553,131 @@ impl PyImportedDocument {
             inline_count: f.inline_count,
         })
     }
+    #[pyo3(signature = (owner_part, target, kind, *, id=None, text=None))]
+    fn edit_note_reference<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        target: PyRef<'_, PyInlineAnchor>,
+        kind: &str,
+        id: Option<u32>,
+        text: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::NoteReferenceEdit::*;
+        let edit = match (kind, id, text) {
+            ("create", Some(id), Some(text)) => Create { id, text },
+            ("delete", None, None) => Delete,
+            ("detach", None, None) => Detach,
+            ("attach", Some(id), None) => Attach(id),
+            ("retarget", Some(id), None) => Retarget(id),
+            ("renumber", Some(id), None) => Renumber(id),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "invalid note reference edit arguments",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_note_reference(owner_part, &target.inner, edit)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    #[pyo3(signature = (owner_part, id, kind, *, index=None, value=None))]
+    fn edit_entry<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        id: &str,
+        kind: &str,
+        index: Option<usize>,
+        value: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::EntryEdit::*;
+        let edit = match (kind, index, value) {
+            ("insertParagraph", Some(index), Some(text)) => InsertParagraph { index, text },
+            ("replaceParagraph", Some(index), Some(text)) => ReplaceParagraph { index, text },
+            ("removeParagraph", Some(index), None) => RemoveParagraph(index),
+            ("deleteUnusedNote", None, None) => DeleteUnusedNote,
+            ("author", None, Some(s)) => CommentAuthor(s),
+            ("initials", None, Some(s)) => CommentInitials(Some(s)),
+            ("clearInitials", None, None) => CommentInitials(None),
+            ("date", None, Some(s)) => CommentDate(Some(s)),
+            ("clearDate", None, None) => CommentDate(None),
+            _ => return Err(PyValueError::new_err("invalid entry edit arguments")),
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_entry(owner_part, id, edit).map_err(rust_error)?,
+        ))
+    }
+
+    fn edit_entry_inlines<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyInlineEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_entry_inlines(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    #[getter]
+    fn body_range_markers(&self) -> PyResult<Vec<PyBodyRangeMarker>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .body_range_markers()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|m| PyBodyRangeMarker {
+                body_index: m.body_index,
+                inline_index: m.inline_index,
+                kind: m.kind,
+                id: m.id,
+                name: m.name,
+            })
+            .collect())
+    }
+    fn field_at(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+    ) -> PyResult<PyImportedField> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let f = doc
+            .field_at(&target.inner, inline_index)
+            .map_err(rust_error)?;
+        Ok(PyImportedField {
+            complex: f.complex,
+            instruction: f.instruction,
+            dirty_xml: f.dirty_xml,
+            locked_xml: f.locked_xml,
+            inline_count: f.inline_count,
+        })
+    }
     #[pyo3(signature=(target, inline_index, property, value=None))]
     fn patch_field<'py>(
         &self,
@@ -2388,6 +2783,7 @@ impl PyImportedDocument {
                     py,
                     PyBodyParagraph {
                         mark_revision: revision_metadata(py, p.mark_revision.as_ref())?,
+                        flags: p.flags.iter().map(|(f, v)| (f.python_name(), *v)).collect(),
                         anchor: Py::new(
                             py,
                             PyParagraphAnchor {
@@ -2676,6 +3072,7 @@ impl PyImportedDocument {
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAbstractStart>()?;
+    module.add_class::<PyImportedNumberingInstance>()?;
     module.add_class::<PyResourceEdit>()?;
     module.add_class::<PyStyleAnchor>()?;
     module.add_class::<PyStyleEdit>()?;

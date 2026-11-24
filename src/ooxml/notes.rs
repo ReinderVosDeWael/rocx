@@ -64,7 +64,7 @@ fn id(node: &Node, path: &str) -> Result<String> {
 
 /// Value-space identity for arbitrary-precision OOXML decimal IDs.
 pub(crate) fn decimal_id(raw: &str) -> Option<String> {
-    let raw = raw.trim();
+    let raw = raw.trim_matches([' ', '\t', '\r', '\n']);
     let (negative, digits) = if let Some(digits) = raw.strip_prefix('-') {
         (true, digits)
     } else {
@@ -365,7 +365,7 @@ impl Compiler<'_> {
         ))
     }
 }
-fn note_mark(name: &str, id: Option<u32>) -> Node {
+pub(crate) fn note_mark(name: &str, id: Option<u32>) -> Node {
     let mut mark = Node::new(format!("w:{name}"));
     if let Some(id) = id {
         mark.set("w:id", id);

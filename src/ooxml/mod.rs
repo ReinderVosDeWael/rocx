@@ -17,7 +17,7 @@ mod story;
 pub use story::{StoryContent, StoryDescriptor, StoryRegistry};
 mod editor;
 mod notes;
-pub(crate) use notes::decimal_id;
+pub(crate) use notes::{decimal_id, note_mark};
 mod ranges;
 pub(crate) mod revisions;
 pub(crate) use editor::{

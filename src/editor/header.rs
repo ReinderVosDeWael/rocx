@@ -230,6 +230,7 @@ impl ImportedDocument {
                 .into_iter()
                 .find(|value| Some(value.xml()) == section_type_xml);
                 Ok(ImportedSection {
+                    flags: super::SectionFlag::read(props),
                     body_start: std::mem::replace(&mut body_start, body_end),
                     body_end,
                     section_type,
@@ -558,7 +559,7 @@ impl HeaderBatch<'_> {
 }
 
 #[derive(Clone, Copy)]
-enum Slot {
+pub(super) enum Slot {
     Paragraph(usize),
     Terminal,
 }
@@ -611,7 +612,7 @@ pub(super) fn rewrite_section_ranges<'a>(
         .collect())
 }
 
-fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
+pub(super) fn section_slots(root: &Node) -> Result<Vec<(Slot, usize, Option<&Node>)>> {
     let body = only_child(root, "w:body")?.ok_or_else(missing_body)?;
     let mut slots = Vec::new();
     let mut terminal = None;
@@ -740,16 +741,7 @@ fn set_story_reference(
     id: &str,
 ) -> Result<()> {
     let variant = VARIANTS[variant].xml();
-    let props = match slot {
-        Slot::Terminal => body.ensure("w:sectPr"),
-        Slot::Paragraph(index) => match body.children.get_mut(index) {
-            Some(Content::Element(paragraph)) => paragraph
-                .child_mut("w:pPr")
-                .and_then(|props| props.child_mut("w:sectPr"))
-                .ok_or_else(|| unsupported("section properties not found"))?,
-            _ => return Err(unsupported("section paragraph not found")),
-        },
-    };
+    let props = section_props(body, slot)?;
     let existing = props
         .elements_mut()
         .find(|node| node.name == kind.part_type().0 && node.get("w:type") == Some(variant));
@@ -763,6 +755,19 @@ fn set_story_reference(
         );
     }
     Ok(())
+}
+
+pub(super) fn section_props(body: &mut Node, slot: Slot) -> Result<&mut Node> {
+    Ok(match slot {
+        Slot::Terminal => body.ensure("w:sectPr"),
+        Slot::Paragraph(index) => match body.children.get_mut(index) {
+            Some(Content::Element(paragraph)) => paragraph
+                .child_mut("w:pPr")
+                .and_then(|props| props.child_mut("w:sectPr"))
+                .ok_or_else(|| unsupported("section properties not found"))?,
+            _ => return Err(unsupported("section paragraph not found")),
+        },
+    })
 }
 
 fn check_copy(node: &mut Node, links: &[(String, String)]) -> Result<()> {

@@ -181,6 +181,8 @@ round-trip authoring declaration.
 | `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one image append to an effective header or footer slot. Obtain the target from `stories()`; `change()` reports the effect. |
 | `imported.editStoryText({ownerPart, runText}): Uint8Array` | Returns DOCX bytes for a separate atomic batch in one physical part. Supply the inspected part name and anchors for eligible direct runs in that header/footer or ordinary footnote/endnote/comment entry. All aliases see the edit. |
 | `imported.editEntryInlines({ownerPart, inlineEdits}): Uint8Array` | Insert after or replace eligible direct runs/hyperlinks, or patch direct run bold, in ordinary note/comment entries of one part. New external links belong to that part; reference marks and reserved notes are protected. |
+| `imported.editNoteReference({ownerPart, target, kind, ...fields}): Uint8Array` | `create` takes an unused numeric ID and text; `attach`, `retarget`, `renumber` take an ID. `detach` retains the definition; `delete` also removes its simple definition. |
+| `imported.editEntry({ownerPart, id, kind, ...fields}): Uint8Array` | Use the decimal string ID. Insert, replace or remove a simple paragraph; set base comment author/date/initials or clear date/initials; `deleteUnusedNote` removes a simple unreferenced note. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
 Alignment edits take a `ParagraphAnchor` and `alignment`; table insertions
@@ -215,8 +217,11 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
 - `textInsertions: [{target, position, text}]` inserts nonempty text at an
   original scalar position. At a run boundary it takes the next character's
   formatting, or the last run's formatting at paragraph end.
-- `blockEdits` accepts `replace`, `remove`, `replaceSection` and `keepWithNext`
-  at eligible direct body paragraph anchors. `inlineEdits` accepts
+- `blockEdits` accepts `replace`, `remove`, `replaceSection`, `keepWithNext`,
+  `paragraphFlag`, `sectionFlag` and `sectionType` at eligible direct body
+  paragraph anchors. Section edits target the section's first body block,
+  which must be a paragraph. Read direct on/off properties from `flags`.
+  A `null` value clears a flag or break type. `inlineEdits` accepts
   `insertAfter`, `replace`, `setBold`, `setToggle` and `patchFormat` at eligible direct inline anchors.
   `setToggle` takes `property` (`bold`, `italic`, `strike`, `hidden`) and `value`
   (`true`, `false`, or `null` to clear). Structured run inspection exposes the
@@ -239,10 +244,23 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   with `value` (`null` clears). Abstract starts also require `abstractId` and
   `level`. Inspect direct values with `coreTitle()`, `coreSubject()`, `defaultAlignment()` and
   `abstractStarts()`.
+- Inspect direct run, paragraph and document-wide settings with
+  `doc.documentDefaults()`. For example,
+  `doc.preview({resources: [{kind: "documentDefault", field: "bold", value: false}]})`
+  turns default bold off. `null` clears the field, restoring absence. `DefaultValues`
+  lists keys and their types; tab positions and indent lengths use twips.
+
 - `metadataField(field)` reads a core or extended string, and
   `customProperty(name)` reads a named string or boolean. Missing properties
   return `undefined`. Pass `{kind: "metadata", field, value}` or
   `{kind: "customProperty", name, value}` in `resources`; `null` removes the property.
+
+- Numbering resource edits include `addAbstract`, `removeAbstract`, `addInstance`,
+  `removeInstance`, `instanceStart`, `instanceLevel` and `paragraphNumbering`.
+  `numberingInstances()` lists concrete IDs, abstract links, start overrides and
+  replacement-level indices. `paragraphNumbering(anchor)` returns a direct
+  `{id, level}` or `undefined`. Clear an override or direct reference with
+  `value: null`. Live references and opaque content can block removal.
 
 ```javascript
 import { openDocx } from "rocx-docx";

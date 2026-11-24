@@ -34,6 +34,92 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn direct_property_edits_set_clear_and_refuse_ambiguous_or_protected_targets() {
+    use rocx::editor::{BlockEdit as E, ParagraphFlag as P, SectionFlag as S};
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}" xmlns:x="urn:test"><w:body>{body}</w:body></w:document>"#
+        )))
+        .unwrap()
+    };
+    let doc = make(
+        r#"<w:p><w:pPr><w:keepLines w:val="on"/></w:pPr></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p/>"#,
+    );
+    let a = paragraph(&doc, 0).anchor.clone();
+    let last = paragraph(&doc, 2).anchor.clone();
+    let edits = P::ALL
+        .iter()
+        .map(|&f| E::ParagraphFlag(a.clone(), f, Some(true)))
+        .chain(
+            S::ALL
+                .iter()
+                .map(|&f| E::SectionFlag(last.clone(), f, Some(false))),
+        )
+        .chain([E::SectionType(
+            a.clone(),
+            Some(rocx::SectionType::NextColumn),
+        )])
+        .collect::<Vec<_>>();
+    let preview = doc.preview_blocks(&edits).unwrap();
+    assert_eq!(preview.block_changes().len(), edits.len() - 1);
+    let result = ImportedDocument::open(&preview.to_docx().unwrap()).unwrap();
+    assert_eq!(paragraph(&result, 0).flags.len(), P::ALL.len());
+    assert!(paragraph(&result, 0).flags.values().all(|&v| v));
+    let sections = result.sections().unwrap();
+    assert_eq!(
+        sections[0].section_type,
+        Some(rocx::SectionType::NextColumn)
+    );
+    assert_eq!(sections[1].flags.len(), S::ALL.len());
+    assert!(sections[1].flags.values().all(|&v| !v));
+    let clear = E::ParagraphFlag(paragraph(&result, 0).anchor.clone(), P::KeepTogether, None);
+    let cleared = result
+        .preview_blocks(&[
+            clear,
+            E::SectionType(paragraph(&result, 0).anchor.clone(), None),
+            E::SectionFlag(paragraph(&result, 2).anchor.clone(), S::RtlGutter, None),
+        ])
+        .unwrap();
+    let cleared = ImportedDocument::open(&cleared.to_docx().unwrap()).unwrap();
+    assert!(!paragraph(&cleared, 0).flags.contains_key(&P::KeepTogether));
+    assert!(cleared.sections().unwrap()[0].section_type_xml.is_none());
+    assert!(
+        !cleared.sections().unwrap()[1]
+            .flags
+            .contains_key(&S::RtlGutter)
+    );
+    let foreign = E::SectionFlag(last, S::Bidi, None);
+    assert!(result.preview_blocks(&[foreign]).is_err());
+    for inner in [
+        r#"<w:keepLines x:opaque="1"/>"#,
+        "<w:keepLines><!--opaque--></w:keepLines>",
+        "<w:keepLines/><w:keepLines/>",
+        "<w:pPrChange/>",
+    ] {
+        let doc = make(&format!("<w:p><w:pPr>{inner}</w:pPr></w:p>"));
+        assert!(
+            doc.preview_blocks(&[E::ParagraphFlag(
+                paragraph(&doc, 0).anchor.clone(),
+                P::KeepTogether,
+                None
+            )])
+            .is_err()
+        );
+    }
+    let doc = make(
+        r#"<w:p/><w:p><w:bookmarkStart w:id="1"/></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p>"#,
+    );
+    assert!(
+        doc.preview_blocks(&[E::SectionFlag(
+            paragraph(&doc, 0).anchor.clone(),
+            S::Bidi,
+            Some(true)
+        )])
+        .is_err()
+    );
+}
+
+#[test]
 fn mixed_new_edits_preserve_original_coordinates_across_parts() {
     use rocx::editor::{
         BlockEdit, EditBatch, ImportedInlineNode::Run, InlineAction, InlineEdit, ResourceEdit,
@@ -212,6 +298,60 @@ fn resource_numbering_starts_reject_duplicate_identities_and_preserve_lexical_no
             assert!(preview.is_err());
         }
     }
+}
+
+#[test]
+fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
+    use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit};
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let name = "word/numbering.xml";
+    entries.insert(name.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="07"><w:lvl w:ilvl="0"/></w:abstractNum><w:num w:numId="001"><w:abstractNumId w:val="007"/></w:num><w:numIdMacAtCleanup w:val="1"/></w:numbering>"#).into_bytes());
+    let doc = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    let anchor = paragraph(&doc, 0).anchor.clone();
+    let render = |edits: Vec<N>| {
+        let resources = edits
+            .into_iter()
+            .map(ResourceEdit::Numbering)
+            .collect::<Vec<_>>();
+        doc.preview_edits(EditBatch {
+            resources: &resources,
+            ..Default::default()
+        })
+    };
+    assert!(
+        render(vec![N::AddInstance {
+            num_id: 1,
+            abstract_id: 7
+        }])
+        .is_err()
+    );
+    let insert = || N::AddInstance {
+        num_id: 2,
+        abstract_id: 7,
+    };
+    let patch = || N::Paragraph {
+        target: anchor.clone(),
+        value: Some(rocx::NumberingReference { id: 2, level: 0 }),
+    };
+    let data = render(vec![patch(), insert()]).unwrap().to_docx().unwrap();
+    let result = parts(&data);
+    let xml = std::str::from_utf8(&result[name]).unwrap();
+    assert!(xml.find("w:numId=\"2\"").unwrap() < xml.find("<w:numIdMacAtCleanup").unwrap());
+    let edited = ImportedDocument::open(&data).unwrap();
+    assert!(edited.paragraph_numbering(&anchor).is_err());
+    assert_eq!(
+        edited
+            .paragraph_numbering(&paragraph(&edited, 0).anchor)
+            .unwrap()
+            .unwrap()
+            .id,
+        2
+    );
+    assert_eq!(edited.numbering_instances().unwrap()[0].abstract_id, 7);
+    assert_eq!(
+        entries,
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap())
+    );
 }
 
 #[test]

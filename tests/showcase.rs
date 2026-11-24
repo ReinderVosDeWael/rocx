@@ -61,6 +61,7 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
         "entry-text.docx",
         "objects.docx",
         "controls.docx",
+        "entry-edits.docx",
         "footer-even.docx",
         "run-text.docx",
         "header-source.docx",

@@ -549,6 +549,27 @@ pub async fn generate(output: &Path) -> Result<()> {
                 bold: None,
                 italic: Some(true),
             },
+            editor::StyleEdit::Field {
+                target: imported.style_anchor("Regionfirst_row")?,
+                region: Some("firstRow".into()),
+                field: "b".into(),
+                value: None,
+            },
+            editor::StyleEdit::Region {
+                target: imported.style_anchor("Regionlast_row")?,
+                region: "lastRow".into(),
+                format: Some(Box::new(TableSectionFormat {
+                    italic: Some(true),
+                    ..Default::default()
+                })),
+            },
+            editor::StyleEdit::Add(
+                NumberingStyleDefinition {
+                    name: "Catalog Imported List".into(),
+                    numbering_id: 60,
+                }
+                .into(),
+            ),
         ],
     )?;
     assert!(
@@ -704,6 +725,46 @@ pub async fn generate(output: &Path) -> Result<()> {
         )?;
     }
     std::fs::write(output.with_extension("entry-text.docx"), entries_output)?;
+    let owner = &entries
+        .iter()
+        .find(|e| e.kind == editor::EntryKind::Footnote)
+        .unwrap()
+        .part_name;
+    let target = imported
+        .body()
+        .iter()
+        .find_map(|b| match b {
+            editor::BodyBlock::Paragraph(p)
+                if p.text == "Footnote reference; endnote reference" =>
+            {
+                p.inline_structure.first()
+            }
+            _ => None,
+        })
+        .unwrap();
+    let Run(first) = target else { unreachable!() };
+    let created = imported.edit_note_reference(
+        owner,
+        &first.anchor,
+        editor::NoteReferenceEdit::Create {
+            id: 47,
+            text: "Lifecycle note".into(),
+        },
+    )?;
+    let appended = editor::ImportedDocument::open(&created)?.edit_entry(
+        owner,
+        "47",
+        editor::EntryEdit::InsertParagraph {
+            index: 1,
+            text: "Second note paragraph".into(),
+        },
+    )?;
+    let lifecycle = editor::ImportedDocument::open(&appended)?.edit_entry(
+        &review.part_name,
+        &review.id,
+        editor::EntryEdit::CommentInitials(Some("ED".into())),
+    )?;
+    std::fs::write(output.with_extension("entry-edits.docx"), lifecycle)?;
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
     assert!(imported.body().iter().any(|block| matches!(
         block, editor::BodyBlock::ContentControl(control)
@@ -1013,6 +1074,10 @@ pub async fn generate(output: &Path) -> Result<()> {
         Some("All features visual inspection")
     );
     assert_eq!(imported.default_alignment()?, None);
+    assert_eq!(
+        imported.document_defaults()?[&editor::DefaultField::SizeHalfPoints],
+        editor::DefaultValue::Integer(22)
+    );
     assert!(
         imported
             .abstract_starts()?
@@ -1076,6 +1141,13 @@ pub async fn generate(output: &Path) -> Result<()> {
         .find(|c| c.id.as_deref() == Some("5001"))
         .unwrap();
     let preview = imported.preview_edits(editor::EditBatch {
+        styles: &[editor::StyleEdit::Add(
+            rocx::NumberingStyleDefinition {
+                name: "Reviewed List".into(),
+                numbering_id: 9049,
+            }
+            .into(),
+        )],
         run_text: &[editor::RunTextEdit {
             target: label.anchor.clone(),
             text: replacement.into(),
@@ -1096,6 +1168,40 @@ pub async fn generate(output: &Path) -> Result<()> {
             text: " + point".into(),
         }],
         resources: &[
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
+                abstract_id: 9048,
+                levels: vec![rocx::NumberingLevel {
+                    level: 0,
+                    start: 2,
+                    format: "decimal".into(),
+                    text: "%1.".into(),
+                    ..Default::default()
+                }],
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceLevel {
+                num_id: 9049,
+                level: 0,
+                value: Some(Box::new(rocx::NumberingLevel {
+                    level: 0,
+                    start: 1,
+                    format: "lowerRoman".into(),
+                    text: "(%1)".into(),
+                    ..Default::default()
+                })),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
+                num_id: 9049,
+                abstract_id: 9048,
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceStart {
+                num_id: 9049,
+                level: 0,
+                start: Some(6),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::Paragraph {
+                target: targets[0].anchor.clone(),
+                value: Some(rocx::NumberingReference { id: 9049, level: 0 }),
+            }),
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
             editor::ResourceEdit::CoreSubject(Some("Imported resource edits".into())),
             editor::ResourceEdit::Metadata(
@@ -1111,6 +1217,15 @@ pub async fn generate(output: &Path) -> Result<()> {
                 Some(editor::CustomValue::Boolean(false)),
             ),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::Bold,
+                Some(editor::DefaultValue::Bool(false)),
+            ),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::FootnoteStart,
+                Some(editor::DefaultValue::Integer(5)),
+            ),
+            editor::ResourceEdit::Default(editor::DefaultField::AfterTwips, None),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {
                 abstract_id: 100,
                 level: 0,
@@ -1461,6 +1576,13 @@ pub async fn generate(output: &Path) -> Result<()> {
         BlockEdit::Remove(target.clone()),
         BlockEdit::ReplaceSection(target.clone(), vec![ResolvedBlock::Paragraph(payload)]),
         BlockEdit::KeepWithNext(target.clone(), true),
+        BlockEdit::ParagraphFlag(
+            target.clone(),
+            editor::ParagraphFlag::KeepTogether,
+            Some(true),
+        ),
+        BlockEdit::SectionFlag(target.clone(), editor::SectionFlag::RtlGutter, Some(true)),
+        BlockEdit::SectionType(target.clone(), Some(SectionType::EvenPage)),
     ] {
         assert_eq!(imported.preview_blocks(&[edit])?.block_changes(), &[2]);
     }

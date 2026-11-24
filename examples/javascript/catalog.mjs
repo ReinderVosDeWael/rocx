@@ -18,6 +18,7 @@ export const catalogNames = Object.freeze({
   headerFirstLocal: "all_features-javascript.header-first-local.docx",
   entryText: "all_features-javascript.entry-text.docx",
   controls: "all_features-javascript.controls.docx",
+  entryEdits: "all_features-javascript.entry-edits.docx",
   footerEven: "all_features-javascript.footer-even.docx",
   runText: "all_features-javascript.run-text.docx",
 });
@@ -163,6 +164,9 @@ export async function generateCatalog(fixtures, options) {
   const styled = imported.preview({ styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
     { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
+    { op: "field", target: imported.styleAnchor("Regionfirst_row"), region: "firstRow", field: "b", value: null },
+    { op: "region", target: imported.styleAnchor("Regionlast_row"), region: "lastRow", format: { italic: true } },
+    { op: "add", definition: { kind: "numbering", name: "Catalog Imported List", numberingId: 60 } },
   ] });
   assert((await openDocx(styled.toDocx())).styles().styles.some(s =>
     s.id === "CatalogImportedChild" && s.basedOn === "CatalogBase"), "imported style edit readback");
@@ -243,25 +247,58 @@ export async function generateCatalog(fixtures, options) {
     entryText = reopened.editRunFormat({ownerPart:entry.partName, inlineEdits:[
       {kind:"patchFormat",target:link.children[0].anchor,format:{size:13.5}}]});
   }
+  const ownerPart = entries.find(e => e.kind === "footnote").partName;
+  const noteBody = doc => doc.body().find(p => p.kind === "paragraph" && p.text === "Footnote reference; endnote reference");
+  const targetRun = noteBody(imported).inlineStructure[0].anchor;
+  const create = {ownerPart, target: targetRun, kind: "create", id: 47, text: "Lifecycle note"};
+  assertThrows(() => imported.editNoteReference({...create,id:0}), "accepted duplicate note ID");
+  const created = await openDocx(imported.editNoteReference(create));
+  assertThrows(() => created.editNoteReference(create), "accepted stale note anchor");
+  const inserted = noteBody(created).inlineStructure[1].anchor;
+  assert(created.inlineAt(inserted).items[0].kind === "footnoteReference" && created.inlineAt(inserted).items[0].id === "47", "incorrect note reference identity");
+  const detached = await openDocx(created.editNoteReference({ownerPart,target:inserted,kind:"detach"}));
+  const attached = await openDocx(detached.editNoteReference({ownerPart,target:noteBody(detached).inlineStructure[0].anchor,kind:"attach",id:47}));
+  assert(noteBody(attached).inlineStructure[1].items[0].id === "47", "reattachment lost the note");
+  const retargeted = await openDocx(detached.editNoteReference({ownerPart,target:noteBody(detached).inlineStructure[1].anchor,kind:"retarget",id:47}));
+  assert(noteBody(retargeted).inlineStructure[1].items[0].id === "47" && retargeted.entryStories().some(e => e.partName === ownerPart && e.id === "0"), "retarget discarded the old definition");
+  assertThrows(() => created.editEntry({ownerPart,id:"47",kind:"deleteUnusedNote"}), "removed a referenced note");
+  const purged = await openDocx(detached.editEntry({ownerPart,id:"47",kind:"deleteUnusedNote"}));
+  assert(!purged.entryStories().some(e => e.partName === ownerPart && e.id === "47"), "did not remove unused note");
+  const renamed = await openDocx(created.editNoteReference({ownerPart,target:inserted,kind:"renumber",id:48}));
+  assert(renamed.entryStories().some(e => e.partName === ownerPart && e.id === "48"), "missing renamed definition");
+  const deleted = await openDocx(renamed.editNoteReference({ownerPart,target:noteBody(renamed).inlineStructure[1].anchor,kind:"delete"}));
+  assert(!deleted.entryStories().some(e => e.partName === ownerPart && e.id === "48"), "definition was not deleted");
+  const expandedNote = await openDocx(created.editEntry({ownerPart,id:"47",kind:"insertParagraph",index:1,value:"Second note paragraph"}));
+  const entryEdits = expandedNote.editEntry({ownerPart:review.partName,id:review.id,kind:"initials",value:"ED"});
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
   const editTargets = body.filter((node) => node.kind === "paragraph" && node.text === EDIT_LABEL);
   assert(editTargets.length === 1 && editTargets[0].alignment === "left", "expected unique left-aligned target");
   const [target] = editTargets;
   checkText(target.inlineItems, [EDIT_LABEL]);
+  assert(imported.documentDefaults().sizeHalfPoints === 22, "expected direct 11-point default");
+  assertThrows(() => imported.preview({resources: [{kind:"documentDefault", field:"bold", value:1}]}), "accepted numeric default toggle");
   assert(imported.coreTitle() === "All features visual inspection" && imported.defaultAlignment() === undefined,
     "unexpected direct catalog defaults");
   assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
     "missing shared abstract numbering level");
   const textPreview = imported.preview({
+    styleEdits: [{op:"add", definition:{kind:"numbering", name:"Reviewed List", numberingId:9049}}],
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
       {kind: "coreSubject", value: "Imported resource edits"},
+      {kind:"documentDefault", field:"bold", value:false}, {kind:"documentDefault", field:"footnoteStart", value:5},
+      {kind:"documentDefault", field:"afterTwips", value:null},
       {kind: "metadata", field: "creator", value: "Review team"},
       {kind: "metadata", field: "manager", value: "Review lead"},
       {kind: "customProperty", name: "Reviewed", value: false},
-      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
+      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7},
+      {kind: "addAbstract", abstractId: 9048, levels: [{level: 0, start: 2, format: "decimal", text: "%1."}]},
+      {kind: "instanceLevel", numId: 9049, level: 0, value: {level: 0, start: 1, format: "lowerRoman", text: "(%1)"}},
+      {kind: "addInstance", numId: 9049, abstractId: 9048},
+      {kind: "instanceStart", numId: 9049, level: 0, value: 6},
+      {kind: "paragraphNumbering", target: target.anchor, value: {id: 9049, level: 0}}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
     textInsertions: [{target: target.anchor, position: 8, text: " + point"}],
@@ -297,12 +334,20 @@ export async function generateCatalog(fixtures, options) {
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
   const editedResources = await openDocx(runText);
+  const defaults = editedResources.documentDefaults();
+  assert(defaults.bold === false && defaults.footnoteStart === 5 && defaults.afterTwips === undefined, "incorrect direct defaults");
   assert(editedResources.metadataField("manager") === "Review lead" &&
     editedResources.customProperty("Reviewed") === false, "missing metadata values");
   assertThrows(() => imported.preview({resources: [{kind: "customProperty", name: "Reviewed"}]}),
     "accepted missing custom value");
   assertThrows(() => imported.preview({resources: [{kind: "metadata", field: "created", value: "yesterday"}]}),
     "accepted invalid core date");
+  assert(editedResources.numberingInstances().some(n => n.numId === 9049 && n.abstractId === 9048 &&
+    n.replacementLevels.includes(0) && n.startOverrides.some(o => o.level === 0 && o.start === 6)), "missing instance override");
+  const listTarget = editedResources.body().find(p => p.kind === "paragraph" && p.text.startsWith("Ranged 📝"));
+  assert(editedResources.paragraphNumbering(listTarget.anchor)?.id === 9049, "missing direct numbering reference");
+  assertThrows(() => editedResources.paragraphNumbering(target.anchor), "accepted stale paragraph anchor");
+  assertThrows(() => editedResources.preview({resources: [{kind: "removeInstance", numId: 9049}]}), "deleted a live instance");
   assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample" &&
     editedResources.coreSubject() === "Imported resource edits",
     "missing resource edits");
@@ -376,6 +421,8 @@ export async function generateCatalog(fixtures, options) {
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},
     {kind: "replaceSection", blocks: [blockParagraph]}, {kind: "keepWithNext", value: true},
+    {kind: "paragraphFlag", flag: "keepTogether", value: true},
+    {kind: "sectionFlag", flag: "rtlGutter", value: true}, {kind: "sectionType", value: "evenPage"},
   ]) {
     assert(headers.preview({blockEdits: [{target: blockTarget, ...edit}]}).blockChanges()[0] === 2,
       "incorrect block preview target");
@@ -434,5 +481,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, objects, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, controls:controlSample };
+  return { final, template, edited, objects, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits, controls:controlSample };
 }

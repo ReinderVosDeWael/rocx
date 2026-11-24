@@ -215,6 +215,8 @@ separate.
   are different capabilities. For edited WordprocessingML, the editor checks
   `MustUnderstand` on the root and ordinary WordprocessingML descendants using
   in-scope namespace bindings, and rejects unbound or unsupported prefixes.
+  It rejects wrappers matched by `ProcessContent` rather than treating their
+  children as absent or changing the physical addresses by unwrapping them.
   Foreign subtrees are opaque: the editor does not select `AlternateContent`
   branches. See the [editing policy](../COMPATIBILITY.md#resolution-editing-and-output)
   for the recognized namespaces and where the guard stops.
