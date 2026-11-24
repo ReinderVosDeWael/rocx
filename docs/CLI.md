@@ -116,8 +116,15 @@ The following `kind` values can be combined with the seven above in one
 | `table-structure` | Table `target`, `operation`. For example `{"kind":"insert-column","index":1}`. |
 | `story-image` | `target` copied from `stories` (`section_index`, `kind`: `header`/`footer`, `variant`: `default`/`first`/`even`), `mode`, `bytes` as for `header-image`. |
 | `style-add`, `style-replace`, `style-patch`, `style-remove` | Add/replace require `definition`. All except add require exact `id` from `styles.definitions`. Patch supports optional boolean `bold`, `italic`. |
+| `style-field` | Style `id`, `field`, optional `region`, and `value` (string or explicit `null`). Uses the [direct style field keys](EDITOR-PARITY.md#imported-style-edits). |
+| `style-region` | Style `id`, `region`, and `value` (format object or explicit `null` to clear). |
 | `core-title`, `default-alignment`, `abstract-start` | Required `value`: string, alignment name, or unsigned integer respectively. Explicit JSON `null` clears. Numbering also requires `abstract_id` and `level` from `abstract_starts`. |
 | `core-subject`, `metadata`, `custom-property` | Required `value`: string or `null` (clear); custom properties also accept booleans. `metadata` takes a [field key](EDITOR-RESOURCES.md#package-metadata), and `custom-property` takes the exact `name`. |
+| `document-default` | `field` from the [defaults inventory](EDITOR-RESOURCES.md#editing-document-defaults), `value` in its documented scalar type or explicit `null`. The `tabStops` value is an array of objects with `position_twips`, `alignment`, and optional `leader`. |
+| `add-abstract`, `remove-abstract` | `abstract_id`; addition requires `levels` (numbering level objects). |
+| `add-instance`, `remove-instance` | `num_id`; addition requires `abstract_id`. |
+| `instance-start`, `instance-level` | `num_id`, `level`, and `value` (unsigned integer or numbering level object, respectively; explicit `null` clears). |
+| `paragraph-numbering` | Paragraph `target` and `value` (`{"id":42,"level":0}` or explicit `null`). |
 | `control` | `target` from `controls`, optional strings `tag`, `alias`, `text`. Physical control numbers are independent of body indices, tags and XML IDs. |
 
 `operation.kind` is `insert-row`, `remove-row`, `insert-column`, `remove-column`
@@ -132,10 +139,15 @@ exclusive `body_end`, direct `flags`, and `section_type_xml`.
 `blocks` is an array of `{"kind":"paragraph","text":"..."}` or
 `{"kind":"table","rows":[["..."]]}`. An `inline` is a `text` declaration
 (`text`, optional boolean `bold`, `italic`), `hyperlink` (`url`, `text`), or
-`image` (`bytes`). A style `definition` takes `kind` (`paragraph`, `character`
-or `table`), `name`, optional `base_style` and, except for tables, optional
-boolean `bold` and `italic`. These are declaration shorthands; the editor still
-validates the resolved content.
+`image` (`bytes`). Paragraph, character and table style definitions take
+`kind`, `name`, optional `base_style` and, except for tables, optional boolean
+`bold` and `italic`. A `numbering` definition takes `name` and `numbering_id`.
+A numbering level takes `level`, `start`, `format`, `text`, and optionally
+`is_legal` and `restart`. A `style-region` format object accepts `bold`, `italic`,
+`underline`, `font`, `font_size`, `color`, `background`, `alignment`,
+`spacing_before`, `spacing_after`, and `bidi`. Colors are arrays of three RGB
+bytes. These are declaration shorthands; the editor validates the resolved
+content and references.
 
 `inspect` also returns `core_title`, `default_alignment`, `abstract_starts`,
 `controls`, `styles`, `stories`, and `entries`. Independent failed inventory
@@ -147,6 +159,11 @@ direct paragraphs with original `block_index` and `inlines`.
 pass e.g. `"metadata_fields":["manager"],"custom_properties":["Reviewed"]`
 in the request. The result maps those names under `metadata` and
 `custom_properties`; absent values are `null`, distinct from `""` and `false`.
+It also returns `document_defaults` and `numbering_instances` (including direct
+start overrides and replacement level indices). To read specific paragraph
+references, pass `"numbering_targets":[0,2]`; `paragraph_numbering` maps those
+original body indices to direct references or `null`. Style definitions include
+direct `next_style`, `linked_style`, and `property_xml`.
 
 ## Scoped operations
 

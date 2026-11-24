@@ -18,6 +18,8 @@ enum Request {
         metadata_fields: Vec<String>,
         #[serde(default)]
         custom_properties: Vec<String>,
+        #[serde(default)]
+        numbering_targets: Vec<usize>,
     },
     Preview {
         source: String,
@@ -45,8 +47,17 @@ fn execute(request: Request) -> Result<Value, String> {
         Request::Inspect {
             metadata_fields,
             custom_properties,
+            numbering_targets,
             ..
-        } => return rocx_protocol::inspect(&open()?, snapshot, metadata_fields, custom_properties),
+        } => {
+            return rocx_protocol::inspect(
+                &open()?,
+                snapshot,
+                metadata_fields,
+                custom_properties,
+                numbering_targets,
+            );
+        }
         Request::Preview {
             snapshot, edits, ..
         } => (snapshot, edits, None),

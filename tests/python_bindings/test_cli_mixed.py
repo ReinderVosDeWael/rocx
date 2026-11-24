@@ -456,3 +456,89 @@ def test_section_replacement_and_geometry_use_original_coordinates(cli, tmp_path
     edits = [getattr(TableStructureEdit, k.replace("-", "_"))(t.anchor, *indices.values())
              for t, (k, indices) in zip(imported.body, operations, strict=True)]
     assert geometry.read_bytes() == imported.preview([], table_structure=edits).to_docx()
+
+
+def test_resource_and_style_transport(cli, tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+    from rocx.editor import ResourceEdit as R, StyleEdit as S
+
+    source, output = tmp_path / "resources.docx", tmp_path / "edited.docx"
+    word = independent_document()
+    word.add_paragraph("List entry")
+    word.styles.add_style("CLI Table", WD_STYLE_TYPE.TABLE)
+    word.styles.add_style("CLI Paragraph", WD_STYLE_TYPE.PARAGRAPH)
+    word.save(source)
+    original = source.read_bytes()
+    imported = ImportedDocument.open(original)
+    paragraph = imported.body[0].anchor
+    table = imported.style_anchor("CLITable")
+    paragraph_style = imported.style_anchor("CLIParagraph")
+    level = dict(level=0, start=1, format="decimal", text="%1.")
+    replacement = level | dict(start=2, format="lowerRoman")
+    definition = dict(kind="numbering", name="CLI List", numbering_id=702)
+    edits = [
+        dict(kind="style-add", definition=definition),
+        dict(kind="style-region", id="CLITable", region="firstRow", value={"bold": True}),
+        dict(kind="style-field", id="CLIParagraph", field="i", region=None, value="0"),
+        dict(kind="core-subject", value="Review"),
+        dict(kind="document-default", field="bold", value=False),
+        dict(kind="document-default", field="tabStops", value=[
+            dict(position_twips=720, alignment="right", leader="dot")]),
+        dict(kind="add-instance", num_id=703, abstract_id=701),
+        dict(kind="add-instance", num_id=702, abstract_id=701),
+        dict(kind="add-abstract", abstract_id=701, levels=[level]),
+        dict(kind="instance-start", num_id=703, level=0, value=6),
+        dict(kind="instance-level", num_id=703, level=0, value=replacement),
+        dict(kind="paragraph-numbering", target=0, value=dict(id=703, level=0)),
+        dict(kind="add-abstract", abstract_id=704, levels=[level]),
+    ]
+    snapshot = call(cli, "inspect", source, numbering_targets=[0])
+    assert snapshot["paragraph_numbering"] == {"0": None}
+    for bad in (dict(kind="metadata", field="subject", value="Duplicate"),
+                dict(kind="document-default", field="italic"),
+                dict(kind="paragraph-numbering", target=1, value=None)):
+        call(cli, "save-copy", source, success=False, output=str(output),
+             snapshot=snapshot["snapshot"], edits=[*edits, bad])
+        assert not output.exists()
+    inspected = checked_copy(cli, source, output, edits)
+    assert inspected["core_subject"] == "Review"
+    assert inspected["document_defaults"]["bold"] is False
+    assert inspected["document_defaults"]["tabStops"] == edits[5]["value"]
+    instance, = [i for i in inspected["numbering_instances"] if i["num_id"] == 703]
+    assert instance == dict(num_id=703, abstract_id=701, replacement_levels=[0],
+                            start_overrides=[dict(level=0, start=6)])
+    result = call(cli, "inspect", output, numbering_targets=[0])
+    assert result["paragraph_numbering"] == {"0": {"id": 703, "level": 0}}
+    output_bytes = output.read_bytes()
+    assert output_bytes == imported.preview([], style_edits=[
+        S.add(d.NumberingStyleDefinition("CLI List", 702)),
+        S.region(table, "firstRow", d.TableSectionFormat(bold=True)),
+        S.field(paragraph_style, "i", "0"),
+    ], resources=[
+        R.core_subject("Review"), R.document_default("bold", False),
+        R.document_default("tabStops", [(720, "right", "dot")]),
+        R.add_instance(703, 701), R.add_instance(702, 701),
+        R.add_abstract(701, [d.NumberingLevel(**level)]), R.instance_start(703, 0, 6),
+        R.instance_level(703, 0, d.NumberingLevel(**replacement)),
+        R.paragraph_numbering(paragraph, (703, 0)), R.add_abstract(704, [d.NumberingLevel(**level)]),
+    ]).to_docx()
+    assert docx.Document(output).styles["CLI List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["702"]
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {p for p in before if before[p] != after[p]} == {
+        "word/document.xml", "word/styles.xml", "word/numbering.xml", "docProps/core.xml"}
+
+    target = tmp_path / "cleared.docx"
+    call(cli, "save-copy", output, success=False, output=str(target),
+         snapshot=result["snapshot"], edits=[dict(kind="remove-instance", num_id=703)])
+    assert not target.exists()
+    cleared = checked_copy(cli, output, target, [
+        dict(kind="paragraph-numbering", target=0, value=None),
+        dict(kind="style-region", id="CLITable", region="firstRow", value=None),
+        dict(kind="remove-instance", num_id=703),
+        dict(kind="remove-abstract", abstract_id=704),
+    ])
+    assert all(i["num_id"] != 703 for i in cleared["numbering_instances"])
+    assert all(a["abstract_id"] != 704 for a in cleared["abstract_starts"])
+    assert call(cli, "inspect", target, numbering_targets=[0])["paragraph_numbering"] == {"0": None}
+    assert source.read_bytes() == original and output.read_bytes() == output_bytes

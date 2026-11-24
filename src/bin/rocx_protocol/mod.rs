@@ -8,8 +8,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 mod declarations;
 mod discovery;
+mod resources;
 mod scoped;
 use declarations::*;
+use resources::*;
 use scoped::*;
 
 #[derive(Deserialize)]
@@ -152,6 +154,55 @@ pub(super) enum Edit {
         #[serde(deserialize_with = "Deserialize::deserialize")]
         value: Option<u32>,
     },
+    DocumentDefault {
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<DefaultScalar>,
+    },
+    AddAbstract {
+        abstract_id: u32,
+        levels: Vec<Level>,
+    },
+    RemoveAbstract {
+        abstract_id: u32,
+    },
+    AddInstance {
+        num_id: u32,
+        abstract_id: u32,
+    },
+    RemoveInstance {
+        num_id: u32,
+    },
+    InstanceStart {
+        num_id: u32,
+        level: u8,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<u32>,
+    },
+    InstanceLevel {
+        num_id: u32,
+        level: u8,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<Level>,
+    },
+    ParagraphNumbering {
+        target: usize,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<ListRef>,
+    },
+    StyleField {
+        id: String,
+        region: Option<String>,
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    StyleRegion {
+        id: String,
+        region: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<Region>,
+    },
     StyleAdd {
         definition: Style,
     },
@@ -286,10 +337,18 @@ pub(super) fn inspect(
     snapshot: String,
     fields: Vec<String>,
     names: Vec<String>,
+    numbering_targets: Vec<usize>,
 ) -> Result<Value, String> {
     let body: Vec<_> = doc.body().iter().enumerate().map(inspect_block).collect();
     let mut result = json!({"snapshot":snapshot,"body":body});
     discovery::extend(doc, &mut result);
+    for target in numbering_targets {
+        let reference = doc
+            .paragraph_numbering(&paragraph(doc, target)?.anchor)
+            .map_err(|e| e.to_string())?;
+        result["paragraph_numbering"][target.to_string()] =
+            json!(reference.map(|r| json!({"id":r.id,"level":r.level})));
+    }
     for field in fields {
         let key = field.parse().map_err(|e: rocx::Error| e.to_string())?;
         result["metadata"][field] = json!(doc.metadata_field(key).map_err(|e| e.to_string())?);
@@ -480,6 +539,77 @@ pub(super) fn preview(
                 start: value,
             })),
             Edit::StyleAdd { definition } => styles.push(StyleEdit::Add(definition.into())),
+            Edit::StyleField {
+                id,
+                region,
+                field,
+                value,
+            } => styles.push(StyleEdit::Field {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                region,
+                field,
+                value,
+            }),
+            Edit::StyleRegion { id, region, value } => styles.push(StyleEdit::Region {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                region,
+                format: value.map(Region::resolve).transpose()?,
+            }),
+            Edit::DocumentDefault { field, value } => resources.push(ResourceEdit::Default(
+                DefaultField::from_key(&field).ok_or("unknown document default")?,
+                value.map(Into::into),
+            )),
+            Edit::AddAbstract {
+                abstract_id,
+                levels,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::AddAbstract {
+                abstract_id,
+                levels: levels.into_iter().map(Into::into).collect(),
+            })),
+            Edit::RemoveAbstract { abstract_id } => {
+                resources.push(ResourceEdit::Numbering(NumberingEdit::RemoveAbstract {
+                    abstract_id,
+                }))
+            }
+            Edit::AddInstance {
+                num_id,
+                abstract_id,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::AddInstance {
+                num_id,
+                abstract_id,
+            })),
+            Edit::RemoveInstance { num_id } => {
+                resources.push(ResourceEdit::Numbering(NumberingEdit::RemoveInstance {
+                    num_id,
+                }))
+            }
+            Edit::InstanceStart {
+                num_id,
+                level,
+                value,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::InstanceStart {
+                num_id,
+                level,
+                start: value,
+            })),
+            Edit::InstanceLevel {
+                num_id,
+                level,
+                value,
+            } => resources.push(ResourceEdit::Numbering(NumberingEdit::InstanceLevel {
+                num_id,
+                level,
+                value: value.map(|l| Box::new(l.into())),
+            })),
+            Edit::ParagraphNumbering { target, value } => {
+                resources.push(ResourceEdit::Numbering(NumberingEdit::Paragraph {
+                    target: paragraph(doc, target)?.anchor.clone(),
+                    value: value.map(|r| rocx::NumberingReference {
+                        id: r.id,
+                        level: r.level,
+                    }),
+                }))
+            }
             Edit::StyleReplace { id, definition } => styles.push(StyleEdit::Replace {
                 target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
                 definition: definition.into(),
