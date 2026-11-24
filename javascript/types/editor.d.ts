@@ -194,6 +194,17 @@ declare module "./inspection.js" {
     /** Change single-text runs in the named physical story part, including all aliases. */
     editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
     editEntryInlines(batch: { readonly ownerPart: string; readonly inlineEdits: readonly InlineEdit[] }): Uint8Array;
+    editNoteReference(edit: { readonly ownerPart: string; readonly target: InlineAnchor } & (
+      | { readonly kind: "create"; readonly id: number; readonly text: string }
+      | { readonly kind: "delete" | "detach" }
+      | { readonly kind: "attach" | "retarget" | "renumber"; readonly id: number }
+    )): Uint8Array;
+    editEntry(edit: { readonly ownerPart: string; readonly id: string } & (
+      | { readonly kind: "insertParagraph" | "replaceParagraph"; readonly index: number; readonly value: string }
+      | { readonly kind: "removeParagraph"; readonly index: number }
+      | { readonly kind: "author" | "date" | "initials"; readonly value: string }
+      | { readonly kind: "clearDate" | "clearInitials" | "deleteUnusedNote" }
+    )): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to a shared header/footer or a section-local fork. */

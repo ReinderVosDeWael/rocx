@@ -28,6 +28,10 @@ also exposes the default-header targets. Use ``edit_story_text(owner_part, edits
 for single-text runs in a physical header/footer or note/comment owner.
 Use ``edit_entry_inlines(owner_part, edits)`` for resolved inline insertion,
 replacement, or direct run bold in ordinary note/comment definitions.
+``edit_note_reference(owner_part, target, kind, ...)`` creates, attaches,
+detaches, retargets, renumbers or deletes direct-body note references.
+``edit_entry(owner_part, id, kind, ...)`` updates simple paragraphs, base
+comment metadata or removes an unused ordinary note.
 """
 
 from ._native import (

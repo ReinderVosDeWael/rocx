@@ -494,6 +494,12 @@ async def generate(output: pathlib.Path) -> bytes:
         review_link = await d.Hyperlink("https://example.com/entry-review", [d.TextRun("Review link")]).resolve()
         entries_output = source.edit_entry_inlines(entry.part_name, [InlineEdit.insert_after(entry_run.anchor, review_link)])
     output.with_suffix(".entry-text.docx").write_bytes(entries_output)
+    owner = next(e.part_name for e in entries if e.kind == "footnote")
+    note_body = next(p for p in imported.body if getattr(p, "text", None) == "Footnote reference; endnote reference")
+    created = imported.edit_note_reference(owner, note_body.inline_structure[0].anchor, "create", id=47, text="Lifecycle note")
+    appended = ImportedDocument.open(created).edit_entry(owner, "47", "insertParagraph", index=1, value="Second note paragraph")
+    lifecycle = ImportedDocument.open(appended).edit_entry(review.part_name, review.id, "initials", value="ED")
+    output.with_suffix(".entry-edits.docx").write_bytes(lifecycle)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure

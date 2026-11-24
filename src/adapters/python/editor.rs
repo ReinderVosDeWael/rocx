@@ -567,6 +567,13 @@ impl From<&editor::ImportedInline> for PyImportedInline {
         use editor::ImportedInline::*;
         let (kind, value) = match item {
             Text(text) => ("text", Some(text.clone())),
+            NoteReference { kind, id } => (
+                match kind {
+                    crate::NoteKind::Footnote => "footnoteReference",
+                    crate::NoteKind::Endnote => "endnoteReference",
+                },
+                Some(id.clone()),
+            ),
             Tab => ("tab", None),
             Break(value) => (
                 "break",
@@ -1746,6 +1753,74 @@ impl PyImportedDocument {
                 })
             })
             .collect()
+    }
+
+    #[pyo3(signature = (owner_part, target, kind, *, id=None, text=None))]
+    fn edit_note_reference<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        target: PyRef<'_, PyInlineAnchor>,
+        kind: &str,
+        id: Option<u32>,
+        text: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::NoteReferenceEdit::*;
+        let edit = match (kind, id, text) {
+            ("create", Some(id), Some(text)) => Create { id, text },
+            ("delete", None, None) => Delete,
+            ("detach", None, None) => Detach,
+            ("attach", Some(id), None) => Attach(id),
+            ("retarget", Some(id), None) => Retarget(id),
+            ("renumber", Some(id), None) => Renumber(id),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "invalid note reference edit arguments",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_note_reference(owner_part, &target.inner, edit)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    #[pyo3(signature = (owner_part, id, kind, *, index=None, value=None))]
+    fn edit_entry<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        id: &str,
+        kind: &str,
+        index: Option<usize>,
+        value: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::EntryEdit::*;
+        let edit = match (kind, index, value) {
+            ("insertParagraph", Some(index), Some(text)) => InsertParagraph { index, text },
+            ("replaceParagraph", Some(index), Some(text)) => ReplaceParagraph { index, text },
+            ("removeParagraph", Some(index), None) => RemoveParagraph(index),
+            ("deleteUnusedNote", None, None) => DeleteUnusedNote,
+            ("author", None, Some(s)) => CommentAuthor(s),
+            ("initials", None, Some(s)) => CommentInitials(Some(s)),
+            ("clearInitials", None, None) => CommentInitials(None),
+            ("date", None, Some(s)) => CommentDate(Some(s)),
+            ("clearDate", None, None) => CommentDate(None),
+            _ => return Err(PyValueError::new_err("invalid entry edit arguments")),
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_entry(owner_part, id, edit).map_err(rust_error)?,
+        ))
     }
 
     fn edit_entry_inlines<'py>(

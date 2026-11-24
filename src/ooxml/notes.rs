@@ -365,7 +365,7 @@ impl Compiler<'_> {
         ))
     }
 }
-fn note_mark(name: &str, id: Option<u32>) -> Node {
+pub(crate) fn note_mark(name: &str, id: Option<u32>) -> Node {
     let mut mark = Node::new(format!("w:{name}"));
     if let Some(id) = id {
         mark.set("w:id", id);

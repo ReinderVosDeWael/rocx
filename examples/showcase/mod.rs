@@ -682,6 +682,46 @@ pub async fn generate(output: &Path) -> Result<()> {
         )?;
     }
     std::fs::write(output.with_extension("entry-text.docx"), entries_output)?;
+    let owner = &entries
+        .iter()
+        .find(|e| e.kind == editor::EntryKind::Footnote)
+        .unwrap()
+        .part_name;
+    let target = imported
+        .body()
+        .iter()
+        .find_map(|b| match b {
+            editor::BodyBlock::Paragraph(p)
+                if p.text == "Footnote reference; endnote reference" =>
+            {
+                p.inline_structure.first()
+            }
+            _ => None,
+        })
+        .unwrap();
+    let Run(first) = target else { unreachable!() };
+    let created = imported.edit_note_reference(
+        owner,
+        &first.anchor,
+        editor::NoteReferenceEdit::Create {
+            id: 47,
+            text: "Lifecycle note".into(),
+        },
+    )?;
+    let appended = editor::ImportedDocument::open(&created)?.edit_entry(
+        owner,
+        "47",
+        editor::EntryEdit::InsertParagraph {
+            index: 1,
+            text: "Second note paragraph".into(),
+        },
+    )?;
+    let lifecycle = editor::ImportedDocument::open(&appended)?.edit_entry(
+        &review.part_name,
+        &review.id,
+        editor::EntryEdit::CommentInitials(Some("ED".into())),
+    )?;
+    std::fs::write(output.with_extension("entry-edits.docx"), lifecycle)?;
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
     assert!(imported.body().iter().any(|block| matches!(
         block, editor::BodyBlock::ContentControl(control)

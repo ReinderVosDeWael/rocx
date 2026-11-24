@@ -206,7 +206,7 @@ pub(super) fn opaque_content(node: &Node) -> bool {
 
 /// Only discard known local properties. Unknown markup may carry a relationship,
 /// range ID, or revision, and cannot safely be reconstructed from inspection.
-fn disposable_properties(props: &Node) -> bool {
+pub(super) fn disposable_properties(props: &Node) -> bool {
     !has_other_attrs(props, &[])
         && !opaque_content(props)
         && props.elements().all(|p| {
@@ -251,7 +251,7 @@ fn disposable_properties(props: &Node) -> bool {
         })
 }
 
-fn check_run(run: &Node, discard: bool) -> Result<()> {
+pub(super) fn check_run(run: &Node, discard: bool) -> Result<()> {
     let error = || unsupported("run has unsupported properties or inline content");
     if run.name != "w:r" || opaque_content(run) || (discard && has_other_attrs(run, &[])) {
         return Err(error());
@@ -386,7 +386,7 @@ pub(super) fn apply(
     apply_targets(body, targets, true, inline_changes)
 }
 
-fn validate_text(text: &str) -> Result<()> {
+pub(super) fn validate_text(text: &str) -> Result<()> {
     if text.contains(['\t', '\r', '\n']) || crate::document::invalid_xml_character(text).is_some() {
         return Err(unsupported(
             "replacement must be single-line XML text without tabs",

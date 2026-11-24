@@ -205,6 +205,13 @@ fn items(items: &[ImportedInline]) -> Result<JsValue> {
     try_array(items.iter().map(|item| {
         Ok(match item {
             ImportedInline::Text(value) => record("text", &[("text", value.as_str().into())]),
+            ImportedInline::NoteReference { kind, id } => record(
+                match kind {
+                    rocx::NoteKind::Footnote => "footnoteReference",
+                    rocx::NoteKind::Endnote => "endnoteReference",
+                },
+                &[("id", id.as_str().into())],
+            ),
             ImportedInline::Tab => record("tab", &[]),
             ImportedInline::Break(value) => record(
                 "break",

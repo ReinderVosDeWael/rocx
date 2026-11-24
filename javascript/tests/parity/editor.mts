@@ -582,6 +582,14 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
           const bytes: Uint8Array = doc.editEntryInlines({
             ownerPart: e.partName, inlineEdits: [{kind: "setBold", target: node.anchor, bold: true}],
           });
+          const first = node.items[0];
+          if (first?.kind === "footnoteReference" || first?.kind === "endnoteReference") {
+            const lexical: string = first.id;
+            doc.editEntry({ownerPart:e.partName,id:lexical,kind:"replaceParagraph",index:0,value:"Updated"});
+          }
+          doc.editNoteReference({ownerPart:e.partName,target:node.anchor,kind:"create",id:47,text:"Review"});
+          // @ts-expect-error a note creation requires definition text
+          doc.editNoteReference({ownerPart:e.partName,target:node.anchor,kind:"create",id:47});
           // @ts-expect-error decimal entry IDs are metadata, not inline anchors
           doc.editEntryInlines({ownerPart: e.partName, inlineEdits: [{kind: "setBold", target: id, bold: true}]});
         }

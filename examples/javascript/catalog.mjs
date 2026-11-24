@@ -16,6 +16,7 @@ export const catalogNames = Object.freeze({
   headerFirstShared: "all_features-javascript.header-first-shared.docx",
   headerFirstLocal: "all_features-javascript.header-first-local.docx",
   entryText: "all_features-javascript.entry-text.docx",
+  entryEdits: "all_features-javascript.entry-edits.docx",
   footerEven: "all_features-javascript.footer-even.docx",
   runText: "all_features-javascript.run-text.docx",
 });
@@ -194,6 +195,29 @@ export async function generateCatalog(fixtures, options) {
     assert(reopened.entryStories().find(e => e.kind === kind && e.id === entry.id)
       .blocks[0].inlineStructure.some(n => n.kind === "hyperlink" && n.children[0].items[0].text === "Review link"), "missing inserted link");
   }
+  const ownerPart = entries.find(e => e.kind === "footnote").partName;
+  const noteBody = doc => doc.body().find(p => p.kind === "paragraph" && p.text === "Footnote reference; endnote reference");
+  const targetRun = noteBody(imported).inlineStructure[0].anchor;
+  const create = {ownerPart, target: targetRun, kind: "create", id: 47, text: "Lifecycle note"};
+  assertThrows(() => imported.editNoteReference({...create,id:0}), "accepted duplicate note ID");
+  const created = await openDocx(imported.editNoteReference(create));
+  assertThrows(() => created.editNoteReference(create), "accepted stale note anchor");
+  const inserted = noteBody(created).inlineStructure[1].anchor;
+  assert(created.inlineAt(inserted).items[0].kind === "footnoteReference" && created.inlineAt(inserted).items[0].id === "47", "incorrect note reference identity");
+  const detached = await openDocx(created.editNoteReference({ownerPart,target:inserted,kind:"detach"}));
+  const attached = await openDocx(detached.editNoteReference({ownerPart,target:noteBody(detached).inlineStructure[0].anchor,kind:"attach",id:47}));
+  assert(noteBody(attached).inlineStructure[1].items[0].id === "47", "reattachment lost the note");
+  const retargeted = await openDocx(detached.editNoteReference({ownerPart,target:noteBody(detached).inlineStructure[1].anchor,kind:"retarget",id:47}));
+  assert(noteBody(retargeted).inlineStructure[1].items[0].id === "47" && retargeted.entryStories().some(e => e.partName === ownerPart && e.id === "0"), "retarget discarded the old definition");
+  assertThrows(() => created.editEntry({ownerPart,id:"47",kind:"deleteUnusedNote"}), "removed a referenced note");
+  const purged = await openDocx(detached.editEntry({ownerPart,id:"47",kind:"deleteUnusedNote"}));
+  assert(!purged.entryStories().some(e => e.partName === ownerPart && e.id === "47"), "did not remove unused note");
+  const renamed = await openDocx(created.editNoteReference({ownerPart,target:inserted,kind:"renumber",id:48}));
+  assert(renamed.entryStories().some(e => e.partName === ownerPart && e.id === "48"), "missing renamed definition");
+  const deleted = await openDocx(renamed.editNoteReference({ownerPart,target:noteBody(renamed).inlineStructure[1].anchor,kind:"delete"}));
+  assert(!deleted.entryStories().some(e => e.partName === ownerPart && e.id === "48"), "definition was not deleted");
+  const expandedNote = await openDocx(created.editEntry({ownerPart,id:"47",kind:"insertParagraph",index:1,value:"Second note paragraph"}));
+  const entryEdits = expandedNote.editEntry({ownerPart:review.partName,id:review.id,kind:"initials",value:"ED"});
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
   const editTargets = body.filter((node) => node.kind === "paragraph" && node.text === EDIT_LABEL);
@@ -366,5 +390,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText };
+  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits };
 }

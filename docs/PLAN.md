@@ -23,7 +23,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables. Inspect and set/clear all nine declarative paragraph on/off flags, three section flags and section break type at anchored direct body targets. | Section insertion/removal; section geometry, borders, columns, grid, numbering and vertical alignment; paragraph style/heading, numbering, tabs, indents, spacing and line height; clearing direct alignment; nested/story and empty or non-paragraph-start section targets. |
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
-| #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text edits in one physical story part. Ordinary note/comment entries also support direct inline insertion/replacement and run bold. | Entry/reference lifecycle, comment metadata changes, block editing, reserved entries and local text forks. |
+| #46 Stories | Shared/local images in all six header/footer slots; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Custom note marks, shared or nested reference edits, destructive rich block edits, modern comment metadata, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
 | #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
@@ -118,6 +118,12 @@ matched byte-for-byte across Rust, installed Python 3.12 and packed Node 26.
 The edited footnote, endnote and comment each own their added hyperlink;
 schema/OPC validation passed for 20 covered parts. Independent python-docx
 comment readback and package comparison verify preserved body references.
+
+The follow-up to `8c18d1b` adds a twelfth cross-binding `.entry-edits.docx`
+sample. The stories slice owns ordinary note reference/definition lifecycle
+and content and metadata inside existing comments. The fields/ranges slice
+owns paired bookmark/comment markers, main-story comment references and
+associated comment-definition lifecycle ([coordination record](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7145560023)).
 
 For the individual verification records, read `docs/PLAN.md` at the topic
 tips: ranges `6baa54d`, blocks `f4d5a58`, inlines `069f5c6`, tables `ae725f9`,

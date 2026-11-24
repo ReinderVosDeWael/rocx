@@ -175,6 +175,8 @@ round-trip authoring declaration.
 | `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one image append to an effective header or footer slot. Obtain the target from `stories()`; `change()` reports the effect. |
 | `imported.editStoryText({ownerPart, runText}): Uint8Array` | Returns DOCX bytes for a separate atomic batch in one physical part. Supply the inspected part name and anchors for eligible direct runs in that header/footer or ordinary footnote/endnote/comment entry. All aliases see the edit. |
 | `imported.editEntryInlines({ownerPart, inlineEdits}): Uint8Array` | Insert after or replace eligible direct runs/hyperlinks, or patch direct run bold, in ordinary note/comment entries of one part. New external links belong to that part; reference marks and reserved notes are protected. |
+| `imported.editNoteReference({ownerPart, target, kind, ...fields}): Uint8Array` | `create` takes an unused numeric ID and text; `attach`, `retarget`, `renumber` take an ID. `detach` retains the definition; `delete` also removes its simple definition. |
+| `imported.editEntry({ownerPart, id, kind, ...fields}): Uint8Array` | Use the decimal string ID. Insert, replace or remove a simple paragraph; set base comment author/date/initials or clear date/initials; `deleteUnusedNote` removes a simple unreferenced note. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
 Alignment edits take a `ParagraphAnchor` and `alignment`; table insertions

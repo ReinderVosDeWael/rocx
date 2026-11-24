@@ -342,6 +342,62 @@ External links allocate relationships in the entry part, including when its
 path is nonstandard. Existing relationships are retained. No entry or reference
 is created, deleted or renumbered. Reopen the returned package for new anchors.
 
+### Note references and entry definitions
+
+`doc.edit_note_reference(owner, &target, NoteReferenceEdit::…)` (Rust),
+`doc.edit_note_reference(owner, target, kind, **fields)` (Python) and
+`doc.editNoteReference({ownerPart, target, kind, ...fields})` (JavaScript)
+return a separate atomic DOCX copy. A simple reference item exposes its
+source ID as a string: Rust `ImportedInline::NoteReference {kind,id}`,
+Python `kind` (`footnoteReference`/`endnoteReference`) and `value`, JavaScript
+`kind` and `id`. The anchor belongs to the enclosing run.
+
+| Rust variant | Python/JS `kind` and fields | Effect |
+| --- | --- | --- |
+| `Create {id,text}` | `"create"`, `id`, `text` | After a supported direct body run, insert a reference and add its one-paragraph definition. |
+| `Attach(id)` | `"attach"`, `id` | Insert a reference after the target run to an existing unused ordinary definition. |
+| `Detach` | `"detach"` | Remove the reference run, retaining its definition. |
+| `Retarget(id)` | `"retarget"`, `id` | Change the reference to an existing unused ordinary definition of the same kind. Both definitions remain. |
+| `Renumber(id)` | `"renumber"`, `id` | Change a definition and its sole reference together to a free ID. |
+| `Delete` | `"delete"` | Remove the reference and its sole discardable definition. |
+
+For `Create` and `Attach`, the anchor must identify a supported direct run in
+a body paragraph, outside fields and ranges. For the remaining operations it
+must identify the simple reference run itself. The owner is the physical
+footnotes or endnotes part. A first `Create` can initialize `word/footnotes.xml`
+or `word/endnotes.xml` when that kind has no relationship, the paths are free
+and there are no existing note references, definitions, or special-entry
+settings of that kind. The new part, content type and relationship are created
+together; automatic Word numbering is independent of the supplied ID.
+New IDs are unsigned 32-bit values. Imported IDs are compared as arbitrary-
+precision decimal integers, separately by kind. Allocation and destruction
+check all declared XML payloads, including settings and opaque descendants.
+Ambiguous/shared references, custom marks, reserved entries, protected ranges,
+and deletion of nodes with unmodeled content are rejected.
+
+`doc.edit_entry(owner, id, EntryEdit::…)` (Rust),
+`doc.edit_entry(owner, id, kind, **fields)` (Python), and
+`doc.editEntry({ownerPart, id, kind, ...fields})` (JavaScript) address an
+ordinary definition with its physical owner and decimal **string** ID.
+
+| Rust variant | Python/JS `kind` and fields | Effect |
+| --- | --- | --- |
+| `DeleteUnusedNote` | `"deleteUnusedNote"` | Remove a discardable ordinary definition only if it has no reference anywhere in the declared XML graph. |
+| `InsertParagraph {index,text}` / `ReplaceParagraph {index,text}` | `"insertParagraph"` / `"replaceParagraph"`, `index`, `value` | Insert before the original physical block (count to append), or replace a discardable paragraph, with single-line text. |
+| `RemoveParagraph(index)` | `"removeParagraph"`, `index` | Remove a simple paragraph while retaining an entry block. |
+| `CommentAuthor(s)` | `"author"`, `value` | Set a base comment's author. |
+| `CommentInitials(Some(s))` / `CommentInitials(None)` | `"initials"`, `value` / `"clearInitials"` | Set or clear initials. |
+| `CommentDate(Some(s))` / `CommentDate(None)` | `"date"`, `value` / `"clearDate"` | Set a validated `YYYY-MM-DDTHH:MM:SSZ` timestamp or clear it. |
+
+Block indices include opaque blocks. The first note paragraph cannot be moved
+or removed; eligible replacement preserves its reference-mark run. The same
+guard applies to the standard first comment annotation mark. Tables and rich
+or opaque paragraphs cannot be discarded. Extended/threaded comment metadata
+is unsupported. These APIs do not create or delete comment ranges, their
+main-story reference runs or comment definitions. A range operation and a
+definition edit compose by reopening between calls; see the
+[fields/stories ownership contract](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7145560023).
+
 ### Combine ordinary edits
 
 Rust accepts `doc.preview_edits(EditBatch { /* slices */, ..Default::default() })`;

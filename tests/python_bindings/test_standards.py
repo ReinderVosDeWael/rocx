@@ -324,6 +324,8 @@ def test_all_features_visual_catalog_passes_schema_and_bad_border_order_fails(va
     data = catalog.read_bytes()
     checked = validator.validate(data)
     assert {"word/charts/chart1.xml", "docProps/custom.xml", "docProps/app.xml"} <= set(checked)
+    entry_parts = validator.validate(catalog.with_suffix(".entry-edits.docx").read_bytes())
+    assert {"word/document.xml", "word/footnotes.xml", "word/comments.xml"} <= set(entry_parts)
     for suffix in [".header-shared.docx", ".header-local.docx"]:
         mixed = validator.validate(catalog.with_suffix(suffix).read_bytes())
         assert {"word/document.xml", "word/header1.xml"} <= set(mixed)
