@@ -25,7 +25,7 @@ PORTABLE_ORACLES = (
 )
 EDITOR_OUTPUTS = ("body", "cell", "mixedBody", "noop", "removal", "range", "points", "shared", "local",
                   "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared",
-                  "blocks", "inline", "runFormatting", "tableStructure", "styleEdits", "controlEdits",
+                  "blocks", "inline", "runFormatting", "tableStructure", "styleEdits", "controlEdits", "controlWrapped", "controlUnwrapped",
                   "tracked", "reviewed", "moved", "moveAccepted", "combined")
 
 
@@ -176,7 +176,7 @@ def python_combined(source: Path) -> bytes:
 
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
-    for name in ("base", "relocated", "range-source", "styles-source", "control-source", "table-layout"):
+    for name in ("base", "relocated", "range-source", "styles-source", "control-source", "table-layout", "control-choice-source"):
         path = reference / f"{name}.docx"
         print(f"editor/{path.name}: {len(validator.validate(path))} schema-covered parts and OPC relationships")
     assert {p.name for p in reference.glob("native-*.docx")} == {f"native-{n}.docx" for n in EDITOR_OUTPUTS}

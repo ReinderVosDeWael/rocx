@@ -17,6 +17,7 @@ export const catalogNames = Object.freeze({
   headerFirstShared: "all_features-javascript.header-first-shared.docx",
   headerFirstLocal: "all_features-javascript.header-first-local.docx",
   entryText: "all_features-javascript.entry-text.docx",
+  controls: "all_features-javascript.controls.docx",
   footerEven: "all_features-javascript.footer-even.docx",
   runText: "all_features-javascript.run-text.docx",
 });
@@ -147,6 +148,18 @@ export async function generateCatalog(fixtures, options) {
   ], { columnWidths: [2160, 2160], layout: "fixed" }));
 
   const imported = await openDocx(final);
+  const status = imported.controls().find(c => c.tag === "review-status");
+  const pending = await openDocx(imported.previewControlChoice({target:status.anchor, selected:"pending"}).toDocx());
+  const site = pending.controlSites().find(s => s.context === "block" && s.text === EDIT_LABEL);
+  const wrapped = await openDocx(pending.previewWrapControl({target:site.anchor, tag:"workflow"}).toDocx());
+  const workflow = wrapped.controls().find(c => c.tag === "workflow");
+  const controlSample = wrapped.previewReplaceControl({target:workflow.anchor, properties:{
+    alias:"Imported plain-text sample", text:{kind:"plain", multiLine:false}
+  }}).toDocx();
+  const plain = await openDocx(controlSample);
+  const sample = plain.controls().find(c => c.alias === "Imported plain-text sample");
+  assert(sample.tag === undefined && sample.kind === "text","plain control replacement");
+  plain.previewUnwrapControl(sample.anchor);
   const styled = imported.preview({ styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
     { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
@@ -386,5 +399,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, objects, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText };
+  return { final, template, edited, objects, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, controls:controlSample };
 }

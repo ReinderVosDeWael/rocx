@@ -51,6 +51,8 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Inspect the styles part and direct style metadata | `doc.styles()?` | `doc.styles` | `doc.styles()` |
 | Inspect direct body control metadata | `BodyBlock::ContentControl` | `BodyContentControl` | `kind: "contentControl"` |
 | Inspect block/inline/row/cell controls and their physical anchors | `doc.controls()` | `doc.controls` | `doc.controls()` |
+| Discover wrapping sites; wrap / replace / unwrap single-text controls | `control_sites`, `preview_wrap_control`, `preview_replace_control`, `preview_unwrap_control` | Same spellings, `control_sites` is a property | `controlSites`, `previewWrapControl`, `previewReplaceControl`, `previewUnwrapControl` |
+| Select a drop-down value or replace the choices and selection | `preview_control_choice` | `preview_control_choice` | `previewControlChoice` |
 | Patch an eligible control's alias, tag or single-text value | `ControlEdit` / `preview_with_controls` | `ControlEdit` / `preview([], controls=[edit])` | `preview({controls: [edit]})` |
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
 | Track a direct body text edit / paired move | `preview_tracked_text` / `preview_tracked_move` | `preview_tracked_text` / `preview_tracked_move` | `previewTrackedText` / `previewTrackedMove` |

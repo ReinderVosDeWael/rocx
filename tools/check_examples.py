@@ -41,7 +41,7 @@ HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
                     ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
                     ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx",
-                    ".objects.docx")
+                    ".objects.docx", ".controls.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -898,6 +898,9 @@ def verify_catalog_readback(files: dict[str, bytes]) -> None:
     final, source = files[".docx"], files[".header-source.docx"]
     verify_objects(final, files[".objects.docx"])
     verify_entry_text(final, files[".entry-text.docx"])
+    control_doc = docx.Document(io.BytesIO(files[".controls.docx"]))
+    assert control_doc.element.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='review-status']/w:sdtContent/w:r/w:t/text()") == ["Pending"]
+    assert control_doc.element.xpath("//w:sdtPr[w:alias/@w:val='Imported plain-text sample']/w:text/@w:multiLine") == ["0"]
     verify_even_footer(files[".footer-even.docx"])
     verify_content(final, files[".template.docx"])
     verify_run_text(final, files[".run-text.docx"])

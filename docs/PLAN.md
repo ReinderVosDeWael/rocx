@@ -26,6 +26,13 @@ byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
 passed independent readback and schema/OPC checks (20 covered parts).
 See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
 
+Controls follow-up (#3), based on `b0a28b0`: the two new editor outputs cover
+standalone wrap, full definition replacement, unwrap and value-addressed
+drop-down changes. Independent python-docx/XML checks verify placement,
+retained formatting and unchanged part payloads. All twelve catalog files
+matched across Rust, installed Python and packed Node. The two editor outputs
+also matched Chromium; both and the new catalog sample passed schema/OPC checks.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -41,7 +48,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
 | #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
-| #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
+| #50 Controls | Inspect and wrap/replace/unwrap single-text block/inline/row/cell controls in the main story; patch tag, alias or content; select/replace block/inline drop-down choices. | Multi-run/structural payloads, nested and bound edits, other specialized types and other stories. |
 | #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 

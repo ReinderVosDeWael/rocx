@@ -1075,6 +1075,59 @@ fn control_targets_refuse_active_ranges_nested_wrappers_and_ambiguous_properties
 }
 
 #[test]
+fn choice_selection_respects_content_and_definition_locks_independently() {
+    let props = "<w:dropDownList w:lastValue='a'><w:listItem w:displayText='Alpha' w:value='a'/><w:listItem w:displayText='Beta' w:value='b'/></w:dropDownList>";
+    let wrapper = |lock, extra| {
+        format!(
+            "<w:sdt><w:sdtPr><w:lock w:val='{lock}'/>{props}{extra}</w:sdtPr><w:sdtContent><w:r><w:t>Alpha</w:t></w:r></w:sdtContent></w:sdt>"
+        )
+    };
+    let data = fixture_with_body(&format!(
+        "<w:document xmlns:w='{W}'><w:body><w:p>{}{}{}</w:p><w:sectPr/></w:body></w:document>",
+        wrapper("sdtLocked", ""),
+        wrapper("contentLocked", ""),
+        wrapper("unlocked", "<!--opaque-->")
+    ));
+    let doc = ImportedDocument::open(&data).unwrap();
+    let [definition, content, opaque] = doc.controls() else {
+        panic!("three controls")
+    };
+    let select =
+        |c: &rocx::editor::ImportedControl| doc.preview_control_choice(&c.anchor, "b", None);
+    assert!(select(content).unwrap_err().to_string().contains("locked"));
+    assert!(
+        doc.preview_control_choice(&definition.anchor, "b", Some(&definition.choices))
+            .unwrap_err()
+            .to_string()
+            .contains("locked")
+    );
+    assert!(doc.preview_unwrap_control(&definition.anchor).is_err());
+    assert!(doc.preview_unwrap_control(&content.anchor).is_ok());
+    assert!(select(opaque).unwrap_err().to_string().contains("opaque"));
+    assert!(doc.preview_unwrap_control(&opaque.anchor).is_err());
+    let changed = ImportedDocument::open(&select(definition).unwrap().to_docx().unwrap()).unwrap();
+    assert_eq!(changed.controls()[0].selected.as_deref(), Some("b"));
+    assert_eq!(doc.controls()[0].selected.as_deref(), Some("a"));
+}
+
+#[test]
+fn wrapping_sites_exclude_protected_ranges_in_other_blocks_and_nested_payloads() {
+    let data = fixture_with_body(&format!("<w:document xmlns:w='{W}'><w:body>
+        <w:p><w:bookmarkStart w:id='1' w:name='B'/></w:p>
+        <w:p><w:r><w:t>protected</w:t></w:r></w:p><w:p><w:bookmarkEnd w:id='1'/></w:p>
+        <w:sdt><w:sdtPr/><w:sdtContent><w:p><w:r><w:t>nested</w:t></w:r></w:p></w:sdtContent></w:sdt>
+        <w:p><w:r><w:t>eligible</w:t></w:r></w:p><w:sectPr/></w:body></w:document>"));
+    let doc = ImportedDocument::open(&data).unwrap();
+    assert_eq!(
+        doc.control_sites()
+            .iter()
+            .map(|s| (s.context.as_str(), s.text.as_str()))
+            .collect::<Vec<_>>(),
+        [("block", "eligible"), ("inline", "eligible")]
+    );
+}
+
+#[test]
 fn direct_control_metadata_is_read_only_and_preserved() {
     let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
 <w:sdt><w:sdtPr><w:tag w:val="customer &amp; id"/><w:alias w:val="Name"/><w:lock w:val="futureLock"/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>secret</w:t></w:r></w:p></w:sdtContent></w:sdt>

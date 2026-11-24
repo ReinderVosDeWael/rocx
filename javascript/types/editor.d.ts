@@ -173,6 +173,11 @@ export interface HeaderImagePreview {
 declare module "./inspection.js" {
   interface ImportedDocument {
     styleAnchor(id: string): StyleAnchor;
+    previewWrapControl(edit: {readonly target: import("./inspection.js").ControlSiteAnchor; readonly tag: string}): EditPreview;
+    previewUnwrapControl(target: ControlAnchor): EditPreview;
+    previewReplaceControl(edit: {readonly target: ControlAnchor; readonly properties: import("./structured.js").ContentControlProperties}): EditPreview;
+    previewControlChoice(edit: {readonly target: ControlAnchor; readonly selected: string;
+      readonly choices?: import("./inspection.js").ImportedControl["choices"]}): EditPreview;
     /** Explicitly track a single-text direct body run edit. */
     previewTrackedText(edit: {
       readonly target: InlineAnchor; readonly author: string; readonly date?: string;

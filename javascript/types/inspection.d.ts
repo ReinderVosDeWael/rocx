@@ -7,6 +7,12 @@ export type MetadataField = "creator" | "description" | "category" | "keywords" 
   | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
 export interface ControlAnchor { readonly [anchor]: "control" }
+export interface ControlSiteAnchor { readonly [anchor]: "controlSite" }
+export interface ControlSite {
+  readonly anchor: ControlSiteAnchor;
+  readonly context: ImportedControl["context"];
+  readonly text: string;
+}
 export interface ImportedControl {
   readonly anchor: ControlAnchor;
   readonly context: "block" | "inline" | "row" | "cell";
@@ -15,6 +21,10 @@ export interface ImportedControl {
   readonly alias?: string;
   readonly lock?: string;
   readonly bound: boolean;
+  readonly kind: string;
+  readonly choices: readonly { readonly displayText: string; readonly value: string }[];
+  readonly selected?: string;
+  readonly multiLine?: string;
 }
 
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
@@ -236,6 +246,7 @@ export interface ImportedStyles {
 export interface ImportedDocument {
   chartSeries(anchor: InlineAnchor): { readonly categories: readonly string[]; readonly values: readonly number[] };
   controls(): readonly ImportedControl[];
+  controlSites(): readonly ControlSite[];
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
   sections(): readonly ImportedSection[];

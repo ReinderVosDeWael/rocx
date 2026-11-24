@@ -872,6 +872,45 @@ pub async fn generate(output: &Path) -> Result<()> {
             .any(|s| (s.abstract_id, s.level, s.start) == (100, 0, Some(1)))
     );
     let controls = imported.controls();
+    let status = controls
+        .iter()
+        .find(|c| c.tag.as_deref() == Some("review-status"))
+        .unwrap();
+    let pending = editor::ImportedDocument::open(
+        &imported
+            .preview_control_choice(&status.anchor, "pending", None)?
+            .to_docx()?,
+    )?;
+    let site = pending
+        .control_sites()
+        .iter()
+        .find(|s| s.context == editor::ControlContext::Block && s.text == EDIT_LABEL)
+        .unwrap();
+    let wrapped = editor::ImportedDocument::open(
+        &pending.preview_wrap_control(site, "workflow")?.to_docx()?,
+    )?;
+    let workflow = wrapped
+        .controls()
+        .iter()
+        .find(|c| c.tag.as_deref() == Some("workflow"))
+        .unwrap();
+    let definition = ContentControlProperties::default()
+        .with_alias("Imported plain-text sample")
+        .with_text(ContentControlText::Plain {
+            multi_line: Some(false),
+        });
+    let qualified = wrapped
+        .preview_replace_control(&workflow.anchor, &definition)?
+        .to_docx()?;
+    let plain = editor::ImportedDocument::open(&qualified)?;
+    let sample = plain
+        .controls()
+        .iter()
+        .find(|c| c.alias.as_deref() == Some("Imported plain-text sample"))
+        .unwrap();
+    assert!(sample.tag.is_none() && sample.kind == "text");
+    plain.preview_unwrap_control(&sample.anchor)?;
+    std::fs::write(output.with_extension("controls.docx"), qualified)?;
     for (context, id) in [
         ("inline", "5001"),
         ("block", "5002"),

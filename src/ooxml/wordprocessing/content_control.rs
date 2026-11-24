@@ -5,7 +5,7 @@ use crate::{
     ContentControlProperties, ResolvedBlockContentControl, ResolvedInlineContentControl, Result,
 };
 
-fn control_node(properties: &ContentControlProperties, children: Vec<Node>) -> Result<Node> {
+pub(crate) fn control_props(properties: &ContentControlProperties) -> Result<Node> {
     let mut props = Node::new("w:sdtPr");
     for (tag, value) in [("alias", &properties.alias), ("tag", &properties.tag)] {
         if let Some(value) = value {
@@ -44,6 +44,11 @@ fn control_node(properties: &ContentControlProperties, children: Vec<Node>) -> R
             props.push(list);
         }
     }
+    Ok(props)
+}
+
+fn control_node(properties: &ContentControlProperties, children: Vec<Node>) -> Result<Node> {
+    let props = control_props(properties)?;
     let mut content = Node::new("w:sdtContent");
     for child in children {
         content.push(child);

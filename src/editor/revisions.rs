@@ -117,23 +117,7 @@ fn metadata(kind: RevisionKind, author: &str, date: Option<&str>) -> Result<Text
 
 impl ImportedDocument {
     fn stage_revision(&self, stage: impl FnOnce(&mut Node) -> Result<bool>) -> Result<EditPreview> {
-        let mut package = self.package.clone();
-        let mut root = package.word(&self.main)?;
-        if stage(root.child_mut("w:body").ok_or_else(missing_body)?)? {
-            package.put_word(&self.main, root)?;
-        }
-        Ok(EditPreview {
-            output: PackagePlan::new(package)?,
-            block_changes: vec![],
-            inline_changes: vec![],
-            changes: vec![],
-            insertions: vec![],
-            paragraph_insertions: vec![],
-            header_changes: vec![],
-            run_text_changes: vec![],
-            run_removals: vec![],
-            cell_alignment_changes: vec![],
-        })
+        self.stage_body(stage)
     }
 
     /// Insert, replace or delete one direct body text run using explicit revision
