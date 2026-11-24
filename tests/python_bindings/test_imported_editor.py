@@ -142,6 +142,7 @@ def test_python_docx_table_cell_inline_anchors():
     assert imported.body[1].children[0].children[0].blocks[0].inline_structure[0].anchor == label.anchor
     output = imported.preview([]).to_docx()
     assert _parts(output) == _parts(source)
+    assert imported.inline_at(link.children[1].anchor).anchor == link.children[1].anchor
     for data in (source, output):
         with pytest.raises(ValueError, match="different document snapshot"):
             ImportedDocument.open(data).inline_at(link.children[1].anchor)

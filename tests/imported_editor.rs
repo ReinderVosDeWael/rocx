@@ -365,10 +365,17 @@ fn independent_body_inline_anchors_are_snapshot_scoped_and_read_only() {
     let other = ImportedDocument::open(input).unwrap();
     let error = other.inline_at(&word.anchor).unwrap_err();
     assert!(error.to_string().contains("different document snapshot"));
-    assert_eq!(
-        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
-        original
+    let saved = doc.preview(&[]).unwrap().to_docx().unwrap();
+    let reopened = ImportedDocument::open(&saved).unwrap();
+    assert!(
+        reopened
+            .inline_at(&word.anchor)
+            .unwrap_err()
+            .to_string()
+            .contains("different document snapshot")
     );
+    assert!(matches!(doc.inline_at(&word.anchor).unwrap(), Run(_)));
+    assert_eq!(parts(&saved), original);
 }
 
 #[test]

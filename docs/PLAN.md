@@ -23,6 +23,16 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
+### Imported addressing contract (#3)
+
+The addressing inventory now states snapshot lifetime, physical story aliases,
+duplicate-edit rejection and range limitations. Focused Rust and Python imported
+editor tests passed locally. The installed JavaScript test adds corresponding
+identity, alias and reopen checks. Full packed qualification passed on Node
+22.23.5 and 24.22.3 and Chromium 159 development and production, including
+offline provenance replay, exact DOCX parity, schema and OPC checks, and
+independent readback and untouched-part checks.
+
 ### Editor checkpoint (#3, PR #31)
 
 The hosted Rust showcase test left the seventh catalog output (`run-text.docx`)
