@@ -33,15 +33,32 @@ pub(crate) fn encode_editor_blocks(
     cell_width: Option<i64>,
     scope: &'static str,
 ) -> Result<(Package, Vec<Node>)> {
+    encode_story_blocks(
+        package,
+        main,
+        (main, StoryKind::Body),
+        blocks,
+        cell_width,
+        scope,
+    )
+}
+
+pub(crate) fn encode_story_blocks(
+    package: Package,
+    main: &str,
+    (owner, kind): (&str, StoryKind),
+    blocks: &[ResolvedBlock],
+    cell_width: Option<i64>,
+    scope: &'static str,
+) -> Result<(Package, Vec<Node>)> {
     let mut style_refs = BTreeSet::new();
     let path = DeclarationPath::root("sections").index(0).field("children");
     check_blocks(blocks, &path, &mut style_refs, scope)?;
     let styles = editor_styles(&package, main, style_refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
-    let story =
-        renderer
-            .stories
-            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+    let story = renderer
+        .stories
+        .register(kind, PartName::new(owner)?, StoryContent::Blocks)?;
     let mut output = Vec::with_capacity(blocks.len());
     for block in blocks {
         let node = match block {

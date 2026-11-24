@@ -1253,6 +1253,54 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(link.children.len(), HEADER_LINK_RUNS.len());
     let stories = imported.stories()?;
     let (explicit, inherited) = stories.split_at(6);
+    use editor::{SectionStoryKind, StoryReferenceEdit};
+    let footer_slot = (SectionStoryKind::Footer, HeaderFooterType::First);
+    let rich = Component::resolve(Paragraph::from_children(vec![
+        Hyperlink::new(
+            HyperlinkTarget::external("https://example.com/story-block")?,
+            vec![TextRun::new("Story block link").into()],
+        )
+        .into(),
+    ]))
+    .await?
+    .unwrap();
+    let bytes = imported.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Create(vec![ResolvedBlock::Paragraph(rich.clone())]),
+    )?;
+    let created = editor::ImportedDocument::open(&bytes)?;
+    let part = created
+        .stories()?
+        .into_iter()
+        .find(|s| s.section_index == 1 && (s.kind, s.variant) == footer_slot)
+        .unwrap()
+        .part_name;
+    let bytes = created.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Remove,
+    )?;
+    let bytes = editor::ImportedDocument::open(&bytes)?.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Link(part),
+    )?;
+    let linked = editor::ImportedDocument::open(&bytes)?;
+    let bytes = linked.edit_story_blocks(
+        &linked.default_headers()?[0].anchor,
+        editor::HeaderEditMode::SectionLocal,
+        2,
+        0,
+        &[
+            ResolvedBlock::Table(resolved_table.clone()),
+            ResolvedBlock::Paragraph(rich),
+        ],
+    )?;
+    std::fs::write(output.with_extension("story-blocks.docx"), bytes)?;
     assert_eq!(inherited.len(), explicit.len());
     for (first, second) in explicit.iter().zip(inherited) {
         assert_eq!((first.section_index, second.section_index), (0, 1));

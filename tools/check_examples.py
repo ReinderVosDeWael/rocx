@@ -40,7 +40,7 @@ HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
                     ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
-                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx", ".entry-edits.docx")
+                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx", ".entry-edits.docx", ".story-blocks.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -919,6 +919,20 @@ def verify_catalog_readback(files: dict[str, bytes]) -> None:
         ref, = main.xpath(".//w:footnoteReference[@w:id='47']", namespaces=NS)
         assert ref.getparent().getprevious().xpath("w:t/text()", namespaces=NS) == ["Footnote reference"]
     verify_even_footer(files[".footer-even.docx"])
+    story_bytes = files[".story-blocks.docx"]
+    doc = docx.Document(io.BytesIO(story_bytes))
+    original = docx.Document(io.BytesIO(source))
+    one, two = doc.sections
+    assert len(one.header.tables) == 1 and not two.header.tables
+    assert two.header.part.partname == original.sections[1].header.part.partname
+    for part in [one.header, two.first_page_footer]:
+        link, = part.paragraphs[-1].hyperlinks
+        assert link.address == "https://example.com/story-block" and link.text == "Story block link"
+    assert one.header.paragraphs[1].hyperlinks[0].address == original.sections[0].header.paragraphs[1].hyperlinks[0].address
+    with zipfile.ZipFile(io.BytesIO(source)) as before, zipfile.ZipFile(io.BytesIO(story_bytes)) as after:
+        assert set(before.namelist()) <= set(after.namelist())
+        assert {p for p in before.namelist() if before.read(p) != after.read(p)} == {
+            "[Content_Types].xml", "word/_rels/document.xml.rels", "word/document.xml"}
     verify_content(final, files[".template.docx"])
     verify_run_text(final, files[".run-text.docx"])
     verify_edited(final, files[".edited.docx"])

@@ -17,6 +17,7 @@ export const catalogNames = Object.freeze({
   headerFirstLocal: "all_features-javascript.header-first-local.docx",
   entryText: "all_features-javascript.entry-text.docx",
   entryEdits: "all_features-javascript.entry-edits.docx",
+  storyBlocks: "all_features-javascript.story-blocks.docx",
   footerEven: "all_features-javascript.footer-even.docx",
   runText: "all_features-javascript.run-text.docx",
 });
@@ -358,6 +359,17 @@ export async function generateCatalog(fixtures, options) {
   assert(headerLink.relationshipId && headerLink.anchor === first.inlineStructure(1)[1].anchor,
     "header aliases must share the physical hyperlink anchor");
   checkInheritedStories(headers, first);
+  const rich = await resolveComponent(para([hyperlink({kind:"external",url:"https://example.com/story-block"},[text("Story block link")])]));
+  const footerSlot = {sectionIndex:1, storyKind:"footer", variant:"first"};
+  const createdFooter = await openDocx(headers.editStoryReference({...footerSlot,action:"create",blocks:[rich]}));
+  const partName = createdFooter.stories().find(s => s.view.sectionIndex===1 && s.view.kind==="footer" && s.view.variant==="first").view.partName;
+  const removedFooter = await openDocx(createdFooter.editStoryReference({...footerSlot,action:"remove"}));
+  const linkedFooter = await openDocx(removedFooter.editStoryReference({...footerSlot,action:"link",partName}));
+  const localBlocks = {target:linkedFooter.defaultHeaders()[0].view.anchor,mode:"sectionLocal",index:2,remove:0,blocks:[resolvedTable,rich]};
+  assertThrows(() => headers.editStoryBlocks(localBlocks),"accepted a stale story anchor");
+  const storyBlocks = linkedFooter.editStoryBlocks(localBlocks);
+  const localHeader = (await openDocx(storyBlocks)).defaultHeaders();
+  assert(localHeader[0].view.partName !== localHeader[1].view.partName && localHeader[1].view.partName === first.view.partName, "next section lost its header");
   const headerTarget = headers.body()[0];
   assert(headerTarget.kind === "paragraph" && headerTarget.text === HEADER_BATCH_LABEL, "expected header batch anchor");
   const resolvedImage = (await resolveComponent(image("png"))).view.image;
@@ -397,5 +409,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits };
+  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits, storyBlocks };
 }

@@ -60,6 +60,7 @@ fn visual_catalog_sorts_combined_conditional_properties_and_all_cell_borders() {
     for suffix in [
         "entry-text.docx",
         "entry-edits.docx",
+        "story-blocks.docx",
         "footer-even.docx",
         "run-text.docx",
         "header-source.docx",

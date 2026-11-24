@@ -44,6 +44,7 @@ pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
+    StoryReferenceEdit,
 };
 pub use resource_fields::{AbstractStart, CustomValue, MetadataField, ResourceEdit};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};

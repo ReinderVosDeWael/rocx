@@ -1442,6 +1442,19 @@ impl PyTableInsertion {
     }
 }
 
+fn story_blocks_payload(blocks: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<crate::ResolvedBlock>> {
+    blocks
+        .iter()
+        .map(|b| {
+            if super::kind(b)? == "Table" {
+                resolved_block_table(b).map(crate::ResolvedBlock::Table)
+            } else {
+                resolved_block_paragraph(b).map(crate::ResolvedBlock::Paragraph)
+            }
+        })
+        .collect()
+}
+
 fn resolved_block_table(resolved_table: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedTable> {
     let node_type = resolved_table
         .py()
@@ -2080,6 +2093,72 @@ impl PyImportedDocument {
         Ok(PyBytes::new(
             py,
             &doc.edit_entry(owner_part, id, edit).map_err(rust_error)?,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (section_index, story_kind, variant, action, *, blocks=None, part_name=None))]
+    fn edit_story_reference<'py>(
+        &self,
+        py: Python<'py>,
+        section_index: usize,
+        story_kind: &str,
+        variant: &Bound<'_, PyAny>,
+        action: &str,
+        blocks: Option<Vec<Bound<'_, PyAny>>>,
+        part_name: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::{SectionStoryKind, StoryReferenceEdit::*};
+        let kind = match story_kind {
+            "header" => SectionStoryKind::Header,
+            "footer" => SectionStoryKind::Footer,
+            _ => return Err(PyValueError::new_err("expected header or footer")),
+        };
+        let variant = super::values::headerfootertype(variant)?;
+        let edit = match (action, blocks, part_name) {
+            ("create", Some(b), None) => Create(story_blocks_payload(b)?),
+            ("link", None, Some(p)) => Link(p),
+            ("remove", None, None) => Remove,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected create with blocks, link with part_name, or remove",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_reference(section_index, kind, variant, edit)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    fn edit_story_blocks<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyHeaderAnchor>,
+        mode: &str,
+        index: usize,
+        remove: usize,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let mode = match mode {
+            "shared" => editor::HeaderEditMode::Shared,
+            "section_local" => editor::HeaderEditMode::SectionLocal,
+            _ => return Err(PyValueError::new_err("expected shared or section_local")),
+        };
+        let blocks = story_blocks_payload(blocks)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_blocks(&target.inner, mode, index, remove, &blocks)
+                .map_err(rust_error)?,
         ))
     }
 

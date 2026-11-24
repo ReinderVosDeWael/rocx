@@ -215,6 +215,12 @@ declare module "./inspection.js" {
     }): EditPreview;
     /** Change single-text runs in the named physical story part, including all aliases. */
     editStoryText(batch: { readonly ownerPart: string; readonly runText: readonly RunTextEdit[] }): Uint8Array;
+    editStoryReference(edit: {readonly sectionIndex: number; readonly storyKind: "header" | "footer"; readonly variant: "default" | "first" | "even"} & (
+      | {readonly action: "create"; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[]}
+      | {readonly action: "link"; readonly partName: string}
+      | {readonly action: "remove"}
+    )): Uint8Array;
+    editStoryBlocks(edit: {readonly target: HeaderAnchor; readonly mode: HeaderEditMode; readonly index: number; readonly remove: number; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[]}): Uint8Array;
     editEntryInlines(batch: { readonly ownerPart: string; readonly inlineEdits: readonly InlineEdit[] }): Uint8Array;
     editNoteReference(edit: { readonly ownerPart: string; readonly target: InlineAnchor } & (
       | { readonly kind: "create"; readonly id: number; readonly text: string }

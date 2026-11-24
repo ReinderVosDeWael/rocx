@@ -653,6 +653,14 @@ async def generate(output: pathlib.Path) -> bytes:
     assert [[item.value for item in header_doc.inline_at(run.anchor).items]
             for run in header_link.children] == [[text] for text in HEADER_LINK_RUNS]
     stories = header_doc.stories
+    rich = await d.Paragraph(children=[d.Hyperlink("https://example.com/story-block", [d.TextRun("Story block link")])]).resolve()
+    footer_slot = (1, "footer", "first")
+    created = ImportedDocument.open(header_doc.edit_story_reference(*footer_slot, "create", blocks=[rich]))
+    new_part = next(s.part_name for s in created.stories if (s.section_index,s.kind,s.variant) == footer_slot)
+    removed = ImportedDocument.open(created.edit_story_reference(*footer_slot, "remove"))
+    linked = ImportedDocument.open(removed.edit_story_reference(*footer_slot, "link", part_name=new_part))
+    output.with_suffix(".story-blocks.docx").write_bytes(linked.edit_story_blocks(
+        linked.default_headers[0].anchor, "section_local", 2, 0, [resolved_table, rich]))
     assert [(s.section_index, s.kind, s.variant, s.inherited) for s in stories] == [
         (index, kind, variant, bool(index))
         for index in range(2) for kind in ("header", "footer") for variant in variants

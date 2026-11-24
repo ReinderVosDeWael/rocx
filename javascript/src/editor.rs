@@ -20,6 +20,11 @@ use wasm_bindgen::JsValue;
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
+        (
+            "importedEditStoryReference",
+            (story_reference, Paths::Package),
+        ),
+        ("importedEditStoryBlocks", (story_blocks, Paths::Package)),
         ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
         (
             "importedEditNoteReference",
@@ -544,6 +549,102 @@ fn entry_edit(input: &Wire) -> Result<JsValue> {
         source
             .document()
             .edit_entry(&string("ownerPart")?, &string("id")?, edit)?
+            .as_slice(),
+    )
+    .into())
+}
+
+fn story_payload(r: &Record) -> Result<Vec<rocx::ResolvedBlock>> {
+    b::list(&r.get("blocks")?, &r.path("blocks"))?
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let path = format!("{}[{i}]", r.path("blocks"));
+            b::borrow::<ResolvedParagraph>(w, &path)
+                .map(|p| rocx::ResolvedBlock::Paragraph((*p).clone()))
+                .or_else(|_| {
+                    b::borrow::<ResolvedTable>(w, &path)
+                        .map(|t| rocx::ResolvedBlock::Table((*t).clone()))
+                })
+        })
+        .collect()
+}
+
+fn index_field(r: &Record, key: &str) -> Result<usize> {
+    usize::try_from(b::u64_number(&r.get(key)?, &r.path(key))?)
+        .map_err(|_| Failure::invalid(&r.path(key), "index out of bounds"))
+}
+
+fn story_reference(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::{SectionStoryKind, StoryReferenceEdit::*};
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let w = argument(&call, "edit")?;
+    let action = b::string(&b::member(&w.js(), "action", "edit")?, "edit.action")?;
+    let fields: &[&str] = match action.as_str() {
+        "create" => &["sectionIndex", "storyKind", "variant", "action", "blocks"],
+        "link" => &["sectionIndex", "storyKind", "variant", "action", "partName"],
+        "remove" => &["sectionIndex", "storyKind", "variant", "action"],
+        _ => {
+            return Err(Failure::invalid(
+                "edit.action",
+                "unknown story reference edit",
+            ));
+        }
+    };
+    let r = Record::new(&w, "edit", fields)?;
+    let string = |key: &str| b::string(&r.get(key)?, &r.path(key));
+    let kind = match string("storyKind")?.as_str() {
+        "header" => SectionStoryKind::Header,
+        "footer" => SectionStoryKind::Footer,
+        _ => {
+            return Err(Failure::invalid(
+                "edit.storyKind",
+                "expected header or footer",
+            ));
+        }
+    };
+    let variant = match string("variant")?.as_str() {
+        "default" => rocx::HeaderFooterType::Default,
+        "first" => rocx::HeaderFooterType::First,
+        "even" => rocx::HeaderFooterType::Even,
+        _ => return Err(Failure::invalid("edit.variant", "unknown story variant")),
+    };
+    let edit = match action.as_str() {
+        "create" => Create(story_payload(&r)?),
+        "link" => Link(string("partName")?),
+        _ => Remove,
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_story_reference(index_field(&r, "sectionIndex")?, kind, variant, edit)?
+            .as_slice(),
+    )
+    .into())
+}
+
+fn story_blocks(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let w = argument(&call, "edit")?;
+    let r = Record::new(&w, "edit", &["target", "mode", "index", "remove", "blocks"])?;
+    let target = borrow_target::<HeaderAnchor>(&r, "edit.target")?;
+    let mode = match b::string(&r.get("mode")?, "edit.mode")?.as_str() {
+        "shared" => HeaderEditMode::Shared,
+        "sectionLocal" => HeaderEditMode::SectionLocal,
+        _ => return Err(Failure::invalid("edit.mode", "unknown story edit mode")),
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_story_blocks(
+                &target,
+                mode,
+                index_field(&r, "index")?,
+                index_field(&r, "remove")?,
+                &story_payload(&r)?,
+            )?
             .as_slice(),
     )
     .into())

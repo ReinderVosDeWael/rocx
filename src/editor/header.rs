@@ -11,6 +11,9 @@ use crate::{HeaderFooterType, ResolvedImage, Result, SectionType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod block_edits;
+pub use block_edits::StoryReferenceEdit;
+
 const HEADER_MIME: &str =
     "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
 const FOOTER_MIME: &str =
@@ -804,6 +807,21 @@ fn check_copy(node: &mut Node, links: &[(String, String)]) -> Result<()> {
             | "w:keepNext"
             | "w:keepLines"
             | "w:widowControl"
+            | "w:tbl"
+            | "w:tblPr"
+            | "w:tblGrid"
+            | "w:gridCol"
+            | "w:tblW"
+            | "w:tblStyle"
+            | "w:tblLayout"
+            | "w:tblLook"
+            | "w:tr"
+            | "w:tc"
+            | "w:tcPr"
+            | "w:tcW"
+            | "w:gridSpan"
+            | "w:vMerge"
+            | "w:vAlign"
     ) {
         return Err(unsupported(
             "header contains content that cannot be safely copied",
