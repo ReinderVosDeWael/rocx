@@ -442,6 +442,13 @@ export async function run(fixtures: Fixtures) {
   rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
   const ranged = await openDocx(fixtures["range-source"]);
   const selection = {target: paragraph(ranged, 1).anchor, start: 1, end: 6, text: " 🐈 "};
+  const point = {target: selection.target, position: 3, text: "➡"};
+  rejects(() => ranged.preview({textInsertions: [point, point]}), /overlapping/);
+  rejects(() => doc.preview({textInsertions: [point]}), /different document snapshot/);
+  rejects(() => ranged.preview({textInsertions: [point], textRanges: [selection]}), /overlapping/);
+  const points = ranged.preview({textInsertions: [point, {...point, position: 7, text: "!"},
+    {target: paragraph(ranged, ranged.body().length - 1).anchor, position: 0, text: " Empty paragraph "}]});
+  same(points.runTextChanges().map(c => c.after), ["➡é", "cd!", " Empty paragraph "], "point ownership");
   rejects(() => ranged.preview({textRanges: [selection, selection]}), /overlapping/);
   rejects(() => doc.preview({textRanges: [selection]}), /different document snapshot/);
   rejects(() => doc.preview({textRanges: [{...selection, target: paragraph(doc, 0).anchor}]}), /plain direct body/);
@@ -492,6 +499,7 @@ export async function run(fixtures: Fixtures) {
   return {
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
+    points: points.toDocx(),
     removal: removal.toDocx(),
     controlEdits: await editControls(fixtures),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),

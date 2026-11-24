@@ -197,6 +197,7 @@ def generate(directory):
     p.add_run("a😀b").bold = True
     p.add_run("e\u0301").underline = True
     p.add_run("cd").italic = True
+    ranged.add_paragraph(style="Caption")
     ranged.save(directory / "range-source.docx")
     base = parts(directory / "base.docx")
     assert base["word/media/image1.png"] == original_image
@@ -383,7 +384,7 @@ def verify(directory):
     assert Document(directory / "removal.docx").paragraphs[0].text == ""
     root = etree.fromstring(removal[MAIN])
     assert root.find(".//" + qn("w:fldSimple")) is not None
-    from rocx.editor import ImportedDocument, TextRangeEdit
+    from rocx.editor import ImportedDocument, TextInsertion, TextRangeEdit
     range_source = parts(directory / "range-source.docx")
     result = parts(directory / "range.docx")
     assert result.keys() == range_source.keys()
@@ -396,6 +397,19 @@ def verify(directory):
     ranged = ImportedDocument.open((directory / "range-source.docx").read_bytes())
     selection = TextRangeEdit(ranged.body[1].anchor, 1, 6, " 🐈 ")
     assert ranged.preview([], text_ranges=[selection]).to_docx() == (directory / "range.docx").read_bytes()
+    point_bytes = (directory / "points.docx").read_bytes()
+    preview = ranged.preview([], text_insertions=[
+        TextInsertion(ranged.body[1].anchor, 3, "➡"),
+        TextInsertion(ranged.body[1].anchor, 7, "!"),
+        TextInsertion(ranged.body[-1].anchor, 0, " Empty paragraph ")])
+    assert preview.to_docx() == point_bytes
+    point_parts = parts(directory / "points.docx")
+    assert point_parts.keys() == range_source.keys()
+    untouched(range_source, point_parts, (MAIN,))
+    paragraphs = Document(directory / "points.docx").paragraphs
+    assert [(r.text, r.underline, r.italic) for r in paragraphs[1].runs] == [
+        ("a😀b", None, None), ("➡e\u0301", True, None), ("cd!", None, True)]
+    assert paragraphs[-1].text == " Empty paragraph " and paragraphs[-1].style.name == "Caption"
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
     date = "2024-02-29T12:34:56Z"

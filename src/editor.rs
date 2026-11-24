@@ -25,7 +25,7 @@ mod header;
 mod insertion;
 pub(crate) use insertion::BoundaryState;
 mod ranges;
-pub use ranges::TextRangeEdit;
+pub use ranges::{TextInsertion, TextRangeEdit};
 mod resource_fields;
 mod resources;
 mod revisions;
@@ -726,6 +726,7 @@ impl ImportedDocument {
             run_removals,
             ranges,
             blocks,
+            text_insertions,
             inline_edits,
             structural,
             styles,
@@ -741,6 +742,7 @@ impl ImportedDocument {
             .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
             .chain(ranges.iter().map(|r| &r.target.snapshot))
+            .chain(text_insertions.iter().map(|e| &e.target.snapshot))
             .chain(inline_edits.iter().map(|edit| &edit.target.snapshot))
             .chain(controls.iter().map(|edit| &edit.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
@@ -802,6 +804,7 @@ impl ImportedDocument {
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
+            || !text_insertions.is_empty()
             || !run_text.is_empty()
             || !inline_edits.is_empty()
             || !run_removals.is_empty()
@@ -821,6 +824,7 @@ impl ImportedDocument {
                 .chain(cells.iter().map(|e| e.target._body_index))
                 .chain(structural.iter().map(|e| e.target._body_index))
                 .chain(ranges.iter().map(|e| e.target.body_index))
+                .chain(text_insertions.iter().map(|e| e.target.body_index))
                 .chain(
                     run_text
                         .iter()
@@ -852,7 +856,7 @@ impl ImportedDocument {
                     &paragraph_targets.keys().copied().collect::<BTreeSet<_>>(),
                 )?
             };
-            let mut expanded = ranges::expand(body, ranges)?;
+            let mut expanded = ranges::expand(body, ranges, text_insertions)?;
             expanded.extend_from_slice(run_text);
             // Plan destructive cross-family overlaps before rendering payloads.
             let mut addressed = BTreeSet::new();

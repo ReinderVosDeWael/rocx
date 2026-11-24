@@ -844,7 +844,7 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     assert edited_doc.core_properties.title == "Edited resource sample"
     assert edited_doc.core_properties.subject == "Imported resource edits"
     paragraphs = [p.text for p in edited_doc.paragraphs]
-    assert "Ranged 📝" + EDIT_LABEL[8:] in paragraphs
+    assert "Ranged 📝 + point" + EDIT_LABEL[8:] in paragraphs
     anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
     assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(replaced)) as changed:

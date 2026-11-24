@@ -52,6 +52,19 @@ report lists only changed runs, in source order. All ranges address the original
 snapshot: adjacent ranges may share a run, but overlapping/duplicate selections
 or a whole-run edit/removal on a touched run reject the entire batch.
 
+For point insertion, use Rust `EditBatch::text_insertions` with
+`TextInsertion { target, position, text }`, Python
+`preview([], text_insertions=[TextInsertion(target, position, text)])`, or
+JavaScript `preview({textInsertions: [{target, position, text}]})`.
+`position` uses the same original scalar coordinates. Inserted text must be
+nonempty single-line XML text without tabs. At a run boundary, the next scalar's
+run supplies the formatting; at paragraph end the final run supplies it. A
+runless paragraph accepts position zero and gets one unformatted run. The
+ordinary run-text report records its previous text as `""`. Points at either
+endpoint of a replacement are allowed and stay on that side of the replacement.
+Two points at one position, a point strictly inside a selection, or a conflicting
+whole-run or destructive block edit reject the batch.
+
 ## Supported imported targets
 
 The editor exposes direct body inspection with section ranges, explicit section
@@ -272,6 +285,7 @@ in JavaScript use `doc.preview({...})`. The corresponding batch fields are:
 | `cells` | `cell_alignments` | `cellAlignments` |
 | `run_removals` | `run_removals` | `runRemovals` |
 | `ranges` | `text_ranges` | `textRanges` |
+| `text_insertions` | `text_insertions` | `textInsertions` |
 | `blocks` | `block_edits` | `blockEdits` |
 | `inline_edits` | `inline_edits` | `inlineEdits` |
 | `structural` | `table_structure` | `tableStructure` |

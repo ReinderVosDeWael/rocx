@@ -4,7 +4,7 @@ import docx
 import pytest
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from rocx.editor import ImportedDocument, RunTextEdit, TextRangeEdit
+from rocx.editor import BlockEdit, ImportedDocument, RunTextEdit, TextInsertion, TextRangeEdit
 
 
 def open_document(source):
@@ -77,3 +77,33 @@ def test_ambiguous_projection_or_active_boundary_rejects_batch(boundary):
         doc.preview([], text_ranges=[valid, TextRangeEdit(doc.body[-1].anchor, 1, 6, "cross")])
     assert doc.body[0].text == "safe"
     assert doc.preview([], text_ranges=[valid]).run_text_changes[0].after == "ok"
+    with pytest.raises(ValueError):
+        doc.preview([], text_insertions=[TextInsertion(doc.body[-1].anchor, 0, "!")])
+
+
+def test_points_and_ranges_share_original_scalar_coordinates_and_conflicts():
+    source = docx.Document()
+    p = source.add_paragraph()
+    p.add_run("a😀").bold = True
+    p.add_run("e\u0301").italic = True
+    doc = open_document(source)
+    p = doc.body[0]
+    def point(pos, text):
+        return TextInsertion(p.anchor, pos, text)
+    points = [point(4, "!"), point(2, "+"), point(0, " ")]
+    ranges = [TextRangeEdit(p.anchor, 0, 2, "A"), TextRangeEdit(p.anchor, 2, 3, "E")]
+    preview = doc.preview([], text_insertions=points, text_ranges=ranges)
+    assert [(c.before, c.after) for c in preview.run_text_changes] == [
+        ("a😀", " A"), ("e\u0301", "+E\u0301!")]
+    for bad in [point(1, "inside"), point(4, "duplicate"), point(5, "outside"),
+                point(3, ""), point(3, "bad\t")]:
+        with pytest.raises(ValueError):
+            doc.preview([], text_insertions=[*points, bad], text_ranges=ranges)
+    for extra in [dict(run_removals=[p.inline_structure[1].anchor]),
+                  dict(run_text=[RunTextEdit(p.inline_structure[1].anchor, "collision")]),
+                  dict(block_edits=[BlockEdit.remove(p.anchor)])]:
+        with pytest.raises(ValueError):
+            doc.preview([], text_insertions=[points[1]], **extra)
+    with pytest.raises(ValueError, match="snapshot"):
+        ImportedDocument.open(preview.to_docx()).preview([], text_insertions=points)
+    assert doc.preview([], text_insertions=points[::-1], text_ranges=ranges[::-1]).to_docx() == preview.to_docx()
