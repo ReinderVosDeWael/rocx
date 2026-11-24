@@ -97,7 +97,11 @@ Paragraph insertion in other stories is unsupported.
 Whole-inline edits address a direct child of a direct body paragraph. Insert after
 or replace a single text, break or tab run, or a hyperlink containing only such
 runs. Payloads use the imported-paragraph codecs for resolved text, breaks, tabs,
-fractions and external hyperlinks. New external links allocate relationships on
+fractions, supported fields, and external or paired-body-bookmark hyperlinks.
+See [fields and links](FIELDS.md#editing-an-imported-field-or-link) for field
+inspection, replacement, flag and instruction patches, and link metadata edits;
+see [paired ranges](RANGES.md#imported-body-ranges) for cross-paragraph bookmark
+and comment-range insertion, relocation and removal. New external links allocate relationships on
 the actual document part. Replacement refuses to discard unrecognized properties
 or markup; unused existing relationships are retained. A direct bold patch on a
 supported run sets only `w:rPr/w:b`, preserving other properties (including
@@ -307,7 +311,7 @@ For example:
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
-For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding; imported field edits are currently rejected. Those limits are not expanded merely by listing editor goals here.
+For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding. Those limits are not expanded merely by listing editor goals here.
 
 ## Operation contract
 

@@ -24,6 +24,10 @@ mod entries;
 mod header;
 mod insertion;
 pub(crate) use insertion::BoundaryState;
+mod fields;
+pub use fields::{FieldPatch, ImportedField};
+mod paired;
+pub use paired::BodyRangeMarker;
 mod ranges;
 pub use ranges::TextRangeEdit;
 mod resource_fields;
@@ -324,6 +328,8 @@ pub struct ImportedHyperlink {
     pub relationship_id: Option<String>,
     /// Explicit `w:anchor`; the bookmark reference is not resolved.
     pub bookmark: Option<String>,
+    pub tooltip: Option<String>,
+    pub history_xml: Option<String>,
     pub children: Vec<ImportedInlineNode>,
 }
 
@@ -1065,6 +1071,8 @@ fn read_inline_nodes<'a>(
                     anchor: address.clone(),
                     relationship_id: node.get("r:id").map(str::to_owned),
                     bookmark: node.get("w:anchor").map(str::to_owned),
+                    tooltip: node.get("w:tooltip").map(str::to_owned),
+                    history_xml: node.get("w:history").map(str::to_owned),
                     children: read_inline_nodes(node.elements(), address, flat, revision),
                 }),
                 "w:ins" | "w:del" | "w:moveFrom" | "w:moveTo"

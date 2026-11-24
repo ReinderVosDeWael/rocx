@@ -220,6 +220,14 @@ with an external hyperlink and verifies its relationship and exact package bytes
 
 Removal rejects opaque or unsafe run markup.
 
+All three catalogs insert and inspect a labeled PAGE cache, patch the
+neighboring hyperlink's tooltip, and wrap the labeled run and link in bookmark
+`CatalogEditorRange`. See [field and link calls](../docs/FIELDS.md#editing-an-imported-field-or-link)
+and [paired range calls](../docs/RANGES.md#imported-body-ranges) for the three
+spellings. The installed-consumer `fieldsRanges.docx` oracle additionally moves
+a comment pair across paragraphs, crosses it with a bookmark and replaces a
+simple field by a complex one before patching its instruction.
+
 The header-source catalog also previews four block edits independently using
 the first paragraph of the inherited section. Rust uses `preview_blocks` and
 `BlockEdit::{Replace, Remove, ReplaceSection, KeepWithNext}`. Python passes

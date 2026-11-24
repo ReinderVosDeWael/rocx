@@ -368,6 +368,10 @@ struct PyImportedHyperlink {
     #[pyo3(get)]
     bookmark: Option<String>,
     #[pyo3(get)]
+    tooltip: Option<String>,
+    #[pyo3(get)]
+    history_xml: Option<String>,
+    #[pyo3(get)]
     children: Vec<Py<PyAny>>,
 }
 
@@ -416,6 +420,8 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                 anchor: anchor(&link.anchor)?,
                 relationship_id: link.relationship_id.clone(),
                 bookmark: link.bookmark.clone(),
+                tooltip: link.tooltip.clone(),
+                history_xml: link.history_xml.clone(),
                 children: link
                     .children
                     .iter()
@@ -767,6 +773,24 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "ImportedField", frozen, get_all, module = "rocx.editor")]
+struct PyImportedField {
+    complex: bool,
+    instruction: String,
+    dirty_xml: Option<String>,
+    locked_xml: Option<String>,
+    inline_count: usize,
+}
+
+#[pyclass(name = "BodyRangeMarker", frozen, get_all, module = "rocx.editor")]
+struct PyBodyRangeMarker {
+    body_index: usize,
+    inline_index: usize,
+    kind: &'static str,
+    id: Option<String>,
+    name: Option<String>,
+}
+
 #[pyclass(name = "InlineEdit", frozen, module = "rocx.editor")]
 struct PyInlineEdit {
     inner: editor::InlineEdit,
@@ -786,6 +810,33 @@ fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
 
 #[pymethods]
 impl PyInlineEdit {
+    #[staticmethod]
+    fn remove_hyperlink(target: PyRef<'_, PyInlineAnchor>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::RemoveHyperlink,
+            },
+        }
+    }
+    #[staticmethod]
+    fn hyperlink_tooltip(target: PyRef<'_, PyInlineAnchor>, value: Option<String>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::HyperlinkTooltip(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn hyperlink_history(target: PyRef<'_, PyInlineAnchor>, value: Option<bool>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::HyperlinkHistory(value),
+            },
+        }
+    }
     #[staticmethod]
     fn insert_after(
         target: PyRef<'_, PyInlineAnchor>,
@@ -1430,6 +1481,116 @@ impl PyImportedDocument {
             .collect()
     }
 
+    #[getter]
+    fn body_range_markers(&self) -> PyResult<Vec<PyBodyRangeMarker>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .body_range_markers()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|m| PyBodyRangeMarker {
+                body_index: m.body_index,
+                inline_index: m.inline_index,
+                kind: m.kind,
+                id: m.id,
+                name: m.name,
+            })
+            .collect())
+    }
+    fn field_at(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+    ) -> PyResult<PyImportedField> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let f = doc
+            .field_at(&target.inner, inline_index)
+            .map_err(rust_error)?;
+        Ok(PyImportedField {
+            complex: f.complex,
+            instruction: f.instruction,
+            dirty_xml: f.dirty_xml,
+            locked_xml: f.locked_xml,
+            inline_count: f.inline_count,
+        })
+    }
+    #[pyo3(signature=(target, inline_index, property, value=None))]
+    fn patch_field<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        property: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::FieldPatch;
+        let patch = match property {
+            "instruction" => FieldPatch::Instruction(
+                value
+                    .ok_or_else(|| PyTypeError::new_err("expected instruction text"))?
+                    .extract()?,
+            ),
+            "dirty" => FieldPatch::Dirty(value.map(|v| v.extract()).transpose()?),
+            "locked" => FieldPatch::Locked(value.map(|v| v.extract()).transpose()?),
+            _ => return Err(PyTypeError::new_err("unknown field property")),
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.patch_field(&target.inner, inline_index, patch)
+                .map_err(rust_error)?,
+        ))
+    }
+    #[pyo3(signature=(target, inline_index, field=None))]
+    fn replace_field<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        field: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let field = field.map(inline_payload).transpose()?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.replace_field(&target.inner, inline_index, field.as_ref())
+                .map_err(rust_error)?,
+        ))
+    }
+    #[pyo3(signature=(id, bookmark=None, endpoints=None))]
+    fn set_paired_range<'py>(
+        &self,
+        py: Python<'py>,
+        id: u32,
+        bookmark: Option<&str>,
+        endpoints: Option<(PyRef<'_, PyInlineAnchor>, PyRef<'_, PyInlineAnchor>)>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.set_paired_range(
+                id,
+                bookmark,
+                endpoints.as_ref().map(|(a, b)| (&a.inner, &b.inner)),
+            )
+            .map_err(rust_error)?,
+        ))
+    }
     fn edit_story_text<'py>(
         &self,
         py: Python<'py>,
@@ -1724,6 +1885,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyParagraphInsertion>()?;
     module.add_class::<PyInlineEdit>()?;
+    module.add_class::<PyImportedField>()?;
+    module.add_class::<PyBodyRangeMarker>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;

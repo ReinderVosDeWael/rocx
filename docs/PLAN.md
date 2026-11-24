@@ -4,6 +4,16 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+Fields/links/ranges slice (#3): direct body field insertion, instruction/flag
+patches, whole-field replacement/removal, hyperlink targets/properties, and
+cross-paragraph bookmark/comment pairs are implemented on the topic branch.
+`fieldsRanges.docx` matched in Rust, installed Python and packed Node; the
+package passed schema/OPC validation and independent python-docx readback.
+Opaque caches, cross-paragraph complex fields, non-body endpoints and combining
+standalone field/range edits in a mixed preview remain outside this slice.
+See [fields](FIELDS.md#editing-an-imported-field-or-link) and
+[ranges](RANGES.md#imported-body-ranges).
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls

@@ -27,3 +27,27 @@ Use a new name when adding a bookmark to a template. To link to an existing book
 Replacement text goes into the first matched run. Markers stay in place, so replacing across a marker can change the text it encloses. Replacement cannot cross hyperlink, field, revision or control boundaries. Newly declared markers cannot pair with imported endpoints.
 
 Runnable overlapping ranges: [Rust](../examples/ranges.rs) · [Python](../examples/ranges.py). See also [structured comments](NOTES.md#structured-comments) and [bookmark fields](FIELDS.md).
+
+## Imported body ranges
+
+Use the same numeric ID to insert, move or remove a pair. Supply a bookmark
+name for a bookmark, or omit the name to target an existing comment
+definition. Endpoints are inclusive direct body run/hyperlink anchors. They
+may cross paragraphs and overlap other bookmark/comment ranges.
+
+Inspect `doc.body_range_markers()?` (Rust), `doc.body_range_markers` (Python)
+or `doc.bodyRangeMarkers()` (JavaScript) for direct marker kinds, original
+body and inline indices, raw IDs, and bookmark names.
+
+| Rust | Python | JavaScript |
+| --- | --- | --- |
+| `doc.set_paired_range(id, Some("Excerpt"), Some((&first, &last)))` | `doc.set_paired_range(id, "Excerpt", (first, last))` | `doc.setPairedRange({id, bookmark: "Excerpt", endpoints: [first, last]})` |
+| `doc.set_paired_range(id, None, Some((&first, &last)))` | `doc.set_paired_range(id, endpoints=(first, last))` | `doc.setPairedRange({id, endpoints: [first, last]})` |
+| `doc.set_paired_range(id, name, None)` | `doc.set_paired_range(id, name)` | `doc.setPairedRange({id, bookmark: name})` |
+
+These methods return new DOCX bytes. Reopen after each edit. Moving preserves
+the original markers and a supported reference run; removing a comment pair
+also removes its reference, leaving the comment definition unchanged. Duplicate
+IDs, partial pairs, non-body endpoints, reversed anchors, and protected or
+opaque marker payloads are rejected. Bookmark removal is conservative in the
+presence of field instructions or a hyperlink to the bookmark.

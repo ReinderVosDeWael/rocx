@@ -17,6 +17,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("openDocx", (open, Paths::Package)),
         ("importedBody", (body, Paths::Package)),
+        (
+            "importedBodyRangeMarkers",
+            (body_range_markers, Paths::Package),
+        ),
         ("importedControls", (controls, Paths::Package)),
         ("importedSections", (sections, Paths::Package)),
         ("importedInlineAt", (inline_at, Paths::Package)),
@@ -41,6 +45,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
 
 const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("body", "importedBody"),
+    ("bodyRangeMarkers", "importedBodyRangeMarkers"),
     ("controls", "importedControls"),
     ("sections", "importedSections"),
     ("inlineAt", "importedInlineAt"),
@@ -54,6 +59,10 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
+    ("replaceField", "importedReplaceField"),
+    ("fieldAt", "importedFieldAt"),
+    ("patchField", "importedPatchField"),
+    ("setPairedRange", "importedSetPairedRange"),
     ("previewTrackedText", "importedPreviewTrackedText"),
     ("previewTrackedMove", "importedPreviewTrackedMove"),
     ("previewRevision", "importedPreviewRevision"),
@@ -180,6 +189,25 @@ fn style_anchor(input: &Wire) -> Result<JsValue> {
     ))
 }
 
+fn body_range_markers(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        doc.document().body_range_markers()?.into_iter().map(|m| {
+            let value = b::record(&[
+                ("bodyIndex", (m.body_index as u32).into()),
+                ("inlineIndex", (m.inline_index as u32).into()),
+                ("kind", m.kind.into()),
+            ]);
+            if let Some(s) = m.id {
+                b::set(&value, "id", &s.into());
+            }
+            if let Some(s) = m.name {
+                b::set(&value, "name", &s.into());
+            }
+            value
+        }),
+    ))
+}
 fn core_title(input: &Wire) -> Result<JsValue> {
     let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(doc

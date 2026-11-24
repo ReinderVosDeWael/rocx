@@ -146,6 +146,20 @@ def verify_controls(directory):
 
 def generate(directory):
     generate_controls(directory)
+    paired = Document()
+    paired.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    first = paired.add_paragraph()
+    field = elem("fldSimple", instr=" PAGE ")
+    field.append(first.add_run("old cache")._r)
+    first._p.append(field)
+    paired.add_comment(paired.add_paragraph().add_run("annotated"), text="original comment", author="Reviewer")
+    p = paired.add_paragraph()
+    link = elem("hyperlink")
+    link.set(qn("r:id"), p.part.relate_to(BODY_LINK, RELATIONSHIP_TYPE.HYPERLINK, is_external=True))
+    link.append(p.add_run("link")._r)
+    p._p.append(link)
+    paired.add_paragraph("last")
+    paired.save(directory / "paired-source.docx")
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
@@ -348,7 +362,50 @@ def verify_ordinary(directory):
     assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
 
 
+def verify_fields_ranges(directory):
+    import asyncio
+    from rocx import declarative as decl
+    from rocx.editor import ImportedDocument, InlineEdit
+    source = directory / "paired-source.docx"
+    d = ImportedDocument.open(source.read_bytes())
+    field = asyncio.run(decl.Field(decl.FieldInstruction.page(), [decl.TextRun("new cache")], form="complex").resolve())
+    old = d.body[0].anchor
+    d = ImportedDocument.open(d.replace_field(old, 0, field))
+    try:
+        d.patch_field(old, 0, "dirty", True)
+    except ValueError as exc:
+        assert "snapshot" in str(exc)
+    else:
+        raise AssertionError("accepted stale paragraph")
+    d = ImportedDocument.open(d.patch_field(d.body[0].anchor, 0, "instruction", " NUMPAGES "))
+    info = d.field_at(d.body[0].anchor, 0)
+    assert (info.complex, info.inline_count, info.instruction, info.dirty_xml) == (True, 5, " NUMPAGES ", None)
+    at = lambda p, i: d.body[p].inline_structure[i].anchor
+    d = ImportedDocument.open(d.preview([], inline_edits=[InlineEdit.hyperlink_tooltip(at(2, 0), "hover")]).to_docx())
+    assert d.body[2].inline_structure[0].tooltip == "hover"
+    d = ImportedDocument.open(d.set_paired_range(0, endpoints=(at(2, 0), at(3, 0))))
+    assert [(m.kind, m.body_index, m.inline_index, m.id) for m in d.body_range_markers] == [
+        ("commentRangeStart", 2, 0, "0"), ("commentRangeEnd", 3, 1, "0"), ("commentReference", 3, 2, "0")]
+    removed = Document(io.BytesIO(d.set_paired_range(0)))
+    assert not removed.element.xpath("//w:commentReference | //w:commentRangeStart | //w:commentRangeEnd")
+    assert len(removed.comments) == 1
+    data = d.set_paired_range(7, "Crossing", (at(1, 0), at(2, 1)))
+    assert data == (directory / "fieldsRanges.docx").read_bytes()
+    untouched(parts(source), parts(io.BytesIO(data)), (MAIN,))
+    out = Document(io.BytesIO(data))
+    assert out.element.xpath("//w:instrText/text()") == [" NUMPAGES "]
+    assert out.element.xpath("//w:fldChar/@w:fldCharType") == ["begin", "separate", "end"]
+    assert out.paragraphs[0].text == "new cache"
+    assert out.paragraphs[2].hyperlinks[0].url == BODY_LINK
+    assert out.element.xpath("//w:hyperlink/@w:tooltip") == ["hover"]
+    assert out.paragraphs[1]._p.xpath("w:bookmarkStart/@w:name") == ["Crossing"]
+    assert out.paragraphs[2]._p.xpath("w:commentRangeStart/@w:id") == ["0"]
+    assert out.paragraphs[2]._p.xpath("w:bookmarkEnd/@w:id") == ["7"]
+    assert out.paragraphs[3]._p.xpath("w:commentRangeEnd/@w:id | w:r/w:commentReference/@w:id") == ["0", "0"]
+
+
 def verify(directory):
+    verify_fields_ranges(directory)
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d

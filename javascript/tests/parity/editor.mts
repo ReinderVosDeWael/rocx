@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "paired-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -415,6 +415,29 @@ async function editControls(fixtures: Fixtures) {
   return controlled.preview({ controls: edits }).toDocx();
 }
 
+async function fieldsAndRanges(bytes:Uint8Array) {
+  let d=await openDocx(bytes);
+  const field=await resolveComponent({kind:"field",instruction:{kind:"page"},children:[{kind:"text",text:"new cache"}],properties:{form:"complex"}});
+  check(field,"field resolved");
+  const old=paragraph(d,0).anchor;
+  d=await openDocx(d.replaceField({target:old,inlineIndex:0,field}));
+  rejects(()=>d.patchField({target:old,inlineIndex:0,property:"dirty",value:true}),/snapshot/);
+  d=await openDocx(d.patchField({target:paragraph(d,0).anchor,inlineIndex:0,property:"instruction",value:" NUMPAGES "}));
+  same(d.fieldAt({target:paragraph(d,0).anchor,inlineIndex:0}),{complex:true,inlineCount:5,instruction:" NUMPAGES "},"inspected complex field");
+  const at=(p:number,i:number)=>{
+    const n=paragraph(d,p).inlineStructure[i];
+    check(n.kind==="run" || n.kind==="hyperlink","range endpoint");return n.anchor;
+  };
+  d=await openDocx(d.preview({inlineEdits:[{kind:"hyperlinkTooltip",target:at(2,0),value:"hover"}]}).toDocx());
+  const inspected=paragraph(d,2).inlineStructure[0];
+  check(inspected.kind==="hyperlink" && inspected.tooltip==="hover","inspected tooltip");
+  rejects(()=>d.setPairedRange({id:0,endpoints:[at(3,0),at(2,0)]}),/reversed/);
+  d=await openDocx(d.setPairedRange({id:0,endpoints:[at(2,0),at(3,0)]}));
+  same(d.bodyRangeMarkers().map(m=>[m.kind,m.bodyIndex,m.inlineIndex,m.id]),[["commentRangeStart",2,0,"0"],["commentRangeEnd",3,1,"0"],["commentReference",3,2,"0"]],"physical comment markers");
+  const removed=await openDocx(d.setPairedRange({id:0}));
+  check(paragraph(removed,2).inlineStructure.length===1 && paragraph(removed,3).inlineStructure.length===1 && removed.entryStories().length===1,"paired removal preserves comment definition");
+  return d.setPairedRange({id:7,bookmark:"Crossing",endpoints:[at(1,0),at(2,1)]});
+}
 export async function run(fixtures: Fixtures) {
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
@@ -490,7 +513,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(), fieldsRanges:await fieldsAndRanges(fixtures["paired-source"]),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
     controlEdits: await editControls(fixtures),

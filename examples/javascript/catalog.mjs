@@ -206,6 +206,15 @@ export async function generateCatalog(fixtures, options) {
     {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
   ]});
   assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");
+  const field = await resolveComponent({kind:"field", instruction:{kind:"page"}, children:[{kind:"text",text:"sample cache"}]});
+  const fieldSample = await openDocx(imported.preview({inlineEdits:[
+    {kind:"insertAfter",target:textEdit.target,inline:field},
+    {kind:"hyperlinkTooltip",target:inline.inlineStructure[1].anchor,value:"Catalog link"}
+  ]}).toDocx());
+  const samplePara = fieldSample.body()[body.indexOf(inline)];
+  assert(fieldSample.fieldAt({target:samplePara.anchor,inlineIndex:1}).instruction === " PAGE ", "incorrect new field");
+  const marked = imported.setPairedRange({id:842901,bookmark:"CatalogEditorRange",endpoints:[textEdit.target,inline.inlineStructure[1].anchor]});
+  assert((await openDocx(marked)).body().length === body.length, "incorrect range insertion");
   const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
   assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&

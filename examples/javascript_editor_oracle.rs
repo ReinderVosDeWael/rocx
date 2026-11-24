@@ -307,6 +307,71 @@ fn main() {
         }
     };
     let date = "2024-02-29T12:34:56Z";
+    {
+        use rocx::{
+            Field, FieldForm, FieldInstruction, FieldProperties,
+            editor::{FieldPatch, ImportedInlineNode, InlineAction, InlineEdit},
+        };
+        let open = |bytes: Vec<u8>| ImportedDocument::open(&bytes).unwrap();
+        let mut d = open(fs::read(directory.join("paired-source.docx")).unwrap());
+        let field = immediate(Component::resolve(Paragraph::from_children(vec![
+            Field::new(
+                FieldInstruction::Page,
+                vec![TextRun::new("new cache").into()],
+            )
+            .with_properties(FieldProperties::default().with_form(FieldForm::Complex))
+            .into(),
+        ])))
+        .unwrap()
+        .unwrap();
+        d = open(
+            d.replace_field(&anchor(&d, 0), 0, Some(&field.runs()[0]))
+                .unwrap(),
+        );
+        d = open(
+            d.patch_field(
+                &anchor(&d, 0),
+                0,
+                FieldPatch::Instruction(" NUMPAGES ".into()),
+            )
+            .unwrap(),
+        );
+        let link = |d: &ImportedDocument, i: usize| {
+            let BodyBlock::Paragraph(p) = &d.body()[2] else {
+                panic!()
+            };
+            let ImportedInlineNode::Hyperlink(l) = &p.inline_structure[i] else {
+                panic!()
+            };
+            l.anchor.clone()
+        };
+        let edit = InlineEdit {
+            target: link(&d, 0),
+            action: InlineAction::HyperlinkTooltip(Some("hover".into())),
+        };
+        d = open(
+            d.preview_edits(rocx::editor::EditBatch {
+                inline_edits: &[edit],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
+        d = open(
+            d.set_paired_range(0, None, Some((&link(&d, 0), &paragraph(&d, 3, 0))))
+                .unwrap(),
+        );
+        write(
+            "native-fieldsRanges.docx",
+            d.set_paired_range(
+                7,
+                Some("Crossing"),
+                Some((&paragraph(&d, 1, 0), &link(&d, 1))),
+            )
+            .unwrap(),
+        );
+    }
     let tracked = doc
         .preview_tracked_text(
             &run.anchor,

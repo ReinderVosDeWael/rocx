@@ -94,9 +94,14 @@ pub(crate) fn encode_editor_inlines(
     inlines: &[&ResolvedInline],
 ) -> Result<(Package, Vec<Vec<Node>>)> {
     let mut refs = StyleRefs::new();
+    let mut bookmarks = BTreeSet::new();
     for inline in inlines {
+        collect_bookmark_targets(inline, &mut bookmarks);
         check_inline(inline, &mut refs, "editor.inline")?;
         inline.validate()?;
+    }
+    if !bookmarks.is_empty() {
+        validate_bookmarks(&package, main, &bookmarks)?;
     }
     let styles = editor_styles(&package, main, refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
@@ -110,6 +115,80 @@ pub(crate) fn encode_editor_inlines(
         .map(|inline| renderer.inline(inline, &context))
         .collect::<Result<_>>()?;
     Ok((renderer.package, output))
+}
+
+fn validate_bookmarks(package: &Package, main: &str, requested: &BTreeSet<&str>) -> Result<()> {
+    use std::collections::BTreeMap;
+    // A target must be a direct main-story pair. Count shadowing names and
+    // numeric aliases even in nested XML and other related stories.
+    fn scan(n: &Node, names: &mut BTreeMap<String, usize>, ids: &mut BTreeMap<String, usize>) {
+        if matches!(n.name.as_str(), "w:bookmarkStart" | "w:bookmarkEnd") {
+            if let Some(id) = n.get("w:id").and_then(super::decimal_id) {
+                *ids.entry(id).or_default() += 1;
+            }
+            if n.name == "w:bookmarkStart"
+                && let Some(s) = n.get("w:name")
+            {
+                *names.entry(s.to_ascii_lowercase()).or_default() += 1;
+            }
+        }
+        for child in n.elements() {
+            scan(child, names, ids);
+        }
+    }
+    let (mut names, mut ids) = (BTreeMap::new(), BTreeMap::new());
+    let root = package.word(main)?;
+    scan(&root, &mut names, &mut ids);
+    for part in super::related_story_parts(package, main)? {
+        scan(&package.word(&part)?, &mut names, &mut ids);
+    }
+    let mut starts = BTreeMap::new();
+    let mut valid = BTreeSet::new();
+    for p in root
+        .child("w:body")
+        .into_iter()
+        .flat_map(Node::elements)
+        .filter(|p| p.name == "w:p")
+    {
+        for n in p.elements() {
+            if !matches!(n.name.as_str(), "w:bookmarkStart" | "w:bookmarkEnd") {
+                continue;
+            }
+            let Some(id) = n.get("w:id").and_then(super::decimal_id) else {
+                continue;
+            };
+            if ids.get(&id) != Some(&2) {
+                continue;
+            }
+            if n.name == "w:bookmarkStart" {
+                if let Some(name) = n.get("w:name")
+                    && names.get(&name.to_ascii_lowercase()) == Some(&1)
+                {
+                    starts.insert(id, name);
+                }
+            } else if let Some(name) = starts.remove(&id) {
+                valid.insert(name);
+            }
+        }
+    }
+    if !requested.is_subset(&valid) {
+        return Err(unsupported("expected one paired direct body bookmark target").into());
+    }
+    Ok(())
+}
+
+fn collect_bookmark_targets<'a>(inline: &'a ResolvedInline, names: &mut BTreeSet<&'a str>) {
+    let (target, children) = match inline {
+        ResolvedInline::Field(f) => (f.instruction().bookmark_name(), f.children()),
+        ResolvedInline::Hyperlink(h) => (h.target().bookmark_name(), h.children()),
+        _ => return,
+    };
+    if let Some(name) = target {
+        names.insert(name.as_str());
+    }
+    for child in children {
+        collect_bookmark_targets(child, names);
+    }
 }
 
 pub(crate) fn encode_editor_tables(
@@ -248,7 +327,15 @@ fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static st
         | ResolvedInline::Tab { comment: None, .. }
         | ResolvedInline::Break { comment: None, .. }
         | ResolvedInline::Fraction { .. } => Ok(()),
-        ResolvedInline::Hyperlink(link) if link.target().bookmark_name().is_none() => {
+        ResolvedInline::Field(field) if scope == "editor.inline" => {
+            for child in field.children() {
+                check_inline(child, styles, scope)?;
+            }
+            Ok(())
+        }
+        ResolvedInline::Hyperlink(link)
+            if scope == "editor.inline" || link.target().bookmark_name().is_none() =>
+        {
             for child in link.children() {
                 check_inline(child, styles, scope)?;
             }
