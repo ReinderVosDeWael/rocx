@@ -98,7 +98,10 @@ impl ImportedDocument {
                 if !explicit {
                     return Err(unsupported("section slot has no explicit reference"));
                 }
-                section_properties_mut(body,slot)?.children.retain(|c|!matches!(c,Content::Element(n) if n.name==kind.part_type().0 && n.get("w:type")==Some(variant.xml())));
+                section_props(body, slot)?.children.retain(|c| {
+                    !matches!(c, Content::Element(n) if n.name == kind.part_type().0
+                        && n.get("w:type") == Some(variant.xml()))
+                });
             }
             StoryReferenceEdit::Link(part) => {
                 let mut found = None;

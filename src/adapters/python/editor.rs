@@ -1336,6 +1336,18 @@ struct PyBlockEdit {
 #[pymethods]
 impl PyBlockEdit {
     #[staticmethod]
+    fn split_section(target: PyRef<'_, PySectionAnchor>, offset: usize) -> Self {
+        Self {
+            inner: editor::BlockEdit::SplitSection(target.inner.clone(), offset),
+        }
+    }
+    #[staticmethod]
+    fn merge_section(target: PyRef<'_, PySectionAnchor>) -> Self {
+        Self {
+            inner: editor::BlockEdit::MergeSection(target.inner.clone()),
+        }
+    }
+    #[staticmethod]
     fn replace(
         target: PyRef<'_, PyParagraphAnchor>,
         paragraph: &Bound<'_, PyAny>,

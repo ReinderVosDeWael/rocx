@@ -1188,6 +1188,19 @@ pub async fn generate(output: &Path) -> Result<()> {
         .await?
         .unwrap();
     use editor::BlockEdit;
+    let sections = imported.sections()?;
+    let split =
+        imported.preview_blocks(&[BlockEdit::SplitSection(sections[1].anchor.clone(), 1)])?;
+    let reopened = editor::ImportedDocument::open(&split.to_docx()?)?;
+    let sections = reopened.sections()?;
+    assert_eq!(sections.len(), 3);
+    let merged = reopened.preview_blocks(&[BlockEdit::MergeSection(sections[1].anchor.clone())])?;
+    assert_eq!(
+        editor::ImportedDocument::open(&merged.to_docx()?)?
+            .sections()?
+            .len(),
+        2
+    );
     for edit in [
         BlockEdit::Replace(target.clone(), Box::new(payload.clone())),
         BlockEdit::Remove(target.clone()),

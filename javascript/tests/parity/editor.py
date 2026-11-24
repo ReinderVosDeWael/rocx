@@ -416,6 +416,36 @@ def verify(directory):
     assert read.sections[0].page_width.twips == 16000 and read.sections[0].top_margin.twips == -220
     assert read.sections[0].header.paragraphs[0].text == "retained header"
     assert read.sections[1]._sectPr.find(qn("w:docGrid")).get(qn("w:linePitch")) == "360"
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit
+
+    for name, snapshot, edit in [
+        ("sectionSplit", doc, BlockEdit.split_section(a, 1)),
+        ("sectionMerge", None, None),
+    ]:
+        edited_path = directory / f"{name}.docx"
+        if snapshot is None:
+            snapshot = ImportedDocument.open((directory / "sectionSplit.docx").read_bytes())
+            edit = BlockEdit.merge_section(snapshot.sections[0].anchor)
+        preview = snapshot.preview([], block_edits=[edit])
+        assert preview.block_changes == [1] and preview.to_docx() == edited_path.read_bytes()
+        untouched(old, parts(edited_path), (MAIN,))
+        readback = Document(edited_path)
+        assert [p.text for p in readback.paragraphs if p.text] == ["direct layout"]
+        assert readback.tables[0].cell(0, 0).text == "table-first section"
+        # python-docx lists only explicit section properties; rocx also
+        # reports the empty implied final section.
+        assert len(readback.sections) == (2 if name == "sectionSplit" else 1)
+        assert len(ImportedDocument.open(edited_path.read_bytes()).sections) == len(readback.sections) + 1
+        assert all(s.header.paragraphs[0].text == "retained header" for s in readback.sections)
+
+    story_path = directory / "storyShared.docx"
+    original_header = doc.default_headers[1]
+    replacement = asyncio.run(d.Paragraph("Shared story replacement").resolve())
+    assert doc.edit_story_blocks(original_header.anchor, "shared", 0, 1, [replacement]) == story_path.read_bytes()
+    untouched(old, parts(story_path), (original_header.part_name,))
+    assert all(s.header.paragraphs[0].text == "Shared story replacement" for s in Document(story_path).sections)
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d

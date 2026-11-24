@@ -686,3 +686,28 @@ references elsewhere in the package, including other styles, settings, stories,
 numbering and fields, and reject unsupported markup or parts when usage cannot
 be established. There is no automatic retargeting, numbering-style creation or
 synthesis of a missing styles part.
+## Section boundaries and header/footer blocks
+
+| Rust | Python | JavaScript |
+| --- | --- | --- |
+| `preview_blocks` with `BlockEdit::SplitSection(anchor, offset)` or `BlockEdit::MergeSection(anchor)` | `preview(block_edits=[BlockEdit.split_section(anchor, offset)])` or `BlockEdit.merge_section(anchor)` | `preview({blockEdits: [{kind: "splitSection", target: anchor, offset}]})` or `kind: "mergeSection"` without `offset` |
+| `edit_story_reference(index, kind, variant, StoryReferenceEdit::Create(blocks))` (also `Link(part)` and `Remove`) | `edit_story_reference(index, kind, variant, "create", blocks=blocks)` (also `"link"` with `part_name`, or `"remove"`) | `editStoryReference({sectionIndex, storyKind, variant, action: "create", blocks})` (also `"link"` with `partName`, or `"remove"`) |
+| `edit_story_blocks(&anchor, mode, index, remove, &blocks)` | `edit_story_blocks(anchor, mode, index, remove, blocks)` | `editStoryBlocks({target: anchor, mode, index, remove, blocks})` |
+
+Split offsets count original body blocks within the selected section and
+insert a dedicated boundary paragraph; in a nonfinal section, place it before
+the existing boundary owner. The prefix receives the original explicit story
+references, and the suffix inherits them. The final section can be split even
+if it has no blocks. Merge removes a nonfinal boundary and uses the following
+section's geometry and explicit story choices, preserving its previously
+inherited references. Only a completely empty boundary paragraph is removed;
+opaque properties and protected boundaries are rejected. Reopen to obtain
+fresh anchors after either operation.
+
+Story reference changes use snapshot-relative section indices and follow
+inheritance until the next explicit reference for that kind and slot. Removing
+a reference does not delete the part. Block splices use physical block indices
+and can insert or replace resolved paragraphs and fixed-width tables.
+Shared mode edits the physical part; section-local mode forks a supported story
+and preserves the following section's previous reference. Destructive edits
+over opaque content, drawings, protected ranges, or fields are rejected.

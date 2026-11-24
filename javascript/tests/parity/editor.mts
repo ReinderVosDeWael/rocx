@@ -453,6 +453,29 @@ export async function run(fixtures: Fixtures) {
   check(layouts.sections()[0].layout.columnCount === 2 && layouts.sections()[1].layout.titlePage === false &&
     paragraph(layouts,1).layout.firstLineIndent === -240 && paragraph(layouts,1).layout.heading === 2 &&
     par.layout.firstLineIndent === 72, "layout readback");
+  const splitEdit = {kind:"splitSection",target:a.anchor,offset:1} as const;
+  rejects(() => geometry.preview({blockEdits:[{...splitEdit,offset:99}]}), /outside section/);
+  rejects(() => geometry.preview({blockEdits:[splitEdit,splitEdit]}), /conflicting edits/);
+  rejects(() => geometry.preview({blockEdits:[{kind:"mergeSection",target:b.anchor}]}), /final section/);
+  const split = geometry.preview({blockEdits:[splitEdit]});
+  same(split.blockChanges(), [1], "original split gap");
+  const sectionSplit = split.toDocx();
+  const divided = await openDocx(sectionSplit);
+  rejects(() => divided.preview({blockEdits:[splitEdit]}), /snapshot/);
+  same(divided.sections().map(s => [s.bodyStart,s.bodyEnd]), [[0,2],[2,4],[4,4]], "split section ranges");
+  const sectionMerge = divided.preview({blockEdits:[
+    {kind:"mergeSection",target:divided.sections()[0].anchor}]}).toDocx();
+  same((await openDocx(sectionMerge)).sections().map(s => [s.bodyStart,s.bodyEnd]), [[0,3],[3,3]], "merged ranges");
+  const sharedReplacement = await resolveComponent({kind:"paragraph",text:"Shared story replacement"});
+  check(sharedReplacement.kind === "paragraph", "resolved story paragraph");
+  const originalHeader = geometry.defaultHeaders()[1].view;
+  const storyEdit = {target:originalHeader.anchor, mode:"shared", index:0, remove:1, blocks:[sharedReplacement]} as const;
+  rejects(() => divided.editStoryBlocks(storyEdit), /snapshot/);
+  rejects(() => geometry.editStoryBlocks({...storyEdit,index:2}), /out of bounds/);
+  const storyShared = geometry.editStoryBlocks(storyEdit);
+  const sharedHeaders = (await openDocx(storyShared)).defaultHeaders();
+  check(sharedHeaders.length === 2 && sharedHeaders.every(s => s.view.partName === originalHeader.partName),
+    "shared edit retains aliases");
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
@@ -603,7 +626,8 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, tableNodes, layout, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, tableNodes, layout,
+    sectionSplit, sectionMerge, storyShared, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

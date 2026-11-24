@@ -18,6 +18,7 @@ use std::sync::{Arc, OnceLock};
 mod batch;
 pub use batch::EditBatch;
 mod blocks;
+mod section_lifecycle;
 pub use blocks::BlockEdit;
 mod property_flags;
 pub use property_flags::{ParagraphFlag, SectionFlag};
@@ -817,6 +818,13 @@ impl ImportedDocument {
             resources,
             controls,
         } = batch;
+        if blocks.iter().any(BlockEdit::is_lifecycle)
+            && (!header_images.is_empty() || !controls.is_empty() || !resources.is_empty())
+        {
+            return Err(unsupported(
+                "section boundary edits conflict with story, control or resource edits",
+            ));
+        }
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)

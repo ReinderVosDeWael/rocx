@@ -620,6 +620,11 @@ async def generate(output: pathlib.Path) -> bytes:
     layout = header_doc.preview_layout([LayoutEdit.paragraph(target, "space_after", 180),
                                         LayoutEdit.section(header_doc.sections[1].anchor, "grid_pitch", 360)])
     assert ImportedDocument.open(layout.to_docx()).sections[1].layout["grid_pitch"] == 360
+    split = header_doc.preview([], block_edits=[BlockEdit.split_section(header_doc.sections[1].anchor, 1)])
+    divided = ImportedDocument.open(split.to_docx())
+    assert len(divided.sections) == 3
+    merged = divided.preview([], block_edits=[BlockEdit.merge_section(divided.sections[1].anchor)])
+    assert len(ImportedDocument.open(merged.to_docx()).sections) == 2
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
                  BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True),

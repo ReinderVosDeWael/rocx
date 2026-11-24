@@ -249,6 +249,37 @@ fn main() {
             "native-layout.docx",
             d.preview_layout(&edits).unwrap().to_docx().unwrap(),
         );
+        let split = d
+            .preview_blocks(&[rocx::editor::BlockEdit::SplitSection(
+                sections[0].anchor.clone(),
+                1,
+            )])
+            .unwrap();
+        assert_eq!(split.block_changes(), &[1]);
+        write("native-sectionSplit.docx", split.to_docx().unwrap());
+        let split = ImportedDocument::open(&split.to_docx().unwrap()).unwrap();
+        let merge = split
+            .preview_blocks(&[rocx::editor::BlockEdit::MergeSection(
+                split.sections().unwrap()[0].anchor.clone(),
+            )])
+            .unwrap();
+        write("native-sectionMerge.docx", merge.to_docx().unwrap());
+        let p = futures::executor::block_on(rocx::Component::resolve(rocx::Paragraph::new(
+            "Shared story replacement",
+        )))
+        .unwrap()
+        .unwrap();
+        write(
+            "native-storyShared.docx",
+            d.edit_story_blocks(
+                &d.default_headers().unwrap()[1].anchor,
+                HeaderEditMode::Shared,
+                0,
+                1,
+                &[rocx::ResolvedBlock::Paragraph(p)],
+            )
+            .unwrap(),
+        );
     }
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {

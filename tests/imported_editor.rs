@@ -34,6 +34,39 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn section_lifecycle_guards_protected_gaps_and_opaque_donors() {
+    use rocx::editor::BlockEdit;
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}" xmlns:x="urn:test"><w:body>{body}</w:body></w:document>"#
+        )))
+        .unwrap()
+    };
+    let doc = make(
+        r#"<w:p><w:bookmarkStart w:id="1" w:name="protected"/></w:p>
+        <w:p><w:bookmarkEnd w:id="1"/></w:p><w:p/><w:sectPr/>"#,
+    );
+    let section = &doc.sections().unwrap()[0].anchor;
+    assert!(
+        doc.preview_blocks(&[BlockEdit::SplitSection(section.clone(), 1)])
+            .is_err()
+    );
+    assert!(
+        doc.preview_blocks(&[BlockEdit::SplitSection(section.clone(), 2)])
+            .is_ok()
+    );
+    let doc = make(r#"<w:p/><w:p><w:pPr><w:sectPr x:keep="true"/></w:pPr></w:p><w:sectPr/>"#);
+    let section = &doc.sections().unwrap()[0].anchor;
+    for edit in [
+        BlockEdit::SplitSection(section.clone(), 1),
+        BlockEdit::MergeSection(section.clone()),
+    ] {
+        assert!(doc.preview_blocks(&[edit]).is_err());
+    }
+    assert_eq!(doc.sections().unwrap().len(), 2);
+}
+
+#[test]
 fn layout_edits_guard_ranges_alternatives_opaque_values_and_foreign_section_owners() {
     use rocx::editor::{
         LayoutBorder, LayoutEdit as E, LayoutField as F, LayoutTab, LayoutValue as V,

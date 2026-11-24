@@ -117,13 +117,23 @@ fn block_edit(input: &Wire, path: &str) -> Result<rocx::editor::BlockEdit> {
     )?;
     let fields: &[&str] = match kind.as_str() {
         "replace" => &["kind", "target", "paragraph"],
-        "remove" => &["kind", "target"],
+        "remove" | "mergeSection" => &["kind", "target"],
+        "splitSection" => &["kind", "target", "offset"],
         "replaceSection" => &["kind", "target", "blocks"],
         "keepWithNext" | "sectionType" => &["kind", "target", "value"],
         "paragraphFlag" | "sectionFlag" => &["kind", "target", "flag", "value"],
         _ => return Err(Failure::invalid(path, "unknown block edit")),
     };
     let edit = Record::new(input, path, fields)?;
+    if matches!(kind.as_str(), "splitSection" | "mergeSection") {
+        let target = (*borrow_target::<rocx::editor::SectionAnchor>(&edit, &edit.path("target"))?)
+            .clone();
+        return Ok(if kind == "splitSection" {
+            BlockEdit::SplitSection(target, index_field(&edit, "offset")?)
+        } else {
+            BlockEdit::MergeSection(target)
+        });
+    }
     let target = (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone();
     let paragraph = |wire: &Wire, p: &str| -> Result<_> {
         Ok((*b::borrow::<ResolvedParagraph>(wire, p)?).clone())

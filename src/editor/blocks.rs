@@ -10,6 +10,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Structural edits only accept paragraphs whose discarded markup is known local.
 #[derive(Clone, Debug)]
 pub enum BlockEdit {
+    /// Insert a boundary before the section-relative original block offset.
+    SplitSection(super::SectionAnchor, usize),
+    /// Remove this nonfinal boundary; the following section supplies the layout.
+    MergeSection(super::SectionAnchor),
     Replace(ParagraphAnchor, Box<ResolvedParagraph>),
     Remove(ParagraphAnchor),
     /// Target the first direct paragraph of a section. A paragraph-owned break
@@ -19,6 +23,12 @@ pub enum BlockEdit {
     ParagraphFlag(ParagraphAnchor, ParagraphFlag, Option<bool>),
     SectionFlag(ParagraphAnchor, SectionFlag, Option<bool>),
     SectionType(ParagraphAnchor, Option<crate::SectionType>),
+}
+
+impl BlockEdit {
+    pub(super) fn is_lifecycle(&self) -> bool {
+        matches!(self, Self::SplitSection(..) | Self::MergeSection(..))
+    }
 }
 
 /// Allow-list *discardable* markup, including attributes and non-element
@@ -61,6 +71,7 @@ pub(super) fn local(node: &Node, parent: &str) -> bool {
 #[derive(Default)]
 pub(super) struct Plan {
     pub(super) deletes: BTreeSet<usize>,
+    pub(super) boundaries: Vec<(usize, Node)>,
     payloads: Vec<(usize, ResolvedBlock, i64)>,
     pub(super) changes: Vec<usize>,
 }
@@ -76,6 +87,15 @@ impl Plan {
         let mut plan = Self::default();
         if edits.is_empty() {
             return Ok(plan);
+        }
+        if edits.iter().any(BlockEdit::is_lifecycle) {
+            return super::section_lifecycle::build(
+                doc,
+                root,
+                edits,
+                other_targets,
+                inserted_after,
+            );
         }
         let sections = if edits.iter().any(|e| {
             matches!(
@@ -111,6 +131,7 @@ impl Plan {
         let mut section_payloads = BTreeMap::new();
         for edit in edits {
             let target = match edit {
+                BlockEdit::SplitSection(..) | BlockEdit::MergeSection(..) => unreachable!(),
                 BlockEdit::Replace(a, _)
                 | BlockEdit::Remove(a)
                 | BlockEdit::ReplaceSection(a, _)
@@ -334,6 +355,7 @@ impl Plan {
         mut pending: Vec<(usize, Node)>,
     ) -> Result<Package> {
         let mut slots = Vec::new();
+        pending.append(&mut self.boundaries);
         let mut paragraphs = Vec::new();
         let mut tables = Vec::new();
         for (slot, block, width) in self.payloads.drain(..) {

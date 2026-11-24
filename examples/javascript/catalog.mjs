@@ -334,6 +334,11 @@ export async function generateCatalog(fixtures, options) {
   const layout = headers.previewLayout([{target: blockTarget, field: "spaceAfter", value: 180},
     {target: headers.sections()[1].anchor, field: "gridPitch", value: 360}]);
   assert((await openDocx(layout.toDocx())).sections()[1].layout.gridPitch === 360, "section grid pitch");
+  const split = headers.preview({blockEdits:[{kind:"splitSection",target:headers.sections()[1].anchor,offset:1}]});
+  const divided = await openDocx(split.toDocx());
+  assert(divided.sections().length === 3, "split section");
+  const merged = divided.preview({blockEdits:[{kind:"mergeSection",target:divided.sections()[1].anchor}]});
+  assert((await openDocx(merged.toDocx())).sections().length === 2, "merged section");
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},

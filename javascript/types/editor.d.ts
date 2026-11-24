@@ -46,6 +46,8 @@ export type LayoutEdit = LayoutChange<ParagraphAnchor, DirectParagraphLayout>
   | { readonly target: SectionAnchor; readonly field: "margins" | "lineNumbering"; readonly value: null };
 
 export type BlockEdit =
+  | { readonly kind: "splitSection"; readonly target: SectionAnchor; readonly offset: number }
+  | { readonly kind: "mergeSection"; readonly target: SectionAnchor }
   | { readonly kind: "paragraphFlag"; readonly target: ParagraphAnchor; readonly flag: ParagraphFlag; readonly value: boolean | null }
   | { readonly kind: "sectionFlag"; readonly target: ParagraphAnchor; readonly flag: SectionFlag; readonly value: boolean | null }
   | { readonly kind: "sectionType"; readonly target: ParagraphAnchor; readonly value: ImportedSectionType | null }

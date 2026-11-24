@@ -66,6 +66,9 @@ Output:
   footnote 47 (“Lifecycle note”), appends “Second note paragraph” and updates
   the structured reviewer's initials to “ED”. The rest of the package is checked
   against the original payloads.
+- `.story-blocks.docx` creates, unlinks, and relinks a first-page footer, then
+  adds a fixed-width table and a paragraph with a labeled hyperlink to a
+  section-local header. The second section keeps the original header.
 - `.run-text.docx` combines scalar-range edits, point insertion and run text edits, a resolved paragraph
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared
@@ -94,7 +97,8 @@ The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
 `all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
 `all_features-javascript.header-first-local.docx`, `all_features-javascript.run-text.docx`,
-`all_features-javascript.footer-even.docx`, `all_features-javascript.entry-text.docx`, and `all_features-javascript.entry-edits.docx`. Repeat `--javascript-dir` to check
+`all_features-javascript.footer-even.docx`, `all_features-javascript.entry-text.docx`,
+`all_features-javascript.entry-edits.docx`, and `all_features-javascript.story-blocks.docx`. Repeat `--javascript-dir` to check
 multiple runtime outputs. The checker requires all eleven exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
@@ -102,7 +106,7 @@ In Chromium, import `generateCatalog` from `catalog.mjs` with the installed
 package resolved by a bundler or import map. Pass a filename-to-`Uint8Array`
 map of the six image fixtures, or an async function that reads a fixture by
 basename. The function returns `final`, `template`, `edited`, `headerSource`,
-`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal`, `footerEven`, `entryText`, `entryEdits` and `runText` byte arrays; use the exported `catalogNames`
+`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal`, `footerEven`, `entryText`, `entryEdits`, `storyBlocks` and `runText` byte arrays; use the exported `catalogNames`
 to name output files. The common module never reads DOCX fixtures or performs I/O
 except through the caller's image loader. Node uses `imageFile()` for the
 named-image sample; the browser supplies named bytes.
