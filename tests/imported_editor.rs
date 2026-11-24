@@ -460,6 +460,35 @@ fn block_edit_guards_validate_discarded_markup_and_section_ownership() {
 }
 
 #[test]
+fn tracked_bold_refuses_opaque_or_ambiguous_property_history() {
+    use rocx::{TextRevisionAction, editor::ImportedInlineNode::Run};
+    for history in [
+        "<w:rPr><w:i/></w:rPr>",
+        "<w:rPr><w:b/><w:b/></w:rPr>",
+        "<w:rPr><!--comment--></w:rPr>",
+        "<w:rPr/><w:rPr/>",
+    ] {
+        let xml = format!(
+            "<w:p><w:r><w:rPr><w:b/><w:rPrChange w:id='42' w:author='A'>{history}</w:rPrChange></w:rPr><w:t>text</w:t></w:r></w:p>"
+        );
+        let bytes = fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}"><w:body>{xml}<w:sectPr/></w:body></w:document>"#
+        ));
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let Run(run) = &paragraph(&doc, 0).inline_structure[0] else {
+            panic!()
+        };
+        assert_eq!(
+            run.property_revision.as_ref().unwrap().id.as_deref(),
+            Some("42")
+        );
+        for action in [TextRevisionAction::Accept, TextRevisionAction::Reject] {
+            assert!(doc.preview_revision(&run.anchor, action, None).is_err());
+        }
+    }
+}
+
+#[test]
 fn tracked_text_is_explicit_and_reviews_only_one_original_wrapper() {
     use rocx::{
         TextRevisionAction::*,

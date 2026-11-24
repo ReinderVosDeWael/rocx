@@ -311,8 +311,18 @@ pub struct ImportedRevision {
 #[non_exhaustive]
 pub struct ImportedRun {
     pub anchor: InlineAnchor,
+    /// Literal metadata of the first direct rPrChange, even when not editable.
+    pub property_revision: Option<ImportedPropertyRevision>,
     /// The run's text, tabs, breaks, and opaque children; excludes run properties.
     pub items: Vec<ImportedInline>,
+}
+
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct ImportedPropertyRevision {
+    pub id: Option<String>,
+    pub author: Option<String>,
+    pub date: Option<String>,
 }
 
 #[derive(Debug)]
@@ -1058,6 +1068,14 @@ fn read_inline_nodes<'a>(
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
+                        property_revision: node
+                            .child("w:rPr")
+                            .and_then(|p| p.child("w:rPrChange"))
+                            .map(|change| ImportedPropertyRevision {
+                                id: change.get("w:id").map(str::to_owned),
+                                author: change.get("w:author").map(str::to_owned),
+                                date: change.get("w:date").map(str::to_owned),
+                            }),
                         items,
                     })
                 }

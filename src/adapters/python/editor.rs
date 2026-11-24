@@ -354,9 +354,21 @@ struct PyInlineAnchor {
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
 struct PyImportedRun {
     #[pyo3(get)]
+    property_revision: Option<Py<PyImportedPropertyRevision>>,
+    #[pyo3(get)]
     anchor: Py<PyInlineAnchor>,
     #[pyo3(get)]
     items: Vec<Py<PyImportedInline>>,
+}
+
+#[pyclass(name = "ImportedPropertyRevision", frozen, module = "rocx.editor")]
+struct PyImportedPropertyRevision {
+    #[pyo3(get)]
+    id: Option<String>,
+    #[pyo3(get)]
+    author: Option<String>,
+    #[pyo3(get)]
+    date: Option<String>,
 }
 
 #[pyclass(name = "ImportedHyperlink", frozen, module = "rocx.editor")]
@@ -401,6 +413,20 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
         ImportedInlineNode::Run(run) => Py::new(
             py,
             PyImportedRun {
+                property_revision: run
+                    .property_revision
+                    .as_ref()
+                    .map(|r| {
+                        Py::new(
+                            py,
+                            PyImportedPropertyRevision {
+                                id: r.id.clone(),
+                                author: r.author.clone(),
+                                date: r.date.clone(),
+                            },
+                        )
+                    })
+                    .transpose()?,
                 anchor: anchor(&run.anchor)?,
                 items: run
                     .items
@@ -1555,6 +1581,26 @@ impl PyImportedDocument {
         })
     }
 
+    #[pyo3(signature = (target, bold, author, date=None))]
+    fn preview_tracked_bold(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        bold: bool,
+        author: &str,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_bold(&target.inner, bold, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
     fn preview_tracked_move(
         &self,
         target: PyRef<'_, PyInlineAnchor>,
@@ -1708,6 +1754,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedInline>()?;
     module.add_class::<PyInlineAnchor>()?;
     module.add_class::<PyImportedRun>()?;
+    module.add_class::<PyImportedPropertyRevision>()?;
     module.add_class::<PyImportedHyperlink>()?;
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;

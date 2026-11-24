@@ -162,6 +162,7 @@ export interface HeaderImagePreview {
 declare module "./inspection.js" {
   interface ImportedDocument {
     styleAnchor(id: string): StyleAnchor;
+    previewTrackedBold(edit: { readonly target: InlineAnchor; readonly bold: boolean; readonly author: string; readonly date?: string }): EditPreview;
     /** Explicitly track a single-text direct body run edit. */
     previewTrackedText(edit: {
       readonly target: InlineAnchor; readonly author: string; readonly date?: string;

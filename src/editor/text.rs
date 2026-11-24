@@ -100,7 +100,7 @@ pub(super) fn prepare(
     ))
 }
 
-fn patch_bold(run: &mut Node, value: bool) -> Result<bool> {
+pub(super) fn patch_bold(run: &mut Node, value: bool) -> Result<bool> {
     if run.elements().filter(|n| n.name == "w:rPr").count() > 1
         || run.child("w:rPr").is_some_and(|p| {
             p.child(super::ALTERNATE).is_some()

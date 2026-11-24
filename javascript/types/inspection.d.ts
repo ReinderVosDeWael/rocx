@@ -41,6 +41,7 @@ export type ImportedInline =
   | ImportedOpaque;
 
 export interface ImportedRun {
+  readonly propertyRevision?: { readonly id?: string; readonly author?: string; readonly date?: string };
   readonly kind: "run";
   readonly anchor: InlineAnchor;
   readonly items: readonly ImportedInline[];

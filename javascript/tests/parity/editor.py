@@ -399,6 +399,17 @@ def verify(directory):
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
     date = "2024-02-29T12:34:56Z"
+    changed = imported.preview_tracked_bold(anchor, False, "A & B", date).to_docx()
+    formatted = ImportedDocument.open(changed)
+    run = formatted.body[0].inline_structure[0]
+    assert run.property_revision.id and (run.property_revision.author, run.property_revision.date) == ("A & B", date)
+    for name, data, bold in [("boldChange", changed, False),
+                             ("boldAccepted", formatted.preview_revision(run.anchor, "accept").to_docx(), False),
+                             ("boldRejected", formatted.preview_revision(run.anchor, "reject").to_docx(), True)]:
+        assert (directory / f"{name}.docx").read_bytes() == data
+        untouched(source, parts(io.BytesIO(data)), (MAIN,))
+        assert Document(io.BytesIO(data)).paragraphs[0].runs[0].bold is bold
+        assert (ImportedDocument.open(data).body[0].inline_structure[0].property_revision is not None) == (name == "boldChange")
     tracked = imported.preview_tracked_text(anchor, "replace", "A & B", text=" Revised ", date=date).to_docx()
     reopened = ImportedDocument.open(tracked)
     reviewed = reopened.preview_revision(reopened.body[0].inline_structure[1].anchor, "accept").to_docx()

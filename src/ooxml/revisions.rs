@@ -12,6 +12,10 @@ pub(crate) struct RevisionIds {
 }
 
 impl RevisionIds {
+    pub(crate) fn property_change(&mut self, revision: &TextRevision) -> Result<Node> {
+        Ok(annotate("w:rPrChange", self.next()?, revision))
+    }
+
     pub(crate) fn reserved(used: BTreeSet<u32>, move_names: BTreeSet<String>) -> Self {
         Self {
             used,

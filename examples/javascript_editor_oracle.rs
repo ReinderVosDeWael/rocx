@@ -307,6 +307,26 @@ fn main() {
         }
     };
     let date = "2024-02-29T12:34:56Z";
+    let bold = doc
+        .preview_tracked_bold(&run.anchor, false, "A & B", Some(date))
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let review = ImportedDocument::open(&bold).unwrap();
+    write("native-boldChange.docx", bold);
+    for (action, name) in [
+        (TextRevisionAction::Accept, "native-boldAccepted.docx"),
+        (TextRevisionAction::Reject, "native-boldRejected.docx"),
+    ] {
+        write(
+            name,
+            review
+                .preview_revision(&paragraph(&review, 0, 0), action, None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
     let tracked = doc
         .preview_tracked_text(
             &run.anchor,

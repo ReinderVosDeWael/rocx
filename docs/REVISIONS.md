@@ -61,3 +61,24 @@ unsafe nested/opaque content and ambiguous IDs. Imported paragraph `text` is
 the **ordinary-text projection**: it omits all unreconciled wrappers, unlike
 the declarative display text described above. Inspect wrapper children to read
 pending text. Saving a preview leaves the original snapshot and its anchors usable.
+
+### Propose a formatting change
+
+| | Rust | Python | JavaScript |
+| --- | --- | --- | --- |
+| Track direct bold | `doc.preview_tracked_bold(&run, false, "Ada", date)?` | `doc.preview_tracked_bold(run, False, "Ada", date)` | `doc.previewTrackedBold({target: run, bold: false, author: "Ada", date})` |
+| Inspect a reopened run | `run.property_revision.as_ref()` | `run.property_revision` | `run.propertyRevision` |
+
+The inspector exposes the literal `id`, `author` and optional `date` from the
+first direct `w:rPrChange`. Its presence does not imply review is supported.
+The edit records the prior run properties inside `w:rPrChange`; it does not
+change text. Reopen the preview, then call the single-target review operation
+above with the **run anchor**. Accept keeps the new direct bold; reject restores
+the prior value, including inherited formatting (no explicit bold).
+
+This profile supports a direct body single-text run with absent, empty or
+bold-only run properties. Repeating its explicit value is a no-op; setting
+`false` on an inherited value is a change. Nested, duplicate, unknown or
+already-revised properties are not writable. Review requires a unique change
+ID, supported old and current properties, and valid author/date metadata.
+Paragraph-mark, paragraph-property and table-row revisions are not run changes.

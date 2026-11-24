@@ -228,13 +228,23 @@ pub(super) fn inline_node(
             .clone()
     };
     Ok(match node {
-        ImportedInlineNode::Run(run) => record(
-            "run",
-            &[
-                ("anchor", token(&run.anchor)),
-                ("items", items(&run.items)?),
-            ],
-        ),
+        ImportedInlineNode::Run(run) => {
+            let result = record(
+                "run",
+                &[
+                    ("anchor", token(&run.anchor)),
+                    ("items", items(&run.items)?),
+                ],
+            );
+            if let Some(change) = &run.property_revision {
+                let metadata = b::record(&[]);
+                optional(&metadata, "author", change.author.as_deref());
+                optional(&metadata, "id", change.id.as_deref());
+                optional(&metadata, "date", change.date.as_deref());
+                b::set(&result, "propertyRevision", &metadata);
+            }
+            result
+        }
         ImportedInlineNode::Hyperlink(link) => {
             let result = record(
                 "hyperlink",

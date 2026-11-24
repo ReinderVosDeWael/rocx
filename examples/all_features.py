@@ -593,6 +593,8 @@ async def generate(output: pathlib.Path) -> bytes:
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
     # Tracked replacement and paired move are independent opt-in previews.
     start, after = (header_doc.body[i].inline_structure[0].anchor for i in (0, 2))
+    proposal = header_doc.preview_tracked_bold(start, True, "Reviewer", STAMP)
+    assert ImportedDocument.open(proposal.to_docx()).body[0].inline_structure[0].property_revision.author == "Reviewer"
     tracked = header_doc.preview_tracked_text(start, "replace", "Reviewer", text="Reviewed label", date=STAMP)
     assert ImportedDocument.open(tracked.to_docx()).body[0].text == ""
     moved = header_doc.preview_tracked_move(start, after, "CatalogMove", "Reviewer", STAMP)

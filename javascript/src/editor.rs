@@ -21,6 +21,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
+        ("importedPreviewTrackedBold", (tracked_bold, Paths::Package)),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
@@ -435,6 +436,28 @@ fn tracked_text(input: &Wire) -> Result<JsValue> {
         &string("author")?,
         date.as_deref(),
     )?)
+}
+
+fn tracked_bold(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "bold", "author", "date"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let date = (!edit.get("date")?.js().is_undefined())
+        .then(|| string("date"))
+        .transpose()?;
+    preview_handle(
+        source.document().preview_tracked_bold(
+            &crate::inspection::inline_anchor(&edit.get("target")?, "edit.target")?,
+            edit.get("bold")?
+                .js()
+                .as_bool()
+                .ok_or_else(|| Failure::invalid("edit.bold", "expected boolean"))?,
+            &string("author")?,
+            date.as_deref(),
+        )?,
+    )
 }
 
 fn tracked_move(input: &Wire) -> Result<JsValue> {

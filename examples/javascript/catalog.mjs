@@ -255,6 +255,8 @@ export async function generateCatalog(fixtures, options) {
   // Tracked replacement and paired move are independent opt-in previews.
   const [from, after] = [0, 2].map(i => headers.body()[i].inlineStructure[0].anchor);
   const metadata = {author: "Reviewer", date: "2026-11-19T00:00:00Z"};
+  const proposal = headers.previewTrackedBold({target: from, bold: true, ...metadata});
+  assert((await openDocx(proposal.toDocx())).body()[0].inlineStructure[0].propertyRevision.author === "Reviewer", "tracked bold author");
   const tracked = headers.previewTrackedText({target: from, kind: "replace", text: "Reviewed label", ...metadata});
   assert((await openDocx(tracked.toDocx())).body()[0].text === "", "tracked replacement projection");
   const moved = headers.previewTrackedMove({target: from, after, name: "CatalogMove", ...metadata});

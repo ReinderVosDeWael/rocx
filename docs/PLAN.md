@@ -4,6 +4,13 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+#3 revision follow-up: add direct bold-only `w:rPrChange` proposals, typed
+run-property metadata and accept/reject on the reopened run anchor. Check
+the three preview outputs across bindings against independent Word-package
+readback; see [revision contexts](REVISIONS.md#propose-a-formatting-change).
+The proposal and both reviewed documents matched exactly in Rust, installed
+Python 3.12 and packed Node 26; all three passed schema/OPC validation.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls

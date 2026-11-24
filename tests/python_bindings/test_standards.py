@@ -60,6 +60,20 @@ def test_direct_body_revision_previews_are_schema_valid(validator):
         return result
 
     ordinary = check(original.preview([], run_text=[RunTextEdit(first.anchor, "plain")]), "plainafter")
+    for index, run, previous in [(0, first, True), (1, last, None)]:
+        changed = check(original.preview_tracked_bold(run.anchor, False, "A & B", date), "beforeafter")
+        current = changed.body[0].inline_structure[index]
+        meta = current.property_revision
+        assert meta.id and (meta.author, meta.date) == ("A & B", date)
+        with pytest.raises(ValueError):
+            changed.preview_tracked_bold(current.anchor, True, "another")
+        with pytest.raises(ValueError):
+            original.preview_revision(current.anchor, "reject")
+        for action, value in [("accept", False), ("reject", previous)]:
+            preview = changed.preview_revision(current.anchor, action)
+            result = check(preview, "beforeafter")
+            assert result.body[0].inline_structure[index].property_revision is None
+            assert Document(io.BytesIO(preview.to_docx())).paragraphs[0].runs[index].bold is value
     assert len(ordinary.body[0].inline_structure) == 2
     for kind, kwargs, visible, slot, accepted, rejected in [
         ("insertAfter", {"text": " <added> "}, "beforeafter", 1, "before <added> after", "beforeafter"),

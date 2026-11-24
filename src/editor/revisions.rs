@@ -116,6 +116,36 @@ fn metadata(kind: RevisionKind, author: &str, date: Option<&str>) -> Result<Text
 }
 
 impl ImportedDocument {
+    /// Propose a direct bold property on a plain or bold-only body text run.
+    pub fn preview_tracked_bold(
+        &self,
+        target: &InlineAnchor,
+        bold: bool,
+        author: &str,
+        date: Option<&str>,
+    ) -> Result<EditPreview> {
+        self.validate_snapshot(&target.snapshot)?;
+        let rev = metadata(RevisionKind::Insertion, author, date)?;
+        self.stage_revision(|body| {
+            let s = site(body, target)?;
+            guard_boundary(body, s)?;
+            let mut run = at(body, s).clone();
+            simple_text(&run, "w:t")?;
+            let prior = run
+                .child("w:rPr")
+                .cloned()
+                .unwrap_or_else(|| Node::new("w:rPr"));
+            if bold_value(&prior)? == Some(bold) {
+                return Ok(false);
+            }
+            let change = check_references(&self.package, None, &[])?.property_change(&rev)?;
+            super::text::patch_bold(&mut run, bold)?;
+            run.child_mut("w:rPr").unwrap().push(change.with(prior));
+            splice(body, s.0, s.1..s.1 + 1, vec![run]);
+            Ok(true)
+        })
+    }
+
     fn stage_revision(&self, stage: impl FnOnce(&mut Node) -> Result<bool>) -> Result<EditPreview> {
         let mut package = self.package.clone();
         let mut root = package.word(&self.main)?;
@@ -272,6 +302,41 @@ impl ImportedDocument {
             } else {
                 guard_boundary(body, s)?;
                 let wrapper = at(body, s);
+                if wrapper.name == "w:r" {
+                    let mut run = wrapper.clone();
+                    let props = run
+                        .child_mut("w:rPr")
+                        .ok_or_else(|| unsupported("missing run property change"))?;
+                    let change = props
+                        .child("w:rPrChange")
+                        .cloned()
+                        .ok_or_else(|| unsupported("missing run property change"))?;
+                    if props.elements().filter(|n| n.name == "w:rPrChange").count() != 1
+                        || props.elements().last().unwrap().name != "w:rPrChange"
+                        || !allowed(&change, &["w:id", "w:author", "w:date"])
+                        || change.elements().count() != 1
+                    {
+                        return Err(unsupported("unsupported run property change"));
+                    }
+                    metadata(
+                        RevisionKind::Insertion,
+                        change.get("w:author").unwrap_or(""),
+                        change.get("w:date"),
+                    )?;
+                    check_references(&self.package, None, &[(id(&change)?, 1)])?;
+                    let prior = change
+                        .child("w:rPr")
+                        .ok_or_else(|| unsupported("missing prior run properties"))?;
+                    bold_value(prior)?;
+                    props.remove("w:rPrChange");
+                    bold_value(props)?;
+                    if !accept {
+                        *props = prior.clone();
+                    }
+                    simple_text(&run, "w:t")?;
+                    splice(body, s.0, s.1..s.1 + 1, vec![run]);
+                    return Ok(true);
+                }
                 let tag = match wrapper.name.as_str() {
                     "w:ins" => "w:t",
                     "w:del" => "w:delText",
@@ -301,6 +366,24 @@ fn id(n: &Node) -> Result<u32> {
     n.get("w:id")
         .and_then(|s| s.trim().parse().ok())
         .ok_or_else(|| unsupported("missing or unsupported revision ID"))
+}
+
+fn bold_value(props: &Node) -> Result<Option<bool>> {
+    let bad = || unsupported("expected empty or bold-only run properties");
+    if !allowed(props, &[]) || props.elements().count() > 1 {
+        return Err(bad());
+    }
+    let Some(b) = props.elements().next() else {
+        return Ok(None);
+    };
+    if b.name != "w:b" || !allowed(b, &["w:val"]) || b.elements().next().is_some() {
+        return Err(bad());
+    }
+    match b.get("w:val") {
+        None | Some("true" | "1" | "on") => Ok(Some(true)),
+        Some("false" | "0" | "off") => Ok(Some(false)),
+        _ => Err(bad()),
+    }
 }
 
 fn allowed(n: &Node, attrs: &[&str]) -> bool {
