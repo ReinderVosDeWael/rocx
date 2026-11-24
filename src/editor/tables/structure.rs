@@ -273,10 +273,10 @@ fn geometry(table: &mut Node, op: &TableOperation) -> Result<()> {
     validate(table, true)
 }
 
-fn layout(table: &mut Node, value: Option<crate::TableLayout>) -> Result<()> {
+fn layout(table: &mut Node, value: Option<crate::TableLayout>) -> Result<bool> {
     if table.child("w:tblPr").is_none() {
         if value.is_none() {
-            return Ok(());
+            return Ok(false);
         }
         table
             .children
@@ -288,6 +288,9 @@ fn layout(table: &mut Node, value: Option<crate::TableLayout>) -> Result<()> {
     }
     let existing = super::unique(pr, "w:tblLayout")?;
     if let Some(layout) = value {
+        if existing.is_some_and(|n| n.get("w:type") == Some(layout.xml())) {
+            return Ok(false);
+        }
         pr.ensure("w:tblLayout").set("w:type", layout.xml());
     } else if let Some(existing) = existing {
         if existing
@@ -304,8 +307,10 @@ fn layout(table: &mut Node, value: Option<crate::TableLayout>) -> Result<()> {
             ));
         }
         pr.remove("w:tblLayout");
+    } else {
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }
 
 pub(in crate::editor) fn apply(
@@ -314,9 +319,9 @@ pub(in crate::editor) fn apply(
     main: &str,
     edits: &[TableStructureEdit],
     alignments: &[CellAlignmentEdit],
-) -> Result<Package> {
+) -> Result<(Package, bool)> {
     if edits.is_empty() {
-        return Ok(package);
+        return Ok((package, false));
     }
     let mut grouped = BTreeMap::<usize, Vec<&TableOperation>>::new();
     for e in edits {
@@ -326,6 +331,7 @@ pub(in crate::editor) fn apply(
             .push(&e.operation)
     }
     let mut replacements = BTreeMap::new();
+    let mut changed = false;
     let body_slots: Vec<_> = body
         .children
         .iter()
@@ -355,7 +361,7 @@ pub(in crate::editor) fn apply(
                     if exclusive {
                         return Err(unsupported("layout edit requires exclusive table target"));
                     }
-                    layout(table, *value)?;
+                    changed |= layout(table, *value)?;
                 }
                 TableOperation::ReplaceCell { row, cell, blocks } => {
                     if !seen.insert((*row, *cell)) {
@@ -377,12 +383,14 @@ pub(in crate::editor) fn apply(
                         }
                     }
                     replacements.insert((body_slots[i], r_slot, c_slot), blocks);
+                    changed = true;
                 }
                 _ => {
                     if exclusive {
                         return Err(unsupported("geometry edit requires exclusive table target"));
                     }
                     geometry(table, op)?;
+                    changed = true;
                 }
             }
         }
@@ -413,7 +421,7 @@ pub(in crate::editor) fn apply(
             cell.push(Node::new("w:p"))
         }
     }
-    Ok(package)
+    Ok((package, changed))
 }
 fn contains_range(n: &Node) -> bool {
     let s = n.name.as_str();
