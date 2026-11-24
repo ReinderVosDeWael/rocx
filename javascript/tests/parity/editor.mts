@@ -7,6 +7,7 @@ import {
 } from "rocx-docx";
 
 export interface Fixtures {
+  "control-source": Uint8Array;
   base: Uint8Array;
   unsafe: Uint8Array;
   ambiguous: Uint8Array;
@@ -442,6 +443,7 @@ export async function run(fixtures: Fixtures) {
   return {
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
+    controlEdits: controlled.preview({ controls: edits }).toDocx(),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),

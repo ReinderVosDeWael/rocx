@@ -18,6 +18,7 @@ from rocx.editor import (
     BodyParagraph,
     BodyTable,
     CellAlignmentEdit,
+    ControlEdit,
     HeaderImageChange,
     HeaderImageEdit,
     HeaderImagePreview,

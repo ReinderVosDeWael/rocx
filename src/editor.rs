@@ -26,6 +26,7 @@ mod resources;
 mod style_edits;
 mod tables;
 mod text;
+pub use controls::{ControlAnchor, ControlContext, ControlEdit, ImportedControl};
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
@@ -438,6 +439,7 @@ pub struct ImportedDocument {
     package: Package,
     main: String,
     body: Vec<BodyBlock>,
+    controls: Vec<ImportedControl>,
     snapshot: Arc<()>,
     default_header_inspection: OnceLock<header::StoryInspection>,
     story_inspection: OnceLock<header::StoryInspection>,
@@ -497,7 +499,9 @@ impl ImportedDocument {
                 name => BodyBlock::Opaque(name.to_owned()),
             })
             .collect();
+        let controls = controls::inspect(root.child("w:body").ok_or_else(missing_body)?, &snapshot);
         Ok(Self {
+            controls,
             package,
             main,
             body,

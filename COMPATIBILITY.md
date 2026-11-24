@@ -46,10 +46,12 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 
 | Imported DOCX operation | Rust | Python | JavaScript |
 | --- | --- | --- | --- |
-| Combine all supported edit kinds atomically | `doc.preview_mixed(...)` | `doc.preview(alignments, ...)` | `doc.preview(batch)` |
+| Combine control edits with other supported edit kinds atomically | `doc.preview_with_controls(...)` | `doc.preview(alignments, controls=..., ...)` | `doc.preview(batch)` |
 | Inspect footnotes, endnotes and comments | `doc.entry_stories()?` | `doc.entry_stories` | `doc.entryStories()` |
 | Inspect the styles part and direct style metadata | `doc.styles()?` | `doc.styles` | `doc.styles()` |
 | Inspect direct body control metadata | `BodyBlock::ContentControl` | `BodyContentControl` | `kind: "contentControl"` |
+| Inspect block/inline/row/cell controls and their physical anchors | `doc.controls()` | `doc.controls` | `doc.controls()` |
+| Patch an eligible control's alias, tag or single-text value | `ControlEdit` / `preview_with_controls` | `ControlEdit` / `preview([], controls=[edit])` | `preview({controls: [edit]})` |
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
 | Track a direct body text edit / paired move | `preview_tracked_text` / `preview_tracked_move` | `preview_tracked_text` / `preview_tracked_move` | `previewTrackedText` / `previewTrackedMove` |
 | Accept/reject supported anchored revision(s) | `preview_revision` | `preview_revision` | `previewRevision` |

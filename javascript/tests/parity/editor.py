@@ -71,6 +71,79 @@ def png(rgb):
             + chunk(b"IEND", b""))
 
 
+def generate_controls(directory):
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    def wrap(node, *extra):
+        parent = node.getparent()
+        pos = parent.index(node)
+        control, props, cached = elem("sdt"), elem("sdtPr"), elem("sdtContent")
+        # Repeated tags intentionally identify several different controls.
+        props.extend([elem("tag", val="repeat"), *extra, elem("richText")])
+        cached.append(node)
+        control.extend([props, cached])
+        parent.insert(pos, control)
+        return props
+
+    wrap(doc.add_paragraph("block")._p, elem("lock", val="sdtLocked"))
+    run = doc.add_paragraph().add_run("inline")
+    run.bold = True
+    props = wrap(run._r, elem("lock", val="contentLocked"))
+    # Use an extension in a declared ignorable namespace; preserve it verbatim
+    # as an XML subtree even when inserting a new alias before the existing tag.
+    etree.SubElement(props, "{http://schemas.microsoft.com/office/word/2010/wordml}probe").text = "opaque"
+    for tag in ("row", "cell"):
+        t = doc.add_table(rows=1, cols=1)
+        t.cell(0, 0).text = tag
+        wrap(t.rows[0]._tr if tag == "row" else t.cell(0, 0)._tc)
+    wrap(doc.add_paragraph("bound")._p,
+         elem("dataBinding", xpath="/root", storeItemID="{00000000-0000-0000-0000-000000000001}"))
+    unsafe = doc.add_paragraph("first")
+    unsafe.add_run("second")
+    wrap(unsafe._p)
+    doc.add_paragraph("untouched")
+    doc.save(directory / "control-source.docx")
+
+
+def verify_controls(directory):
+    from rocx.editor import ControlEdit, ImportedDocument
+    path = directory / "control-source.docx"
+    data = path.read_bytes()
+    doc = ImportedDocument.open(data)
+    c = doc.controls
+    assert [v.context for v in c] == ["block", "inline", "row", "cell", "block", "block"]
+    assert all(v.tag == "repeat" and v.id is None for v in c) and c[4].bound
+    edits = [ControlEdit(c[0].anchor, text=" block "), ControlEdit(c[1].anchor, alias="caption"),
+             ControlEdit(c[2].anchor, text="new row"), ControlEdit(c[3].anchor, tag="cell", text="new cell")]
+    for target, batch, reason in [
+        (doc, [edits[0], ControlEdit(c[1].anchor, text="no")], "locked"),
+        (doc, [ControlEdit(c[0].anchor, tag="no")], "locked"),
+        (doc, [edits[0], ControlEdit(c[4].anchor, alias="no")], "XML-bound"),
+        (doc, [edits[0], ControlEdit(c[5].anchor, text="no")], "structure"),
+        (doc, [edits[0], edits[0]], "duplicate"),
+        (ImportedDocument.open(data), edits, "snapshot"),
+    ]:
+        try:
+            target.preview([], controls=batch)
+        except ValueError as exc:
+            assert reason in str(exc), exc
+        else:
+            raise AssertionError("expected " + reason)
+    output = directory / "controlEdits.docx"
+    assert doc.preview([], controls=edits).to_docx() == output.read_bytes()
+    src, out = parts(path), parts(output)
+    untouched(src, out, (MAIN,))
+    readback = Document(output)
+    assert readback.paragraphs[-1].text == "untouched"
+    assert readback.element.xpath("//w:sdtContent//w:t/text()") == [
+        " block ", "inline", "new row", "new cell", "bound", "first", "second"]
+    assert readback.element.xpath("//w:sdtPr/w:alias/@w:val") == ["caption"]
+    assert readback.element.xpath("//w:sdtPr/w:tag/@w:val").count("repeat") == 5
+    assert readback.element.xpath("//w:sdtPr/*[local-name()='probe']/text()") == ["opaque"]
+    assert readback.element.xpath("//w:sdtContent/w:r/w:rPr/w:b")
+    assert readback.element.xpath("//w:t[.=' block ']/@xml:space") == ["preserve"]
+
+
 def generate(directory):
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")

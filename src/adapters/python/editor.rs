@@ -144,6 +144,48 @@ struct PyRunTextEdit {
     inner: editor::RunTextEdit,
 }
 
+#[pyclass(name = "ControlAnchor", frozen, module = "rocx.editor")]
+struct PyControlAnchor {
+    inner: editor::ControlAnchor,
+}
+
+#[pyclass(name = "ImportedControl", frozen, get_all, module = "rocx.editor")]
+struct PyImportedControl {
+    anchor: Py<PyControlAnchor>,
+    context: &'static str,
+    id: Option<String>,
+    tag: Option<String>,
+    alias: Option<String>,
+    lock: Option<String>,
+    bound: bool,
+}
+
+#[pyclass(name = "ControlEdit", frozen, module = "rocx.editor")]
+struct PyControlEdit {
+    inner: editor::ControlEdit,
+}
+
+#[pymethods]
+impl PyControlEdit {
+    #[new]
+    #[pyo3(signature = (target, *, tag=None, alias=None, text=None))]
+    fn new(
+        target: PyRef<'_, PyControlAnchor>,
+        tag: Option<String>,
+        alias: Option<String>,
+        text: Option<String>,
+    ) -> Self {
+        Self {
+            inner: editor::ControlEdit {
+                target: target.inner.clone(),
+                tag,
+                alias,
+                text,
+            },
+        }
+    }
+}
+
 #[pymethods]
 impl PyRunTextEdit {
     #[new]
@@ -1208,6 +1250,32 @@ impl PyImportedDocument {
                 start: s.start,
             })
             .collect())
+    }
+    #[getter]
+    fn controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.controls()
+            .iter()
+            .map(|c| {
+                Ok(PyImportedControl {
+                    anchor: Py::new(
+                        py,
+                        PyControlAnchor {
+                            inner: c.anchor.clone(),
+                        },
+                    )?,
+                    context: c.context.as_str(),
+                    id: c.id.clone(),
+                    tag: c.tag.clone(),
+                    alias: c.alias.clone(),
+                    lock: c.lock.clone(),
+                    bound: c.bound,
+                })
+            })
+            .collect()
     }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {

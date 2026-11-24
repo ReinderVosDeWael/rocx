@@ -2,9 +2,10 @@
 
 Direct body controls expose source tag, alias, and lock as
 `BodyBlock::ContentControl` (Rust), `BodyContentControl` (Python), and
-`kind: "contentControl"` (JavaScript). Their contents remain opaque and have
-no edit anchors. The catalog asserts all three metadata values; the installed
-inspection fixture checks their JavaScript projection separately.
+`kind: "contentControl"` (JavaScript). The independent `controls()` view
+also lists inline, row and cell controls with physical snapshot anchors. The
+packed editor fixture uses repeated tags to check that the same control edits
+produce identical packages in Rust, Python and JavaScript.
 
 For the combined editor candidate based on `aefcec8`, see [current editor
 coverage](#editor-additions-for-3) and [gate status](PLAN.md). Historical

@@ -17,6 +17,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("openDocx", (open, Paths::Package)),
         ("importedBody", (body, Paths::Package)),
+        ("importedControls", (controls, Paths::Package)),
         ("importedSections", (sections, Paths::Package)),
         ("importedInlineAt", (inline_at, Paths::Package)),
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
@@ -39,6 +40,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
 
 const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("body", "importedBody"),
+    ("controls", "importedControls"),
     ("sections", "importedSections"),
     ("inlineAt", "importedInlineAt"),
     ("defaultHeaders", "importedDefaultHeaders"),
@@ -54,6 +56,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
 
 #[derive(Default)]
 struct Anchors {
+    controls: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
     headers: RefCell<HashMap<(usize, rocx::editor::SectionStoryKind, usize), JsValue>>,
@@ -93,6 +96,33 @@ fn entry_stories(input: &Wire) -> Result<JsValue> {
             .iter()
             .map(|entry| view::entry(entry, &source.anchors)),
     )
+}
+
+fn controls(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        source.document.controls().iter().enumerate().map(|(i, c)| {
+            let value = b::record(&[
+                (
+                    "anchor",
+                    view::cached(&source.anchors.controls, i, "controlAnchor", &c.anchor),
+                ),
+                ("context", c.context.as_str().into()),
+                ("bound", c.bound.into()),
+            ]);
+            for (key, v) in [
+                ("id", &c.id),
+                ("tag", &c.tag),
+                ("alias", &c.alias),
+                ("lock", &c.lock),
+            ] {
+                if let Some(v) = v {
+                    b::set(&value, key, &v.as_str().into());
+                }
+            }
+            value
+        }),
+    ))
 }
 
 fn styles(input: &Wire) -> Result<JsValue> {

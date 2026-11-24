@@ -3,7 +3,12 @@
 The catalog's block control is also inspected in all three languages: Rust
 `BodyBlock::ContentControl`, Python `BodyContentControl`, and JavaScript
 `kind: "contentControl"` report the source tag, alias, and lock. Its contents
-remain opaque and cannot be targeted for edits.
+remain opaque in the block view. The separate `ImportedDocument::controls()`
+(Rust), `ImportedDocument.controls` (Python), and `ImportedDocument.controls()`
+(JavaScript) inspection returns physical controls with a context, source ID,
+and snapshot anchor. The run-text catalog output also patches the caption alias
+using `ControlEdit` with `preview_with_controls`, `preview(..., controls=...)`,
+and `preview({controls: ...})`, respectively.
 
 Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 `ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
