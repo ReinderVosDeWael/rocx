@@ -747,6 +747,18 @@ pub async fn generate(output: &Path) -> Result<()> {
         }],
         resources: &[
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
+            editor::ResourceEdit::Metadata(
+                editor::MetadataField::Creator,
+                Some("Review team".into()),
+            ),
+            editor::ResourceEdit::Metadata(
+                editor::MetadataField::Manager,
+                Some("Review lead".into()),
+            ),
+            editor::ResourceEdit::CustomProperty(
+                "Reviewed".into(),
+                Some(editor::CustomValue::Boolean(false)),
+            ),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {
                 abstract_id: 100,
@@ -797,7 +809,19 @@ pub async fn generate(output: &Path) -> Result<()> {
         std::slice::from_ref(&label.anchor),
     )?;
     assert_eq!(removal.run_removals()[0].before, INLINE_LABEL);
-    std::fs::write(output.with_extension("run-text.docx"), preview.to_docx()?)?;
+    let edited_bytes = preview.to_docx()?;
+    let resource_result = editor::ImportedDocument::open(&edited_bytes)?;
+    assert_eq!(
+        resource_result
+            .metadata_field(editor::MetadataField::Manager)?
+            .as_deref(),
+        Some("Review lead")
+    );
+    assert_eq!(
+        resource_result.custom_property("Reviewed")?,
+        Some(editor::CustomValue::Boolean(false))
+    );
+    std::fs::write(output.with_extension("run-text.docx"), edited_bytes)?;
     assert_eq!(
         label.items,
         [editor::ImportedInline::Text(INLINE_LABEL.into())]

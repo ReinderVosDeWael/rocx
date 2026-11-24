@@ -209,6 +209,13 @@ ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
 `coreTitle`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
 for clearing, absence, and shared-numbering semantics.
 
+In the same run-text sample the reviewer and manager are set with Rust
+`ResourceEdit::Metadata`, Python `ResourceEdit.metadata`, or JavaScript
+`{kind: "metadata", field, value}`. `Reviewed` is explicitly false through
+`ResourceEdit::CustomProperty`, `ResourceEdit.custom_property`, or
+`{kind: "customProperty", name, value}`. The parity checker reopens the
+document and verifies each value in its own package part.
+
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.

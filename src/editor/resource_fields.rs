@@ -5,6 +5,8 @@ use crate::opc::Package;
 use crate::xml::{Content, Node};
 use crate::{Alignment, Result};
 use std::collections::{BTreeMap, BTreeSet};
+mod metadata;
+pub use metadata::{CustomValue, MetadataField};
 
 /// A physical abstract numbering level (shared by all referencing instances).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,6 +23,8 @@ pub enum ResourceEdit {
     CoreTitle(Option<String>),
     DefaultAlignment(Option<Alignment>),
     AbstractStart(AbstractStart),
+    Metadata(MetadataField, Option<String>),
+    CustomProperty(String, Option<CustomValue>),
 }
 
 enum Part {
@@ -92,16 +96,20 @@ fn scalar(node: &Node, attr: bool) -> Result<String> {
                 .ok_or_else(|| unsupported("missing w:val"));
         }
     } else {
-        let mut value = String::new();
-        for child in &node.children {
-            let Content::Text(t) = child else {
-                return Err(unsupported("non-text title"));
-            };
-            value.push_str(t);
-        }
-        return Ok(value);
+        return text_value(node);
     }
     Err(unsupported("non-simple resource property"))
+}
+
+fn text_value(node: &Node) -> Result<String> {
+    let mut value = String::new();
+    for child in &node.children {
+        let Content::Text(t) = child else {
+            return Err(unsupported("non-text resource property"));
+        };
+        value.push_str(t);
+    }
+    Ok(value)
 }
 
 const DEFAULT_PATH: &[&str] = &["w:docDefaults", "w:pPrDefault", "w:pPr", "w:jc"];
@@ -220,11 +228,13 @@ impl ImportedDocument {
 }
 
 pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Result<()> {
+    metadata::apply(pkg, edits)?;
     let (mut title, mut alignment, mut starts) = (None, None, BTreeMap::new());
     for edit in edits {
         let duplicate = match edit {
             ResourceEdit::CoreTitle(v) => title.replace(v).is_some(),
             ResourceEdit::DefaultAlignment(v) => alignment.replace(v).is_some(),
+            ResourceEdit::Metadata(..) | ResourceEdit::CustomProperty(..) => continue,
             ResourceEdit::AbstractStart(v) => {
                 starts.insert((v.abstract_id, v.level), v.start).is_some()
             }

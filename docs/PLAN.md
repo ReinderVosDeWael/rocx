@@ -4,6 +4,14 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+#48 metadata worktree: core scalars and timestamps, company/manager, and named
+string/boolean custom-property edits passed standalone qualification: 55 Rust
+editor/showcase tests, nine installed-wheel resource tests, native Clippy and
+strict TypeScript declarations. All eleven catalog outputs matched byte for
+byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
+passed independent readback and schema/OPC checks (20 covered parts).
+See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -17,7 +25,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
-| #48 Resources | Inspect and set/clear core title, paragraph-default alignment and shared abstract numbering level start. | Creating missing parts, editing instances/overrides or paragraph numbering references, other defaults and metadata. |
+| #48 Resources | Inspect and set/clear core title and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
 | #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |

@@ -234,6 +234,8 @@ bindings. See [imported style edits](#imported-style-edits) for definition
 and property edits. The resource guide also covers direct [core title, default alignment
 and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
 Effective formatting and arbitrary resource editing remain outstanding.
+For timestamps, other core fields, extended company/manager and named string
+or boolean custom properties, see [package metadata](EDITOR-RESOURCES.md#package-metadata).
 
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
