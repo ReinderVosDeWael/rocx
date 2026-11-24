@@ -386,7 +386,7 @@ struct PyBodyTable {
 
 #[pyclass(name = "TableAnchor", frozen, module = "rocx.editor")]
 struct PyTableAnchor {
-    _inner: editor::TableAnchor,
+    inner: editor::TableAnchor,
 }
 
 #[pyclass(name = "ImportedTableRow", frozen, module = "rocx.editor")]
@@ -470,7 +470,7 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
             anchor: Py::new(
                 py,
                 PyTableAnchor {
-                    _inner: table.anchor.clone(),
+                    inner: table.anchor.clone(),
                 },
             )?,
             children,
@@ -489,6 +489,60 @@ struct PyBodyOpaque {
 struct PyParagraphAlignmentEdit {
     target: editor::ParagraphAnchor,
     alignment: crate::Alignment,
+}
+
+#[pyclass(name = "CellAlignmentEdit", frozen, module = "rocx.editor")]
+struct PyCellAlignmentEdit {
+    inner: editor::CellAlignmentEdit,
+}
+
+#[pymethods]
+impl PyCellAlignmentEdit {
+    #[new]
+    fn new(
+        target: PyRef<'_, PyTableAnchor>,
+        row_index: usize,
+        cell_index: usize,
+        alignment: &str,
+    ) -> PyResult<Self> {
+        let alignment = match alignment {
+            "top" => crate::VerticalAlignment::Top,
+            "center" => crate::VerticalAlignment::Center,
+            "bottom" => crate::VerticalAlignment::Bottom,
+            "both" => crate::VerticalAlignment::Both,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "alignment must be top, center, bottom or both",
+                ));
+            }
+        };
+        Ok(Self {
+            inner: editor::CellAlignmentEdit {
+                target: target.inner.clone(),
+                row_index,
+                cell_index,
+                alignment,
+            },
+        })
+    }
+}
+
+#[pyclass(name = "CellAlignmentChange", frozen, module = "rocx.editor", get_all)]
+struct PyCellAlignmentChange {
+    body_index: usize,
+    row_index: usize,
+    cell_index: usize,
+    before: Option<String>,
+    after: &'static str,
+}
+
+fn cell_alignment_name(value: crate::VerticalAlignment) -> &'static str {
+    match value {
+        crate::VerticalAlignment::Top => "top",
+        crate::VerticalAlignment::Center => "center",
+        crate::VerticalAlignment::Bottom => "bottom",
+        crate::VerticalAlignment::Both => "both",
+    }
 }
 
 #[pymethods]
@@ -566,6 +620,24 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    #[getter]
+    fn cell_alignment_changes(&self) -> PyResult<Vec<PyCellAlignmentChange>> {
+        let preview = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?;
+        Ok(preview
+            .cell_alignment_changes()
+            .iter()
+            .map(|c| PyCellAlignmentChange {
+                body_index: c.body_index,
+                row_index: c.row_index,
+                cell_index: c.cell_index,
+                before: c.before.clone(),
+                after: cell_alignment_name(c.after),
+            })
+            .collect())
+    }
     #[getter]
     fn run_text_changes(&self) -> PyResult<Vec<PyRunTextChange>> {
         Ok(self
@@ -811,13 +883,14 @@ impl PyImportedDocument {
     }
 
     /// Stage alignment edits, table insertions and header images against one snapshot.
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, cell_alignments=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
         table_insertions: Option<Vec<PyRef<'_, PyTableInsertion>>>,
         header_images: Option<Vec<PyRef<'_, PyHeaderImageEdit>>>,
         run_text: Option<Vec<PyRef<'_, PyRunTextEdit>>>,
+        cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -845,11 +918,16 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_with_text(
+                doc.preview_with_cells(
                     &edits,
                     &insertions,
                     &header_images,
                     &run_text
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| e.inner.clone())
+                        .collect::<Vec<_>>(),
+                    &cell_alignments
                         .unwrap_or_default()
                         .iter()
                         .map(|e| e.inner.clone())
@@ -881,6 +959,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedHyperlink>()?;
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
+    module.add_class::<PyCellAlignmentEdit>()?;
+    module.add_class::<PyCellAlignmentChange>()?;
     module.add_class::<PyImportedTableRow>()?;
     module.add_class::<PyImportedTableCell>()?;
     module.add_class::<PyImportedCellParagraph>()?;

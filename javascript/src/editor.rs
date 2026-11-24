@@ -11,7 +11,7 @@ use rocx::{
     ResolvedImage, ResolvedTable, Result,
     editor::{
         EditPreview, HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit,
-        HeaderImagePreview, ParagraphAlignmentEdit, ParagraphAnchor, TableInsertion,
+        HeaderImagePreview, ParagraphAlignmentEdit, ParagraphAnchor, TableAnchor, TableInsertion,
     },
 };
 use wasm_bindgen::JsValue;
@@ -24,6 +24,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
             (preview_header, Paths::Package),
         ),
         ("editPreviewChanges", (changes, Paths::Package)),
+        (
+            "editPreviewCellAlignmentChanges",
+            (cell_alignment_changes, Paths::Package),
+        ),
         (
             "editPreviewRunTextChanges",
             (run_text_changes, Paths::Package),
@@ -81,6 +85,36 @@ fn table_insertion(input: &Wire, path: &str) -> Result<TableInsertion> {
     })
 }
 
+fn cell_alignment_edit(input: &Wire, path: &str) -> Result<rocx::editor::CellAlignmentEdit> {
+    let edit = Record::new(
+        input,
+        path,
+        &["target", "rowIndex", "cellIndex", "alignment"],
+    )?;
+    let index = |name: &str| -> Result<usize> {
+        usize::try_from(b::u64_number(&edit.get(name)?, &edit.path(name))?)
+            .map_err(|_| Failure::invalid(&edit.path(name), "index is too large"))
+    };
+    let alignment = match b::string(&edit.get("alignment")?, &edit.path("alignment"))?.as_str() {
+        "top" => rocx::VerticalAlignment::Top,
+        "center" => rocx::VerticalAlignment::Center,
+        "bottom" => rocx::VerticalAlignment::Bottom,
+        "both" => rocx::VerticalAlignment::Both,
+        _ => {
+            return Err(Failure::invalid(
+                &edit.path("alignment"),
+                "unknown vertical alignment",
+            ));
+        }
+    };
+    Ok(rocx::editor::CellAlignmentEdit {
+        target: (*borrow_target::<TableAnchor>(&edit, &edit.path("target"))?).clone(),
+        row_index: index("rowIndex")?,
+        cell_index: index("cellIndex")?,
+        alignment,
+    })
+}
+
 fn header_edit(input: &Wire, path: &str) -> Result<HeaderImageEdit> {
     let edit = Record::new(input, path, &["target", "mode", "image"])?;
     let mode_path = edit.path("mode");
@@ -107,9 +141,15 @@ fn preview(input: &Wire) -> Result<JsValue> {
     let batch = Record::new(
         &argument(&call, "batch")?,
         "batch",
-        &["alignments", "tableInsertions", "headerImages", "runText"],
+        &[
+            "alignments",
+            "tableInsertions",
+            "headerImages",
+            "runText",
+            "cellAlignments",
+        ],
     )?;
-    let preview = source.document().preview_with_text(
+    let preview = source.document().preview_with_cells(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -123,6 +163,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
                 text: b::string(&edit.get("text")?, &edit.path("text"))?,
             })
         })?,
+        &edits(&batch, "cellAlignments", cell_alignment_edit)?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",
@@ -130,6 +171,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         JsValue::UNDEFINED,
         &[
             ("changes", "editPreviewChanges"),
+            ("cellAlignmentChanges", "editPreviewCellAlignmentChanges"),
             ("runTextChanges", "editPreviewRunTextChanges"),
             ("insertions", "editPreviewInsertions"),
             ("headerChanges", "editPreviewHeaderChanges"),
@@ -156,6 +198,30 @@ fn preview_header(input: &Wire) -> Result<JsValue> {
 
 fn array(values: impl IntoIterator<Item = JsValue>) -> JsValue {
     values.into_iter().collect::<Array>().into()
+}
+
+fn cell_alignment_changes(input: &Wire) -> Result<JsValue> {
+    let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
+    Ok(array(preview.cell_alignment_changes().iter().map(
+        |change| {
+            let after = match change.after {
+                rocx::VerticalAlignment::Top => "top",
+                rocx::VerticalAlignment::Center => "center",
+                rocx::VerticalAlignment::Bottom => "bottom",
+                rocx::VerticalAlignment::Both => "both",
+            };
+            let result = b::record(&[
+                ("bodyIndex", change.body_index.into()),
+                ("rowIndex", change.row_index.into()),
+                ("cellIndex", change.cell_index.into()),
+                ("after", after.into()),
+            ]);
+            if let Some(before) = &change.before {
+                b::set(&result, "before", &before.into());
+            }
+            result
+        },
+    )))
 }
 
 fn changes(input: &Wire) -> Result<JsValue> {

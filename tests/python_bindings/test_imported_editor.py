@@ -15,6 +15,7 @@ from rocx.editor import (
     BodyOpaque,
     BodyParagraph,
     BodyTable,
+    CellAlignmentEdit,
     HeaderImageChange,
     HeaderImageEdit,
     HeaderImagePreview,
@@ -37,6 +38,35 @@ from rocx.editor import (
 )
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
+
+
+def test_cell_alignment_on_independent_table_and_atomic_rejection():
+    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+
+    source = docx.Document()
+    table = source.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "keep"
+    table.cell(0, 0).merge(table.cell(0, 1))
+    data = io.BytesIO()
+    source.save(data)
+    original = data.getvalue()
+    imported = ImportedDocument.open(original)
+    table_view = next(block for block in imported.body if isinstance(block, BodyTable))
+    edit = CellAlignmentEdit(table_view.anchor, 0, 0, "center")
+    preview = imported.preview([], cell_alignments=[edit])
+    assert [(c.row_index, c.cell_index, c.before, c.after) for c in preview.cell_alignment_changes] == [(0, 0, None, "center")]
+    result = preview.to_docx()
+    cell = docx.Document(io.BytesIO(result)).tables[0].cell(0, 0)
+    assert cell.text == "keep"
+    assert cell.vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert all(value == _parts(result)[name] for name, value in _parts(original).items() if name != "word/document.xml")
+    with pytest.raises(ValueError):
+        imported.preview([], cell_alignments=[edit, edit])
+    with pytest.raises(ValueError):
+        ImportedDocument.open(original).preview([], cell_alignments=[edit])
+    with pytest.raises(ValueError):
+        imported.preview([], cell_alignments=[CellAlignmentEdit(table_view.anchor, 8, 0, "top")])
+    assert _parts(imported.preview([]).to_docx()) == _parts(original)
 
 
 def test_run_text_batch_preserves_formatting_and_is_atomic():

@@ -1,5 +1,5 @@
 import type { ResolvedImage } from "./drawings.js";
-import type { HeaderAnchor, InlineAnchor, ParagraphAnchor } from "./inspection.js";
+import type { HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment } from "./text-layout.js";
 
@@ -12,6 +12,21 @@ export interface TableInsertion {
   /** Insert immediately after this original body paragraph. */
   readonly target: ParagraphAnchor;
   readonly table: ResolvedTable;
+}
+
+/** Physical row/cell indices include opaque children in the inspected view. */
+export interface CellAlignmentEdit {
+  readonly target: TableAnchor;
+  readonly rowIndex: number;
+  readonly cellIndex: number;
+  readonly alignment: "top" | "center" | "bottom" | "both";
+}
+export interface CellAlignmentChange {
+  readonly bodyIndex: number;
+  readonly rowIndex: number;
+  readonly cellIndex: number;
+  readonly before?: string;
+  readonly after: CellAlignmentEdit["alignment"];
 }
 
 export type HeaderEditMode = "shared" | "sectionLocal";
@@ -27,6 +42,7 @@ export interface EditBatch {
   readonly alignments?: readonly ParagraphAlignmentEdit[];
   readonly tableInsertions?: readonly TableInsertion[];
   readonly headerImages?: readonly HeaderImageEdit[];
+  readonly cellAlignments?: readonly CellAlignmentEdit[];
 }
 
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
@@ -63,6 +79,7 @@ export interface EditPreview {
   readonly [preview]: "edit";
   /** Changes in original body order, excluding unchanged alignments. */
   changes(): readonly AlignmentChange[];
+  cellAlignmentChanges(): readonly CellAlignmentChange[];
   runTextChanges(): readonly RunTextChange[];
   /** Insertions in original body order. */
   insertions(): readonly TableInsertionChange[];

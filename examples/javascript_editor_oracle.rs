@@ -138,6 +138,34 @@ fn main() {
             doc.preview_transaction(a, t, h).unwrap().to_docx().unwrap(),
         );
     }
+    let body = doc
+        .preview_transaction(&alignments, &insertions, &[])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let reopened = ImportedDocument::open(&body).unwrap();
+    let rocx::editor::BodyBlock::Table(table) = &reopened.body()[5] else {
+        panic!("expected second inserted table")
+    };
+    write(
+        "native-cell.docx",
+        reopened
+            .preview_with_cells(
+                &[],
+                &[],
+                &[],
+                &[],
+                &[rocx::editor::CellAlignmentEdit {
+                    target: table.anchor.clone(),
+                    row_index: 0,
+                    cell_index: 0,
+                    alignment: rocx::VerticalAlignment::Center,
+                }],
+            )
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     for (name, e) in [
         ("native-shared.docx", &shared),
         ("native-local.docx", &local[1]),

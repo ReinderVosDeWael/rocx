@@ -167,9 +167,17 @@ export async function generateCatalog(fixtures, options) {
   checkText(target.inlineItems, [EDIT_LABEL]);
   const bodyIndex = body.indexOf(target);
   const preview = previewTable(imported, target, bodyIndex, resolvedTable);
-  const edited = preview.toDocx();
+  let edited = preview.toDocx();
   assertBytes(edited, preview.toDocx(), "retained body preview must encode identically");
   await checkEdited(edited, bodyIndex, imported);
+  const reopenedForCell = await openDocx(edited);
+  const insertedTable = reopenedForCell.body()[bodyIndex + 1];
+  assert(insertedTable.kind === "table", "expected inserted table");
+  const cellPreview = reopenedForCell.preview({ cellAlignments: [
+    { target: insertedTable.anchor, rowIndex: 0, cellIndex: 0, alignment: "center" },
+  ] });
+  assert(cellPreview.cellAlignmentChanges().length === 1, "expected cell alignment change");
+  edited = cellPreview.toDocx();
   const otherSnapshot = await openDocx(final);
   assertThrows(() => otherSnapshot.preview({runText: [textEdit]}), "accepted a foreign run-text edit");
   assertThrows(() => imported.preview({runText: [{target: reviewRun.anchor, text: "Wrong story"}]}),

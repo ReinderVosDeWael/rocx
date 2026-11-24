@@ -145,6 +145,7 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             assert len(rows) == 1
             cells = rows[0].xpath("w:tc", namespaces=NS)
             assert len(cells) == 2
+            assert cells[0].xpath("w:tcPr/w:vAlign/@w:val", namespaces=NS) == ["center"]
             assert cells[0].xpath(".//w:t/text()", namespaces=NS) == [EDIT_TABLE_LABEL]
             assert cells[0].xpath(".//w:r[w:t=$label]/w:rPr/w:b/@w:val",
                                   namespaces=NS, label=EDIT_TABLE_LABEL) == ["1"]

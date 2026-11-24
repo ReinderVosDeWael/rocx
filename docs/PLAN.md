@@ -120,6 +120,17 @@ independent readback and untouched payloads were checked separately.
 The [evidence and review notes](JAVASCRIPT-PARITY.md#qualification-and-independent-review)
 record the final same-tarball matrix.
 
+The existing-table slice stages direct physical-cell vertical-alignment edits
+alongside other preview operations. It validates explicit grids and vertical
+merge chains, rejects unsupported structures, and preserves unrelated cell
+properties. The three catalogs exercise the same patch on their inserted table.
+Packed Node 22.23.5 and 24.22.3 and Chromium 159 development and production
+consumers passed, including clean offline provenance replay. All seven catalog
+artifacts matched Rust and Python byte for byte. The cell-edit oracle matched
+the installed consumers exactly and passed 11-part schema and OPC validation;
+the edited catalog passed 20-part schema and OPC validation. Independent
+readback and untouched-part checks also passed.
+
 Workstream acceptance criteria:
 
 1. Inventory the Rust surface. Map each public authoring, resolution, template, and editor capability to a JavaScript API and a test. Use Rust source as the baseline; the all-features example alone is not proof of completeness.

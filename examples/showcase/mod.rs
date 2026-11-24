@@ -688,7 +688,23 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_ne!(first.anchor, prefix.anchor);
     assert!(matches!(reopened.inline_at(&suffix.anchor)?, Run(run) if run.anchor == suffix.anchor));
     assert!(imported.inline_at(&suffix.anchor).is_err());
-    std::fs::write(output.with_extension("edited.docx"), edited)?;
+    let cell_preview = reopened.preview_with_cells(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[editor::CellAlignmentEdit {
+            target: table.anchor.clone(),
+            row_index: 0,
+            cell_index: 0,
+            alignment: VerticalAlignment::Center,
+        }],
+    )?;
+    assert_eq!(cell_preview.cell_alignment_changes().len(), 1);
+    std::fs::write(
+        output.with_extension("edited.docx"),
+        cell_preview.to_docx()?,
+    )?;
 
     // Both previews start from the same snapshot: two sections share one header part.
     let mut first = Section::new(vec![p(HEADER_BATCH_LABEL)]);

@@ -33,6 +33,183 @@ fn fixture() -> Vec<u8> {
     fixture_with_body(BODY)
 }
 
+#[test]
+fn cell_alignment_patch_validates_grid_and_preserves_other_content() {
+    use rocx::{VerticalAlignment, editor::CellAlignmentEdit};
+    let xml = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblPr/><w:tblGrid><w:gridCol/><w:gridCol/></w:tblGrid>
+<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge w:val="restart"/><w:shd w:fill="FF0000"/></w:tcPr><w:p/></w:tc></w:tr>
+<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let source = fixture_with_body(&xml);
+    let doc = ImportedDocument::open(&source).unwrap();
+    let BodyBlock::Table(table) = &doc.body()[0] else {
+        panic!("table")
+    };
+    let edit = CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Center,
+    };
+    let preview = doc
+        .preview_with_cells(&[], &[], &[], &[], std::slice::from_ref(&edit))
+        .unwrap();
+    assert_eq!(preview.cell_alignment_changes().len(), 1);
+    let result = parts(&preview.to_docx().unwrap());
+    let source_parts = parts(&source);
+    let before_xml = std::str::from_utf8(&source_parts["word/document.xml"]).unwrap();
+    let xml = String::from_utf8(result["word/document.xml"].clone()).unwrap();
+    let before = roxmltree::Document::parse(before_xml).unwrap();
+    let after = roxmltree::Document::parse(&xml).unwrap();
+    let preserved = |document: &roxmltree::Document<'_>| {
+        document
+            .descendants()
+            .filter(|n| n.has_tag_name((W, "tcPr")))
+            .map(|props| {
+                props
+                    .children()
+                    .filter(|n| !n.has_tag_name((W, "vAlign")))
+                    .map(|n| tree(n, false))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(preserved(&before), preserved(&after));
+    assert_eq!(
+        after
+            .descendants()
+            .filter(|n| n.has_tag_name((W, "vAlign")))
+            .map(|n| n.attribute((W, "val")))
+            .collect::<Vec<_>>(),
+        [Some("center")]
+    );
+    for (name, data) in parts(&source) {
+        if name != "word/document.xml" {
+            assert_eq!(result[&name], data);
+        }
+    }
+    assert!(
+        doc.preview_with_cells(&[], &[], &[], &[], &[edit.clone(), edit.clone()])
+            .is_err()
+    );
+    let other = ImportedDocument::open(&source).unwrap();
+    assert!(
+        other
+            .preview_with_cells(&[], &[], &[], &[], &[edit])
+            .is_err()
+    );
+    let broken = xml.replace("w:val=\"restart\"", "w:val=\"continue\"");
+    let broken_doc = ImportedDocument::open(&fixture_with_body(&broken)).unwrap();
+    let BodyBlock::Table(table) = &broken_doc.body()[0] else {
+        panic!("table")
+    };
+    let invalid = CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Top,
+    };
+    assert!(
+        broken_doc
+            .preview_with_cells(&[], &[], &[], &[], &[invalid])
+            .is_err()
+    );
+    let reopened = ImportedDocument::open(&preview.to_docx().unwrap()).unwrap();
+    let BodyBlock::Table(table) = &reopened.body()[0] else {
+        panic!("table")
+    };
+    let noop = CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index: 0,
+        cell_index: 0,
+        alignment: VerticalAlignment::Center,
+    };
+    assert!(
+        reopened
+            .preview_with_cells(&[], &[], &[], &[], std::slice::from_ref(&noop))
+            .unwrap()
+            .cell_alignment_changes()
+            .is_empty()
+    );
+    let continuation = CellAlignmentEdit {
+        row_index: 1,
+        alignment: VerticalAlignment::Bottom,
+        ..noop.clone()
+    };
+    assert_eq!(
+        reopened
+            .preview_with_cells(&[], &[], &[], &[], &[continuation])
+            .unwrap()
+            .cell_alignment_changes()
+            .len(),
+        1
+    );
+    let missing = CellAlignmentEdit {
+        row_index: 8,
+        ..noop
+    };
+    assert!(
+        reopened
+            .preview_with_cells(&[], &[], &[], &[], &[missing])
+            .is_err()
+    );
+}
+
+#[test]
+fn cell_alignment_rejects_unsafe_table_layouts_atomically() {
+    use rocx::{VerticalAlignment, editor::CellAlignmentEdit};
+    let base = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:p><w:r><w:t>before</w:t></w:r></w:p><w:tbl><w:tblGrid><w:gridCol/><w:gridCol/></w:tblGrid><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge w:val="restart"/></w:tcPr><w:p/></w:tc></w:tr><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:vMerge/></w:tcPr><w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let cases = [
+        base.replace("w:val=\"restart\"", "w:val=\"continue\""),
+        base.replace("w:val=\"2\"", "w:val=\"3\""),
+        base.replace("<w:vMerge/>", "<w:hMerge/>"),
+        base.replace(
+            "<w:vMerge/>",
+            "<w:vMerge/><w:vAlign w:val=\"top\"/><w:vAlign w:val=\"bottom\"/>",
+        ),
+        base.replace(
+            "<w:tr><w:tc>",
+            "<w:tr><w:trPr><w:gridBefore w:val=\"1\"/></w:trPr><w:tc>",
+        ),
+        base.replace("<w:tr><w:tc>", "<w:tr><w:sdt/><w:tc>"),
+        base.replace("<w:vMerge/>", "<w:tcPrChange w:id=\"1\"/>"),
+    ];
+    for xml in cases {
+        let source = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&source).unwrap();
+        let BodyBlock::Table(table) = &doc.body()[1] else {
+            panic!("table")
+        };
+        let edit = CellAlignmentEdit {
+            target: table.anchor.clone(),
+            row_index: 0,
+            cell_index: 0,
+            alignment: VerticalAlignment::Center,
+        };
+        let paragraph = paragraph(&doc, 0);
+        assert!(
+            doc.preview_with_cells(
+                &[ParagraphAlignmentEdit {
+                    target: paragraph.anchor.clone(),
+                    alignment: Alignment::Right
+                }],
+                &[],
+                &[],
+                &[],
+                &[edit],
+            )
+            .is_err()
+        );
+        assert_eq!(
+            parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+            parts(&source)
+        );
+    }
+}
+
 fn fixture_with_body(xml: &str) -> Vec<u8> {
     let original = block_on(
         Document::new(vec![

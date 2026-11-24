@@ -3,6 +3,13 @@
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:
 
+The edited catalog also patches the first physical cell of the inserted table
+to vertical center in a second snapshot. Equivalent APIs are Rust
+`preview_with_cells` with `CellAlignmentEdit`, Python `preview(...,
+cell_alignments=[CellAlignmentEdit(...)])`, and JavaScript `preview({
+cellAlignments: [...] })`. Each uses the table anchor and physical row/cell
+indices from that snapshot.
+
 - [Rust entrypoint](all_features.rs), with [support modules](showcase/).
 - [Python program](all_features.py).
 - [JavaScript program](javascript/catalog.mjs) using named `declarative` factories,
