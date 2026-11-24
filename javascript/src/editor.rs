@@ -20,6 +20,7 @@ use wasm_bindgen::JsValue;
 pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("importedEditStoryText", (story_text, Paths::Package)),
+        ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
@@ -350,6 +351,24 @@ fn run_text_edit(input: &Wire, path: &str) -> Result<rocx::editor::RunTextEdit> 
         target: crate::inspection::inline_anchor(&edit.get("target")?, &edit.path("target"))?,
         text: b::string(&edit.get("text")?, &edit.path("text"))?,
     })
+}
+
+fn entry_inlines(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["ownerPart", "inlineEdits"],
+    )?;
+    let owner = b::string(&batch.get("ownerPart")?, "batch.ownerPart")?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_entry_inlines(&owner, &edits(&batch, "inlineEdits", inline_edit)?)?
+            .as_slice(),
+    )
+    .into())
 }
 
 fn story_text(input: &Wire) -> Result<JsValue> {

@@ -4,6 +4,7 @@ import {
   assert, assertBytes, authorCatalog, storyLabel,
 } from "./catalog/authoring.mjs";
 import { EDIT_LABEL, INLINE_LABEL, INLINE_LINK_RUNS, para, row, run, table, tableCell, text } from "./catalog/blocks.mjs";
+import { hyperlink } from "./catalog/stories.mjs";
 
 export const catalogNames = Object.freeze({
   final: "all_features-javascript.docx",
@@ -175,10 +176,23 @@ export async function generateCatalog(fixtures, options) {
   assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
   let entryText = final;
   for (const kind of ["footnote", "endnote", "comment"]) {
-    const source = await openDocx(entryText);
-    const entry = source.entryStories().find(e => e.kind === kind && (kind === "comment" ? e.author === "Structured reviewer" : e.id === "0"));
-    const run = entry.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items.length === 1 && n.items[0].kind === "text");
-    entryText = source.editStoryText({ownerPart: entry.partName, runText: [{target: run.anchor, text: `Edited ${kind} entry`}]});
+    let source = await openDocx(entryText);
+    const select = doc => doc.entryStories().find(e => e.kind === kind && (kind === "comment" ? e.author === "Structured reviewer" : e.id === "0"));
+    let entry = select(source);
+    const first = entry.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items.length === 1 && n.items[0].kind === "text");
+    const label = `Edited ${kind} entry`;
+    source = await openDocx(source.editStoryText({ownerPart: entry.partName, runText: [{target: first.anchor, text: label}]}));
+    entry = select(source);
+    const run = entry.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items[0]?.text === label);
+    const inline = await resolveComponent(hyperlink({kind: "external", url: "https://example.com/entry-review"}, [text("Review link")]));
+    const edit = {kind: "insertAfter", target: run.anchor, inline};
+    const batch = {ownerPart: entry.partName, inlineEdits: [edit]};
+    assertThrows(() => source.editEntryInlines({...batch, inlineEdits: [edit, edit]}), "accepted duplicate entry targets");
+    entryText = source.editEntryInlines(batch);
+    const reopened = await openDocx(entryText);
+    assertThrows(() => reopened.editEntryInlines(batch), "accepted a stale entry anchor");
+    assert(reopened.entryStories().find(e => e.kind === kind && e.id === entry.id)
+      .blocks[0].inlineStructure.some(n => n.kind === "hyperlink" && n.children[0].items[0].text === "Review link"), "missing inserted link");
   }
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });

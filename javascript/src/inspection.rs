@@ -54,6 +54,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
+    ("editEntryInlines", "importedEditEntryInlines"),
     ("previewTrackedText", "importedPreviewTrackedText"),
     ("previewTrackedMove", "importedPreviewTrackedMove"),
     ("previewRevision", "importedPreviewRevision"),

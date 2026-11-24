@@ -91,6 +91,8 @@ fn editor_styles(package: &Package, main: &str, style_refs: StyleRefs) -> Result
 pub(crate) fn encode_editor_inlines(
     package: Package,
     main: &str,
+    owner: &str,
+    kind: StoryKind,
     inlines: &[&ResolvedInline],
 ) -> Result<(Package, Vec<Vec<Node>>)> {
     let mut refs = StyleRefs::new();
@@ -100,10 +102,9 @@ pub(crate) fn encode_editor_inlines(
     }
     let styles = editor_styles(&package, main, refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
-    let story =
-        renderer
-            .stories
-            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+    let story = renderer
+        .stories
+        .register(kind, PartName::new(owner)?, StoryContent::Blocks)?;
     let context = renderer.context(story, 8640);
     let output = inlines
         .iter()

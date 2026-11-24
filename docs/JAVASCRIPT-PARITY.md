@@ -364,6 +364,8 @@ E04's report arrays; `before` is absent for a previously unset alignment.
   row/cell wrappers may remain opaque. All six header/footer variants can be
   inspected and accept shared or section-local inline images. `editStoryText`
   edits supported direct runs in a named physical header/footer or entry part.
+  `editEntryInlines` inserts/replaces eligible direct inlines in ordinary
+  note/comment entries, and can patch direct run bold.
   Direct body paragraph alignment and physical cell vertical alignment are
   separate patches. The editor also supports targeted control metadata/text,
   tracked edits/review in direct body paragraphs, and guarded style edits;

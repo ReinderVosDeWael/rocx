@@ -26,6 +26,8 @@ and footer references without simulating page selection. Every effective slot
 exposes an image-edit anchor; ``ImportedDocument.default_headers``
 also exposes the default-header targets. Use ``edit_story_text(owner_part, edits)``
 for single-text runs in a physical header/footer or note/comment owner.
+Use ``edit_entry_inlines(owner_part, edits)`` for resolved inline insertion,
+replacement, or direct run bold in ordinary note/comment definitions.
 """
 
 from ._native import (
