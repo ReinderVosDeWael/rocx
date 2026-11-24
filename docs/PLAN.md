@@ -4,6 +4,36 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+**#48 / style recovery atop `7d5d08b`:** recover the pending numbering work,
+compound style changes from `e7c7696`, and the pending numbering-style
+ownership regression in a separate worktree. The transaction stages abstract
+and instance replacements before styles and payloads, and rechecks removals
+against the finished package. Direct footer/header, ordinary note/comment
+and physical table-cell paragraphs can take numbering references. The CLI
+resolves those addresses against the digest-bound source and exposes abstract
+and instance replacement, level edits, relinking and explicit style retargeting.
+Equivalent level payloads and compatible default/metadata scalar lexemes
+remain untouched.
+
+Qualification: 341 Rust all-feature/all-target tests, three doctests, and
+974 schema-required tests against the installed Python 3.12 wheel passed.
+Rust 1.88, native/Wasm Clippy, strict installed TypeScript, offline Wasm/glue
+replay and the 632-page strict docs build passed. All 12 catalogs matched
+exactly across Rust, installed Python, packed Node 22/24/26 and Chromium 159
+development/production. All 29 editor outputs matched Rust in those packed
+consumers and passed schema/OPC checks. An independent footer/cell fixture
+matched Rust CLI, installed Python and packed Node byte for byte, including
+no-op, stale-anchor, duplicate, live-reference and opaque-markup probes.
+
+Keep #48 open. The direct readers do not reconstruct full abstract/override
+level bodies or expose their abstract style links; edits cannot change levels
+of style-linked abstracts, relink across them, or drop a level address of a
+surviving instance. Nested or protected paragraph targets aren't supported.
+Unmodeled defaults, extended metadata and non-string/non-boolean custom
+variants are retained but not editable; the CLI still uses declaration
+shorthands. Style retargeting is restricted to provable, same-kind stored IDs;
+unknown references and lexical alias collisions remain conservative blockers.
+
 Primary integration ([#65](https://github.com/ReinderVosDeWael/rocx/pull/65)):
 the point, section, formatting, story and lifecycle work from `a30c516` is
 combined with `ea1c023` and the preservation guards from `ee4f8f5`. The merge
@@ -74,10 +104,10 @@ in Rust, Python and Node; all 24 editor outputs matched Rust/Node, and all 11
 catalog outputs matched across the three bindings. The mixed catalog passed
 schema/OPC checks and independent numbering readback.
 
-Next numbering increment: allocate a missing numbering part beside the main
-document, replace supported abstract levels and relink existing instances
-without breaking consumer level addresses, and edit direct story paragraphs
-through their original physical owner.
+The recovered numbering increment allocates missing parts beside the main
+document, replaces supported levels and relinks instances without breaking
+consumer level addresses, and edits direct story paragraphs through their
+original physical owner.
  The standalone #3 style increment adds attribute-level formatting and tab edits,
 collision-safe creation of an absent styles relationship, and explicit guarded
 style-reference migration. The three style oracles matched complete Rust,

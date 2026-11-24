@@ -156,8 +156,8 @@ must match its target. Level declarations cannot link paragraph styles. A
 replacement and a start override may coexist; clearing either retains the other.
 Pass `None`/`null` to clear. Omit an edit to retain that property.
 Replace or clear only modeled level content. Whole abstract replacement
-retains the abstract ID, metadata and unrelated siblings; a supported equivalent
-level is a no-op. A surviving instance must keep its old level addresses. A
+retains the abstract ID, metadata and unrelated siblings; reapplying the same
+modeled level payload is a no-op. A surviving instance must keep its old level addresses. A
 linked numbering style prevents abstract level replacement or relinking across
 that abstract. Concrete replacement takes an explicit abstract ID and may
 specify start and level overrides, but cannot declare abstract levels or
@@ -191,9 +191,10 @@ parts, including styles, note stories and headers; fields, opaque extensions or
 uninspectable parts can prevent removal even without a known direct reference.
 Duplicate edits and dangling targets fail the entire preview.
 
-There is no general whole-definition replacement, instance relinking, in-place
-abstract level insertion/removal, relinking an existing numbering style, or direct reference
-editing in other stories.
+Full typed level bodies and abstract style links are not exposed by the
+inspection API. Level declarations that link paragraph styles, changes to
+style-linked abstract levels, and rewriting existing numbering-style ownership
+remain unsupported. The editor does not compute inherited numbering.
 
 A new numbering style may bind a concrete instance created in the same
 preview. The style stores its `numId`, and the abstract gets a reciprocal

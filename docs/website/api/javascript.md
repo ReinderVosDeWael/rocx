@@ -228,9 +228,11 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   kind: "layout", value: "fixed" | "autofit" | null}` to set or clear direct
   layout. Inspect a table's `layout`, `gridWidths` (twips), and each physical
   cell's `gridSpan` and `verticalMerge`.
-- `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
-  Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
-  without discarding other properties; replace/remove only safe unused custom styles.
+- `styleEdits` accepts `op: "add"`, `"patch"`, `"field"`, `"region"`, `"replace"`,
+  `"remove"` or `"retarget"`. Obtain existing targets with `styleAnchor(id)`.
+  Direct field patches retain unspecified properties. Retargeting migrates only
+  proven references to a same-kind style and must be the sole style operation
+  in its batch. Ordinary replace/remove require an unused custom style.
 - `resources` accepts `kind: "coreTitle"`, `"coreSubject"`, `"defaultAlignment"` or `"abstractStart"`
   with `value` (`null` clears). Abstract starts also require `abstractId` and
   `level`. Inspect direct values with `coreTitle()`, `coreSubject()`, `defaultAlignment()` and
@@ -246,12 +248,17 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   return `undefined`. Pass `{kind: "metadata", field, value}` or
   `{kind: "customProperty", name, value}` in `resources`; `null` removes the property.
 
-- Numbering resource edits include `addAbstract`, `removeAbstract`, `addInstance`,
-  `removeInstance`, `instanceStart`, `instanceLevel` and `paragraphNumbering`.
+- Numbering resource edits include `addAbstract`, `replaceAbstract`, `abstractLevel`,
+  `removeAbstract`, `addInstance`, `replaceInstance`, `relinkInstance`,
+  `removeInstance`, `instanceStart`, `instanceLevel`, `paragraphNumbering` and
+  `storyParagraphNumbering`.
   `numberingInstances()` lists concrete IDs, abstract links, start overrides and
   replacement-level indices. `paragraphNumbering(anchor)` returns a direct
-  `{id, level}` or `undefined`. Clear an override or direct reference with
-  `value: null`. Live references and opaque content can block removal.
+  `{id, level}` or `undefined`. `storyParagraphAnchor({ownerPart, blockIndex,
+  entryId?})` and `cellParagraphAnchor({target, rowIndex, cellIndex, blockIndex})`
+  locate direct physical paragraphs for `storyParagraphNumbering(anchor)` and
+  the corresponding edit. Clear an override or direct reference with `value: null`.
+  Live references and opaque content can block removal.
 
 ```javascript
 import { openDocx } from "rocx-docx";
