@@ -30,13 +30,23 @@ This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarati
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
-Rust and Python. The table anchor is inspection-only: it cannot be used as a paragraph
-edit target. Rows and cells have no independent edit identities yet. Table, row,
-cell, and paragraph properties (including grids, spans, and merges) are not
-interpreted; physical cells are not expanded into a logical grid. Unsupported
+Rust, Python and JavaScript. The table anchor plus physical row and cell indices
+can target a vertical-alignment patch, but cannot be used as a paragraph edit
+target. Rows and cells have no independent edit identities yet. The patch
+validates the explicit grid, spans and vertical merge chains; it rejects omitted
+grid columns, horizontal merges, tracked cell-property changes and opaque row or
+cell wrappers. It edits the selected physical cell, including a merge continuation,
+not all cells in a merged region. Other cell properties remain untouched.
+Physical cells are not expanded into a logical grid. Unsupported
 children, including nested tables and controls, are retained as opaque element
 names in their original order; their markup stays in the source package.
 Tables in other stories are not inspected by this slice.
+
+In Rust use `CellAlignmentEdit` with `preview_with_cells`; in Python use
+`CellAlignmentEdit` with `preview(..., cell_alignments=[...])`; in JavaScript
+use `preview({ cellAlignments: [...] })`. Indices refer to the original
+snapshot's inspected children, including opaque entries. Duplicate, missing,
+foreign-snapshot and structurally ambiguous targets reject the entire batch.
 
 Direct body, header, and footer paragraphs retain run and hyperlink boundaries through
 `inline_structure`. Hyperlinks expose their explicit owner-local relationship

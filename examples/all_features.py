@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion, RunTextEdit,
+    TableInsertion, RunTextEdit, CellAlignmentEdit,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -516,7 +516,9 @@ async def generate(output: pathlib.Path) -> bytes:
     reopened_again = ImportedDocument.open(edited)
     other_cell = reopened_again.body[table_index].children[0].children[1]
     assert other_cell.blocks[0].inline_structure[1].anchor != suffix.anchor
-    output.with_suffix(".edited.docx").write_bytes(edited)
+    cell_preview = reopened.preview([], cell_alignments=[CellAlignmentEdit(inserted.anchor, 0, 0, "center")])
+    assert len(cell_preview.cell_alignment_changes) == 1
+    output.with_suffix(".edited.docx").write_bytes(cell_preview.to_docx())
 
     # Inspect inherited header/footer slots before editing the default header.
     header_paragraph = d.Paragraph(children=[

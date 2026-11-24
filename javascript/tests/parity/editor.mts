@@ -149,6 +149,20 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   ], "table placement including immediately after section terminator");
   same(paragraph(reopened, 0).alignment, "center", "reopened first alignment");
   same(paragraph(reopened, 2).alignment, "right", "reopened second alignment");
+  const insertedTable = reopened.body()[5];
+  check(insertedTable?.kind === "table", "inserted table is inspectable");
+  const cellEdit = { target: insertedTable.anchor, rowIndex: 0, cellIndex: 0, alignment: "center" } as const;
+  const cellPreview = reopened.preview({ cellAlignments: [cellEdit] });
+  same(cellPreview.cellAlignmentChanges(), [{ bodyIndex: 5, rowIndex: 0, cellIndex: 0, after: "center" }],
+    "physical cell patch report");
+  rejects(() => reopened.preview({ cellAlignments: [cellEdit, cellEdit] }), /duplicate cell/);
+  rejects(() => reopened.preview({ cellAlignments: [{ ...cellEdit, rowIndex: 8 }] }), /not found/);
+  rejects(() => doc.preview({ cellAlignments: [cellEdit] }), /different document snapshot/);
+  const cellAfter = await openDocx(cellPreview.toDocx());
+  const patchedTable = cellAfter.body()[5];
+  check(patchedTable?.kind === "table", "patched table remains inspectable");
+  same(cellAfter.preview({ cellAlignments: [{ ...cellEdit, target: patchedTable.anchor }] }).cellAlignmentChanges(),
+    [], "unchanged cell alignment omitted");
   same(paragraph(doc, 0).alignmentXml, "start", "original alignment is unchanged");
   const noop = doc.preview({ alignments: [{ target: paragraph(doc, 4).anchor, alignment: "right" }] });
   same(noop.changes(), [], "unchanged alignment omitted");
@@ -165,7 +179,7 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   rejects(() => unsafe.preview({ tableInsertions: [{ ...insert, target: paragraph(unsafe, 0).anchor }] }), /range/);
   const ambiguous = await openDocx(input.ambiguous);
   rejects(() => ambiguous.preview({ alignments: [{ ...align, target: paragraph(ambiguous, 0).anchor }] }), /ambiguous/);
-  return { body: bytes, noop: noop.toDocx() };
+  return { body: bytes, noop: noop.toDocx(), cell: cellPreview.toDocx() };
 }
 
 export async function headerImageScopesAndEffects(input: Fixtures, { image, floating }: Payloads) {

@@ -262,6 +262,13 @@ def verify(directory):
     assert readback.tables[0].cell(0, 0).tables[0].cell(0, 0).text == "nested A"
     assert len(readback.inline_shapes) == 1
 
+    cell_output = parts(directory / "cell.docx")
+    untouched(body, cell_output, (MAIN,))
+    from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+    cell_readback = Document(directory / "cell.docx")
+    assert cell_readback.tables[1].cell(0, 0).vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert cell_readback.tables[1].cell(0, 0).text == "next A"
+
     shared = parts(directory / "shared.docx")
     untouched(source, shared, (HEADER, HEADER_RELS, TYPES))
     inspect_header(source, shared, reports["shared"], image)

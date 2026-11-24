@@ -427,7 +427,7 @@ struct PyBodyTable {
 
 #[pyclass(name = "TableAnchor", frozen, module = "rocx.editor")]
 struct PyTableAnchor {
-    _inner: editor::TableAnchor,
+    inner: editor::TableAnchor,
 }
 
 #[pyclass(name = "ImportedTableRow", frozen, module = "rocx.editor")]
@@ -511,7 +511,7 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
             anchor: Py::new(
                 py,
                 PyTableAnchor {
-                    _inner: table.anchor.clone(),
+                    inner: table.anchor.clone(),
                 },
             )?,
             children,
@@ -540,6 +540,60 @@ struct PyBodyContentControl {
 struct PyParagraphAlignmentEdit {
     target: editor::ParagraphAnchor,
     alignment: crate::Alignment,
+}
+
+#[pyclass(name = "CellAlignmentEdit", frozen, module = "rocx.editor")]
+struct PyCellAlignmentEdit {
+    inner: editor::CellAlignmentEdit,
+}
+
+#[pymethods]
+impl PyCellAlignmentEdit {
+    #[new]
+    fn new(
+        target: PyRef<'_, PyTableAnchor>,
+        row_index: usize,
+        cell_index: usize,
+        alignment: &str,
+    ) -> PyResult<Self> {
+        let alignment = match alignment {
+            "top" => crate::VerticalAlignment::Top,
+            "center" => crate::VerticalAlignment::Center,
+            "bottom" => crate::VerticalAlignment::Bottom,
+            "both" => crate::VerticalAlignment::Both,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "alignment must be top, center, bottom or both",
+                ));
+            }
+        };
+        Ok(Self {
+            inner: editor::CellAlignmentEdit {
+                target: target.inner.clone(),
+                row_index,
+                cell_index,
+                alignment,
+            },
+        })
+    }
+}
+
+#[pyclass(name = "CellAlignmentChange", frozen, module = "rocx.editor", get_all)]
+struct PyCellAlignmentChange {
+    body_index: usize,
+    row_index: usize,
+    cell_index: usize,
+    before: Option<String>,
+    after: &'static str,
+}
+
+fn cell_alignment_name(value: crate::VerticalAlignment) -> &'static str {
+    match value {
+        crate::VerticalAlignment::Top => "top",
+        crate::VerticalAlignment::Center => "center",
+        crate::VerticalAlignment::Bottom => "bottom",
+        crate::VerticalAlignment::Both => "both",
+    }
 }
 
 #[pymethods]
@@ -1023,6 +1077,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
+    module.add_class::<PyCellAlignmentEdit>()?;
+    module.add_class::<PyCellAlignmentChange>()?;
     module.add_class::<PyImportedTableRow>()?;
     module.add_class::<PyImportedTableCell>()?;
     module.add_class::<PyImportedCellParagraph>()?;
