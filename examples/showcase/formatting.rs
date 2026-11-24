@@ -122,7 +122,7 @@ pub fn blocks(out: &mut BlockChildren) {
         );
     }
     out.push(heading("02 Run formatting, colors, scripts and whitespace"));
-    out.push(p("Chainable Rust builders: omitted, enabled and explicitly disabled bold; Python keywords author the same properties."));
+    out.push(p("Formatting declarations in Rust, Python and JavaScript: omitted, enabled and explicitly disabled bold."));
     out.push(
         Paragraph::from_children(vec![
             TextRun::new("Builder bold unspecified; ").into(),

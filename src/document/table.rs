@@ -224,17 +224,23 @@ impl ResolvedTable {
         if rows.is_empty() {
             return Ok(None);
         }
-        let columns = rows
-            .iter()
-            .map(|row| row.cells.iter().map(|c| c.grid_span as usize).sum())
-            .max()
-            .unwrap_or(0);
-        if columns > 16384 {
-            return Err(Diagnostic::new(
-                Rule::InvalidContent,
-                "table exceeds application column limit (16384)",
-            ));
+        const COLUMN_LIMIT: u32 = 16384;
+        let mut columns = 0;
+        for row in &rows {
+            let mut row_columns = 0;
+            for cell in &row.cells {
+                // Bound the total before adding untrusted spans, even on wasm32.
+                if cell.grid_span > COLUMN_LIMIT - row_columns {
+                    return Err(Diagnostic::new(
+                        Rule::InvalidContent,
+                        format!("table exceeds application column limit ({COLUMN_LIMIT})"),
+                    ));
+                }
+                row_columns += cell.grid_span;
+            }
+            columns = columns.max(row_columns);
         }
+        let columns = columns as usize;
         if rows.iter().flat_map(|r| &r.cells).any(|c| c.grid_span == 0) {
             return Err(Diagnostic::new(
                 Rule::InvalidContent,

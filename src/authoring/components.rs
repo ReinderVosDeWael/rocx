@@ -64,6 +64,12 @@ inline_from!(ImageRun, ImageRun);
 pub enum ImageData {
     Bytes(Vec<u8>),
     Path(std::path::PathBuf),
+    /// Encoded bytes loaded by a host, with the source name (typically a basename).
+    /// The resolver does not use this name to read a file or identify the format.
+    NamedBytes {
+        bytes: Vec<u8>,
+        source_name: String,
+    },
 }
 impl From<Vec<u8>> for ImageData {
     fn from(v: Vec<u8>) -> Self {

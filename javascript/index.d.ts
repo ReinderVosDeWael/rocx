@@ -74,10 +74,32 @@ export interface GenerateDocxError extends Error {
   readonly path?: string;
   /** Stable diagnostic code from the rocx engine, when available. */
   readonly rule?: string;
+  /** Original thrown/rejected host value, when available. */
+  readonly cause?: unknown;
 }
 
 /** Generate a complete DOCX package. Rejects with an Error on failure. */
 export function generateDocx(
   declaration: DocumentDeclaration,
   options?: GenerateOptions,
+): Promise<Uint8Array<ArrayBuffer>>;
+
+export * from "./types/boundary.js";
+export * from "./types/resolution.js";
+export * from "./types/text-layout.js";
+export * from "./types/styles.js";
+export * from "./types/tables.js";
+export * from "./types/drawings.js";
+export * from "./types/structured.js";
+export * from "./types/template.js";
+export * from "./types/inspection.js";
+export * from "./types/editor.js";
+
+import type { RenderOptions } from "./types/boundary.js";
+import type { DocumentProgram } from "./types/text-layout.js";
+
+/** Resolve once and render with independent output options. */
+export function generateDocx(
+  program: DocumentProgram,
+  options?: RenderOptions,
 ): Promise<Uint8Array<ArrayBuffer>>;

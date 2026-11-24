@@ -1,12 +1,11 @@
-# rocx-docx: JavaScript DOCX authoring
+# rocx-docx: JavaScript DOCX authoring, templates, and editing
 
 `rocx-docx` is an ESM package that uses the Rust rocx engine via WebAssembly.
-It exports one function with the same TypeScript declaration in Node and
-the browser:
-
-```ts
-generateDocx(declaration: DocumentDeclaration, options?: GenerateOptions): Promise<Uint8Array<ArrayBuffer>>
-```
+Use it to author a new DOCX, compose with a DOCX or DOTX template, or
+inspect and preview supported edits to an existing DOCX. The APIs below
+are implemented in this worktree and available in its local development
+tarball; they have not been released. Older `0.1.0` artifacts can differ.
+The existing `generateDocx({ blocks }, { timestamp })` API still works.
 
 The package is not on the npm registry. Install the packed `.tgz`; installation
 does not require Rust, a network connection, postinstall scripts, or runtime
@@ -14,15 +13,20 @@ dependencies.
 
 ## TypeScript declarations
 
-The package ships [`index.d.ts`](index.d.ts), including `DocumentDeclaration`,
-its block and run types, `GenerateOptions`, and `GenerateDocxError` for the
-optional declaration path and engine diagnostic code on errors.
+The installed package exports [`index.d.ts`](index.d.ts) and its
+[`types/`](types/) modules from `rocx-docx`. Import declaration types from
+that entry point, not from internal paths. Node filesystem helpers have
+[separate declarations](types/file-io.d.ts) at `rocx-docx/node`. See the
+[JavaScript API reference](https://reindervosdewael.github.io/rocx/api/javascript/)
+for an overview.
 
 ## Build and install the tarball
 
-Download and unpack a `rocx-docx-node-*` artifact from a successful
+Build the tarball from the checkout you want to use with Bash, `tar`, Cargo,
+and Node. Alternatively, download and unpack a `rocx-docx-node-*` artifact
+for the matching revision from a successful
 [Packed JavaScript consumer workflow run](https://github.com/ReinderVosDeWael/rocx/actions/workflows/javascript.yml),
-or build the same tarball from a checkout with Bash, `tar`, Cargo, and Node:
+if available. The filename alone does not identify the API revision.
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -33,7 +37,7 @@ npm pack ./javascript --pack-destination /tmp
 In your ESM or TypeScript project:
 
 ```sh
-npm install /tmp/rocx-docx-0.1.0.tgz
+npm install --ignore-scripts --offline /tmp/rocx-docx-0.1.0.tgz
 ```
 
 The tarball includes the generated Wasm and JS glue, declarations, the LGPL
@@ -45,7 +49,7 @@ and run the same commands there.
 
 | Runtime | Setup |
 | --- | --- |
-| Node.js 22.12+ (22.x), or 24+ | Use `import { generateDocx } from "rocx-docx"` in `.mjs`, or set `"type": "module"`. Node loads the installed Wasm from disk. CommonJS `require` is not a supported entry point. |
+| Node.js 22.12+ (22.x) and 24.x | Use ESM in `.mjs`, or set `"type": "module"`. Node loads the installed Wasm from disk. Use `rocx-docx/node` for local file helpers. CommonJS `require` is not a supported entry point. Later Node majors allowed by the manifest are not qualified here. |
 | Chrome/Chromium with Vite 7 | Use the same ESM import in client code. Vite serves the Wasm as an asset. Include `optimizeDeps: { exclude: ["rocx-docx"] }` in `vite.config.mjs` to keep the generated glue next to the Wasm in development. Serve the production output over HTTP(S). |
 | TypeScript 5.9 | Use `module: "NodeNext"` for Node, or `moduleResolution: "bundler"` for a browser client. The declarations ship with the package. |
 
@@ -58,9 +62,10 @@ integration are not part of this verified slice.
 
 ## Runnable report
 
-Both examples use [the same declaration](../examples/javascript/author.mjs):
-a bold/italic Unicode paragraph, a two-column table, and an inline picture
-with alternative text. Copy the example files into a fresh consumer and
+Both examples use [the same legacy declaration](../examples/javascript/author.mjs):
+a centered bold/italic Unicode paragraph, a two-column table with a rich cell
+and nested table, and a sized inline picture with alternative text.
+Copy the example files into a fresh consumer and
 install the tarball:
 
 ```sh
@@ -80,41 +85,97 @@ npm install /tmp/rocx-docx-0.1.0.tgz
   It does not upload the image. Run `npx vite build` and `npx vite preview` to
   try the production bundle.
 
-## Authoring scope
+## Choose a declaration API
 
-- One section with default layout. Paragraphs can set `alignment` and combine
-  text, inline images, tabs, breaks, and external hyperlinks in `runs`.
-  Text accepts optional `bold` and `italic`; `false` is an explicit override.
-  Breaks default to `"line"`; links take an absolute URI/IRI and their own
-  display runs (no nested hyperlinks). rocx does not fetch link targets.
-- Tables accept a nonempty rectangular grid. Each cell is a string (shorthand
-  for one plain paragraph) or `{ blocks: [...] }`. Cell blocks can include
-  formatted paragraphs and nested tables, up to 32 table levels.
-- Image runs accept already-encoded `Uint8Array` bytes, not a file path, URL, or
-  decoded pixels. PNG is exercised in the cross-runtime check; image format
-  detection uses the same PNG, JPEG, GIF, BMP, and TIFF reader as native rocx.
-  Optional positive `width` and `height` are in points. Supply neither for
-  intrinsic size, or just one to keep the intrinsic aspect ratio. The
-  optional `altText` becomes the picture description. Views, including views
-  created in another JavaScript realm, use only their selected bytes.
-- `generateDocx` rejects with an `Error` for invalid declarations or a rocx
-  rendering error. All input strings used as document content must contain
-  well-formed Unicode (no unpaired UTF-16 surrogates). Await file reads/fetches
-  before calling it; declarations do not accept callbacks or promises. Do not
-  mutate them until the call settles.
-- The optional `timestamp` is a UTC ISO string with second precision or three
-  fractional digits (for example `2026-11-21T00:00:00Z`). It defaults to the
-  host clock. Specify it for repeatable output.
+- **Legacy `DocumentDeclaration`:** `{ blocks }` creates one default section.
+  Paragraphs can set `alignment` and combine text, inline images, tabs, breaks,
+  and external hyperlinks. Text accepts optional `bold` and `italic`; `false`
+  is an explicit override. Breaks default to `"line"`. Hyperlinks take an
+  absolute URI/IRI and display runs, not nested hyperlinks. Tables accept
+  a nonempty rectangular grid of strings (plain paragraphs) or
+  `{ blocks: [...] }` cells, including nested tables up to 32 levels.
+  Image runs take encoded `bytes` and an optional `altText` description.
+  Positive `width` and `height` are in points; omit both for intrinsic size
+  or supply just one to keep the intrinsic aspect ratio. Legacy declarations
+  have no producers. The optional `timestamp` sets the snapshot's date and
+  defaults to the host clock. Use UTC ISO seconds or milliseconds, such as
+  `2026-11-21T00:00:00Z`, for repeatable output.
+- **`DocumentProgram`:** `{ sections }` supports multiple sections, page
+  layout, headers and footers, styles, numbering, rich tables, transformed
+  images, shapes and column charts, hyperlinks, fields, notes, and authored
+  controls and revisions. Tagged records use camelCase fields. Use
+  `generateDocx(program, options)` for a one-shot render or
+  `resolveDocument(program)` to inspect and render a snapshot more than once.
+  Set the program's `timestamp` for deterministic snapshot dates; a
+  `RenderOptions.timestamp` override only changes that output. Like Rust,
+  both preserve the supplied text without parsing or normalizing dates.
+  Supply a schema-valid date-time for DOCX core properties; fractional
+  seconds and numeric offsets are retained, e.g. `2026-11-21T00:00:00.1+00:00`.
 
-### Rust/Python features not exposed
+```javascript
+import { lazy, resolveDocument } from "rocx-docx";
 
-The [Rust/Python catalog](https://github.com/ReinderVosDeWael/rocx/blob/main/examples/ALL_FEATURES.md)
-tracks the broader engine surface. The JavaScript binding does not expose
-custom styles, lists, internal bookmark links, fields, notes, table formatting
-and merges, image transforms beyond sizing, shapes, or charts. It also omits
-multiple sections, headers and footers,
-document metadata beyond the timestamp, deferred producers, templates, and
-editing existing DOCX files. The quickstart is not a promise of further parity.
+const report = await resolveDocument({
+  timestamp: "2026-11-21T00:00:00Z",
+  sections: [{
+    kind: "section",
+    children: [{
+      kind: "paragraph",
+      runs: [{
+        kind: "text",
+        text: lazy(() => "Quarterly summary"),
+        format: { bold: true },
+      }],
+    }],
+  }],
+});
+console.log(report.view.sections[0].view.paragraphs[0].view.text);
+const bytes = report.toDocx(); // Uint8Array, not a Promise
+```
+
+`lazy` takes a synchronous producer; `future` takes a producer that may
+return a Promise. Explicit `Value` tokens are single-use. Use `deferred`
+or `property` to share a result. Inside a producer, await dependencies with
+`context.get(ref)` rather than starting another root resolution. On the
+current Rust baseline, a cycle split between separate concurrent root
+passes can leave neither Promise settled even though a cycle in one pass
+can be diagnosed. Avoid cyclic dependency graphs across passes. An
+`AbortSignal` can cancel a waiter but does not forcibly stop shared work or
+undo external effects.
+
+The adapter requires well-formed Unicode (no unpaired UTF-16 surrogates).
+Pass encoded images, not pixels or URLs; a `Uint8Array` view uses only its
+selected bytes, even across JavaScript realms. Fetch or read browser data
+yourself. Do not mutate input records or bytes while an operation is in
+progress. Async operations reject with an `Error`; synchronous handle
+methods throw. Diagnostic `path`, `rule`, and producer `cause` are optional.
+
+## Use an existing file
+
+- **Compose:** `report.toDocxWithTemplate({ bytes, edits })` takes unsigned
+  Transitional DOCX or DOTX bytes and emits DOCX. `compileTemplate` takes
+  the same byte source and returns a `PackagePlan` for inspecting payloads
+  before encoding. Edits apply to supported source stories before new
+  declarations are inserted. This is not arbitrary OOXML editing; affected
+  parts can be reserialized, while untouched part payloads stay unchanged.
+- **Inspect:** `await openDocx(bytes)` opens an unsigned Transitional DOCX.
+  Use `body()`, `sections()`, and `stories()` for typed readback, including
+  direct table-cell paragraphs and all effective header/footer slots.
+  `defaultHeaders()` also supplies section-scoped header edit targets.
+  Unsupported children can appear as opaque markers, not editable nodes.
+- **Preview edits:** `imported.preview(batch)` stages direct body paragraph
+  alignment, table insertion after a body paragraph, and default-header
+  image appends in one transaction. Take targets from that imported
+  snapshot. Review `changes()`, `insertions()`, and `headerChanges()`,
+  then call `toDocx()` for a new copy. To preview just one header-image edit,
+  use `imported.previewHeaderImage(edit)`. See the
+  [API reference](https://reindervosdewael.github.io/rocx/api/javascript/#preview-anchored-edits)
+  for the supported targets and modes.
+- **Read and save in Node:** `templateFile(path, edits)` reads on each render
+  or save; `imageFile(path)` reads once when its `Value` is resolved. It
+  carries the basename with the encoded bytes as `NamedImageData`, so the
+  resolved image's name matches a native path source. `saveDocx` encodes
+  before replacing the destination via a sibling temporary file.
 
 The Promise supports loading Wasm, but does not move rendering off the calling
 thread. If Wasm fails to load, a later call can retry initialization. Images
@@ -123,14 +184,24 @@ in-memory copies; large-document throughput and memory use are not qualified.
 
 ## Verification
 
-The non-publishing GitHub Actions workflow packs the package, installs it in
-fresh Node and Vite projects, and type-checks both module resolutions. The
-packed input contract requires sample values for every declared input field
-and variant, including optional fields, and checks them against the running
-adapter. The workflow downloads DOCX files in real Chromium from Vite
-development and production servers. The five outputs (Rust, Python, Node, and
-the two browser runs) must match exactly as ZIP bytes, open with python-docx,
-and pass ECMA-376 schema and OPC relationship checks.
+The non-publishing packed consumer workflow rebuilds the bundled source
+offline to verify the Wasm and glue, then installs the tarball into fresh
+Node and Vite projects. It checks NodeNext and bundler type resolution and
+compares the installed authoring fields and variants against Rustdoc JSON.
+The inventory is a declaration check, not a runtime parity test. The workflow
+also validates the legacy declaration fields and variants at runtime. The five
+standalone report outputs (Rust, Python, Node, and Chromium via Vite
+development and production) must match as complete ZIP bytes, open with
+python-docx, and pass ECMA-376 schema and OPC relationship checks.
+
+Both Chromium/Vite modes run the legacy download and a portable suite with
+all six [catalog](../examples/javascript/catalog.mjs) outputs, twelve focused
+authoring/template outputs and seven editor outputs. These match the
+equivalent Rust bytes and are checked separately for readback and untouched
+payloads where applicable. Direct Chromium tests also exercise the browser
+entry's resolution, inspection, timestamp text, and read budgets.
+The complete Node contract tests and filesystem cases do not run in Chromium.
+See the [parity inventory](../docs/JAVASCRIPT-PARITY.md) for evidence and limits.
 
 To run locally after building the locked Python environment and installing
 the pinned tools above:

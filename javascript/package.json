@@ -18,13 +18,23 @@
       "types": "./index.d.ts",
       "node": "./node.js",
       "default": "./browser.js"
+    },
+    "./node": {
+      "node": {
+        "types": "./types/file-io.d.ts",
+        "default": "./file-io.js"
+      }
     }
   },
   "files": [
     "browser.js",
+    "boundary.js",
+    "file-io.js",
     "generate.js",
     "index.d.ts",
     "node.js",
+    "resolution.js",
+    "types",
     "pkg/rocx.js",
     "pkg/rocx_bg.wasm",
     "rocx-source.tar.gz"

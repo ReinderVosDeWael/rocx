@@ -14,7 +14,12 @@ wasm-bindgen --target web --no-typescript --out-dir pkg --out-name rocx \
 
 # Distribute the exact rocx source and the interface/build files with the Wasm.
 cp ../LICENSE LICENSE
+extra_sources=()
+for source in file-io.js resolution.js; do
+    [[ ! -f "$source" ]] || extra_sources+=("javascript/$source")
+done
 tar -czf rocx-source.tar.gz -C .. \
     LICENSE README.md Cargo.toml Cargo.lock src assets \
     examples/javascript tests/fixtures/images/sample.png \
-    javascript/{Cargo.toml,Cargo.lock,build.sh,package.json,README.md,index.d.ts,browser.js,node.js,generate.js,src}
+    javascript/{Cargo.toml,Cargo.lock,build.sh,package.json,README.md,index.d.ts,browser.js,node.js,generate.js,boundary.js,src,types} \
+    "${extra_sources[@]}"

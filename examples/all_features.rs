@@ -1,4 +1,4 @@
-//! Matching Rust/Python visual inspection catalog. See examples/ALL_FEATURES.md.
+//! Matching Rust/Python/JavaScript visual inspection catalog. See examples/ALL_FEATURES.md.
 //! Includes labeled DrawingML shape text styling and its omission boundaries.
 //! The shape gallery also requests italic text and a Latin typeface explicitly.
 //! Standalone inline and floating text boxes use a direct DrawingML text shape.

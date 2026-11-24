@@ -1,4 +1,4 @@
-import { generateDocx, type DocumentDeclaration, type GenerateDocxError } from "rocx-docx";
+import { generateDocx, type DocumentDeclaration, type GenerateDocxError, type Hyperlink } from "rocx-docx";
 
 const declaration = {
   blocks: [
@@ -22,7 +22,10 @@ void errorContext;
 void generateDocx({ blocks: [{ kind: "paragraph", runs: [{ kind: "image", bytes: "test.png" }] }] });
 // @ts-expect-error Table cells are text or an object containing blocks.
 void generateDocx({ blocks: [{ kind: "table", rows: [[42]] }] });
-void generateDocx({ blocks: [{ kind: "paragraph", runs: [
-  // @ts-expect-error Hyperlinks cannot contain another hyperlink.
-  { kind: "hyperlink", target: "https://example.org", runs: [{ kind: "hyperlink", target: "https://example.org", runs: [] }] },
-] }] });
+const nestedLink = {
+  kind: "hyperlink", target: "https://example.org", runs: [
+    // @ts-expect-error Hyperlinks cannot contain another hyperlink.
+    { kind: "hyperlink", target: "https://example.org", runs: [] },
+  ],
+} satisfies Hyperlink;
+void nestedLink;

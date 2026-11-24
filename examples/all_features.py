@@ -1,4 +1,4 @@
-"""Independent Python visual catalog, byte-matched to all_features.rs.
+"""Independent Python visual catalog, byte-matched to Rust and JavaScript.
 
 Run: uv run --no-sync python examples/all_features.py [output.docx]
 See ALL_FEATURES.md for coverage, viewer caveats and parity verification.
@@ -78,7 +78,7 @@ def formatting_blocks() -> list:
         blocks.append(d.Paragraph(children=[d.TextRun(f"Tab leader={leader}"), d.Tab(), d.TextRun("at 288 pt")],
             tab_stops=[d.TabStop(288, "right", leader), d.TabStop(-12, "clear")]))
     blocks.append(heading("02 Run formatting, colors, scripts and whitespace"))
-    blocks.append(p("Chainable Rust builders: omitted, enabled and explicitly disabled bold; Python keywords author the same properties."))
+    blocks.append(p("Formatting declarations in Rust, Python and JavaScript: omitted, enabled and explicitly disabled bold."))
     blocks.append(d.Paragraph(children=[d.TextRun("Builder bold unspecified; "),
         d.TextRun("Builder bold enabled; ", bold=True),
         d.TextRun("Builder bold disabled, italic enabled.", bold=False, italic=True)],
@@ -314,7 +314,7 @@ def story_blocks() -> list:
     blocks.append(d.Paragraph(children=[
         d.TextRun("Inline equation: stacked fraction "), d.InlineFraction("1", "2"), d.TextRun("."),
     ]))
-    blocks.append(p("Image from filesystem path (filename preserved), followed by async byte data with deferred size/alt text."))
+    blocks.append(p("Image from a named fixture (filename preserved), followed by async byte data with deferred size/alt text."))
     async def image_bytes() -> bytes:
         return (IMAGES / "sample.png").read_bytes()
     blocks.append(d.Paragraph(children=[d.ImageRun(IMAGES / "sample.png", type="png", transformation={"width": 24}),
@@ -433,7 +433,7 @@ async def generate(output: pathlib.Path) -> bytes:
         d.NumberingDefinition(62, bullet_levels, start_overrides=[d.NumberingStartOverride(0, 4)], abstract_id=100),
         d.NumberingDefinition(63, abstract_id=101, inherit_style="Catalog Bullets")]
     document = d.Document(sections, timestamp=STAMP, creator="DOCX inspection catalog", title="All features visual inspection",
-        subject="Rust/Python byte parity", description="Labeled functionality samples; not a rendering guarantee", keywords="docx,visual,parity",
+        subject="Rust/Python/JavaScript byte parity", description="Labeled functionality samples; not a rendering guarantee", keywords="docx,visual,parity",
         category="Examples", comments="Core metadata comments", version="1.0", comment_author="Catalog reviewer",
         custom_properties={"Review status": "Draft & review", "Review complete": True, "Published": False},
         company="Atlas & Co.", manager="Taylor",

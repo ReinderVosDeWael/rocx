@@ -1,0 +1,119 @@
+{
+  "scope": [
+    "rocx::application::",
+    "rocx::authoring::",
+    "rocx::document::",
+    "rocx::ooxml::profile::",
+    "rocx::opc::",
+    "rocx::template::"
+  ],
+  "records": {
+    "BlockContentControl": "BlockContentControlDeclaration",
+    "Break": "BreakDeclaration",
+    "ColumnChartRun": "ColumnChartRunDeclaration",
+    "Comment": "CommentDeclaration",
+    "Document": "DocumentProgram",
+    "Field": "FieldDeclaration",
+    "Footer": "FooterDeclaration",
+    "Header": "HeaderDeclaration",
+    "Hyperlink": "HyperlinkDeclaration",
+    "ImageRun": "ImageRunDeclaration",
+    "InlineContentControl": "InlineContentControlDeclaration",
+    "InlineFraction": "InlineFractionDeclaration",
+    "Note": "NoteDeclaration",
+    "NoteReference": "NoteReferenceDeclaration",
+    "Paragraph": "ParagraphDeclaration",
+    "RangeEnd": "RangeEndDeclaration",
+    "RangeStart": "RangeStartDeclaration",
+    "Section": "SectionDeclaration",
+    "ShapeRun": "ShapeRunDeclaration",
+    "Tab": "TabDeclaration",
+    "Table": "TableDeclaration",
+    "TableCell": "TableCellDeclaration",
+    "TableRow": "TableRowDeclaration",
+    "TextRun": "TextRunDeclaration"
+  },
+  "fieldMappings": {
+    "Break.type": ["breakType"],
+    "Paragraph.content": ["text", "runs"],
+    "RangeStart.kind": ["range"],
+    "ResolvedInline.Break.kind": ["breakType"],
+    "ResolvedInline.RangeStart.kind": ["range"]
+  },
+  "flattenedEnums": {
+    "ParagraphContent": {
+      "owner": "Paragraph",
+      "field": "content",
+      "variants": { "Text": "text", "Inlines": "runs" }
+    }
+  },
+  "enums": {
+    "Alignment": { "alsoModule": "types/text-layout.d.ts" },
+    "Block": { "ts": "BlockDeclaration", "tag": "kind", "variants": { "ContentControl": "contentControl" } },
+    "Color": { "tag": "kind", "variants": { "Rgb": "Rgb" } },
+    "ContentControlText": { "tag": "kind" },
+    "FieldInstruction": { "tag": "kind", "tupleFields": { "Raw": ["text"], "Reference": ["name"] } },
+    "ImageData": {
+      "variants": { "Bytes": "Uint8Array", "NamedBytes": "NamedImageData", "Path": null },
+      "recordVariants": { "NamedBytes": "NamedImageData" },
+      "hostOnly": { "Path": "imageFile" }
+    },
+    "Inline": { "ts": "InlineDeclaration", "tag": "kind", "variants": {
+      "TextRun": "text", "ImageRun": "image", "ShapeRun": "shape",
+      "ColumnChartRun": "columnChart", "InlineFraction": "fraction"
+    } },
+    "LineHeight": { "tag": "kind", "variants": { "AtLeast": "minimum", "Multiple": "multiplier" },
+      "tupleFields": { "Exact": ["value"], "AtLeast": ["value"], "Multiple": ["value"] } },
+    "RangeKind": { "tag": "kind", "tupleFields": { "Bookmark": ["name"], "Comment": ["text", "author"], "StructuredComment": ["comment"] } },
+    "ResolvedInline": { "tag": "kind", "view": true, "tupleFields": {
+      "ColumnChart": ["properties"], "Shape": ["properties"], "NoteReference": ["target"], "RangeEnd": ["id"]
+    } },
+    "RevisionKind": { "tag": "kind" },
+    "RowHeight": { "tag": "kind", "tupleFields": { "Exact": ["points"], "AtLeast": ["points"] } },
+    "StyleDefinition": { "tag": "kind" }
+  },
+  "projections": {
+    "HyperlinkTarget": { "fields": ["kind"], "variants": { "external": ["url"], "bookmark": ["name"] } },
+    "ResolvedBlockContentControl": { "view": true, "fields": ["children", "properties"] },
+    "ResolvedCommentBody": { "view": true, "fields": ["blocks", "metadata"] },
+    "ResolvedDocument": { "view": true, "fields": ["commentAuthor", "defaults", "metadata", "notes", "numbering", "sections", "styles", "timestamp"] },
+    "ResolvedField": { "view": true, "fields": ["children", "instruction", "instructionText", "properties", "displayText"] },
+    "ResolvedHeaderFooter": { "view": true, "fields": ["blocks"] },
+    "ResolvedHyperlink": { "view": true, "fields": ["children", "properties", "target", "displayText"] },
+    "ResolvedImage": { "view": true, "fields": ["altText", "bytes", "contentType", "dimensionsEmu", "name"] },
+    "ResolvedInlineContentControl": { "view": true, "fields": ["children", "properties", "displayText"] },
+    "ResolvedNote": { "view": true, "fields": ["blocks", "target"] },
+    "ResolvedParagraph": { "view": true, "fields": ["comment", "format", "numbering", "runs", "text"] },
+    "ResolvedSection": { "view": true, "fields": ["blocks", "footers", "headers", "paragraphs", "properties"] },
+    "ResolvedTable": { "view": true, "fields": ["columns", "properties", "rows"] },
+    "ResolvedTableCell": { "view": true, "fields": ["blocks", "gridSpan", "vmerge", "borders", "backgroundColor", "verticalAlignment", "margins", "textDirection", "contentControl"] },
+    "ResolvedTableRow": { "view": true, "fields": ["cells", "properties"] }
+  },
+  "structuralExceptions": {
+    "AssetId": "Rust identity allocation primitive",
+    "BookmarkName": "Checked string wrapper; validateAuthoringId",
+    "CommentId": "Rust identity allocation primitive",
+    "ContentType": "Low-level OPC toolkit",
+    "DeclarationPath": "Engine diagnostic path projected onto Error",
+    "Diagnostic": "Engine diagnostics projected onto Error",
+    "DocumentTemplate": "Node templateFile(path, edits) factory",
+    "DrawingId": "Rust identity allocation primitive",
+    "Emu": "Primitive measurement",
+    "HalfPoints": "Primitive measurement",
+    "NoteId": "Number projected through NoteTarget",
+    "PackagePlan": "Opaque handles and method coverage in T02",
+    "PartName": "Low-level OPC toolkit",
+    "Points": "Primitive measurement",
+    "RangeId": "Checked string wrapper; validateAuthoringId",
+    "RawFieldInstruction": "Mapped through FieldInstruction.Raw",
+    "RelationshipId": "Low-level OPC toolkit",
+    "RelationshipType": "Low-level OPC toolkit",
+    "ResolvedBlock": "Untyped discriminant on paragraph/table handles; check their projections and reuse independently",
+    "Rule": "Stable diagnostic code string on Error",
+    "StoryId": "Rust identity allocation primitive",
+    "StoryKind": "Low-level OPC toolkit",
+    "StyleId": "Checked string wrapper; validateAuthoringId",
+    "Target": "Low-level OPC toolkit",
+    "Twips": "Primitive measurement"
+  }
+}
