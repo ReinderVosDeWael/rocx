@@ -11,6 +11,13 @@ fixture stages a numbering style and a footer list, applies a staged table
 style in the physical footer, and edits a section margin and border while
 preserving opaque attributes on the margin group and untouched border edge.
 These are three original-snapshot scopes, not a combined cross-owner batch.
+The combined verification passed 345 Rust all-feature/all-target tests, three
+doctests, native/Wasm Clippy, Rust 1.88, and 77 focused schema-required tests
+against the installed Python wheel. The CLI output matched the installed core
+at every stage; independent XML/ZIP readback and live-reference rejection
+verify that unchanged fields and physical-owner payloads survive.
+Packed Node 22/24 and Chromium 159 in development and production matched
+all 37 editor outputs and 13 catalogs.
 
 The merge of `f269508` into `c1b6627` combines the resource/style and structural
 CLI variants, including both inspection selectors in one request. Physical
