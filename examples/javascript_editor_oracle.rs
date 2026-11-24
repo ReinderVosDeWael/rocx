@@ -47,7 +47,7 @@ fn physical_resources(directory: &std::path::Path) -> Vec<u8> {
     let owner = "word/footer1.xml";
     let source = fs::read(directory.join("physical-resources-source.docx")).unwrap();
     let original = ImportedDocument::open(&source).unwrap();
-    let target = original.story_paragraph_anchor(owner, None, 0).unwrap();
+    let target = original.story_paragraph_anchor(owner, 0, None).unwrap();
     let staged = original
         .preview_edits(EditBatch {
             styles: &[

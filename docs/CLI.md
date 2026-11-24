@@ -228,4 +228,5 @@ physical paths in an existing header, footer, or ordinary note/comment part,
 pass `"table_owner":"word/footer1.xml"` (use the exact `part` listed by
 `stories` or `entries`). Paths are zero-based XML element-child coordinates
 from the owner root, not body indices. The request snapshot, owner and path
-together identify the table; there is no cross-owner batch.
+together identify the table; there is no cross-owner batch. The same
+inspection request can also specify `numbering_targets` for body paragraphs.

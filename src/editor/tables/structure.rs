@@ -559,7 +559,7 @@ pub(in crate::editor) fn apply(
                     {
                         return Err(unsupported("duplicate or conflicting table property edit"));
                     }
-                    super::properties::patch(
+                    changed |= super::properties::patch(
                         table,
                         *site,
                         field,
@@ -567,7 +567,6 @@ pub(in crate::editor) fn apply(
                         &package,
                         main,
                     )?;
-                    changed = true;
                 }
                 TableOperation::ReplaceNode { site, source } => {
                     if exclusive {
@@ -742,8 +741,9 @@ pub(super) fn physical(
             "physical cell replacements conflict with property edits",
         ));
     }
+    let mut changed = !replacements.is_empty();
     for ((site, field), source) in fields {
-        super::properties::patch(table, site, field, source, &package, main)?;
+        changed |= super::properties::patch(table, site, field, source, &package, main)?;
     }
     validate(table, true)?;
     for ((r, c), blocks) in replacements {
@@ -751,5 +751,5 @@ pub(super) fn physical(
         guard_cell_content(cell)?;
         package = write_cell(package, main, owner, cell, blocks)?;
     }
-    Ok((package, true))
+    Ok((package, changed))
 }

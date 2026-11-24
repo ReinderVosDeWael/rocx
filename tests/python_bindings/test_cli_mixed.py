@@ -855,3 +855,122 @@ def test_style_retarget_transport(cli, tmp_path):
     assert readback.paragraphs[0].style.name == "Migration Destination Test"
     assert readback.sections[0].header.paragraphs[0].style.name == "Migration Destination Test"
     assert "Migration Source Test" not in readback.styles
+
+
+def test_physical_owner_numbering_style_and_section_layout_transport(cli, tmp_path):
+    import asyncio
+    from runpy import run_path
+
+    parity = run_path(str(ROOT / "javascript/tests/parity/editor.py"))
+    source = tmp_path / "physical-resources-source.docx"
+    stages = [tmp_path / name for name in ("staged.docx", "table.docx", "physicalResources.docx")]
+    parity["generate_physical_resources"](source)
+    before = source.read_bytes()
+    owner = "word/footer1.xml"
+    story = dict(kind="story", part=owner, block_index=0)
+    reference = dict(id=773, level=0)
+    checked_copy(cli, source, stages[0], [
+        dict(kind="style-add", definition=dict(kind="table", name="Owner Table Style")),
+        dict(kind="style-add", definition=dict(kind="numbering", name="Owner Numbering Style", numbering_id=773)),
+        dict(kind="add-abstract", abstract_id=772, levels=[
+            dict(level=0, start=1, format="decimal", text="%1.")]),
+        dict(kind="add-instance", num_id=773, abstract_id=772),
+        dict(kind="story-paragraph-numbering", target=story, value=reference),
+    ])
+    seen = call(cli, "inspect", stages[0], table_owner=owner, numbering_story_targets=[story])
+    assert seen["story_paragraph_numbering"] == [reference]
+    table, = seen["part_tables"]
+    physical = dict(kind="part-tables", owner_part=owner, operations=[
+        dict(path=table["path"], operation=dict(kind="patch-property", field="style", source=dict(
+            rows=[["Donor text must not move"]], style="Owner Table Style")))])
+    checked_copy(cli, stages[0], stages[1], [physical])
+    layouts = [
+        dict(kind="section-layout", target=0, field="margin_left", value=1440),
+        dict(kind="section-layout", target=0, field="border_top", value=dict(size=12, color="123456")),
+    ]
+    checked_copy(cli, stages[1], stages[2], layouts)
+    assert source.read_bytes() == before
+    # Independently replay the core API against the same source, and check the
+    # changed-part sets and opaque XML for each stage rather than bytes alone.
+    assert tuple(path.read_bytes() for path in stages) == asyncio.run(parity["physical_resources"](source))
+    parity["verify_physical_resources"](tmp_path)
+    done = call(cli, "inspect", stages[2], table_owner=owner, numbering_story_targets=[story])
+    assert done["story_paragraph_numbering"] == [reference]
+    assert done["part_tables"][0]["properties"]["style"] == {"val": "OwnerTableStyle"}
+    reject = tmp_path / "rejected.docx"
+    for edits, reason in [
+        ([dict(kind="remove-instance", num_id=773)], "references"),
+        ([dict(kind="section-layout", target=0, field="border_right", value=None)], "opaque"),
+        ([physical, *layouts], "cannot be mixed"),
+    ]:
+        error = call(cli, "save-copy", stages[2], success=False, snapshot=done["snapshot"],
+                     output=str(reject), edits=edits)
+        assert reason in error and not reject.exists()
+
+
+async def test_staged_table_and_numbering_share_one_cli_batch(cli, tmp_path):
+    from rocx.editor import ResourceEdit as R, StyleEdit as S, TableStructureEdit as T
+
+    source, output = tmp_path / "source.docx", tmp_path / "staged.docx"
+    word = independent_document()
+    word.add_table(1, 1).cell(0, 0).text = "replace"
+    word.add_table(1, 1).cell(0, 0).text = "remove"
+    word.add_paragraph("number after deletion")
+    word.sections[0].footer.add_table(1, 1, docx.shared.Inches(2))
+    word.save(source)
+    original = source.read_bytes()
+    owner = "word/footer1.xml"
+    inspect = dict(table_owner=owner, numbering_targets=[2])
+    seen = call(cli, "inspect", source, **inspect)
+    assert seen["paragraph_numbering"] == {"2": None}
+    footer, = seen["part_tables"]
+    assert footer["owner_part"] == owner
+
+    level = dict(level=0, start=1, format="decimal", text="%1.")
+    donor = dict(rows=[["staged"]], style="CLI Staged", alignment="center")
+    edits = [
+        dict(kind="table-structure", target=0, operation=dict(kind="replace-node", source=donor)),
+        dict(kind="table-structure", target=1, operation=dict(kind="remove-table")),
+        dict(kind="style-add", definition=dict(kind="table", name=donor["style"])),
+        dict(kind="add-instance", num_id=91, abstract_id=90),
+        dict(kind="add-abstract", abstract_id=90, levels=[level]),
+        dict(kind="paragraph-numbering", target=2, value=dict(id=91, level=0)),
+    ]
+    incompatible = dict(kind="part-tables", owner_part=owner, operations=[
+        dict(path=footer["path"], operation=dict(kind="insert-row", index=1))])
+    for invalid, reason in [(dict(kind="remove-instance", num_id=1), "references"),
+                            (incompatible, "only edit")]:
+        error = call(cli, "save-copy", source, success=False, snapshot=seen["snapshot"],
+                     output=str(output), edits=[*edits, invalid])
+        assert reason in error and not output.exists() and source.read_bytes() == original
+
+    checked_copy(cli, source, output, edits)
+    doc = ImportedDocument.open(original)
+    first, second, paragraph = doc.body
+    table = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text="staged")])])],
+                          style=donor["style"], alignment=donor["alignment"]).resolve()
+    assert output.read_bytes() == doc.preview([], table_structure=[
+        T.replace_node(first.anchor, table), T.remove_table(second.anchor)
+    ], style_edits=[S.add(d.TableStyleDefinition(donor["style"]))], resources=[
+        R.add_instance(91, 90), R.add_abstract(90, [d.NumberingLevel(**level)]),
+        R.paragraph_numbering(paragraph.anchor, (91, 0)),
+    ]).to_docx()
+    saved = docx.Document(output)
+    assert len(saved.tables) == 1 and saved.tables[0].style.name == donor["style"]
+    assert saved.paragraphs[0].text == "number after deletion"
+    assert saved.paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
+    after = call(cli, "inspect", output, **(inspect | {"numbering_targets": [1]}))
+    assert after["part_tables"] == [footer]
+    assert after["paragraph_numbering"] == {"1": {"id": 91, "level": 0}}
+    before, changed = parts(source), parts(output)
+    assert before.keys() == changed.keys()
+    assert {p for p in before if before[p] != changed[p]} == {
+        "word/document.xml", "word/styles.xml", "word/numbering.xml"}
+
+    noop = tmp_path / "noop.docx"
+    checked_copy(cli, output, noop, [
+        dict(kind="table-structure", target=0, operation=dict(
+            kind="patch-property", field="alignment", source=donor)),
+        dict(kind="paragraph-numbering", target=1, value=dict(id=91, level=0)),
+    ])
+    assert parts(noop) == changed

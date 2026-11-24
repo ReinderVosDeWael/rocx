@@ -4,6 +4,32 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+The isolated integration takes the structural merge at `c3ea09d` and the
+resource/style recovery at `2d5de8e`. It retains the earlier mixed oracles,
+physical-table property no-op guards, and both CLI discovery modes. The new
+fixture stages a numbering style and a footer list, applies a staged table
+style in the physical footer, and edits a section margin and border while
+preserving opaque attributes on the margin group and untouched border edge.
+These are three original-snapshot scopes, not a combined cross-owner batch.
+
+The merge of `f269508` into `c1b6627` combines the resource/style and structural
+CLI variants, including both inspection selectors in one request. Physical
+table operations remain owner-scoped; body table replacements can use a style
+staged alongside numbering at an original paragraph anchor. The mixed CLI
+regression checks the installed Python byte oracle, preserves all unrelated
+part payloads, and rejects live numbering deletion and cross-scope batching
+without creating a destination. Table property no-ops retain the original
+body or physical owner; destructive clears still reject annotated markup.
+
+Qualification: 344 Rust all-feature tests, three doctests, native/Wasm Clippy,
+Rust 1.88, 974 schema-required installed Python tests (including 46 focused
+cases), an isolated wheel probe, and the 652-page strict docs build passed.
+Packed Node 24 and
+Chromium 159 in development and production matched all 33 editor outputs
+and 13 catalogs, including schema/OPC and independent readback. The 32
+previous editor outputs and all 13 catalogs remain byte-identical to
+`c1b6627`; the physical-table fixture is the 33rd editor output.
+
 The merge of `30ac174` into the qualified `7d5d08b` keeps the #48 resource
 guards and the recovered layout, section, story and table APIs. Table removal
 is deferred until original body coordinates have been used, while a no-op
@@ -13,7 +39,7 @@ a hyperlink relationship and custom property part, and numbers the paragraph
 after the removed table. It first rejects removal of a still-used numbering
 instance, then reuses the original anchors for a successful preview.
 
-**Merge qualification:** 306 default-feature Rust tests, 343
+**Qualification of `c1b6627`:** 306 default-feature Rust tests, 343
 all-features/all-targets tests, three doctests, native/Wasm Clippy, Rust 1.88,
 and warning-free Rustdoc passed. The installed Python 3.12 wheel passed all
 964 tests with schemas required, the isolated wheel probe, and the 649-page
@@ -133,14 +159,6 @@ matched their installed core output byte for byte. Fixtures check stale digests,
 overlap and owner rejection, no-op package payloads, and relationships
 allocated only to the edited footer. Packed Node 22/24 and Chromium
 development/production matched all 31 editor outputs and 13 catalog artifacts.
-
-**#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
-`ProcessContent` wrappers before treating a property as absent or a bookmark
-as closed. Regression fixtures cover body and entry stories, table layout,
-numbering, decimal bookmark identity, XML integer lexical forms, mixed-case
-resource media types, and byte preservation for no-op layout edits. Thirteen
-cases failed on `fe5e5df`; all 16 pass with the fixes, including controls for
-unrelated opaque nodes and string-valued permission IDs.
 
 #48 metadata worktree: core scalars and timestamps, company/manager, and named
 string/boolean custom-property edits passed standalone qualification: 55 Rust

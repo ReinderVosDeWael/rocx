@@ -280,3 +280,31 @@ def test_layout_noop_preserves_every_part(value):
         doc = ImportedDocument.open(save(source))
         with pytest.raises(ValueError, match="ambiguous table properties"):
             doc.preview([], table_structure=[TableStructureEdit.layout(doc.body[0].anchor, value)])
+
+
+@pytest.mark.parametrize("physical", [False, True])
+async def test_table_property_noop_preserves_annotations_and_clear_rejects(physical):
+    from rocx import declarative as d
+
+    word = docx.Document()
+    table = word.add_table(1, 1)
+    jc = etree.SubElement(table._tbl.tblPr, qn("w:jc"))
+    jc.set(qn("w:val"), "center")
+    jc.set(f"{{{EXT}}}annotation", "keep")
+    original = save(word)
+    doc = ImportedDocument.open(original)
+    located, = doc.part_tables()
+    target = located.anchor if physical else doc.body[0].anchor
+
+    def apply(*edits):
+        if physical:
+            return doc.edit_part_tables(located.part_name, list(edits))
+        return doc.preview([], table_structure=list(edits)).to_docx()
+
+    donor = await d.Table([d.TableRow([d.TableCell([d.Paragraph(text="unused")])])],
+                          alignment="center").resolve()
+    noops = [TableStructureEdit.patch_property(target, "alignment", donor),
+             TableStructureEdit.patch_property(target, "margin.top", None, row=0, cell=0)]
+    assert parts(apply(*noops)) == parts(original)
+    with pytest.raises(ValueError, match="discard unsupported markup"):
+        apply(TableStructureEdit.patch_property(target, "alignment", None))

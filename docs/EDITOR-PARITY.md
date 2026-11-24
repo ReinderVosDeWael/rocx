@@ -264,6 +264,8 @@ destructive clear refuses to erase unmodeled markup. Look flags expose any
 individual attribute and its packed `maskBit`; `noHBand` and `noVBand` are
 the inverse of banding. Clearing a flag materializes any mask-only siblings
 before dropping the packed mask; unknown mask bits prevent such a clear.
+An unchanged direct property or a clear of a missing property does not
+rewrite the body or physical owner part, unless another edit changes that part.
 
 #### Replace or remove whole nodes
 
