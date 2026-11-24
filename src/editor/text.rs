@@ -115,7 +115,7 @@ fn render_actions<K: Ord>(
     main: &str,
     owner: &str,
     kind: crate::StoryKind,
-    ordered: BTreeMap<K, &InlineAction>,
+    ordered: BTreeMap<K, Vec<&InlineAction>>,
 ) -> Result<(crate::opc::Package, BTreeMap<K, Action>)> {
     let payloads: Vec<_> = ordered
         .values()
@@ -131,7 +131,7 @@ fn render_actions<K: Ord>(
         crate::ooxml::encode_editor_inlines(package, main, owner, kind, &payloads)?
     };
     let mut nodes = nodes.into_iter();
-    let mut targets = Targets::new();
+    let mut targets = BTreeMap::new();
     for (key, group) in ordered {
         let action = match group.as_slice() {
             [InlineAction::InsertAfter(_)] => Action::After(nodes.next().unwrap()),
@@ -531,7 +531,7 @@ impl super::ImportedDocument {
                 super::EntryKind::Endnote => crate::StoryKind::Endnote,
             });
             if ordered
-                .insert((e.element_index, *block_index, *inline), &edit.action)
+                .insert((e.element_index, *block_index, *inline), vec![&edit.action])
                 .is_some()
             {
                 return Err(unsupported("duplicate entry inline target"));
