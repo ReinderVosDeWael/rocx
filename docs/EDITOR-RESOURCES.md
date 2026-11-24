@@ -45,8 +45,6 @@ Numbering inspection lists direct physical levels (0–8) and optional unsigned
 definition; setting its start affects consumers without an overriding start.
 Instances, overrides, paragraph references and IDs are retained. This API
 does not evaluate counters, renumber lists, change links, or delete definitions.
-Other metadata fields (including dates/custom properties) are outside this edit surface.
-
 ### Editing document defaults
 
 The defaults view is keyed by `DefaultField` in Rust, or by the strings below
@@ -93,3 +91,28 @@ unrelated attributes, settings, note references and styles. Destructive clears
 that would discard annotations are rejected. Arbitrary OOXML defaults,
 noninteger measurement lexemes and computed effective formatting
 are unsupported. `trackRevisions` changes the setting, not existing revisions.
+
+### Package metadata
+
+| Target | Rust inspection / edit | Python inspection / edit | JavaScript inspection / edit |
+| --- | --- | --- | --- |
+| Core or extended scalar | `doc.metadata_field(MetadataField::Creator)` / `ResourceEdit::Metadata(MetadataField::Creator, Some("Reviewer".into()))` | `doc.metadata_field("creator")` / `ResourceEdit.metadata("creator", "Reviewer")` | `doc.metadataField("creator")` / `{kind: "metadata", field: "creator", value: "Reviewer"}` |
+| Named custom property | `doc.custom_property("Approved")` / `ResourceEdit::CustomProperty("Approved".into(), Some(CustomValue::Boolean(false)))` | `doc.custom_property("Approved")` / `ResourceEdit.custom_property("Approved", False)` | `doc.customProperty("Approved")` / `{kind: "customProperty", name: "Approved", value: false}` |
+
+The shared field keys are `creator`, `description`, `keywords`, `category`,
+`version`, `created`, `modified`, `lastPrinted`, `lastModifiedBy`, `revision`,
+`identifier`, `language`, `contentStatus`, `company` and `manager`. Rust enum
+variants capitalize the first letter. All are string-valued. Word's core
+“Comments” field is `description` (`dc:description`); comment-entry authors are
+story data. Dates are read as source text; set them with a valid UTC timestamp
+in `YYYY-MM-DDTHH:MM:SSZ` form. Timestamp edits never update another date.
+
+The package relationships select the parts, including relocated targets.
+Company and manager use extended properties. Setting an extended or custom
+property creates its part if missing; clearing never creates a part.
+Custom names use exact spelling. Supported values are a string (`CustomValue::Text`)
+or boolean (`CustomValue::Boolean`). Replacing a supported value retains its
+property ID, including across a type change. Clear with `None`/`null`;
+`""` and `false` remain present. Duplicate targets and ambiguous or annotated
+leaves fail the whole batch. Other extended properties, linked custom values
+and other variant types are retained when a supported sibling changes.

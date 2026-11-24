@@ -224,6 +224,11 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   turns default bold off. `null` clears the field, restoring absence. `DefaultValues`
   lists keys and their types; tab positions and indent lengths use twips.
 
+- `metadataField(field)` reads a core or extended string, and
+  `customProperty(name)` reads a named string or boolean. Missing properties
+  return `undefined`. Pass `{kind: "metadata", field, value}` or
+  `{kind: "customProperty", name, value}` in `resources`; `null` removes the property.
+
 ```javascript
 import { openDocx } from "rocx-docx";
 

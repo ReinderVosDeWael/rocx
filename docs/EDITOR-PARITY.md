@@ -238,6 +238,9 @@ The [defaults field inventory](EDITOR-RESOURCES.md#editing-document-defaults)
 covers direct run/paragraph properties, tabs, footnote/endnote settings, page
 switches and revision tracking with independent set/clear semantics.
 
+For timestamps, other core fields, extended company/manager and named string
+or boolean custom properties, see [package metadata](EDITOR-RESOURCES.md#package-metadata).
+
 Rust's `ImportedStory::inline_structure(block_index)` follows the original block
 order (including opaque blocks); `ImportedStoryBlock` re-exports the existing
 `ImportedHeaderBlock` type. In Python, `ImportedStoryParagraph` is an alias of

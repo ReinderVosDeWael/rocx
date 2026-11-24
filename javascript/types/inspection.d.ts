@@ -1,6 +1,9 @@
 import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 
 declare const anchor: unique symbol;
+export type MetadataField = "creator" | "description" | "category" | "keywords" | "version"
+  | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
+  | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
 export interface ControlAnchor { readonly [anchor]: "control" }
 export interface ImportedControl {
@@ -236,6 +239,8 @@ export interface ImportedDocument {
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;
+  metadataField(field: MetadataField): string | undefined;
+  customProperty(name: string): string | boolean | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
   documentDefaults(): Partial<DefaultValues>;
   abstractStarts(): readonly AbstractStart[];

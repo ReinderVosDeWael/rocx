@@ -31,3 +31,9 @@ replacement keeps the first selected character's formatting. Reopen
 `copy_bytes` to obtain anchors for the new document; `doc` and its anchors
 remain usable. See the [cross-binding editor reference](../compatibility.md#resolution-editing-and-output)
 for the other batch fields and separate story and revision calls.
+
+Use `doc.metadata_field("creator")` and `doc.custom_property("Approved")` to
+read core/extended text and named string or boolean properties. Missing
+properties return `None`. Pass `ResourceEdit.metadata("manager", "Review lead")`
+or `ResourceEdit.custom_property("Approved", False)` in `resources`; use
+`None` to clear either property.

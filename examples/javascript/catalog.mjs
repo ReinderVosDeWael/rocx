@@ -198,6 +198,9 @@ export async function generateCatalog(fixtures, options) {
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
       {kind:"documentDefault", field:"bold", value:false}, {kind:"documentDefault", field:"footnoteStart", value:5},
       {kind:"documentDefault", field:"afterTwips", value:null},
+      {kind: "metadata", field: "creator", value: "Review team"},
+      {kind: "metadata", field: "manager", value: "Review lead"},
+      {kind: "customProperty", name: "Reviewed", value: false},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
@@ -219,14 +222,25 @@ export async function generateCatalog(fixtures, options) {
   const editedResources = await openDocx(runText);
   const defaults = editedResources.documentDefaults();
   assert(defaults.bold === false && defaults.footnoteStart === 5 && defaults.afterTwips === undefined, "incorrect direct defaults");
+  assert(editedResources.metadataField("manager") === "Review lead" &&
+    editedResources.customProperty("Reviewed") === false, "missing metadata values");
+  assertThrows(() => imported.preview({resources: [{kind: "customProperty", name: "Reviewed"}]}),
+    "accepted missing custom value");
+  assertThrows(() => imported.preview({resources: [{kind: "metadata", field: "created", value: "yesterday"}]}),
+    "accepted invalid core date");
   assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample",
     "missing resource edits");
   const cleared = await openDocx(editedResources.preview({resources: [
+    {kind: "metadata", field: "manager", value: null}, {kind: "customProperty", name: "Reviewed", value: null},
     {kind: "coreTitle", value: null}, {kind: "defaultAlignment", value: null},
     {kind: "abstractStart", abstractId: 100, level: 0, value: null}]}).toDocx());
   assert(cleared.coreTitle() === undefined && cleared.defaultAlignment() === undefined &&
     cleared.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === undefined),
     "clearing direct properties should return absence");
+  assert(cleared.customProperty("Reviewed") === undefined && cleared.metadataField("manager") === undefined,
+    "metadata clear retained the property");
+  assertThrows(() => editedResources.preview({runText: [textEdit], resources: [
+    {kind: "customProperty", name: "Reviewed", value: true}]}), "accepted stale anchor with metadata");
   assertThrows(() => imported.preview({resources: [{kind: "coreTitle", value: "uncommitted"},
     {kind: "abstractStart", abstractId: 9001, level: 0, value: 6}]}), "accepted missing numbering level");
   assertThrows(() => imported.preview({resources: [{kind: "coreTitle"}]}), "treated missing value as clear");

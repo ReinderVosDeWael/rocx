@@ -89,6 +89,8 @@ export type StyleEdit =
 
 export type ResourceEdit =
   | { [K in keyof DefaultValues]: {readonly kind: "documentDefault"; readonly field: K; readonly value: DefaultValues[K] | null} }[keyof DefaultValues]
+  | { readonly kind: "metadata"; readonly field: import("./inspection.js").MetadataField; readonly value: string | null }
+  | { readonly kind: "customProperty"; readonly name: string; readonly value: string | boolean | null }
   | { readonly kind: "coreTitle"; readonly value: string | null }
   | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
   | { readonly kind: "abstractStart"; readonly abstractId: number; readonly level: number; readonly value: number | null };
