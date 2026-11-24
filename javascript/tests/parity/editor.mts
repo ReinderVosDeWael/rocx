@@ -448,6 +448,37 @@ export async function run(fixtures: Fixtures) {
   rejects(() => reopened.preview({styleEdits: [{op: "patch", target: active, bold: true}]}), /different document snapshot/);
   check(reopened.styles()?.styles.find(s => s.id === "MemoAdded")?.basedOn === "MemoActive", "new style inheritance");
   const resolved = await payloads(fixtures.image);
+  const drop = merged.body()[1];
+  check(drop.kind === "table", "second table for removal");
+  const single = await resolveComponent({kind: "table", properties: {alignment:"center"},
+    rows: [{kind:"tableRow", properties:{repeatHeader:false}, children:[{
+      kind:"tableCell", properties:{margins:{top:4.5}}, children:[text("cell")]}]}]});
+  check(single, "resolved single cell");
+  let tableNodes = merged.preview({
+    alignments:[{target:paragraph(merged,2).anchor,alignment:"right"}],
+    tableStructure:[{target:physical.anchor,kind:"replaceNode",source:resolved.auto},{target:drop.anchor,kind:"removeTable"}]
+  }).toDocx();
+  const steps: ((target:TableAnchor)=>TableStructureEdit[])[] = [
+    target=>[{target,kind:"replaceNode",row:0,source:resolved.auto}],
+    target=>[{target,kind:"replaceNode",row:0,cell:1,source:single}],
+    target=>[{target,kind:"patchProperty",field:"alignment",source:single},
+      {target,kind:"patchProperty",field:"repeatHeader",row:0,source:single},
+      {target,kind:"patchProperty",field:"margin.top",row:0,cell:0,source:single}],
+  ];
+  for (const step of steps) {
+    const doc = await openDocx(tableNodes), target=doc.body()[0];
+    check(target.kind==="table", "reopened table");
+    const ops=step(target.anchor);
+    rejects(()=>merged.preview({tableStructure:ops}),/different document snapshot/);
+    rejects(()=>doc.preview({tableStructure:[...ops,ops[0]]}),/duplicate|exclusive/);
+    tableNodes=doc.preview({tableStructure:ops}).toDocx();
+  }
+  const result=(await openDocx(tableNodes)).body()[0];
+  check(result.kind==="table" && result.properties.alignment.val==="center","copied alignment");
+  const row=result.children[0];
+  check(row.kind==="row" && row.properties.repeatHeader.val==="0","explicit false");
+  const padded=row.children[0];
+  check(padded.kind==="cell" && padded.properties["margin.top"].w==="90","top padding in twips");
   const doc = await openDocx(fixtures.base);
   const first = paragraph(doc, 0).inlineStructure[0];
   check(first?.kind === "run", "expected removable run");
@@ -552,7 +583,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, tableNodes, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

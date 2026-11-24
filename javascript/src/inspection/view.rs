@@ -45,6 +45,17 @@ fn optional(result: &JsValue, key: &str, value: Option<&str>) {
         b::set(result, key, &value.into());
     }
 }
+fn table_properties(properties: &rocx::editor::DirectTableProperties) -> JsValue {
+    let record = b::record(&[]);
+    for (key, attrs) in properties {
+        let attr = b::record(&[]);
+        for (k, v) in attrs {
+            b::set(&attr, k, &v.as_str().into());
+        }
+        b::set(&record, key, &attr);
+    }
+    record
+}
 
 pub(super) fn cached<K: Eq + Hash, T: Clone + 'static>(
     cache: &RefCell<HashMap<K, JsValue>>,
@@ -96,6 +107,7 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
             let result = record(
                 "table",
                 &[
+                    ("properties", table_properties(&t.properties)),
                     (
                         "anchor",
                         cached(&anchors.tables, index, "tableAnchor", &t.anchor),
@@ -140,10 +152,13 @@ fn table_child(child: &ImportedTableChild, anchors: &Anchors) -> Result<JsValue>
     Ok(match child {
         ImportedTableChild::Row(row) => record(
             "row",
-            &[(
-                "children",
-                try_array(row.children.iter().map(|child| row_child(child, anchors)))?,
-            )],
+            &[
+                ("properties", table_properties(&row.properties)),
+                (
+                    "children",
+                    try_array(row.children.iter().map(|child| row_child(child, anchors)))?,
+                ),
+            ],
         ),
         ImportedTableChild::Opaque(name) => opaque(name),
         _ => return Err(unmodeled("table child")),
@@ -153,39 +168,40 @@ fn table_child(child: &ImportedTableChild, anchors: &Anchors) -> Result<JsValue>
 fn row_child(child: &ImportedRowChild, anchors: &Anchors) -> Result<JsValue> {
     Ok(match child {
         ImportedRowChild::Cell(cell) => {
-            let result = record(
-                "cell",
-                &[(
-                    "blocks",
-                    try_array(
-                        cell.blocks
-                            .iter()
-                            .enumerate()
-                            .map(|(i, block)| match block {
-                                ImportedCellBlock::Paragraph(values) => {
-                                    let nodes = cell.inline_structure(i).ok_or_else(|| {
-                                        Failure::invalid(
-                                            "",
-                                            "missing Rust cell paragraph inline structure",
-                                        )
-                                    })?;
-                                    Ok(record(
-                                        "paragraph",
-                                        &[
-                                            ("inlineItems", items(values)?),
-                                            (
-                                                "inlineStructure",
-                                                inline_nodes(nodes, anchors, None)?,
-                                            ),
-                                        ],
-                                    ))
-                                }
-                                ImportedCellBlock::Opaque(name) => Ok(opaque(name)),
-                                _ => Err(unmodeled("cell block")),
-                            }),
-                    )?,
-                )],
-            );
+            let result =
+                record(
+                    "cell",
+                    &[
+                        ("properties", table_properties(&cell.properties)),
+                        (
+                            "blocks",
+                            try_array(cell.blocks.iter().enumerate().map(
+                                |(i, block)| match block {
+                                    ImportedCellBlock::Paragraph(values) => {
+                                        let nodes = cell.inline_structure(i).ok_or_else(|| {
+                                            Failure::invalid(
+                                                "",
+                                                "missing Rust cell paragraph inline structure",
+                                            )
+                                        })?;
+                                        Ok(record(
+                                            "paragraph",
+                                            &[
+                                                ("inlineItems", items(values)?),
+                                                (
+                                                    "inlineStructure",
+                                                    inline_nodes(nodes, anchors, None)?,
+                                                ),
+                                            ],
+                                        ))
+                                    }
+                                    ImportedCellBlock::Opaque(name) => Ok(opaque(name)),
+                                    _ => Err(unmodeled("cell block")),
+                                },
+                            ))?,
+                        ),
+                    ],
+                );
             if let Some(span) = cell.grid_span {
                 b::set(&result, "gridSpan", &span.into());
             }

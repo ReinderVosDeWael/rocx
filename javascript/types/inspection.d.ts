@@ -104,6 +104,7 @@ export interface ImportedCellParagraph extends ImportedFlatParagraph {
 export type ImportedCellBlock = ImportedCellParagraph | ImportedOpaque;
 
 export interface ImportedTableCell {
+  readonly properties: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly gridSpan?: number;
   readonly verticalMerge?: string;
   readonly kind: "cell";
@@ -113,6 +114,7 @@ export interface ImportedTableCell {
 export type ImportedRowChild = ImportedTableCell | ImportedOpaque;
 
 export interface ImportedTableRow {
+  readonly properties: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly kind: "row";
   readonly children: readonly ImportedRowChild[];
 }
@@ -120,6 +122,7 @@ export interface ImportedTableRow {
 export type ImportedTableChild = ImportedTableRow | ImportedOpaque;
 
 export interface ImportedTable {
+  readonly properties: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly layout?: TableLayout;
   readonly gridWidths: readonly (number | null)[];
   readonly kind: "table";

@@ -39,6 +39,97 @@ fn pair(a: &str, b: &str) -> Table {
     ])
 }
 
+fn table_nodes(directory: &std::path::Path, pair: &rocx::ResolvedTable) -> Vec<u8> {
+    use rocx::editor::{EditBatch, TableOperation::*, TableSite, TableStructureEdit};
+    let doc =
+        ImportedDocument::open(&fs::read(directory.join("table-layout.docx")).unwrap()).unwrap();
+    let edit = |doc: &ImportedDocument, index, operation| {
+        let BodyBlock::Table(t) = &doc.body()[index] else {
+            panic!("table")
+        };
+        TableStructureEdit {
+            target: t.anchor.clone(),
+            operation,
+        }
+    };
+    let single = immediate(Component::resolve(
+        Table::new(vec![
+            TableRow::new(vec![
+                TableCell::new(vec![Paragraph::new("cell").into()])
+                    .with_properties(
+                        TableCellProperties::default()
+                            .with_margins(rocx::CellMargins::default().with_top(4.5)),
+                    )
+                    .into(),
+            ])
+            .with_properties(rocx::TableRowProperties::default().with_repeat_header(false))
+            .into(),
+        ])
+        .with_properties(TableProperties::default().with_alignment(rocx::TableAlignment::Center)),
+    ))
+    .unwrap()
+    .unwrap();
+    let mut data = doc
+        .preview_edits(EditBatch {
+            structural: &[
+                edit(
+                    &doc,
+                    0,
+                    ReplaceNode {
+                        site: TableSite::Table,
+                        source: Box::new(pair.clone()),
+                    },
+                ),
+                edit(&doc, 1, RemoveTable),
+            ],
+            alignments: &[ParagraphAlignmentEdit {
+                target: anchor(&doc, 2),
+                alignment: Alignment::Right,
+            }],
+            ..Default::default()
+        })
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    for ops in [
+        vec![ReplaceNode {
+            site: TableSite::Row(0),
+            source: Box::new(pair.clone()),
+        }],
+        vec![ReplaceNode {
+            site: TableSite::Cell(0, 1),
+            source: Box::new(single.clone()),
+        }],
+        [
+            (TableSite::Table, "alignment"),
+            (TableSite::Row(0), "repeatHeader"),
+            (TableSite::Cell(0, 0), "margin.top"),
+        ]
+        .into_iter()
+        .map(|(site, field)| Property {
+            site,
+            field: field.into(),
+            source: Some(Box::new(single.clone())),
+        })
+        .collect(),
+    ] {
+        let doc = ImportedDocument::open(&data).unwrap();
+        let edits = ops
+            .into_iter()
+            .map(|op| edit(&doc, 0, op))
+            .collect::<Vec<_>>();
+        data = doc
+            .preview_edits(EditBatch {
+                structural: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+    }
+    data
+}
+
 fn main() {
     let directory = PathBuf::from(env::args_os().nth(1).expect("fixture directory"));
     let doc = ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
@@ -112,6 +203,10 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    write(
+        "native-tableNodes.docx",
+        table_nodes(&directory, &insertions[1].table),
+    );
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {
             ranges: &[rocx::editor::TextRangeEdit {

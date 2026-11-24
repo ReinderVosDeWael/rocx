@@ -150,6 +150,8 @@ def generate(directory):
     table = merged.add_table(rows=2, cols=3)
     table.autofit = False
     table.cell(0, 0).merge(table.cell(1, 1)).text = "origin"
+    merged.add_table(rows=1, cols=1).cell(0, 0).text = "remove me"
+    merged.add_paragraph("after both tables")
     merged.save(directory / "table-layout.docx")
     generate_controls(directory)
     catalog = Document()
@@ -525,6 +527,14 @@ def verify(directory):
     assert cell_readback.tables[1].cell(0, 0).text == "next A"
 
     structure = directory / "tableStructure.docx"
+    nodes = directory / "tableNodes.docx"
+    untouched(parts(directory / "table-layout.docx"), parts(nodes), (MAIN,))
+    edited = Document(nodes)
+    assert len(edited.tables) == 1 and [c.text for c in edited.tables[0].rows[0].cells] == ["next A","cell"]
+    assert edited.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    assert edited.tables[0]._tbl.xpath("w:tblPr/w:jc/@w:val") == ["center"]
+    assert edited.tables[0]._tbl.xpath("w:tr/w:trPr/w:tblHeader/@w:val") == ["0"]
+    assert edited.tables[0].cell(0,0)._tc.xpath("w:tcPr/w:tcMar/w:top/@w:w") == ["90"]
     untouched(body, parts(structure), (MAIN,))
     assert Document(structure).tables[1].autofit
     assert xp(etree.fromstring(parts(structure)[MAIN]), "w:body/w:tbl[2]/w:tblPr/w:tblLayout/@w:type") == ["autofit"]

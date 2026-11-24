@@ -221,6 +221,70 @@ requires exclusive use of the table within the table edit batch. Duplicate
 layout elements, tracked table properties, and clears that would discard
 extension attributes or children on the property are rejected.
 
+#### Independent table, row and cell property edits
+
+Read `properties` on each inspected physical table, row and cell (all bindings).
+It maps the field names below to **direct, lexical attribute values**. For
+example `properties["height"] = {"val": "320", "hRule": "exact"}` means exactly
+16 points; an empty `repeatHeader` map means the on/off element is present
+without a `val`. Missing keys mean no modeled direct value. The view is not a
+style cascade. Grid-column widths use the ordered `grid_widths`/`gridWidths`
+view instead.
+
+| Site | Field keys (identical in all bindings) |
+| --- | --- |
+| Table | `alignment`, `style`, `layout`; `look.firstRow`, `look.lastRow`, `look.firstColumn`, `look.lastColumn`, `look.horizontalBanding`, `look.verticalBanding`; `border.top`, `border.left`, `border.bottom`, `border.right`, `border.insideH`, `border.insideV` |
+| Grid column | `width` (twips; clearing leaves the column present) |
+| Physical row | `height`, `repeatHeader`, `cantSplit` |
+| Physical cell | `gridSpan`, `verticalMerge`, `backgroundColor`, `verticalAlignment`, `textDirection`; `margin.top`, `margin.start`, `margin.bottom`, `margin.end`; `border.top`, `border.start`, `border.bottom`, `border.end` |
+
+Pass a **resolved table** as `source` to copy the selected property through the
+authoring codec. Row and cell sources are its first row and first physical cell;
+column sources use its first explicit column width. Only the selected property
+is copied. A missing source property generally rejects the edit; setting layout
+from a fixed-width declaration also accepts the codec's implied fixed layout.
+To clear, explicitly pass `None`/`null`. Example: patch only the top margin of
+the third physical cell in the second row:
+
+| Rust `TableOperation` | Python `TableStructureEdit` | JavaScript `tableStructure` item |
+| --- | --- | --- |
+| `Property { site: TableSite::Cell(1, 2), field: "margin.top".into(), source: Some(Box::new(table)) }` | `patch_property(target, "margin.top", table, row=1, cell=2)` | `{target, kind: "patchProperty", row: 1, cell: 2, field: "margin.top", source: table}` |
+
+Rust sites are `TableSite::{Table, Row(r), Cell(r,c), Column(c)}`; omit
+coordinates for a whole-table property in Python/JavaScript. Distinct fields
+can share a batch. Duplicate fields, a second vertical-alignment write to the
+same cell, and property/structural edits on the same table reject. Grid and
+merge chains must be valid after the patches together. A new merge continuation
+must not hide existing content.
+
+Table style names resolve against the staged table-style catalog. Border
+patches affect one side (style, size and color together); margin patches
+affect one side; RGB fill leaves unrelated shading attributes intact. A
+destructive clear refuses to erase unmodeled markup. Look flags expose any
+individual attribute and its packed `maskBit`; `noHBand` and `noVBand` are
+the inverse of banding. Clearing a flag materializes any mask-only siblings
+before dropping the packed mask; unknown mask bits prevent such a clear.
+
+#### Replace or remove whole nodes
+
+`TableOperation::ReplaceNode { site, source: Box::new(table) }`,
+`TableStructureEdit.replace_node(target, table, ...)`, and
+`{target, kind: "replaceNode", source: table, ...}` replace a whole table,
+row or cell. The donor must contain exactly one row for a row replacement or
+one row with one cell for a cell replacement. A new row must cover the grid;
+a replacement cell must keep the target span. Explicit widths or unambiguous
+available width are required. A whole table can change dimensions. Whole-node
+replacement, unlike `ReplaceCell`/`replace_cell`/`replaceCell`, replaces the
+selected node's properties as well as its children.
+
+`TableOperation::RemoveTable`, `TableStructureEdit.remove_table(target)` and
+`{target, kind: "removeTable"}` remove an eligible body table. Row/cell removal
+uses the existing coordinate operations. A destructive edit requires exclusive
+use of the target table; it rejects unknown attributes, raw markup, nested
+source tables, relationships, controls, ranges and other non-disposable
+content at the discarded site. Row/cell replacement refuses vertical merges.
+Targets elsewhere in the batch retain their original body indices.
+
 Indices are zero-based; insert before an index or append at the count. A cell
 spanning three grid columns still counts as **one physical cell**. A new row
 contains blank cells except where it must continue an existing vertical merge;

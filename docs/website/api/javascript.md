@@ -228,6 +228,12 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   kind: "layout", value: "fixed" | "autofit" | null}` to set or clear direct
   layout. Inspect a table's `layout`, `gridWidths` (twips), and each physical
   cell's `gridSpan` and `verticalMerge`.
+- `patchProperty` copies one direct field from a resolved table, or clears it
+  with `source: null`. For example, `{target, kind:"patchProperty", row:0,
+  cell:1, field:"margin.end", source:table}` sets only that side. Table, row
+  and cell `properties` expose field-to-attribute maps; `gridWidths` exposes
+  columns. `replaceNode` replaces the addressed table, row or cell from a
+  resolved table; `removeTable` removes an eligible direct body table.
 - `styleEdits` accepts `op: "add"`, `"patch"`, `"replace"` or `"remove"`.
   Obtain existing targets with `styleAnchor(id)`. Patch direct bold/italic
   without discarding other properties; replace/remove only safe unused custom styles.

@@ -46,6 +46,14 @@ pub(super) fn table_sites(
     body: &Node,
     targets: &BTreeMap<usize, &ResolvedTable>,
 ) -> Result<Vec<(usize, usize, i64)>> {
+    table_positions(body, targets, "w:p")
+}
+
+pub(super) fn table_positions(
+    body: &Node,
+    targets: &BTreeMap<usize, &ResolvedTable>,
+    target_kind: &str,
+) -> Result<Vec<(usize, usize, i64)>> {
     let mut boundaries = BoundaryState::default();
     let mut blocks = Vec::new();
     let mut at_body_end = false;
@@ -62,7 +70,7 @@ pub(super) fn table_sites(
         }
         let index = blocks.len();
         boundaries.advance(node);
-        if targets.contains_key(&index) && (node.name != "w:p" || !boundaries.safe()) {
+        if targets.contains_key(&index) && (node.name != target_kind || !boundaries.safe()) {
             return Err(unsupported(
                 "table insertion point is inside an active or ambiguous range",
             ));

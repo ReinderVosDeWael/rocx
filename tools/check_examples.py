@@ -119,6 +119,8 @@ def verify_inline_structure(document) -> None:
 
 def verify_edited(original: bytes, edited: bytes) -> None:
     """Check the labeled body edit and byte preservation of every other part."""
+    from rocx.editor import ImportedDocument
+
     with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(io.BytesIO(edited)) as result:
         assert set(source.namelist()) == set(result.namelist())
         for name in source.namelist():
@@ -147,6 +149,13 @@ def verify_edited(original: bytes, edited: bytes) -> None:
             cells = rows[0].xpath("w:tc", namespaces=NS)
             assert len(cells) == 2
             assert cells[0].xpath("w:tcPr/w:vAlign/@w:val", namespaces=NS) == ["center"]
+            # Compare the editor's direct property projection with the XML
+            # from this binding's actual catalog, including the unpatched cell.
+            view = ImportedDocument.open(edited).body[table.getparent().index(table)]
+            assert view.grid_widths == [2160, 2160]
+            assert view.properties["layout"] == {"type": "fixed"}
+            assert view.children[0].children[0].properties["verticalAlignment"] == {"val": "center"}
+            assert "verticalAlignment" not in view.children[0].children[1].properties
             assert cells[0].xpath(".//w:t/text()", namespaces=NS) == [EDIT_TABLE_LABEL]
             assert cells[0].xpath(".//w:r[w:t=$label]/w:rPr/w:b/@w:val",
                                   namespaces=NS, label=EDIT_TABLE_LABEL) == ["1"]

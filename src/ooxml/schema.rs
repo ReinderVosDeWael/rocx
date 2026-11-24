@@ -19,6 +19,7 @@ pub(crate) fn order(name: &crate::xml::Name) -> Option<Vec<&'static str>> {
         "w:tcBorders" | "w:tblBorders" => {
             "top start left bottom end right insideH insideV tl2br tr2bl"
         }
+        "w:tcMar" => "top start left bottom end right",
         "w:style" => {
             "name aliases basedOn next link autoRedefine hidden uiPriority semiHidden unhideWhenUsed qFormat locked personal personalCompose personalReply rsid pPr rPr tblPr trPr tcPr tblStylePr"
         }

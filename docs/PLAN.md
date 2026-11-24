@@ -33,12 +33,17 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 
 **#3 table follow-up:** direct-body table layout can be inspected, set or
 cleared; grid column widths, physical cell spans and vertical merge markers
-are inspectable in all three bindings. Remaining table goals include full
-table/row/cell replacement, general nested-table editing, and independent
-inspection/patch/clear of the other table, row, cell and border properties.
-The table-structure output matched across Rust, installed Python 3.12 and
-packed Node 26 and passed schema/OPC checks. All 11 catalog files matched
-across the three bindings; all 23 Node editor outputs matched Rust.
+are inspectable in all three bindings. The next increment covers independent
+direct style, alignment, look flags, border sides, grid widths, row flags and
+height, cell margins, direction, shading and merge fields. Table/row/cell
+replacement and whole-table removal refuse destructive edits over opaque
+markup. Editing inside existing nested tables, addressing controlled rows or
+cells, and editing tables in other stories remain open.
+Both structural edit artifacts and all eleven catalogs matched across Rust,
+installed Python 3.12 and packed Node 26. All 24 Node editor outputs matched
+the native reference; the table fixture and both outputs passed schema/OPC
+validation. Tests cover physical-coordinate conflicts, merged intervals,
+unsupported clears, preserved extension attributes and untouched part payloads.
 
 **Combined qualification on `6f11a6a`:** Rust all-features/all-targets and
 doctests, native/Wasm Clippy, Rust 1.88, 894 schema-required Python tests and

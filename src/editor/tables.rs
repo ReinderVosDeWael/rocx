@@ -1,5 +1,8 @@
 //! Conservative edits to physical cells in direct body tables.
+mod properties;
 mod structure;
+pub(super) use properties::inspect;
+pub use properties::{DirectTableProperties, TableSite};
 pub(super) use structure::apply as structure;
 pub use structure::{TableOperation, TableStructureEdit};
 

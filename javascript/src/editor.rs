@@ -316,11 +316,20 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
     let edit = Record::new(
         input,
         path,
-        &["target", "kind", "index", "row", "cell", "blocks", "value"],
+        &[
+            "target", "kind", "index", "row", "cell", "blocks", "value", "column", "field",
+            "source",
+        ],
     )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
     let fields: &[&str] = if kind == "replaceCell" {
         &["target", "kind", "row", "cell", "blocks"]
+    } else if kind == "patchProperty" {
+        &["target", "kind", "row", "cell", "column", "field", "source"]
+    } else if kind == "replaceNode" {
+        &["target", "kind", "row", "cell", "source"]
+    } else if kind == "removeTable" {
+        &["target", "kind"]
     } else if kind == "layout" {
         &["target", "kind", "value"]
     } else if matches!(kind.as_str(), "insertCell" | "removeCell") {
@@ -334,6 +343,46 @@ fn structure_edit(input: &Wire, path: &str) -> Result<rocx::editor::TableStructu
             .map_err(|_| Failure::invalid(&edit.path(name), "index is too large"))
     };
     let operation = match kind.as_str() {
+        "removeTable" => RemoveTable,
+        "patchProperty" | "replaceNode" => {
+            use rocx::editor::TableSite;
+            let idx = |k| -> Result<Option<usize>> {
+                if edit.get(k)?.js().is_undefined() {
+                    Ok(None)
+                } else {
+                    index(k).map(Some)
+                }
+            };
+            let site = match (idx("row")?, idx("cell")?, idx("column")?) {
+                (None, None, None) => TableSite::Table,
+                (Some(r), None, None) => TableSite::Row(r),
+                (Some(r), Some(c), None) => TableSite::Cell(r, c),
+                (None, None, Some(c)) => TableSite::Column(c),
+                _ => return Err(Failure::invalid(path, "invalid table site coordinates")),
+            };
+            let wire = edit.get("source")?;
+            let source = || -> Result<_> {
+                Ok(Box::new(
+                    (*b::borrow::<ResolvedTable>(&wire, &edit.path("source"))?).clone(),
+                ))
+            };
+            if kind == "patchProperty" {
+                Property {
+                    site,
+                    field: b::string(&edit.get("field")?, &edit.path("field"))?,
+                    source: if wire.js().is_null() {
+                        None
+                    } else {
+                        Some(source()?)
+                    },
+                }
+            } else {
+                ReplaceNode {
+                    site,
+                    source: source()?,
+                }
+            }
+        }
         "layout" => {
             let v = edit.get("value")?;
             Layout(if v.js().is_null() {

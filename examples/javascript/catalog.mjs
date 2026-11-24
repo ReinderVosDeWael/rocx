@@ -297,6 +297,10 @@ export async function generateCatalog(fixtures, options) {
   const layout = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "layout", value: "autofit" }] });
   const adjusted = (await openDocx(layout.toDocx())).body()[bodyIndex + 1];
   assert(adjusted.layout === "autofit" && adjusted.gridWidths.join() === "2160,2160", "layout patch preserved grid");
+  // Direct property sample: clear a single grid width.
+  const clearedWidth = reopenedForCell.preview({tableStructure: [{target: insertedTable.anchor, kind:"patchProperty", field:"width", column:1, source:null}]});
+  const partial = (await openDocx(clearedWidth.toDocx())).body()[bodyIndex + 1];
+  assert(partial.gridWidths[1] === null && partial.properties.layout.type === "fixed", "cleared one width, retained layout");
   // Structural sample: append an empty row to this original table.
   const appended = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "insertRow", index: 1 }] });
   const larger = (await openDocx(appended.toDocx())).body()[bodyIndex + 1];

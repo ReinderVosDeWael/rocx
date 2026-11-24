@@ -60,7 +60,7 @@ pub(super) fn local(node: &Node, parent: &str) -> bool {
 
 #[derive(Default)]
 pub(super) struct Plan {
-    deletes: BTreeSet<usize>,
+    pub(super) deletes: BTreeSet<usize>,
     payloads: Vec<(usize, ResolvedBlock, i64)>,
     pub(super) changes: Vec<usize>,
 }

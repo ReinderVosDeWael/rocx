@@ -82,7 +82,21 @@ export interface EditBatch {
 
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
 export interface TextInsertion { readonly target: ParagraphAnchor; readonly position: number; readonly text: string }
+type TableCoordinate =
+  | { readonly row?: never; readonly cell?: never }
+  | { readonly row: number; readonly cell?: number };
+type PropertyCoordinate =
+  | {readonly column: number; readonly row?: never; readonly cell?: never; readonly field: "width"}
+  | {readonly column?: never; readonly row?: never; readonly cell?: never; readonly field:
+      "style" | "alignment" | "layout" | `look.${"firstRow"|"lastRow"|"firstColumn"|"lastColumn"|"horizontalBanding"|"verticalBanding"}` |
+      `border.${"top"|"left"|"bottom"|"right"|"insideH"|"insideV"}`}
+  | {readonly column?: never; readonly row: number; readonly cell?: never; readonly field: "height"|"repeatHeader"|"cantSplit"}
+  | {readonly column?: never; readonly row: number; readonly cell: number; readonly field: "gridSpan"|"verticalMerge"|"backgroundColor"|"verticalAlignment"|"textDirection"|
+      `border.${"top"|"start"|"bottom"|"end"}` | `margin.${"top"|"start"|"bottom"|"end"}`};
 export type TableStructureEdit =
+  | { readonly target: TableAnchor; readonly kind: "removeTable" }
+  | ({ readonly target: TableAnchor; readonly kind: "replaceNode"; readonly source: ResolvedTable } & TableCoordinate)
+  | ({ readonly target: TableAnchor; readonly kind: "patchProperty"; readonly source: ResolvedTable | null } & PropertyCoordinate)
   | { readonly target: TableAnchor; readonly kind: "layout"; readonly value: TableLayout | null }
   | { readonly target: TableAnchor; readonly kind: "insertRow" | "removeRow" | "insertColumn" | "removeColumn"; readonly index: number }
   | { readonly target: TableAnchor; readonly kind: "insertCell" | "removeCell"; readonly row: number; readonly cell: number }

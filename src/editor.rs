@@ -46,7 +46,10 @@ pub use header::{
 pub use resource_fields::{AbstractStart, CustomValue, MetadataField, ResourceEdit};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
-pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
+pub use tables::{
+    CellAlignmentChange, CellAlignmentEdit, DirectTableProperties, TableOperation, TableSite,
+    TableStructureEdit,
+};
 pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
 mod run_format;
 pub use run_format::RunFormatField;
@@ -106,6 +109,7 @@ pub struct TableAnchor {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTable {
+    pub properties: DirectTableProperties,
     pub anchor: TableAnchor,
     /// Direct recognized layout; no style or default is inferred.
     pub layout: Option<crate::TableLayout>,
@@ -124,6 +128,7 @@ pub enum ImportedTableChild {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTableRow {
+    pub properties: DirectTableProperties,
     pub children: Vec<ImportedRowChild>,
 }
 
@@ -137,6 +142,7 @@ pub enum ImportedRowChild {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedTableCell {
+    pub properties: DirectTableProperties,
     /// Direct positive grid span; no implicit one is synthesized.
     pub grid_span: Option<u32>,
     /// Source merge marker; an empty marker denotes "continue".
@@ -166,6 +172,7 @@ pub enum ImportedCellBlock {
 
 fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTable {
     ImportedTable {
+        properties: tables::inspect(node, TableSite::Table),
         layout: match node
             .child("w:tblPr")
             .and_then(|p| p.child("w:tblLayout"))
@@ -195,6 +202,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                     return ImportedTableChild::Opaque(n.name.to_string());
                 }
                 ImportedTableChild::Row(ImportedTableRow {
+                    properties: tables::inspect(n, TableSite::Row(0)),
                     children: n
                         .elements()
                         .filter(|n| n.name != "w:trPr")
@@ -228,6 +236,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
                                 })
                                 .unzip();
                             ImportedRowChild::Cell(ImportedTableCell {
+                                properties: tables::inspect(n, TableSite::Cell(0, 0)),
                                 grid_span: n
                                     .child("w:tcPr")
                                     .and_then(|p| p.child("w:gridSpan"))
@@ -935,7 +944,14 @@ impl ImportedDocument {
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             let (staged, actions) = text::prepare(package, &self.main, inline_edits)?;
-            package = tables::structure(body, staged, &self.main, structural, cells)?;
+            package = tables::structure(
+                body,
+                staged,
+                &self.main,
+                structural,
+                cells,
+                &mut block_plan.deletes,
+            )?;
             (run_text_changes, removed_runs) =
                 text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
             cell_alignment_changes = tables::apply(body, cells)?;

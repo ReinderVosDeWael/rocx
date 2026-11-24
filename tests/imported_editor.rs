@@ -3200,6 +3200,68 @@ fn first_header_image_local_preserves_aliases_and_inheritance() {
 }
 
 #[test]
+fn unknown_look_bits_and_duplicate_leafs_fail_atomically_with_table_removal() {
+    use rocx::editor::{EditBatch, TableOperation, TableSite, TableStructureEdit};
+    let t = r#"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2400"/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#;
+    for (props, field, message) in [
+        (
+            "<w:tblLook w:val=\"8020\"/>",
+            "look.firstRow",
+            "unknown mask bits",
+        ),
+        (
+            "<w:jc w:val=\"left\"/><w:jc w:val=\"right\"/>",
+            "alignment",
+            "ambiguous table properties",
+        ),
+    ] {
+        let xml = format!(
+            "<w:document xmlns:w=\"{W}\"><w:body>{t}{}<w:sectPr/></w:body></w:document>",
+            t.replace("<w:tblPr/>", &format!("<w:tblPr>{props}</w:tblPr>"))
+        );
+        let bytes = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let [BodyBlock::Table(first), BodyBlock::Table(second)] = doc.body() else {
+            panic!("tables")
+        };
+        let remove = TableStructureEdit {
+            target: first.anchor.clone(),
+            operation: TableOperation::RemoveTable,
+        };
+        let clear = TableStructureEdit {
+            target: second.anchor.clone(),
+            operation: TableOperation::Property {
+                field: field.into(),
+                site: TableSite::Table,
+                source: None,
+            },
+        };
+        assert!(
+            doc.preview_edits(EditBatch {
+                structural: &[remove.clone(), clear],
+                ..Default::default()
+            })
+            .unwrap_err()
+            .to_string()
+            .contains(message)
+        );
+        let output = doc
+            .preview_edits(EditBatch {
+                structural: &[remove],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        assert_eq!(ImportedDocument::open(&output).unwrap().body().len(), 1);
+        assert_eq!(
+            parts(&bytes),
+            parts(&doc.preview(&[]).unwrap().to_docx().unwrap())
+        );
+    }
+}
+
+#[test]
 fn layout_rejects_duplicate_or_tracked_properties() {
     use rocx::editor::{EditBatch, TableOperation, TableStructureEdit};
     for (props, message) in [

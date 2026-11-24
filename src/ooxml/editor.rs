@@ -68,6 +68,14 @@ pub(crate) fn encode_editor_blocks(
     Ok((renderer.package, output))
 }
 
+pub(crate) fn editor_table_style(
+    package: &Package,
+    main: &str,
+    name: &str,
+) -> Result<crate::StyleId> {
+    editor_styles(package, main, BTreeSet::from([("table", name.to_owned())]))?.get(name)
+}
+
 fn editor_styles(package: &Package, main: &str, style_refs: StyleRefs) -> Result<StyleCatalog> {
     let style_part = if style_refs.is_empty() {
         None

@@ -1027,6 +1027,23 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert!(
         matches!(&editor::ImportedDocument::open(&layout)?.body()[after], editor::BodyBlock::Table(t) if t.layout == Some(TableLayout::Autofit) && t.grid_widths == table.grid_widths)
     );
+    // Direct property sample: clear only the second grid width, keeping its column.
+    let cleared = reopened
+        .preview_edits(editor::EditBatch {
+            structural: &[editor::TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: editor::TableOperation::Property {
+                    site: editor::TableSite::Column(1),
+                    field: "width".into(),
+                    source: None,
+                },
+            }],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    assert!(
+        matches!(&editor::ImportedDocument::open(&cleared)?.body()[after], editor::BodyBlock::Table(t) if t.grid_widths == [Some(2160),None] && t.properties["layout"]["type"] == "fixed")
+    );
     // Structural sample: append an empty row to this original table.
     let appended = reopened
         .preview_with_table_structure(

@@ -204,6 +204,11 @@ The layout sample previews `TableOperation::Layout(Some(TableLayout::Autofit))`,
 `TableStructureEdit.layout(anchor, "autofit")`, or
 `{target: anchor, kind: "layout", value: "autofit"}`. Reopening confirms the
 layout changed from fixed to autofit while both grid columns remain 2160 twips.
+The independent property sample then clears only the second original grid
+width with Rust `TableOperation::Property` at `TableSite::Column(1)`, Python
+`TableStructureEdit.patch_property(target, "width", None, column=1)`, or JS
+`{target, kind:"patchProperty", field:"width", column:1, source:null}`. Both
+columns remain, and `properties["layout"]["type"]` still reads `"fixed"`.
 
 For the run-text output Rust passes `ParagraphInsertion` to
 `EditBatch.paragraphs` in `preview_edits`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`

@@ -596,6 +596,8 @@ impl From<&editor::ImportedInline> for PyImportedInline {
 #[pyclass(name = "BodyTable", frozen, module = "rocx.editor")]
 struct PyBodyTable {
     #[pyo3(get)]
+    properties: editor::DirectTableProperties,
+    #[pyo3(get)]
     layout: Option<String>,
     #[pyo3(get)]
     grid_widths: Vec<Option<u32>>,
@@ -613,11 +615,15 @@ struct PyTableAnchor {
 #[pyclass(name = "ImportedTableRow", frozen, module = "rocx.editor")]
 struct PyImportedTableRow {
     #[pyo3(get)]
+    properties: editor::DirectTableProperties,
+    #[pyo3(get)]
     children: Vec<Py<PyAny>>,
 }
 
 #[pyclass(name = "ImportedTableCell", frozen, module = "rocx.editor")]
 struct PyImportedTableCell {
+    #[pyo3(get)]
+    properties: editor::DirectTableProperties,
     #[pyo3(get)]
     grid_span: Option<u32>,
     #[pyo3(get)]
@@ -684,6 +690,7 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                             Ok(Py::new(
                                 py,
                                 PyImportedTableCell {
+                                    properties: cell.properties.clone(),
                                     blocks,
                                     grid_span: cell.grid_span,
                                     vertical_merge: cell.vertical_merge.clone(),
@@ -693,13 +700,21 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                         }
                     })
                     .collect::<PyResult<_>>()?;
-                Ok(Py::new(py, PyImportedTableRow { children })?.into_any())
+                Ok(Py::new(
+                    py,
+                    PyImportedTableRow {
+                        children,
+                        properties: row.properties.clone(),
+                    },
+                )?
+                .into_any())
             }
         })
         .collect::<PyResult<_>>()?;
     Ok(Py::new(
         py,
         PyBodyTable {
+            properties: table.properties.clone(),
             layout: table.layout.map(|v| v.xml().to_owned()),
             grid_widths: table.grid_widths.clone(),
             anchor: Py::new(
@@ -740,8 +755,70 @@ struct PyParagraphAlignmentEdit {
 struct PyTableStructureEdit {
     inner: editor::TableStructureEdit,
 }
+fn table_site(
+    row: Option<usize>,
+    cell: Option<usize>,
+    column: Option<usize>,
+) -> PyResult<editor::TableSite> {
+    use editor::TableSite::*;
+    Ok(match (row, cell, column) {
+        (None, None, None) => Table,
+        (Some(r), None, None) => Row(r),
+        (Some(r), Some(c), None) => Cell(r, c),
+        (None, None, Some(c)) => Column(c),
+        _ => return Err(PyValueError::new_err("invalid table site coordinates")),
+    })
+}
 #[pymethods]
 impl PyTableStructureEdit {
+    #[staticmethod]
+    #[pyo3(signature=(target,field,source,*,row=None,cell=None,column=None))]
+    fn patch_property(
+        target: PyRef<'_, PyTableAnchor>,
+        field: String,
+        source: Option<&Bound<'_, PyAny>>,
+        row: Option<usize>,
+        cell: Option<usize>,
+        column: Option<usize>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::Property {
+                    site: table_site(row, cell, column)?,
+                    field,
+                    source: source.map(resolved_block_table).transpose()?.map(Box::new),
+                },
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,source,*,row=None,cell=None))]
+    fn replace_node(
+        target: PyRef<'_, PyTableAnchor>,
+        source: &Bound<'_, PyAny>,
+        row: Option<usize>,
+        cell: Option<usize>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::ReplaceNode {
+                    site: table_site(row, cell, None)?,
+                    source: Box::new(resolved_block_table(source)?),
+                },
+            },
+        })
+    }
+    #[staticmethod]
+    fn remove_table(target: PyRef<'_, PyTableAnchor>) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveTable,
+            },
+        }
+    }
     #[staticmethod]
     #[pyo3(signature = (target, value))]
     fn layout(

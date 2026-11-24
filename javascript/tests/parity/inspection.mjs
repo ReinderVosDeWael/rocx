@@ -224,11 +224,16 @@ async function importedBodySectionsAndPhysicalCells() {
   const [tailRun] = tail.blocks[0].inlineStructure;
   const run = (node, value) => ({ kind: "run", format: {}, hasOpaqueFormatting: false, anchor: node.anchor, items: [text(value)] });
   assert.deepEqual(table, {
-    kind: "table", anchor: table.anchor,
+    kind: "table", anchor: table.anchor, gridWidths: [2880,2880,2880],
+    properties: {
+      "look.firstRow": {firstRow:"1",maskBit:"1"}, "look.lastRow": {lastRow:"0",maskBit:"0"},
+      "look.firstColumn": {firstColumn:"1",maskBit:"1"}, "look.lastColumn": {lastColumn:"0",maskBit:"0"},
+      "look.horizontalBanding": {noHBand:"0",maskBit:"0"}, "look.verticalBanding": {noVBand:"1",maskBit:"1"},
+    },
     children: [
       opaque("w:sdt"),
-      { kind: "row", children: [
-        { kind: "cell", blocks: [
+      { kind: "row", properties: {}, children: [
+        { kind: "cell", gridSpan: 2, properties: {gridSpan:{val:"2"}}, blocks: [
           {
             kind: "paragraph",
             inlineItems: [text("Span"), opaque("w:fldSimple"), text("Cell"), text("Link")],
@@ -244,7 +249,7 @@ async function importedBodySectionsAndPhysicalCells() {
             inlineStructure: [run(afterRun, "After nested")] },
         ] },
         opaque("w:sdt"),
-        { kind: "cell", blocks: [
+        { kind: "cell", properties: {}, blocks: [
           { kind: "paragraph", inlineItems: [text("Tail")], inlineStructure: [run(tailRun, "Tail")] },
         ] },
       ] },
