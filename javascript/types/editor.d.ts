@@ -2,7 +2,7 @@ import type { ResolvedImage } from "./drawings.js";
 import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
 import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
-import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
+import type { Alignment, ResolvedInline, ResolvedParagraph, RunFormat } from "./text-layout.js";
 
 export interface ParagraphAlignmentEdit {
   readonly target: ParagraphAnchor;
@@ -54,6 +54,9 @@ export type InlineEdit = { readonly target: InlineAnchor } & (
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
   | { readonly kind: "setBold"; readonly bold: boolean }
   | { readonly kind: "setToggle"; readonly property: "bold" | "italic" | "strike" | "hidden"; readonly value: boolean | null }
+  | { readonly kind: "patchFormat"; readonly format?: RunFormat; readonly clear?: readonly
+      (Exclude<keyof RunFormat, "superscript" | "subscript" | "language"> |
+        "verticalAlignment" | "languageLatin" | "languageEastAsia" | "languageBidi" | "hidden")[] }
 );
 
 export interface EditBatch {

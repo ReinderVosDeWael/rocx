@@ -289,17 +289,60 @@ fn main() {
                 action: InlineAction::SetToggle(prop, value),
             }
         });
-        write(
-            "native-runFormatting.docx",
-            ranged
-                .preview_edits(EditBatch {
-                    inline_edits: &edits,
+        let mut edits = edits.to_vec();
+        edits.push(InlineEdit {
+            target: edits[2].target.clone(),
+            action: InlineAction::PatchFormat {
+                set: Box::new(RunFormat {
+                    style: Some("Strong".into()),
+                    font: Some("Cambria".into()),
+                    font_east_asia: Some("Yu Mincho".into()),
+                    font_complex_script: Some("Amiri".into()),
+                    size: Some(12.5),
+                    size_complex_script: Some(14.),
+                    underline: Some(rocx::Underline::Double),
+                    color: Some(rocx::Color::Theme {
+                        name: rocx::ThemeColor::Accent2,
+                        tint: Some(150),
+                        shade: None,
+                    }),
+                    superscript: Some(true),
+                    all_caps: Some(false),
+                    small_caps: Some(true),
+                    snap_to_grid: Some(false),
+                    bold_complex_script: Some(true),
+                    italic_complex_script: Some(false),
+                    rtl: Some(true),
+                    complex_script: Some(true),
+                    language: Some(rocx::RunLanguage {
+                        latin: Some("fr-CA".into()),
+                        east_asia: Some("ja-JP".into()),
+                        bidi: None,
+                    }),
                     ..Default::default()
-                })
-                .unwrap()
-                .to_docx()
-                .unwrap(),
-        );
+                }),
+                clear: vec![rocx::editor::RunFormatField::LanguageBidi],
+            },
+        });
+        let bytes = ranged
+            .preview_edits(EditBatch {
+                inline_edits: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        let reopened = ImportedDocument::open(&bytes).unwrap();
+        let BodyBlock::Paragraph(p) = &reopened.body()[1] else {
+            unreachable!()
+        };
+        let Run(run) = &p.inline_structure[1] else {
+            unreachable!()
+        };
+        assert_eq!(run.format.size, Some(12.5));
+        assert_eq!(run.format.underline, Some(rocx::Underline::Double));
+        assert!(run.has_opaque_formatting);
+        write("native-runFormatting.docx", bytes);
     }
     let selection = rocx::editor::TextRangeEdit {
         target: anchor(&ranged, 1),

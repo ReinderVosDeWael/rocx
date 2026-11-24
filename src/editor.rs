@@ -44,6 +44,8 @@ pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
 pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
+mod run_format;
+pub use run_format::RunFormatField;
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -317,6 +319,8 @@ pub struct ImportedRun {
     pub strike: Option<bool>,
     pub hidden: Option<bool>,
     pub has_opaque_formatting: bool,
+    /// Direct modeled properties, including the unresolved character style ID.
+    pub format: crate::RunFormat,
     /// The run's text, tabs, breaks, and opaque children; excludes run properties.
     pub items: Vec<ImportedInline>,
 }
@@ -862,12 +866,7 @@ impl ImportedDocument {
             expanded.extend_from_slice(run_text);
             // Plan destructive cross-family overlaps before rendering payloads.
             let mut addressed = BTreeSet::new();
-            for anchor in expanded
-                .iter()
-                .map(|edit| &edit.target)
-                .chain(run_removals)
-                .chain(inline_edits.iter().map(|edit| &edit.target))
-            {
+            for anchor in expanded.iter().map(|edit| &edit.target).chain(run_removals) {
                 if let (InlineLocation::Body(body), [index]) =
                     (&anchor.location, anchor.path.as_slice())
                     && !addressed.insert((*body, *index))
@@ -1062,13 +1061,15 @@ fn read_inline_nodes<'a>(
                         matches!(revision, Some("deletion" | "moveSource")),
                     );
                     flat.extend(items.iter().cloned());
+                    let (format, hidden, has_opaque_formatting) = run_format::inspect(node);
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
-                        bold: text::direct_toggle(node, RunToggle::Bold).ok().flatten(),
-                        italic: text::direct_toggle(node, RunToggle::Italic).ok().flatten(),
-                        strike: text::direct_toggle(node, RunToggle::Strike).ok().flatten(),
-                        hidden: text::direct_toggle(node, RunToggle::Hidden).ok().flatten(),
-                        has_opaque_formatting: text::has_opaque_formatting(node),
+                        bold: format.bold,
+                        italic: format.italic,
+                        strike: format.strike,
+                        hidden,
+                        format,
+                        has_opaque_formatting,
                         items,
                     })
                 }

@@ -13,7 +13,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | --- | --- | --- |
 | #42 Text ranges | Replace or delete nonempty scalar ranges across simple, singly textual runs of a direct body paragraph, retaining formatting outside the selection. | Cross-paragraph offsets, mixed/opaque paragraphs, zero-length insertion and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
-| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear direct bold, italic, strike, and hidden toggles, including multi-leaf ordinary runs. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
+| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
@@ -40,6 +40,16 @@ installed Python editor tests passed. The four-toggle DOCX matched across Rust,
 Python 3.12, and packed Node 26, with schema/OPC, python-docx, and unchanged-part
 checks. All eleven catalogs also matched across these consumers. Browser and
 combined-branch qualification remain separate.
+
+The next #3 inline slice reuses the authoring `RunFormat` encoder, with a
+shared direct-property decoder and attribute-level patches. It adds character
+styles, fonts, sizes, underlines, colors, script positioning, script flags and
+language hints, and permits disjoint edits on one run. The rich fixture matched
+complete DOCX bytes in Rust, installed Python 3.12, packed Node 26 and Chromium
+159, passed schema/OPC validation, and retained unrelated attributes and part
+payloads. All 24 editor outputs matched Rust in Node and Chromium; all 11
+catalogs matched across Rust, Python and Node. Native/Wasm Clippy, strict
+TypeScript, 54 Rust and 58 Python editor tests passed on the standalone branch.
 
 ## Selected standalone topic results (before ten-way integration)
 

@@ -101,7 +101,7 @@ fractions and external hyperlinks. New external links allocate relationships on
 the actual document part. Replacement refuses to discard unrecognized properties
 or markup; unused existing relationships are retained. Property-only patches also
 accept runs containing multiple ordinary text, tab, and break leaves. They preserve
-the leaves and unrelated run properties. Duplicate targets, nested targets, tracked or ambiguous
+the leaves and unrelated run properties. Overlapping edits, nested targets, tracked or ambiguous
 properties and active supported field/range boundaries reject the batch.
 
 | Rust: `preview_with_inlines`, `InlineEdit { target, action }` | Python: `preview([], inline_edits=[…])` | JavaScript: `preview({inlineEdits: […]})` |
@@ -110,12 +110,42 @@ properties and active supported field/range boundaries reject the batch.
 | `InlineAction::Replace(inline)` | `InlineEdit.replace(anchor, inline)` | `{kind: "replace", target, inline}` |
 | `InlineAction::SetBold(false)` | `InlineEdit.set_bold(anchor, False)` | `{kind: "setBold", target, bold: false}` |
 | `InlineAction::SetToggle(RunToggle::Italic, None)` | `InlineEdit.set_toggle(anchor, "italic", None)` | `{kind: "setToggle", target, property: "italic", value: null}` |
+| `InlineAction::PatchFormat { set: Box::new(RunFormat::default().with_size(12.5)), clear: vec![RunFormatField::FontEastAsia] }` | `InlineEdit.patch_format(anchor, size=12.5, clear=["font_east_asia"])` | `{kind: "patchFormat", target, format: {size: 12.5}, clear: ["fontEastAsia"]}` |
 
 Use `Bold`, `Italic`, `Strike`, or `Hidden` in Rust and `bold`, `italic`,
 `strike`, or `hidden` in Python and JavaScript. `true` and `false` set
 explicit direct values; `None`/`null` removes the property so style inheritance
 applies. A clear refuses to discard attributes or children outside the modeled
-value. Only one edit per original run is supported in a batch.
+value. Disjoint format edits on one run compose in any order and report one
+changed site. A repeated property (even twice with the same value), or mixing
+a format patch with text replacement/removal or a whole-inline edit on that
+run, rejects the batch.
+
+Read `ImportedRun.format` in all three bindings: a Rust `RunFormat`, a fresh
+Python dictionary of present keyword values, or a JavaScript `ResolvedRunFormat`.
+`PatchFormat` accepts the modeled run-format fields: character style, literal
+Latin/East Asian/complex-script fonts, point sizes, supported underline styles,
+RGB/auto/theme color (including tint and shade), superscript/subscript, bold,
+italic, strike, capitals, small capitals, snap-to-grid, script-specific bold and
+italic, right-to-left, complex-script selection and language hints. Character
+style input is an existing character-style ID or unambiguous display name in the
+staged catalog; inspection returns the ID. Sizes round to half-points.
+
+Omitted values retain the original property. To restore inheritance, use the
+corresponding `RunFormatField` variant in Rust, snake-case name in Python, or
+camel-case name in JavaScript. `VerticalAlignment` / `vertical_alignment` /
+`verticalAlignment` clears the *one* slot shared by superscript and subscript;
+requesting either as false without a true counterpart writes explicit baseline.
+Language subfields have independent clear slots: `LanguageLatin`, `LanguageEastAsia`,
+`LanguageBidi` (Python: `language_latin`, `language_east_asia`, `language_bidi`;
+JavaScript: `languageLatin`, `languageEastAsia`, `languageBidi`).
+Latin font owns the `ascii`/`hAnsi` pair. Font and language patches preserve
+sibling attributes on their shared elements. Updating an underline preserves its
+color; clearing that underline refuses to discard the color. A direct color edit
+owns both the fallback and theme attributes. A semantic no-op preserves the
+existing spelling and fallback. Unsupported direct selections, including
+themed fonts and unequal or incomplete Latin font pairs, are opaque and cannot
+be patched in the affected slot.
 
 `ImportedRun.bold`, `.italic`, `.strike`, and `.hidden` inspect the same direct
 properties wherever structured runs are exposed. An unset or ambiguous toggle

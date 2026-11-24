@@ -449,10 +449,21 @@ export async function run(fixtures: Fixtures) {
     {kind: "setToggle", target: a.anchor, property: "hidden", value: true},
     {kind: "setToggle", target: b.anchor, property: "strike", value: true},
     {kind: "setToggle", target: c.anchor, property: "italic", value: null},
+    {kind: "patchFormat", target: b.anchor, format: {style:"Strong",font:"Cambria",
+      fontEastAsia:"Yu Mincho",fontComplexScript:"Amiri",size:12.5,sizeComplexScript:14,
+      underline:"double",color:{kind:"theme",name:"accent2",tint:150},superscript:true,allCaps:false,
+      smallCaps:true,snapToGrid:false,boldComplexScript:true,italicComplexScript:false,rtl:true,
+      complexScript:true,language:{latin:"fr-CA",eastAsia:"ja-JP"}}, clear:["languageBidi"]},
   ]}).toDocx();
   const [x, y, z] = paragraph(await openDocx(runFormatting), 1).inlineStructure;
   check(x.kind === "run" && x.bold && x.hidden && y.kind === "run" && y.strike &&
     y.hasOpaqueFormatting && z.kind === "run" && z.italic === undefined, "reopened direct run formatting");
+  same(y.format, {style:"Strong",font:"Cambria",fontEastAsia:"Yu Mincho",fontComplexScript:"Amiri",
+    size:12.5,sizeComplexScript:14,underline:"double",color:{kind:"theme",name:"accent2",tint:150},
+    superscript:true,allCaps:false,smallCaps:true,snapToGrid:false,boldComplexScript:true,
+    italicComplexScript:false,rtl:true,complexScript:true,language:{latin:"fr-CA",eastAsia:"ja-JP"},strike:true}, "rich direct formatting");
+  rejects(() => ranged.preview({inlineEdits:[{kind:"patchFormat",target:b.anchor,format:{bold:true}},
+    {kind:"setBold",target:b.anchor,bold:false}]}), /duplicate|conflicting/);
   const selection = {target: paragraph(ranged, 1).anchor, start: 1, end: 6, text: " 🐈 "};
   rejects(() => ranged.preview({textRanges: [selection, selection]}), /overlapping/);
   rejects(() => doc.preview({textRanges: [selection]}), /different document snapshot/);

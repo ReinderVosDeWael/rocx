@@ -1,4 +1,5 @@
 use super::{InlineAnchor, InlineLocation, insertion::BoundaryState, unsupported};
+use super::{RunFormatField, run_format};
 use crate::Result;
 use crate::xml::{Content, Node};
 use std::collections::BTreeMap;
@@ -42,6 +43,11 @@ pub enum InlineAction {
     SetBold(bool),
     /// Set (true/false) or clear (None) a direct property, without resolving styles.
     SetToggle(RunToggle, Option<bool>),
+    /// Omitted properties are retained; clear restores inheritance for selected slots.
+    PatchFormat {
+        set: Box<crate::RunFormat>,
+        clear: Vec<RunFormatField>,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -53,12 +59,12 @@ pub enum RunToggle {
 }
 
 impl RunToggle {
-    fn tag(self) -> &'static str {
+    fn field(self) -> RunFormatField {
         match self {
-            Self::Bold => "w:b",
-            Self::Italic => "w:i",
-            Self::Strike => "w:strike",
-            Self::Hidden => "w:vanish",
+            Self::Bold => RunFormatField::Bold,
+            Self::Italic => RunFormatField::Italic,
+            Self::Strike => RunFormatField::Strike,
+            Self::Hidden => RunFormatField::Hidden,
         }
     }
 
@@ -78,7 +84,7 @@ pub(super) enum Action {
     Remove,
     After(Vec<Node>),
     Replace(Vec<Node>),
-    Toggle(RunToggle, Option<bool>),
+    Format(run_format::Slots),
 }
 pub(super) type Targets = BTreeMap<(usize, usize), Action>;
 
@@ -96,12 +102,14 @@ pub(super) fn prepare(
                 "inline target must belong directly to a body paragraph",
             ));
         };
-        if ordered.insert((*body, *inline), &edit.action).is_some() {
-            return Err(unsupported("duplicate inline target"));
-        }
+        ordered
+            .entry((*body, *inline))
+            .or_insert_with(Vec::new)
+            .push(&edit.action);
     }
     let payloads: Vec<_> = ordered
         .values()
+        .flatten()
         .filter_map(|action| match action {
             InlineAction::InsertAfter(i) | InlineAction::Replace(i) => Some(i),
             _ => None,
@@ -113,67 +121,40 @@ pub(super) fn prepare(
         crate::ooxml::encode_editor_inlines(package, main, &payloads)?
     };
     let mut nodes = nodes.into_iter();
-    Ok((
-        package,
-        ordered
-            .into_iter()
-            .map(|(key, action)| {
-                (
-                    key,
-                    match action {
-                        InlineAction::InsertAfter(_) => Action::After(nodes.next().unwrap()),
-                        InlineAction::Replace(_) => Action::Replace(nodes.next().unwrap()),
-                        InlineAction::SetBold(b) => Action::Toggle(RunToggle::Bold, Some(*b)),
-                        InlineAction::SetToggle(prop, value) => Action::Toggle(*prop, *value),
-                    },
-                )
-            })
-            .collect(),
-    ))
-}
-
-pub(super) fn direct_toggle(run: &Node, prop: RunToggle) -> Result<Option<bool>> {
-    let tag = prop.tag();
-    if run.elements().filter(|n| n.name == "w:rPr").count() > 1
-        || run.child("w:rPr").is_some_and(|p| {
-            p.child(super::ALTERNATE).is_some()
-                || p.child("w:rPrChange").is_some()
-                || p.elements().filter(|n| n.name == tag).count() > 1
-        })
-    {
-        return Err(unsupported("ambiguous run properties"));
+    let mut targets = Targets::new();
+    for (key, group) in ordered {
+        let action = match group.as_slice() {
+            [InlineAction::InsertAfter(_)] => Action::After(nodes.next().unwrap()),
+            [InlineAction::Replace(_)] => Action::Replace(nodes.next().unwrap()),
+            _ => {
+                let mut slots = run_format::Slots::new();
+                for action in group {
+                    let (prop, value) = match action {
+                        InlineAction::InsertAfter(_) | InlineAction::Replace(_) => {
+                            return Err(unsupported("duplicate or conflicting inline target"));
+                        }
+                        InlineAction::PatchFormat { set, clear } => {
+                            run_format::compile(&mut slots, set, clear, &package, main)?;
+                            continue;
+                        }
+                        InlineAction::SetBold(b) => (RunToggle::Bold, Some(*b)),
+                        InlineAction::SetToggle(p, v) => (*p, *v),
+                    };
+                    let field = prop.field();
+                    run_format::add(
+                        &mut slots,
+                        field,
+                        value.map(|b| {
+                            Node::new(field.tag()).attr("w:val", if b { "1" } else { "0" })
+                        }),
+                    )?;
+                }
+                Action::Format(slots)
+            }
+        };
+        targets.insert(key, action);
     }
-    run.child("w:rPr")
-        .and_then(|p| p.child(tag))
-        .map(|p| match p.get("w:val") {
-            None | Some("true" | "1" | "on") => Ok(true),
-            Some("false" | "0" | "off") => Ok(false),
-            _ => Err(unsupported("unknown run toggle value")),
-        })
-        .transpose()
-}
-
-fn patch_toggle(run: &mut Node, prop: RunToggle, value: Option<bool>) -> Result<bool> {
-    let tag = prop.tag();
-    if direct_toggle(run, prop)? == value {
-        return Ok(false);
-    }
-    if run.child("w:rPr").is_none() {
-        run.children.insert(0, Content::Element(Node::new("w:rPr")));
-    }
-    let props = run.child_mut("w:rPr").unwrap();
-    if let Some(value) = value {
-        props
-            .ensure(tag)
-            .set("w:val", if value { "1" } else { "0" });
-    } else {
-        let node = props.child(tag).unwrap();
-        if has_other_attrs(node, &["w:val"]) || !node.children.is_empty() {
-            return Err(unsupported("cannot clear opaque run property"));
-        }
-        props.remove(tag);
-    }
-    Ok(true)
+    Ok((package, targets))
 }
 
 fn single_text(run: &Node) -> Result<String> {
@@ -199,41 +180,18 @@ fn single_text(run: &Node) -> Result<String> {
     Ok(value)
 }
 
-fn has_other_attrs(node: &Node, allowed: &[&str]) -> bool {
+pub(super) fn has_other_attrs(node: &Node, allowed: &[&str]) -> bool {
     node.attrs
         .iter()
         .any(|(name, _)| name.declaration().is_none() && !allowed.contains(&name.as_str()))
 }
 
-fn opaque_content(node: &Node) -> bool {
+pub(super) fn opaque_content(node: &Node) -> bool {
     node.children.iter().any(|c| match c {
         Content::Element(_) => false,
         Content::Text(t) => !t.trim().is_empty(),
         Content::Raw(_) => true,
     })
-}
-
-/// Signals retained markup not represented by the four direct toggle fields.
-pub(super) fn has_opaque_formatting(run: &Node) -> bool {
-    let mut properties = run.elements().filter(|p| p.name == "w:rPr");
-    let Some(props) = properties.next() else {
-        return false;
-    };
-    properties.next().is_some()
-        || has_other_attrs(props, &[])
-        || opaque_content(props)
-        || props.elements().any(|node| {
-            let prop = match node.name.as_str() {
-                "w:b" => RunToggle::Bold,
-                "w:i" => RunToggle::Italic,
-                "w:strike" => RunToggle::Strike,
-                "w:vanish" => RunToggle::Hidden,
-                _ => return true,
-            };
-            has_other_attrs(node, &["w:val"])
-                || !node.children.is_empty()
-                || direct_toggle(run, prop).is_err()
-        })
 }
 
 /// Only discard known local properties. Unknown markup may carry a relationship,
@@ -474,9 +432,9 @@ fn apply_targets(
                         splices.push((slot + 1..slot + 1, nodes));
                         inline_changes.push((body_index, inline_index));
                     }
-                    Action::Toggle(prop, value) => {
+                    Action::Format(slots) => {
                         check_toggle_target(child)?;
-                        if patch_toggle(child, prop, value)? {
+                        if run_format::apply(child, slots)? {
                             inline_changes.push((body_index, inline_index));
                         }
                     }

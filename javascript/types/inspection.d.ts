@@ -41,6 +41,7 @@ export type ImportedInline =
   | ImportedOpaque;
 
 export interface ImportedRun {
+  readonly format: import("./text-layout.js").ResolvedRunFormat;
   /** Direct toggle properties; absent when unset or ambiguous. */
   readonly bold?: boolean;
   readonly italic?: boolean;

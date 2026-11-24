@@ -167,7 +167,9 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
     let record = Record::new(
         input,
         path,
-        &["target", "kind", "inline", "bold", "property", "value"],
+        &[
+            "target", "kind", "inline", "bold", "property", "value", "format", "clear",
+        ],
     )?;
     let kind = b::string(&record.get("kind")?, &record.path("kind"))?;
     let edit = Record::new(
@@ -177,6 +179,8 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
             &["target", "kind", "bold"]
         } else if kind == "setToggle" {
             &["target", "kind", "property", "value"]
+        } else if kind == "patchFormat" {
+            &["target", "kind", "format", "clear"]
         } else {
             &["target", "kind", "inline"]
         },
@@ -192,6 +196,21 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
         action: match kind.as_str() {
             "insertAfter" => InlineAction::InsertAfter(payload()?),
             "replace" => InlineAction::Replace(payload()?),
+            "patchFormat" => {
+                let set = edit.get("format")?;
+                let set = if set.js().is_undefined() {
+                    Default::default()
+                } else {
+                    crate::text_layout::run_format(&set, &edit.path("format"))?
+                };
+                InlineAction::PatchFormat {
+                    set: Box::new(set),
+                    clear: edits(&edit, "clear", |wire, path| {
+                        rocx::editor::RunFormatField::parse(&b::string(wire, path)?)
+                            .ok_or_else(|| Failure::invalid(path, "unknown run format field"))
+                    })?,
+                }
+            }
             "setToggle" => {
                 let name = b::string(&edit.get("property")?, &edit.path("property"))?;
                 let prop = rocx::editor::RunToggle::parse(&name).ok_or_else(|| {

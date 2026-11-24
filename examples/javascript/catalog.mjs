@@ -204,6 +204,7 @@ export async function generateCatalog(fixtures, options) {
   assert(inline.inlineStructure[0].italic === undefined, "unexpected direct italic");
   const whole = imported.preview({inlineEdits: [
     {kind: "setToggle", target: textEdit.target, property: "italic", value: true},
+    {kind: "patchFormat", target: textEdit.target, format: {size: 12.5}, clear: ["fontEastAsia"]},
     {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
   ]});
   assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");
