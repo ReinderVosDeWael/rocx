@@ -1,6 +1,11 @@
 Before doing anything, consult `docs/PLAN.md`. Update that plan when your work
 or the engineer's direction changes it.
 
+Never start or resume an Astra subagent unless the user explicitly authorizes
+Astra for that task. General permission to delegate or parallelize is not
+authorization to use Astra. Otherwise, explicitly select Sol for difficult
+subagent work and Terra for easy work so a default cannot select Astra.
+
 Use the GitHub Issues page as the issue tracker for this repository. Search for
 an existing issue before opening one, and track fixes, follow-ups, and blockers
 there. Use `gh issue` from the command line to manage the same tracker.
