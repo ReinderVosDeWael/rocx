@@ -74,6 +74,14 @@ Track broader authoring parity in #21; keep editor parity separate.
 
 ### Full JavaScript binding workstream
 
+**Authoring experience (#29):** the JavaScript `declarative` namespace exposes
+28 named factories matching Rust/Python components. The quickstart, report,
+and catalog use them; both prior record forms remain supported. The same
+tarball passed strict NodeNext/bundler type checks and Node 22/24 with
+Chromium development and production. The installed quickstart, report, and
+all six catalog outputs matched their native Rust/Python counterparts byte
+for byte. The quickstart also passed independent readback and schema/OPC checks.
+
 Use the [Rust-source parity contract](JAVASCRIPT-PARITY.md) for authoring,
 resolution, template and implemented editor capabilities. This workstream
 includes the implemented Rust editor surface, not the future editor

@@ -3,6 +3,7 @@ import * as drawings from "../drawings.mts";
 import * as styles from "../styles.mjs";
 import * as tables from "../tables.mts";
 import * as layout from "../text-layout.mjs";
+import { declarativeFixtures } from "./declarative.mts";
 import { structuredFixture } from "./structured.mts";
 import { templateFixtures } from "./template.mjs";
 
@@ -28,6 +29,7 @@ export async function portableFixtures(png, noMargins, editorSource) {
 
   const style = await styles.styleByteFixtures();
   return {
+    ...await declarativeFixtures(png),
     "text-layout": await layout.layoutParityFixture(),
     "linked-styles": style.linkedStyles,
     "numbering-replacements": style.numberingReplacements,

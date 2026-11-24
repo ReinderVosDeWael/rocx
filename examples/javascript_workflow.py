@@ -1,4 +1,4 @@
-"""Native Python equivalent of the JavaScript report, for exact byte parity."""
+"""Native Python equivalent of the named and legacy JavaScript reports."""
 import asyncio
 from pathlib import Path
 import sys

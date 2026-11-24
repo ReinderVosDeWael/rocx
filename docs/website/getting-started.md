@@ -1,8 +1,5 @@
 # Getting started
 
-For Node.js or a browser, see the [JavaScript installation and examples](javascript.md).
-The package is an npm-installable tarball, not an npm registry download.
-
 ## Install and write a document
 
 Use these install commands once rocx is available on your registry. Otherwise,
@@ -59,6 +56,26 @@ Use these install commands once rocx is available on your registry. Otherwise,
 
     asyncio.run(main())
     ```
+
+=== "JavaScript"
+
+    Install the [JavaScript development tarball](javascript.md) in your
+    Node.js project. Save this as `report.mjs` and run `node report.mjs`:
+
+    ```javascript
+    import { writeFile } from "node:fs/promises";
+    import { declarative as d, generateDocx } from "rocx-docx";
+
+    const document = d.Document([d.Section([
+      d.Paragraph([d.TextRun("Hello, world!")]),
+    ])]);
+    await writeFile("report.docx", await generateDocx(document));
+    ```
+
+    In all three languages, a paragraph containing just text can also be
+    written directly: `Paragraph::new("Hello, world!")` in Rust,
+    `Paragraph(text="Hello, world!")` in Python, or `d.Paragraph("Hello, world!")`
+    in JavaScript.
 
 Rust resolution consumes its declaration. Python resolution leaves the
 declaration unchanged and returns an immutable snapshot. See the

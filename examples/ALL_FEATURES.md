@@ -5,7 +5,8 @@ around a shared prebuilt document or XML fixture:
 
 - [Rust entrypoint](all_features.rs), with [support modules](showcase/).
 - [Python program](all_features.py).
-- [JavaScript program](javascript/catalog.mjs), with a [Node CLI](javascript/catalog-node.mjs).
+- [JavaScript program](javascript/catalog.mjs) using named `declarative` factories,
+  with a [Node CLI](javascript/catalog-node.mjs).
 
 ## Generate and verify
 
@@ -41,7 +42,7 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode uv run --no-sync python examples/all_featu
 ```
 
 For JavaScript, install the `rocx-docx` tarball where the example can resolve it,
-or copy `catalog-node.mjs`, `catalog.mjs`, and the `catalog/` directory into an
+or copy `author.mjs`, `catalog-node.mjs`, `catalog.mjs`, and the `catalog/` directory into an
 installed Node consumer. From the repository root with the package installed:
 
 ```sh
@@ -113,7 +114,7 @@ supported fields, not every Cartesian combination in every story/input form.
 | 07 Charts | One workbook-free inline column series (North 8, South 13.5, West 5). |
 | 07 Equations | A stacked 1-over-2 Office Math fraction between ordinary text runs. |
 | 07 Shapes | A standalone 144-by-48-point inline DrawingML text box with plain multiline text, Arial 12 pt and explicit bold=false, without geometric fill/outline; this is not a rich WordprocessingML text-box story. A separate floating text box places plain text 220 pt from the margin and 12 pt below its paragraph, with square wrapping and a 6 pt left gap. The inline sample labels a solid blue rectangle with 14.25-point white Arial text, explicit bold=false, italic=true, horizontal centering, bottom anchoring and a blank middle line; the solid green ellipse has an outline but no text body. The shape samples do not claim text fitting or manually verified Office placement. |
-| JavaScript authoring | The labeled centered paragraph, rectangular table mixing string and block-based cells (formatted runs, a tab, external link, line break, and nested table), and sized inline PNG with alt text mirror the [legacy Node/browser quickstart](../javascript/README.md). The standalone report exercises `generateDocx` and is compared byte for byte across Rust, Python, Node, and browser. The full catalog separately exercises the program declaration and editor APIs. |
+| JavaScript authoring | The [named Node/browser report](../javascript/README.md#runnable-report) supplies the labeled centered paragraph, rectangular table with plain and rich cells (formatted runs, a tab, external link, line break, and nested table), and sized inline PNG with alt text. The standalone report exercises `generateDocx` and is compared byte for byte across Rust, Python, Node, and browser. The standalone legacy report demonstrates the equivalent string and block-based cell records. The full catalog also uses named factories to build programs for snapshot resolution, template rendering and editing. |
 | 08 Authoring | Ready/lazy/async values; named property references and explicit Deferred; true/false conditions with an excluded producer that would fail if run; immutable resolved block/inline reuse; repeated snapshot renders must match. |
 | 09 Sections | All five break kinds; portrait/landscape; page dimensions/margins; two columns/spacing/separator; page-number start/format; all four vertical alignments; title-page true/false; section bidi/gutter-side true/false independent of text. Samples label all three line-number restart modes, preservation/removal of prior settings, paragraph suppression enabled/disabled, independent header/footer edge distances, mirrored margins, disabled top gutter, page-border edges/offset/display and all four grid modes with line/character pitch. Paragraph snapping is enabled, run snapping disabled; contextual spacing is on and mirrored paragraph indents are off. |
 | Header/footer stories | Default/first/even headers and footers, title-page selection, header image/link and PAGE/NUMPAGES footer caches, all visibly labeled. |

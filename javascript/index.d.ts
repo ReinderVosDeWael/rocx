@@ -84,6 +84,7 @@ export function generateDocx(
   options?: GenerateOptions,
 ): Promise<Uint8Array<ArrayBuffer>>;
 
+export { declarative } from "./types/authoring.js";
 export * from "./types/boundary.js";
 export * from "./types/resolution.js";
 export * from "./types/text-layout.js";

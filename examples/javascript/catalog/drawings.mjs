@@ -1,4 +1,4 @@
-import { future, lazy } from "rocx-docx";
+import { declarative as d, future, lazy } from "rocx-docx";
 import { br, heading, p, para, tab, text } from "./blocks.mjs";
 
 const formats = ["png", "jpg", "gif", "bmp", "tiff", "zero"];
@@ -12,16 +12,15 @@ export async function loadImages(readFixture, namedPng) {
   }
   const images = Object.fromEntries(await Promise.all(formats.map(async (ext) => [ext, await readRequired(filename(ext))])));
   return {
-    image: (ext, transformation) => ({
-      kind: "image", data: images[ext], transformation,
+    pngBytes: images.png,
+    image: (ext, transformation) => d.ImageRun(images[ext], {
+      transformation,
       altText: { title: `Image ${ext}`, description: `Accessible ${ext} sample`, name: `Sample ${ext}` },
     }),
     named: namedPng ?? future(async () => ({ bytes: await readRequired(filename("png")), sourceName: filename("png") })),
     deferred: future(() => readRequired(filename("png"))),
   };
 }
-
-const shape = (properties) => ({ kind: "shape", properties });
 
 export function drawingBlocks({ image, named, deferred }) {
   const blocks = [heading("07 Inline images and explicit breaks")];
@@ -34,10 +33,10 @@ export function drawingBlocks({ image, named, deferred }) {
     blocks.push(p(`Image: ${label}; accessibility title/description/name authored.`), para([image(ext, size)]));
   }
   blocks.push(
-    para([{ kind: "hyperlink", target: { kind: "external", url: "https://example.com/image" }, children: [
+    para([d.Hyperlink({ kind: "external", url: "https://example.com/image" }, [
       image("png", { width: 24 }), tab, text("Linked image, tab and line break"),
       br(), text("Same PNG bytes are deduplicated in the package."),
-    ] }]),
+    ])]),
     p("Image crop and rotation: 10% left, 5% top, 20% right and 15% bottom; 30 degrees clockwise, horizontal flip on and vertical flip off."),
     para([image("png", { width: 60, height: 40, rotation: 30, flipHorizontal: true, flipVertical: false,
       crop: { left: 10, top: 5, right: 20, bottom: 15 } })]),
@@ -51,26 +50,26 @@ export function drawingBlocks({ image, named, deferred }) {
     p("Inline DrawingML shapes: a blue rectangle with text and a green ellipse with a dark outline."),
     p("Shape text style: blue rectangle, 14.25 pt white Arial text, bold explicitly false, italic true, centered horizontally and bottom anchored. Blank middle line preserved; ellipse has no text body."),
     para([
-      shape({ width: 96, height: 64, fill: [32, 80, 176], text: "Blue\n\nText",
+      d.ShapeRun({ width: 96, height: 64, fill: [32, 80, 176], text: "Blue\n\nText",
         textFormat: { fontSize: 14.25, bold: false, color: [255, 255, 255], alignment: "center", verticalAlignment: "bottom", italic: true, font: "Arial" } }),
-      shape({ width: 44, height: 32, geometry: "ellipse", fill: [32, 144, 80], outline: { width: 1.5, color: [16, 48, 32] } }),
+      d.ShapeRun({ width: 44, height: 32, geometry: "ellipse", fill: [32, 144, 80], outline: { width: 1.5, color: [16, 48, 32] } }),
     ]),
     p("Standalone inline text box: 144 by 48 points, plain multiline DrawingML text, Arial 12 pt, bold explicitly false; no geometric fill or outline, no rich WordprocessingML story."),
-    para([shape({ width: 144, height: 48, geometry: "textBox", text: "Standalone\nText box",
+    para([d.ShapeRun({ width: 144, height: 48, geometry: "textBox", text: "Standalone\nText box",
       textFormat: { font: "Arial", fontSize: 12, bold: false } })]),
     para([
       text("Floating text box: 220 pt from the margin, 12 pt below its paragraph, square wrapping with a 6 pt gap on the left."),
-      shape({ width: 108, height: 24, geometry: "textBox", text: "Floating note",
+      d.ShapeRun({ width: 108, height: 24, geometry: "textBox", text: "Floating note",
         anchor: { horizontalReference: "margin", verticalReference: "paragraph", x: 220, y: 12, wrap: "square", distanceLeft: 6 } }),
     ]),
     p("Inline column chart: North 8, South 13.5, West 5; one series without an embedded workbook."),
-    para([{ kind: "columnChart", properties: { width: 288, height: 180, categories: ["North", "South", "West"], values: [8, 13.5, 5] } }]),
-    para([text("Inline equation: stacked fraction "), { kind: "fraction", numerator: "1", denominator: "2" }, text(".")]),
+    para([d.ColumnChartRun({ width: 288, height: 180, categories: ["North", "South", "West"], values: [8, 13.5, 5] })]),
+    para([text("Inline equation: stacked fraction "), d.InlineFraction("1", "2"), text(".")]),
     p("Image from a named fixture (filename preserved), followed by async byte data with deferred size/alt text."),
     para([
-      { kind: "image", data: named, type: "png", transformation: { width: 24 } },
-      { kind: "image", data: deferred, transformation: lazy(() => ({ height: 24 })),
-        altText: lazy(() => ({ description: "Deferred image accessibility" })) },
+      d.ImageRun(named, { type: "png", transformation: { width: 24 } }),
+      d.ImageRun(deferred, { transformation: lazy(() => ({ height: 24 })),
+        altText: lazy(() => ({ description: "Deferred image accessibility" })) }),
     ]),
   );
   for (const kind of ["line", "textWrapping", "page", "column"]) {

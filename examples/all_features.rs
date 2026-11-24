@@ -23,7 +23,7 @@
 //! Labels document-wide mirror margins and top gutter requests.
 //! Includes contextual paragraph spacing and mirrored-indent controls.
 //! Shows section line-number restart modes and paragraph suppression, plus header/footer edge distances and physical page borders, placement options and document grids with paragraph and run snapping.
-//! Includes the labeled native counterpart of the JavaScript authoring quickstart.
+//! Includes the native counterpart of the named JavaScript report, also used for legacy API parity.
 #[path = "showcase/mod.rs"]
 mod showcase;
 

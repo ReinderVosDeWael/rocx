@@ -9,6 +9,7 @@ from check_examples import (
     verify_edited,
     verify_header_scopes,
     verify_javascript_workflow,
+    verify_plain_workflow,
 )
 from validate_ooxml import Validator, default_directory
 
@@ -73,6 +74,22 @@ def verify_focused(validator: Validator, parity: Path) -> None:
         verify_file(validator, path, path.read_bytes(), language="Rust")
 
 
+def verify_declarative(validator: Validator, parity: Path, workflow: bytes) -> None:
+    record = (parity / "node" / "declarative-record.docx").read_bytes()
+    for runtime in RUNTIMES:
+        directory = parity / runtime
+        verify_file(validator, directory / "legacy-workflow.docx", workflow, language=runtime)
+        for name in ("declarative-record", "declarative"):
+            verify_file(validator, directory / f"{name}.docx", record, language=runtime)
+
+
+def verify_plain(validator: Validator, parity: Path) -> None:
+    reference = (parity / "rust" / "plain.docx").read_bytes()
+    for language in ("rust", "python", "node"):
+        data = verify_file(validator, parity / language / "plain.docx", reference, language=language)
+        verify_plain_workflow(data)
+
+
 def verify_editor(validator: Validator, parity: Path) -> None:
     reference = parity / "rust" / "editor"
     for name in ("base", "relocated"):
@@ -100,6 +117,8 @@ def main() -> None:
         path = args.output_dir / "web" / "public" / "fixtures" / name
         print(f"{name}: {len(validator.validate(path))} schema-covered parts and OPC relationships")
     verify_focused(validator, parity)
+    verify_declarative(validator, parity, reference)
+    verify_plain(validator, parity)
     verify_catalog(validator, parity)
     verify_editor(validator, parity)
 

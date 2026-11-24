@@ -1,4 +1,4 @@
-//! Native Rust equivalent of the JavaScript report, for exact byte parity.
+//! Native Rust equivalent of the named and legacy JavaScript reports, for exact byte parity.
 #[path = "showcase/javascript.rs"]
 mod javascript;
 

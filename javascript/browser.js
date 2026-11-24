@@ -7,3 +7,4 @@ export const {
   validateValue, validateAuthoringId, bookmarkStart, bookmarkEnd,
 } = createApi(() => init());
 export { ready, lazy, future, deferred, property } from "./boundary.js";
+export { declarative } from "./authoring.js";

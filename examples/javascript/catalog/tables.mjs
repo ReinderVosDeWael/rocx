@@ -1,3 +1,4 @@
+import { declarative as d } from "rocx-docx";
 import { cell, heading, lineHeight, p, row, table, tableCell, tabStop } from "./blocks.mjs";
 
 // The visible labels match the Python keywords; the property keys are JavaScript.
@@ -19,7 +20,7 @@ export function tableStyles() {
     boldComplexScript: false, italicComplexScript: false, sizeComplexScript: 10, rtl: false,
     complexScript: false, fontEastAsia: "Yu Mincho", fontComplexScript: "Arial",
   };
-  return regions.map(([label, key]) => ({ kind: "table", name: `Region ${label}`, baseStyle: "Table Grid", [key]: format }));
+  return regions.map(([label, key]) => d.TableStyleDefinition(`Region ${label}`, { baseStyle: "Table Grid", [key]: format }));
 }
 
 const atLeast = (points) => ({ kind: "atLeast", points });

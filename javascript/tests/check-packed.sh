@@ -22,8 +22,8 @@ artifact="$output/$(cat "$output/package-name")"
 # Keep native oracle builds outside the checkout, independently of the two
 # unoverridden Wasm builds used to verify the packed artifact.
 export CARGO_TARGET_DIR="${ROCX_NATIVE_TARGET_DIR:-$output/native-target}"
-mkdir -p "$output/node" "$fixtures/editor" "$oracles/editor"
-cp "$examples"/{author.mjs,node.mjs} \
+mkdir -p "$output/node" "$fixtures/editor" "$oracles/editor" "$parity/python"
+cp "$examples"/{author.mjs,node.mjs,plain.mjs} \
     "$root/javascript/tests"/{node-errors,init-retry,unicode,cross-realm,diagnostics}.mjs "$output/node/"
 cp "$examples"/{author.mjs,browser.mjs,index.html,vite.config.mjs} "$output/web/"
 cp "$root/javascript/tests"/{package.json,package-lock.json,types.mts,contract-input.mts,input-contract.mjs,browser-test.mjs} "$output/web/"
@@ -70,6 +70,7 @@ RUSTC_BOOTSTRAP=rocx cargo rustdoc --locked --lib --target-dir "$output/inventor
     node cross-realm.mjs "$image"
     node diagnostics.mjs
     node node.mjs "$image" "$output/node.docx"
+    node plain.mjs "$parity/node/plain.docx"
 )
 (
     cd "$output/web"
@@ -86,7 +87,7 @@ RUSTC_BOOTSTRAP=rocx cargo rustdoc --locked --lib --target-dir "$output/inventor
     fi
     tsc=./node_modules/.bin/tsc
     portable_types=(types.mts contract-input.mts parity/{b0,editor,inspection,resolution,structured,styles,tables,text-layout}.mts
-        parity/integration/structured.mts)
+        parity/integration/{declarative,structured}.mts)
     node_types=(parity/{drawings,template}.mts)
     "$tsc" --noEmitOnError --strict --target es2022 --module NodeNext types.mts contract-input.mts
     "$tsc" --noEmit --strict --target es2022 --module NodeNext "${portable_types[@]}" "${node_types[@]}"
@@ -116,6 +117,8 @@ for mode in node browser-dev browser; do
 done
 cargo run --locked --example javascript_workflow -- "$output/rust.docx"
 uv run --no-sync python examples/javascript_workflow.py "$output/python.docx"
+cargo run --locked --example plain -- "$oracles/plain.docx"
+uv run --no-sync python examples/plain.py "$parity/python/plain.docx"
 uv run --no-sync python tools/check_examples.py --output-dir "$parity/catalog-references"
 uv run --no-sync python tools/check_javascript.py "$output"
 unset CARGO_TARGET_DIR

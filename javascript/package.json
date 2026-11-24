@@ -27,6 +27,7 @@
     }
   },
   "files": [
+    "authoring.js",
     "browser.js",
     "boundary.js",
     "file-io.js",

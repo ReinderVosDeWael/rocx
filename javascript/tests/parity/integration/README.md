@@ -17,6 +17,7 @@ Vite bundle; Wasm is fetched from the same origin in both modes.
 | A01–A10 | Owner layout/style/table cases; browser-safe fixtures shared between Node and both Chromium modes. Native focused layout, linked-style, replacement numbering and table oracles |
 | A11–A12 | Owner Node runtime, including supported formats and path sources; focused image and drawing byte oracles in Node and both Chromium modes |
 | A13–A15 | Owner Node runtime; focused native structured-content comparison in Node and both Chromium modes, plus catalog |
+| Declarative factories (#29) | Typed/runtime namespace inventory, raw/factory composition, deferred and falsy values, strict invalid-input cases, and exact raw-program byte parity in all runtimes. Both the migrated workflow and original legacy input match Rust/Python exactly. The public Node plain quickstart matches both native quickstarts and passes independent python-docx readback |
 | T01–T06 | Owner Node suite incl. Node-only file I/O; portable repeat render, validation, template plan and exact Rust bytes in both Chromium modes |
 | E01–E03 | Owner Node and Chromium inspection suite, catalog readback and anchor identity checks |
 | E04–E06 | Same typed editor fixtures and seven exact Rust outputs in Node and both Chromium modes, independent python-docx and package preservation checks |

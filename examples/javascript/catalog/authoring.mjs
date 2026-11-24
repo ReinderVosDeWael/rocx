@@ -1,20 +1,20 @@
-import { compileTemplate, deferred, future, lazy, property, ready, resolveComponent, resolveDocument } from "rocx-docx";
-import { STAMP, br, cell, heading, lineHeight, p, para, row, section, tab, table, tableCell, text } from "./blocks.mjs";
+import { compileTemplate, declarative as d, deferred, future, lazy, property, ready, resolveComponent, resolveDocument } from "rocx-docx";
+import { reportBlocks } from "../author.mjs";
+import { STAMP, br, heading, lineHeight, p, para, text } from "./blocks.mjs";
 import { drawingBlocks, loadImages } from "./drawings.mjs";
 import { formattingBlocks, formattingStyles } from "./formatting.mjs";
-import { control, headerFooterStories, hyperlink, notes, numbering, revision, storyBlocks } from "./stories.mjs";
+import { headerFooterStories, hyperlink, inlineControl, notes, numbering, revision, storyBlocks } from "./stories.mjs";
 import { tableBlocks, tableStyles } from "./tables.mjs";
 
 function templateProgram() {
   const templateRevision = (kind, date, name) => ({ revision: revision(kind, "Template editor", date, name) });
-  return {
-    timestamp: STAMP,
-    sections: [section([
+  return d.Document([
+    d.Section([
       para([text("Template {{re"), text("place}}: cross-run replacement.")]),
       p("Template retained paragraph: insertion appears before this."),
       para([
         text("Template plain-text control replacement: "),
-        control([text("old controlled value", { bold: true })],
+        inlineControl([text("old controlled value", { bold: true })],
           { tag: "template-control", lock: "controlLocked", text: { kind: "plain" } }),
       ]),
       para([
@@ -28,16 +28,18 @@ function templateProgram() {
         text("destination: "),
         text("moved template wording", undefined, templateRevision("moveDestination", STAMP, "TemplateMove")),
       ]),
-    ])],
+    ]),
+  ], {
+    timestamp: STAMP,
     metadata: {
       customProperties: { Project: "Atlas", "Review status": "Pending" },
       customBooleanProperties: { "Review complete": false },
     },
     styles: [
-      { kind: "paragraph", name: "Catalog Existing", bold: true },
-      { kind: "character", name: "Catalog Existing Character", format: { bold: true } },
+      d.ParagraphStyleDefinition("Catalog Existing", { bold: true }),
+      d.CharacterStyleDefinition("Catalog Existing Character", { format: { bold: true } }),
     ],
-  };
+  });
 }
 
 async function resolutionBlocks() {
@@ -67,12 +69,15 @@ async function resolutionBlocks() {
 function catalogSections(blocks, image) {
   const horizontal = { style: "single", size: 12, space: 6, color: [32, 48, 96] };
   const vertical = { style: "dashed", size: 8, space: 4, color: [96, 96, 96] };
-  const first = section(blocks, {
-    pageSize: { width: 7772400, height: 10058400 }, pageOrientation: "portrait",
-    pageMargins: { top: 914400, bottom: 914400, left: 914400, right: 914400, header: 457200, footer: 228600 },
-    pageBorders: { top: horizontal, left: vertical, bottom: horizontal, right: vertical, offsetFrom: "page", display: "firstPage", zOrder: "back" },
-    titlePage: true, bidi: false, rtlGutter: false,
-  }, headerFooterStories(image));
+  const first = d.Section(blocks, {
+    properties: {
+      pageSize: { width: 7772400, height: 10058400 }, pageOrientation: "portrait",
+      pageMargins: { top: 914400, bottom: 914400, left: 914400, right: 914400, header: 457200, footer: 228600 },
+      pageBorders: { top: horizontal, left: vertical, bottom: horizontal, right: vertical, offsetFrom: "page", display: "firstPage", zOrder: "back" },
+      titlePage: true, bidi: false, rtlGutter: false,
+    },
+    ...headerFooterStories(image),
+  });
   const following = ["nextPage", "nextColumn", "continuous", "evenPage", "oddPage"].map((type, i) => {
     const verticalAlign = ["top", "center", "bottom", "both", "top"][i];
     const flag = i % 2 === 1;
@@ -84,7 +89,7 @@ function catalogSections(blocks, image) {
     const gridLabel = grid
       ? `Document grid: mode=${grid}, line pitch=360 twips, character pitch delta=-4096.`
       : "Document grid: preserve previous section settings.";
-    return section([
+    return d.Section([
       p(`09 Section: break=${type}; landscape; 2 columns with separator; page numbering lowerRoman starts at ${i + 1}; vertical alignment=${verticalAlign}; section bidi=${flag}; rtl_gutter=${flag}.`),
       p(numberingLabel),
       p("Paragraph layout: contextual spacing enabled, mirrored indents explicitly off.", { contextualSpacing: true, mirrorIndents: false }),
@@ -95,11 +100,13 @@ function catalogSections(blocks, image) {
       p("Section layout request: physical margins remain unchanged. Gutter placement does not create a gutter amount. This is the first column."),
       para([br("column"), text("This follows a column break in the section sample.")]),
     ], {
-      type, pageOrientation: "landscape", columns: { count: 2, space: 360, separator: true },
-      pageNumbering: { start: i + 1, format: "lowerRoman" },
-      documentGrid: grid ? { mode: grid, linePitch: 360, characterPitchDelta: -4096 } : undefined,
-      lineNumbering: restart ? { countBy: 5, start: 0, distance: 240, restart } : i === 4 ? { clear: true } : undefined,
-      verticalAlign, titlePage: false, bidi: flag, rtlGutter: flag,
+      properties: {
+        type, pageOrientation: "landscape", columns: { count: 2, space: 360, separator: true },
+        pageNumbering: { start: i + 1, format: "lowerRoman" },
+        documentGrid: grid ? { mode: grid, linePitch: 360, characterPitchDelta: -4096 } : undefined,
+        lineNumbering: restart ? { countBy: 5, start: 0, distance: 240, restart } : i === 4 ? { clear: true } : undefined,
+        verticalAlign, titlePage: false, bidi: flag, rtlGutter: flag,
+      },
     });
   });
   return [first, ...following];
@@ -115,24 +122,21 @@ export function storyLabel(kind, variant) {
 }
 
 function headerProgram() {
-  const labeledStory = (kind, variant) => ({ kind, children: [p(storyLabel(kind, variant))] });
-  return {
-    timestamp: STAMP,
-    sections: [
-      section([p(HEADER_BATCH_LABEL)], undefined, {
-        headers: {
-          default: { kind: "header", children: [
-            para([text(HEADER_INLINE_LABEL), hyperlink({ kind: "external", url: "https://example.invalid/catalog-header" },
-              HEADER_LINK_RUNS.map((value) => text(value)))]),
-          ] },
-          first: labeledStory("header", "first"),
-          even: labeledStory("header", "even"),
-        },
-        footers: Object.fromEntries(STORY_VARIANTS.map((variant) => [variant, labeledStory("footer", variant)])),
-      }),
-      section([p("Header image scope: second section shares the same header.")]),
-    ],
-  };
+  const storyParagraphs = (kind, variant) => [p(storyLabel(kind, variant))];
+  return d.Document([
+    d.Section([p(HEADER_BATCH_LABEL)], {
+      headers: {
+        default: d.Header([
+          para([text(HEADER_INLINE_LABEL), hyperlink({ kind: "external", url: "https://example.invalid/catalog-header" },
+            HEADER_LINK_RUNS.map((value) => text(value)))]),
+        ]),
+        first: d.Header(storyParagraphs("header", "first")),
+        even: d.Header(storyParagraphs("header", "even")),
+      },
+      footers: Object.fromEntries(STORY_VARIANTS.map((variant) => [variant, d.Footer(storyParagraphs("footer", variant))])),
+    }),
+    d.Section([p("Header image scope: second section shares the same header.")]),
+  ], { timestamp: STAMP });
 }
 
 export function assert(condition, message) {
@@ -158,25 +162,14 @@ export async function authorCatalog(readFixture, { namedPng } = {}) {
     p("Template compatibility: unsupported mandatory namespaces in edited WordprocessingML are rejected."),
     p("Extended document properties: Company is Atlas & Co.; Manager is Taylor."),
     ...formattingBlocks(), ...tableBlocks(), ...await storyBlocks(image), ...drawingBlocks(images),
-    para([text("JavaScript authoring: ", { bold: true, italic: false }), text("Café 東京", { italic: true })],
-      { alignment: "center" }),
-    table([
-      row([cell("Item"), cell("Details")]),
-      row([cell("Pages"), tableCell([
-        para([text("2", { bold: true }), tab,
-          hyperlink({ kind: "external", url: "https://example.org/report" }, [text("Report details", { italic: true })]),
-          br(), text("Verified")]),
-        table([row([cell("Nested detail")])]),
-      ])]),
-    ]),
-    para([{ ...image("png", { width: 72, height: 36 }), altText: { description: "JavaScript authoring sample image" } }]),
+    ...reportBlocks(images.pngBytes),
     ...await resolutionBlocks(),
     p("Header/footer distances: 720 and 360 twips from the page edges."),
     p("Page borders: navy single top/bottom and gray dashed left/right; first page, offset from page, behind text."),
     p("Document page settings: mirrored margins enabled, top gutter explicitly off."),
   ];
-  const snapshot = await resolveDocument({
-    sections: catalogSections(blocks, image), timestamp: STAMP, commentAuthor: "Catalog reviewer",
+  const snapshot = await resolveDocument(d.Document(catalogSections(blocks, image), {
+    timestamp: STAMP, commentAuthor: "Catalog reviewer",
     metadata: {
       creator: "DOCX inspection catalog", title: "All features visual inspection", subject: "Rust/Python/JavaScript byte parity",
       description: "Labeled functionality samples; not a rendering guarantee", keywords: "docx,visual,parity",
@@ -192,9 +185,9 @@ export async function authorCatalog(readFixture, { namedPng } = {}) {
       footnoteNumbering: { start: 3, restart: "eachPage", format: "lowerRoman" },
       endnoteNumbering: { start: 7, restart: "eachSection", format: "upperLetter" },
     },
-    styles: [...formattingStyles(), ...tableStyles(), { kind: "numbering", name: "Catalog Bullets", numberingId: 61 }],
+    styles: [...formattingStyles(), ...tableStyles(), d.NumberingStyleDefinition("Catalog Bullets", 61)],
     numbering: numbering(), notes: notes(image),
-  });
+  }));
   const source = { bytes: template, edits: {
     replacements: [["{{replace}}", "REPLACED"]], paragraphIndex: 1, scope: "supportedStories",
     contentControlReplacements: { "template-control": "updated controlled value" }, textRevisionAction: "accept",

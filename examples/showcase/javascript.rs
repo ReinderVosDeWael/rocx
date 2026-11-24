@@ -1,4 +1,4 @@
-//! Native Rust equivalent of the JavaScript quickstart.
+//! Native Rust counterpart of the named and legacy JavaScript reports.
 use rocx::{
     Alignment, AltText, Block, Break, Hyperlink, HyperlinkTarget, ImageRun, ImageTransformation,
     Paragraph, ParagraphFormat, RunFormat, Tab, Table, TableCell, TableRow, TextRun, Value,

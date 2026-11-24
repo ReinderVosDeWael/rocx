@@ -2,6 +2,8 @@
 
 Run: uv run --no-sync python examples/all_features.py [output.docx]
 See ALL_FEATURES.md for coverage, viewer caveats and parity verification.
+The catalog includes the native counterpart of the named JavaScript report,
+also used for legacy API parity.
 """
 import asyncio
 import pathlib

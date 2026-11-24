@@ -1,3 +1,4 @@
+import { declarative as d } from "rocx-docx";
 import { EDIT_LABEL, br, heading, lineHeight, p, para, run, tab, tabStop, text } from "./blocks.mjs";
 
 export function formattingBlocks() {
@@ -79,18 +80,18 @@ export function formattingBlocks() {
 
 export function formattingStyles() {
   return [
-    { kind: "paragraph", name: "Catalog Child", baseStyle: "Catalog Base", nextParagraphStyle: "Normal",
-      linkedStyle: "Catalog Character", lineHeight: lineHeight("minimum", 16), tabStops: [tabStop(72)], bidi: false },
-    { kind: "character", name: "Catalog Character", baseStyle: "Catalog Character Base", linkedStyle: "Catalog Child",
-      format: { bold: true, italic: true, color: [48, 64, 144] } },
-    { kind: "paragraph", name: "Catalog Base", baseStyle: "Normal", font: "Arial", fontSize: 12, bold: true,
+    d.ParagraphStyleDefinition("Catalog Child", { baseStyle: "Catalog Base", nextParagraphStyle: "Normal",
+      linkedStyle: "Catalog Character", lineHeight: lineHeight("minimum", 16), tabStops: [tabStop(72)], bidi: false }),
+    d.CharacterStyleDefinition("Catalog Character", { baseStyle: "Catalog Character Base", linkedStyle: "Catalog Child",
+      format: { bold: true, italic: true, color: [48, 64, 144] } }),
+    d.ParagraphStyleDefinition("Catalog Base", { baseStyle: "Normal", font: "Arial", fontSize: 12, bold: true,
       italic: false, underline: false, color: [24, 64, 96], alignment: "left", spacingBefore: 6, spacingAfter: 6,
       leftIndent: 0.25, rightIndent: 0.125, firstLineIndent: -0.125, keepTogether: true, keepWithNext: false,
       pageBreakBefore: false, widowControl: true, language: { latin: "en-US" },
       boldComplexScript: false, italicComplexScript: false, sizeComplexScript: 12, rtl: false,
-      complexScript: false, fontEastAsia: "Yu Mincho", fontComplexScript: "Arial" },
-    { kind: "character", name: "Catalog Character Base", format: { font: "Calibri", size: 12 } },
-    { kind: "paragraph", name: "Catalog Existing", italic: true },
-    { kind: "character", name: "Catalog Existing Character", format: { italic: true } },
+      complexScript: false, fontEastAsia: "Yu Mincho", fontComplexScript: "Arial" }),
+    d.CharacterStyleDefinition("Catalog Character Base", { format: { font: "Calibri", size: 12 } }),
+    d.ParagraphStyleDefinition("Catalog Existing", { italic: true }),
+    d.CharacterStyleDefinition("Catalog Existing Character", { format: { italic: true } }),
   ];
 }

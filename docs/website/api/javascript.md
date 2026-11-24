@@ -7,6 +7,38 @@ and result types, use the [declarations shipped in the package](../javascript.md
 
 ## Generate and resolve
 
+For new code, import `declarative as d` from `rocx-docx`. Factories produce
+ordinary authoring declarations: use them alongside existing record inputs
+and pass the result to `generateDocx`, `resolveDocument`, or
+`resolveComponent` as appropriate.
+
+| Factory | Input |
+| --- | --- |
+| `Document(sections, options?)` | Sections; optional metadata, styles, timestamp and other document options |
+| `Section(children, options?)` | Body blocks; optional page layout in `properties` and `headers` / `footers` by slot |
+| `Paragraph(textOrRuns, options?)` | String or inline children; optional paragraph `format` |
+| `Paragraph.Text(text, options?)`, `Paragraph.Runs(runs, options?)` | Explicit text or inline children, including produced values |
+| `TextRun(text, options?)` | Text; optional run `format` |
+| `Table(rows, options?)` | Table rows; optional table `properties` |
+| `TableRow(cells, options?)` | Table cells; optional row `properties` |
+| `TableCell(children, options?)` | Cell blocks; optional cell `properties` |
+| `Header(children, options?)`, `Footer(children, options?)` | Story blocks, passed into a section's header or footer slots |
+
+Other named factories cover `Tab`, `Break`, `Hyperlink`, `Field`, `ImageRun`,
+`ShapeRun`, `ColumnChartRun`, `InlineFraction`, `Note`, `NoteReference`,
+`Comment`, `RangeStart`, `RangeEnd`, `InlineContentControl` and
+`BlockContentControl`. Style factories are `ParagraphStyleDefinition`,
+`CharacterStyleDefinition`, `TableStyleDefinition` and
+`NumberingStyleDefinition`. See the installed `declarative` declarations
+for exact signatures.
+
+The [runnable Node quickstart](../javascript.md#quickstart) uses the same
+two-paragraph document as the Rust and Python examples:
+
+```javascript
+{{snippet:examples/javascript/plain.mjs:quickstart}}
+```
+
 ```typescript
 generateDocx(declaration: DocumentDeclaration, options?: GenerateOptions): Promise<Uint8Array<ArrayBuffer>>
 generateDocx(program: DocumentProgram, options?: RenderOptions): Promise<Uint8Array<ArrayBuffer>>
@@ -16,7 +48,7 @@ resolveDocument(program: DocumentProgram, options?: ResolveOptions): Promise<Res
 | API | Behavior |
 | --- | --- |
 | Legacy `generateDocx` | Renders a `DocumentDeclaration` using the legacy blocks below. `GenerateOptions.timestamp` sets the snapshot timestamp. |
-| Program `generateDocx` | `{ sections, ... }`, using `SectionDeclaration` objects and structured block/inline declarations. Resolves once, then renders. |
+| Program `generateDocx` | Takes a `DocumentProgram`, built with `d.Document` or supplied as a `{ sections, ... }` record. Resolves once, then renders. |
 | `resolveDocument`, `resolveComponent` | Resolve a program or one typed component. An excluded standalone component returns `undefined`. Use `scope: "inline"` or `"block"` for standalone `contentControl` declarations. |
 | `ResolvedDocument.toDocx(options?)` | Synchronously encode a fresh DOCX. Read the snapshot through `.view`; rendering with a timestamp override does not change the snapshot. |
 | `ready`, `lazy`, `future`, `deferred`, `property`, `resolveValue` | Model literal, produced, and shared values at `V<T>` positions. `Value.map` is synchronous; use `future` to assimilate a Promise returned by a producer. `ResolveOptions.signal` cancels a waiter, not surviving shared work. |
@@ -73,13 +105,12 @@ direct body paragraphs, not nested paragraphs; omitting it or using an
 index past the end appends.
 
 ```javascript
-import { compileTemplate, resolveDocument } from "rocx-docx";
+import { compileTemplate, declarative as d, resolveDocument } from "rocx-docx";
 
 // templateBytes comes from a file picker, HTTP request, or the caller's disk read.
-const document = await resolveDocument({
+const document = await resolveDocument(d.Document([d.Section([d.Paragraph("Summary")])], {
   timestamp: "2026-11-21T00:00:00Z",
-  sections: [{ kind: "section", children: [{ kind: "paragraph", text: "Summary" }] }],
-});
+}));
 const plan = await compileTemplate(document, {
   bytes: templateBytes,
   edits: { replacements: [["{{quarter}}", "Q4"]], scope: "body" },
@@ -174,17 +205,11 @@ token to `document.toDocxWithTemplate` returns a Promise; `compileTemplate`
 accepts byte sources only.
 
 ```javascript
-import { imageFile, resolveDocument, saveDocx, templateFile } from "rocx-docx/node";
+import { declarative as d, imageFile, resolveDocument, saveDocx, templateFile } from "rocx-docx/node";
 
-const report = await resolveDocument({
-  sections: [{
-    kind: "section",
-    children: [{
-      kind: "paragraph",
-      runs: [{ kind: "image", data: imageFile("logo.png"), altText: { description: "Logo" } }],
-    }],
-  }],
-});
+const report = await resolveDocument(d.Document([d.Section([
+  d.Paragraph([d.ImageRun(imageFile("logo.png"), { altText: { description: "Logo" } })]),
+])]));
 await saveDocx(report, "report.docx", { template: templateFile("layout.dotx") });
 ```
 
@@ -201,13 +226,20 @@ not reopen the source when rendered.
 file onto the destination. In the browser, pass bytes from the caller and
 download the output with a `Blob`; the Node helpers are not available there.
 
-## Legacy report declaration
+## Report declaration
 
-This is the same declaration used by the Node and Chromium examples:
+The named factories build the same rich report in Node and Chromium:
 
 ```javascript
 {{snippet:examples/javascript/author.mjs:declaration}}
 ```
 
-See the [runnable Node and browser examples](../javascript.md#runnable-report)
-and the [complete TypeScript declarations](../javascript.md#typescript-declarations).
+See the [runnable Node and browser examples](../javascript.md#runnable-report).
+
+## Legacy report declaration
+
+The equivalent single-section record form remains supported:
+
+```javascript
+{{snippet:examples/javascript/legacy-author.mjs:declaration}}
+```

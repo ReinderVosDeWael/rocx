@@ -1,17 +1,15 @@
-import { bookmarkEnd, bookmarkStart } from "rocx-docx";
+import { bookmarkEnd, bookmarkStart, declarative as d } from "rocx-docx";
 import { INLINE_LABEL, INLINE_LINK_RUNS, STAMP, cell, heading, p, para, row, table, tableCell, text } from "./blocks.mjs";
 
 const external = (url) => ({ kind: "external", url });
 const bookmark = (name) => ({ kind: "bookmark", name });
-export const hyperlink = (target, children, properties) => ({ kind: "hyperlink", target, children, properties });
+export const hyperlink = (target, children, properties) => d.Hyperlink(target, children, { properties });
 const link = (label) => hyperlink(external("https://example.com/inspection?q=docx#sample"),
   [text(label, { color: { kind: "theme", name: "hyperlink" }, underline: "single" })],
   { tooltip: "External link; never fetched by the library", history: true });
-const field = (instruction, children, properties) => ({ kind: "field", instruction, children, properties });
-const noteRef = (kind) => ({ kind: "noteReference", target: { kind, id: 0 } });
-const rangeStart = (id, range) => ({ kind: "rangeStart", id, range });
-const rangeEnd = (id) => ({ kind: "rangeEnd", id });
-export const control = (children, properties) => ({ kind: "contentControl", children, properties });
+const field = (instruction, children, properties) => d.Field(instruction, children, { properties });
+const noteRef = (kind) => d.NoteReference({ kind, id: 0 });
+export const inlineControl = (children, properties) => d.InlineContentControl(children, { properties });
 export const revision = (kind, author, date, name) => ({ kind: { kind, ...(name === undefined ? {} : { name }) }, author, date });
 
 export async function storyBlocks(image) {
@@ -32,10 +30,10 @@ export async function storyBlocks(image) {
   }
   const catalogBookmark = "CatalogBookmark";
   const overlappingBookmark = "OverlappingBookmark";
-  const comment = { kind: "comment", children: [
+  const comment = d.Comment([
     p("Structured comment: paragraph, table, image and hyperlink."), table([row([cell("Comment table")])]),
     para([image("png", { width: 18 }), link("Comment external link")]),
-  ], metadata: { author: "Structured reviewer", date: STAMP, initials: "SR" } };
+  ], { metadata: { author: "Structured reviewer", date: STAMP, initials: "SR" } });
   const editedRevision = (kind, date, name) => ({ revision: revision(kind, "Catalog editor", date, name) });
   blocks.push(
     listed("Bullet list: numId=61, literal bullet label.", 61),
@@ -48,16 +46,16 @@ export async function storyBlocks(image) {
     para([
       await bookmarkStart(catalogBookmark), text("Bookmark CatalogBookmark starts here. "),
       await bookmarkStart(overlappingBookmark),
-      rangeStart("cross-paragraph-review", { kind: "comment", text: "Cross-paragraph plain comment", author: "Range reviewer" }),
+      d.RangeStart("cross-paragraph-review", { kind: "comment", text: "Cross-paragraph plain comment", author: "Range reviewer" }),
       text("Overlapping bookmark and comment begin."),
     ]),
     para([
       text("Cross-paragraph bookmark ends; overlapping bookmark continues. "),
-      await bookmarkEnd(catalogBookmark), await bookmarkEnd(overlappingBookmark), rangeEnd("cross-paragraph-review"),
+      await bookmarkEnd(catalogBookmark), await bookmarkEnd(overlappingBookmark), d.RangeEnd("cross-paragraph-review"),
     ]),
     para([
-      rangeStart("structured-review", { kind: "structuredComment", comment }),
-      text("Structured comment anchor: inspect the comment pane."), rangeEnd("structured-review"),
+      d.RangeStart("structured-review", { kind: "structuredComment", comment }),
+      text("Structured comment anchor: inspect the comment pane."), d.RangeEnd("structured-review"),
     ]),
     para([text("Run comment convenience anchor", undefined, { commentText: "Run convenience comment", commentAuthor: "Run reviewer" })],
       undefined, { commentText: "Paragraph convenience comment", commentAuthor: "Paragraph reviewer" }),
@@ -72,15 +70,16 @@ export async function storyBlocks(image) {
     p("Inline content control: rich text, alias Review caption, tag review-caption, ID 5001, content locked."),
     para([
       text("Review: "),
-      control([text("controlled caption", { bold: true })], { alias: "Review caption", tag: "review-caption", lock: "contentLocked", id: 5001 }),
+      inlineControl([text("controlled caption", { bold: true })], { alias: "Review caption", tag: "review-caption", lock: "contentLocked", id: 5001 }),
     ]),
     p("Block content control: a controlled paragraph and table share an alias, tag and ID 5002."),
-    control([p("Controlled block paragraph"), table([row([cell("Controlled table cell")])])],
-      { alias: "Review block", tag: "review-block", lock: "controlLocked", id: 5002 }),
+    d.BlockContentControl([p("Controlled block paragraph"), table([row([cell("Controlled table cell")])])], {
+      properties: { alias: "Review block", tag: "review-block", lock: "controlLocked", id: 5002 },
+    }),
     p("Plain-text control: one run, multiline enabled."),
-    para([control([text("first line\nsecond line")], { tag: "plain-review", text: { kind: "plain", multiLine: true } })]),
+    para([inlineControl([text("first line\nsecond line")], { tag: "plain-review", text: { kind: "plain", multiLine: true } })]),
     p("Drop-down control: Review status offers Pending and Accepted, with Accepted selected."),
-    para([control([text("Accepted")], {
+    para([inlineControl([text("Accepted")], {
       alias: "Review status", tag: "review-status",
       text: { kind: "dropDown", items: [{ displayText: "Pending", value: "pending" }, { displayText: "Accepted", value: "accepted" }], selected: "accepted" },
     })]),
@@ -117,23 +116,23 @@ export async function storyBlocks(image) {
 
 export function headerFooterStories(image) {
   const names = ["default", "first", "even"];
-  const headers = Object.fromEntries(names.map((name) => [name, { kind: "header", children: [
+  const headers = Object.fromEntries(names.map((name) => [name, d.Header([
     para([text(`Header ${name}: `), link("owner-local external hyperlink"), image("png", { width: 12 })]),
-  ] }]));
-  const footers = Object.fromEntries(names.map((name) => [name, { kind: "footer", children: [
+  ])]));
+  const footers = Object.fromEntries(names.map((name) => [name, d.Footer([
     para([text(`Footer ${name}: PAGE `), field({ kind: "page" }, [text("1")]),
       text(" / NUMPAGES "), field({ kind: "numPages" }, [text("1")])]),
-  ] }]));
+  ])]));
   return { headers, footers };
 }
 
 export function notes(image) {
   return [
-    { kind: "note", target: { kind: "footnote", id: 0 }, children: [
+    d.Note({ kind: "footnote", id: 0 }, [
       p("Footnote body: rich paragraph, table, image and external hyperlink."),
       table([row([cell("Footnote table")])]), para([image("png", { width: 18 }), link("Footnote external link")]),
-    ] },
-    { kind: "note", target: { kind: "endnote", id: 0 }, children: [p("Endnote body: this is an endnote, distinct from footnote id=0.")] },
+    ]),
+    d.Note({ kind: "endnote", id: 0 }, [p("Endnote body: this is an endnote, distinct from footnote id=0.")]),
   ];
 }
 

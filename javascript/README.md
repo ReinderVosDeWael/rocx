@@ -5,7 +5,8 @@ Use it to author a new DOCX, compose with a DOCX or DOTX template, or
 inspect and preview supported edits to an existing DOCX. The APIs below
 are implemented in this worktree and available in its local development
 tarball; they have not been released. Older `0.1.0` artifacts can differ.
-The existing `generateDocx({ blocks }, { timestamp })` API still works.
+Start new documents with named factories from `declarative`. Existing
+`generateDocx({ blocks }, { timestamp })` calls still work.
 
 The package is not on the npm registry. Install the packed `.tgz`; installation
 does not require Rust, a network connection, postinstall scripts, or runtime
@@ -15,7 +16,9 @@ dependencies.
 
 The installed package exports [`index.d.ts`](index.d.ts) and its
 [`types/`](types/) modules from `rocx-docx`. Import declaration types from
-that entry point, not from internal paths. Node filesystem helpers have
+that entry point, not from internal paths. See the
+[factory signatures](types/authoring.d.ts) for positional inputs and options.
+Node filesystem helpers have
 [separate declarations](types/file-io.d.ts) at `rocx-docx/node`. See the
 [JavaScript API reference](https://reindervosdewael.github.io/rocx/api/javascript/)
 for an overview.
@@ -60,9 +63,30 @@ Wasm asset (`connect-src`) and compiling Wasm (`'wasm-unsafe-eval'` in
 `script-src` on Chromium). `file://`, other browsers and bundlers, and SSR
 integration are not part of this verified slice.
 
+## Quickstart
+
+Save this as `plain.mjs` in a Node project with the tarball installed, then
+run `node plain.mjs`. The same declaration works in a browser; only file
+output is Node-specific.
+
+```javascript
+import { writeFile } from "node:fs/promises";
+import { declarative as d, generateDocx } from "rocx-docx";
+
+const document = d.Document([d.Section([
+  d.Paragraph("Hello, world!"),
+  d.Paragraph("A second paragraph, with Unicode: café 🌍"),
+])], { timestamp: "2026-11-21T00:00:00Z" });
+
+await writeFile("plain.docx", await generateDocx(document));
+```
+
+See the runnable [JavaScript](../examples/javascript/plain.mjs),
+[Rust](../examples/plain.rs), and [Python](../examples/plain.py) versions.
+
 ## Runnable report
 
-Both examples use [the same legacy declaration](../examples/javascript/author.mjs):
+Both examples use [the same named declaration](../examples/javascript/author.mjs):
 a centered bold/italic Unicode paragraph, a two-column table with a rich cell
 and nested table, and a sized inline picture with alternative text.
 Copy the example files into a fresh consumer and
@@ -70,7 +94,7 @@ install the tarball:
 
 ```sh
 mkdir /tmp/rocx-js-example
-cp examples/javascript/* /tmp/rocx-js-example/
+cp examples/javascript/{author,node,browser,vite.config}.mjs examples/javascript/index.html /tmp/rocx-js-example/
 cp tests/fixtures/images/sample.png /tmp/rocx-js-example/
 cd /tmp/rocx-js-example
 npm init -y
@@ -85,50 +109,35 @@ npm install /tmp/rocx-docx-0.1.0.tgz
   It does not upload the image. Run `npx vite build` and `npx vite preview` to
   try the production bundle.
 
-## Choose a declaration API
+The [legacy report](../examples/javascript/legacy-author.mjs) is also
+runnable: copy `legacy-author.mjs` and `legacy-node.mjs` to the consumer,
+then run `node legacy-node.mjs sample.png legacy-report.docx`.
 
-- **Legacy `DocumentDeclaration`:** `{ blocks }` creates one default section.
-  Paragraphs can set `alignment` and combine text, inline images, tabs, breaks,
-  and external hyperlinks. Text accepts optional `bold` and `italic`; `false`
-  is an explicit override. Breaks default to `"line"`. Hyperlinks take an
-  absolute URI/IRI and display runs, not nested hyperlinks. Tables accept
-  a nonempty rectangular grid of strings (plain paragraphs) or
-  `{ blocks: [...] }` cells, including nested tables up to 32 levels.
-  Image runs take encoded `bytes` and an optional `altText` description.
-  Positive `width` and `height` are in points; omit both for intrinsic size
-  or supply just one to keep the intrinsic aspect ratio. Legacy declarations
-  have no producers. The optional `timestamp` sets the snapshot's date and
-  defaults to the host clock. Use UTC ISO seconds or milliseconds, such as
-  `2026-11-21T00:00:00Z`, for repeatable output.
-- **`DocumentProgram`:** `{ sections }` supports multiple sections, page
-  layout, headers and footers, styles, numbering, rich tables, transformed
-  images, shapes and column charts, hyperlinks, fields, notes, and authored
-  controls and revisions. Tagged records use camelCase fields. Use
-  `generateDocx(program, options)` for a one-shot render or
-  `resolveDocument(program)` to inspect and render a snapshot more than once.
-  Set the program's `timestamp` for deterministic snapshot dates; a
-  `RenderOptions.timestamp` override only changes that output. Like Rust,
-  both preserve the supplied text without parsing or normalizing dates.
-  Supply a schema-valid date-time for DOCX core properties; fractional
-  seconds and numeric offsets are retained, e.g. `2026-11-21T00:00:00.1+00:00`.
+## Create and resolve declarations
+
+The named factories return the same `DocumentProgram` and component records
+that `generateDocx` and `resolveDocument` already accept. Use them together
+with existing camelCase declarations: `format` holds run or paragraph
+formatting, and `properties` holds section and table settings. Use
+`generateDocx(program, options)` to render once or `resolveDocument(program)`
+to inspect and render a snapshot more than once.
+Use `d.Paragraph.Text(value)` or `d.Paragraph.Runs(value)` to specify
+which input to resolve when passing a producer for the whole paragraph.
+
+Set the program's `timestamp` for deterministic snapshot dates. A
+`RenderOptions.timestamp` override changes just that output. Like Rust, both
+preserve the supplied text without parsing or normalizing dates. Supply a
+schema-valid date-time for DOCX core properties; fractional seconds and numeric
+offsets are retained, e.g. `2026-11-21T00:00:00.1+00:00`.
 
 ```javascript
-import { lazy, resolveDocument } from "rocx-docx";
+import { declarative as d, lazy, resolveDocument } from "rocx-docx";
 
-const report = await resolveDocument({
-  timestamp: "2026-11-21T00:00:00Z",
-  sections: [{
-    kind: "section",
-    children: [{
-      kind: "paragraph",
-      runs: [{
-        kind: "text",
-        text: lazy(() => "Quarterly summary"),
-        format: { bold: true },
-      }],
-    }],
-  }],
-});
+const report = await resolveDocument(d.Document([d.Section([
+  d.Paragraph([
+    d.TextRun(lazy(() => "Quarterly summary"), { format: { bold: true } }),
+  ]),
+])], { timestamp: "2026-11-21T00:00:00Z" }));
 console.log(report.view.sections[0].view.paragraphs[0].view.text);
 const bytes = report.toDocx(); // Uint8Array, not a Promise
 ```
@@ -142,6 +151,11 @@ passes can leave neither Promise settled even though a cycle in one pass
 can be diagnosed. Avoid cyclic dependency graphs across passes. An
 `AbortSignal` can cancel a waiter but does not forcibly stop shared work or
 undo external effects.
+
+The legacy `DocumentDeclaration` takes `{ blocks }` for one default section
+and does not support producers. Use a UTC ISO timestamp with seconds and
+optional milliseconds for its `GenerateOptions.timestamp`. See the
+[legacy field reference](https://reindervosdewael.github.io/rocx/api/javascript/#legacy-declaration-fields).
 
 The adapter requires well-formed Unicode (no unpaired UTF-16 surrogates).
 Pass encoded images, not pixels or URLs; a `Uint8Array` view uses only its
@@ -194,7 +208,7 @@ standalone report outputs (Rust, Python, Node, and Chromium via Vite
 development and production) must match as complete ZIP bytes, open with
 python-docx, and pass ECMA-376 schema and OPC relationship checks.
 
-Both Chromium/Vite modes run the legacy download and a portable suite with
+Both Chromium/Vite modes run the named report download and a portable suite with
 all six [catalog](../examples/javascript/catalog.mjs) outputs, twelve focused
 authoring/template outputs and seven editor outputs. These match the
 equivalent Rust bytes and are checked separately for readback and untouched

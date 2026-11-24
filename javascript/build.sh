@@ -21,5 +21,5 @@ done
 tar -czf rocx-source.tar.gz -C .. \
     LICENSE README.md Cargo.toml Cargo.lock src assets \
     examples/javascript tests/fixtures/images/sample.png \
-    javascript/{Cargo.toml,Cargo.lock,build.sh,package.json,README.md,index.d.ts,browser.js,node.js,generate.js,boundary.js,src,types} \
+    javascript/{Cargo.toml,Cargo.lock,build.sh,package.json,README.md,index.d.ts,browser.js,node.js,generate.js,boundary.js,authoring.js,src,types} \
     "${extra_sources[@]}"

@@ -291,8 +291,18 @@ def verify_inherited_stories(data: bytes) -> None:
                 assert explicit.paragraphs[1].text == alias.paragraphs[1].text == label
 
 
+def verify_plain_workflow(data: bytes) -> None:
+    """Read back the same introductory document from Rust, Python or JavaScript."""
+    output = docx.Document(io.BytesIO(data))
+    blocks = list(output.iter_inner_content())
+    assert all(isinstance(block, docx.text.paragraph.Paragraph) for block in blocks)
+    assert [paragraph.text for paragraph in blocks] == [
+        "Hello, world!", "A second paragraph, with Unicode: café 🌍",
+    ]
+
+
 def verify_javascript_workflow(data: bytes, *, standalone: bool = False) -> None:
-    """Independently read the labeled paragraph, rich table and sized PNG."""
+    """Read back the report shared by named, legacy and catalog authoring."""
     output = docx.Document(io.BytesIO(data))
     blocks = list(output.iter_inner_content())
     start, = [i for i, block in enumerate(blocks)

@@ -11,3 +11,4 @@ export const {
   await init({ module_or_path: bytes });
 });
 export { ready, lazy, future, deferred, property } from "./boundary.js";
+export { declarative } from "./authoring.js";

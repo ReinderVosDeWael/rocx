@@ -1,6 +1,6 @@
 # rocx
 
-Create Word `.docx` files in **Rust** or **Python**. Describe the document in
+Create Word `.docx` files in **Rust**, **Python**, or **JavaScript**. Describe the document in
 code; `rocx` writes the DOCX package. It does not render pages, paginate
 documents, or calculate fields such as page numbers.
 
@@ -45,7 +45,19 @@ async def main():
 asyncio.run(main())
 ```
 
-Both APIs support text, formatting, tables, images, links, templates, and more.
+JavaScript (Node ESM):
+
+```javascript
+import { writeFile } from "node:fs/promises";
+import { declarative as d, generateDocx } from "rocx-docx";
+
+const document = d.Document([d.Section([
+  d.Paragraph([d.TextRun("Hello, world!", { format: { bold: true } })]),
+])]);
+await writeFile("report.docx", await generateDocx(document));
+```
+
+The APIs support text, formatting, tables, images, links, templates, and more.
 Their constructors and async behavior differ; the guides describe those
 differences and the limits of each feature.
 

@@ -1,8 +1,9 @@
 # rocx
 
-Create Word `.docx` files with **Rust** or **Python**. Describe the content in
-code and let `rocx` build the document. A smaller [JavaScript/Wasm API](javascript.md)
-can generate documents in Node.js and locally in Chromium.
+Create Word `.docx` files with **Rust**, **Python**, or **JavaScript**.
+Describe a `Document` containing `Section` and `Paragraph` components in
+each language. The [JavaScript package](javascript.md) runs the same Rust
+engine in Node.js and Chromium via WebAssembly.
 
 - [Start with a runnable example](getting-started.md).
 - [Build a branded report from data and an editable template](branded-report.md).
