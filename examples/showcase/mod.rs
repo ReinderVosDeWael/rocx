@@ -831,6 +831,13 @@ pub async fn generate(output: &Path) -> Result<()> {
                 action: editor::InlineAction::SetToggle(editor::RunToggle::Italic, Some(true)),
             },
             editor::InlineEdit {
+                target: label.anchor.clone(),
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(rocx::RunFormat::default().with_size(12.5)),
+                    clear: vec![editor::RunFormatField::FontEastAsia],
+                },
+            },
+            editor::InlineEdit {
                 target: link.anchor.clone(),
                 action: editor::InlineAction::InsertAfter(inserted_paragraph.runs()[0].clone()),
             },

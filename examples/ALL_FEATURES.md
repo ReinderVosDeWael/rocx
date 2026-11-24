@@ -225,11 +225,16 @@ document and verifies each value in its own package part.
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.
-The catalogs also inspect direct italic and stage an italic patch and an insertion after a hyperlink:
+The catalogs also inspect direct italic, combine an italic toggle and a size/font
+patch on one run, and stage an insertion after a hyperlink:
 Rust `preview_with_inlines` with `InlineEdit`/`InlineAction`, Python `inline_edits`
 with `InlineEdit.set_toggle`/`insert_after`, JavaScript `inlineEdits` with
 `setToggle`/`insertAfter`. Rust uses `InlineAction::SetToggle(RunToggle::Italic, Some(true))`.
-The installed editor oracle additionally clears direct bold and replaces a run
+The second edit is Rust `InlineAction::PatchFormat`, Python `InlineEdit.patch_format`,
+or JavaScript `kind: "patchFormat"`. It sets 12.5 points and clears the East Asian
+font selection. The installed editor oracle also updates character style, color,
+underline and script properties, clears a language hint and compares the resulting
+DOCX bytes. A separate inline batch clears direct bold and replaces a run
 with an external hyperlink and verifies its relationship and exact package bytes.
 
 Removal rejects opaque or unsafe run markup.
