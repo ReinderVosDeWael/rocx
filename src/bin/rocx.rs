@@ -52,9 +52,9 @@ fn execute(request: Request) -> Result<Value, String> {
     let Some(edits) = edits else {
         return Ok(rocx_protocol::inspect(&doc, snapshot));
     };
-    let preview = rocx_protocol::preview(&doc, edits)?;
+    let (result, mut report) = rocx_protocol::preview(&doc, edits, snapshot)?;
+    report["output_snapshot"] = json!(format!("{:x}", Sha256::digest(&result)));
     if let Some(path) = output {
-        let result = preview.to_docx().map_err(|e| format!("encode: {e}"))?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -63,7 +63,7 @@ fn execute(request: Request) -> Result<Value, String> {
         file.write_all(&result)
             .map_err(|e| format!("write output (file may be incomplete): {e}"))?;
     }
-    Ok(rocx_protocol::report(&preview, snapshot))
+    Ok(report)
 }
 
 fn main() {

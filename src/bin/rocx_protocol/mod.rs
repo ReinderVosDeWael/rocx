@@ -6,6 +6,11 @@ use rocx::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+mod declarations;
+mod discovery;
+mod scoped;
+use declarations::*;
+use scoped::*;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,8 +62,139 @@ pub(super) enum Edit {
         cell_index: usize,
         alignment: String,
     },
+    TextRange {
+        target: usize,
+        start: usize,
+        end: usize,
+        text: String,
+    },
+    ReplaceParagraph {
+        target: usize,
+        text: String,
+    },
+    RemoveParagraph {
+        target: usize,
+    },
+    ReplaceSection {
+        target: usize,
+        blocks: Vec<Block>,
+    },
+    KeepWithNext {
+        target: usize,
+        value: bool,
+    },
+    ParagraphFlag {
+        target: usize,
+        flag: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<bool>,
+    },
+    SectionFlag {
+        target: usize,
+        flag: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<bool>,
+    },
+    SectionType {
+        target: usize,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    InsertInline {
+        target: usize,
+        inline_index: usize,
+        inline: Inline,
+    },
+    ReplaceInline {
+        target: usize,
+        inline_index: usize,
+        inline: Inline,
+    },
+    RunBold {
+        target: usize,
+        inline_index: usize,
+        value: bool,
+    },
+    TableStructure {
+        target: usize,
+        operation: Geometry,
+    },
+    CoreTitle {
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    DefaultAlignment {
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    AbstractStart {
+        abstract_id: u32,
+        level: u8,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<u32>,
+    },
+    StyleAdd {
+        definition: Style,
+    },
+    StyleReplace {
+        id: String,
+        definition: Style,
+    },
+    StylePatch {
+        id: String,
+        bold: Option<bool>,
+        italic: Option<bool>,
+    },
+    StyleRemove {
+        id: String,
+    },
+    Control {
+        target: usize,
+        tag: Option<String>,
+        alias: Option<String>,
+        text: Option<String>,
+    },
+    StoryImage {
+        target: Slot,
+        mode: String,
+        bytes: Vec<u8>,
+    },
+    StoryText {
+        part: String,
+        runs: Vec<StoryRun>,
+    },
+    TrackedText {
+        target: RunAddress,
+        action: Tracking,
+        author: String,
+        date: Option<String>,
+    },
+    TrackedMove {
+        target: RunAddress,
+        after: RunAddress,
+        name: String,
+        author: String,
+        date: String,
+    },
+    ReviewRevision {
+        target: RunAddress,
+        action: Review,
+        paired: Option<RunAddress>,
+    },
     #[serde(untagged)]
     LegacyAlignment(AlignmentPayload),
+}
+
+fn section_type(value: &str) -> Result<rocx::SectionType, String> {
+    use rocx::SectionType::*;
+    match value {
+        "nextPage" => Ok(NextPage),
+        "nextColumn" => Ok(NextColumn),
+        "evenPage" => Ok(EvenPage),
+        "oddPage" => Ok(OddPage),
+        "continuous" => Ok(Continuous),
+        _ => Err("unknown section type".into()),
+    }
 }
 
 fn alignment(value: &str) -> Result<Alignment, String> {
@@ -95,7 +231,8 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
                 })
                 .collect();
             json!({"type":"paragraph","target":index,"text":p.text,"alignment_xml":p.alignment_xml,
-                   "has_opaque_content":p.has_opaque_content,"runs":runs})
+                   "flags": p.flags.iter().map(|(f,v)|(f.python_name(),v)).collect::<std::collections::BTreeMap<_,_>>(),
+                   "has_opaque_content":p.has_opaque_content,"runs":runs,"inlines":discovery::inlines(&p.inline_structure)})
         }
         BodyBlock::Table(t) => {
             let mut cells = Vec::new();
@@ -108,7 +245,8 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
                     }
                 }
             }
-            json!({"type":"table","index":index,"target":index,"cells":cells})
+            json!({"type":"table","index":index,"target":index,"cells":cells,"grid_widths":t.grid_widths,
+                "layout":t.layout.map(|l|match l {rocx::TableLayout::Autofit=>"autofit",rocx::TableLayout::Fixed=>"fixed"})})
         }
         BodyBlock::ContentControl(c) => json!({"type":"content-control","index":index,
             "tag":c.tag,"alias":c.alias,"lock":c.lock}),
@@ -117,42 +255,10 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
     }
 }
 
-// The public story API also exposes editable footers and even-page headers.
-// The CLI address has no story-kind field and supports only these two slots.
-fn cli_headers(doc: &ImportedDocument) -> Result<impl Iterator<Item = ImportedStory>, String> {
-    Ok(doc
-        .stories()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|s| {
-            s.kind == SectionStoryKind::Header
-                && matches!(
-                    s.variant,
-                    HeaderFooterType::Default | HeaderFooterType::First
-                )
-                && s.anchor.is_some()
-        }))
-}
-
 pub(super) fn inspect(doc: &ImportedDocument, snapshot: String) -> Value {
     let body: Vec<_> = doc.body().iter().enumerate().map(inspect_block).collect();
     let mut result = json!({"snapshot":snapshot,"body":body});
-    match cli_headers(doc) {
-        Ok(stories) => {
-            result["headers"] = stories
-                .map(|s| {
-                    let variant = match s.variant {
-                        HeaderFooterType::Default => "default",
-                        HeaderFooterType::First => "first",
-                        HeaderFooterType::Even => "even",
-                    };
-                    json!({"target":{"section_index":s.section_index,"variant":variant},
-                       "part":s.part_name, "inherited":s.inherited})
-                })
-                .collect();
-        }
-        Err(e) => result["headers_error"] = json!(e.to_string()),
-    }
+    discovery::extend(doc, &mut result);
     result
 }
 
@@ -176,12 +282,172 @@ fn resolve<C: Component>(c: C) -> Result<C::Resolved, String> {
         .ok_or_else(|| "declaration produced no content".into())
 }
 
-pub(super) fn preview(doc: &ImportedDocument, edits: Vec<Edit>) -> Result<EditPreview, String> {
+pub(super) fn preview(
+    doc: &ImportedDocument,
+    edits: Vec<Edit>,
+    snapshot: String,
+) -> Result<(Vec<u8>, Value), String> {
     let (mut align, mut tables, mut headers, mut texts, mut paragraphs, mut cells, mut removals) =
         (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
-    let mut stories = None;
+    let mut stories = std::cell::OnceCell::new();
+    let (
+        mut ranges,
+        mut blocks,
+        mut inline_edits,
+        mut structural,
+        mut styles,
+        mut resources,
+        mut controls,
+    ) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
+    let count = edits.len();
     for edit in edits {
         match edit {
+            e @ (Edit::StoryText { .. }
+            | Edit::TrackedText { .. }
+            | Edit::TrackedMove { .. }
+            | Edit::ReviewRevision { .. }) => {
+                if count != 1 {
+                    return Err("story text or revision operation must be the only edit".into());
+                }
+                return scoped::preview_scoped(doc, e, snapshot);
+            }
+            Edit::TextRange {
+                target,
+                start,
+                end,
+                text,
+            } => ranges.push(TextRangeEdit {
+                target: paragraph(doc, target)?.anchor.clone(),
+                start,
+                end,
+                text,
+            }),
+            Edit::ReplaceParagraph { target, text } => blocks.push(BlockEdit::Replace(
+                paragraph(doc, target)?.anchor.clone(),
+                Box::new(resolve(Paragraph::new(text))?),
+            )),
+            Edit::RemoveParagraph { target } => {
+                blocks.push(BlockEdit::Remove(paragraph(doc, target)?.anchor.clone()))
+            }
+            Edit::ReplaceSection {
+                target,
+                blocks: payload,
+            } => blocks.push(BlockEdit::ReplaceSection(
+                paragraph(doc, target)?.anchor.clone(),
+                resolve_blocks(payload)?,
+            )),
+            Edit::KeepWithNext { target, value } => blocks.push(BlockEdit::KeepWithNext(
+                paragraph(doc, target)?.anchor.clone(),
+                value,
+            )),
+            Edit::ParagraphFlag {
+                target,
+                flag,
+                value,
+            } => blocks.push(BlockEdit::ParagraphFlag(
+                paragraph(doc, target)?.anchor.clone(),
+                *ParagraphFlag::ALL
+                    .iter()
+                    .find(|f| f.python_name() == flag)
+                    .ok_or("unknown paragraph flag")?,
+                value,
+            )),
+            Edit::SectionFlag {
+                target,
+                flag,
+                value,
+            } => blocks.push(BlockEdit::SectionFlag(
+                paragraph(doc, target)?.anchor.clone(),
+                *SectionFlag::ALL
+                    .iter()
+                    .find(|f| f.python_name() == flag)
+                    .ok_or("unknown section flag")?,
+                value,
+            )),
+            Edit::SectionType { target, value } => blocks.push(BlockEdit::SectionType(
+                paragraph(doc, target)?.anchor.clone(),
+                value.as_deref().map(section_type).transpose()?,
+            )),
+            Edit::InsertInline {
+                target,
+                inline_index,
+                inline,
+            } => inline_edits.push(InlineEdit {
+                target: inline_anchor(doc, target, inline_index)?,
+                action: InlineAction::InsertAfter(inline.resolve()?),
+            }),
+            Edit::ReplaceInline {
+                target,
+                inline_index,
+                inline,
+            } => inline_edits.push(InlineEdit {
+                target: inline_anchor(doc, target, inline_index)?,
+                action: InlineAction::Replace(inline.resolve()?),
+            }),
+            Edit::RunBold {
+                target,
+                inline_index,
+                value,
+            } => inline_edits.push(InlineEdit {
+                target: run(doc, target, inline_index)?,
+                action: InlineAction::SetBold(value),
+            }),
+            Edit::TableStructure { target, operation } => {
+                let Some(BodyBlock::Table(t)) = doc.body().get(target) else {
+                    return Err("expected direct body table".into());
+                };
+                structural.push(TableStructureEdit {
+                    target: t.anchor.clone(),
+                    operation: operation.resolve()?,
+                });
+            }
+            Edit::CoreTitle { value } => resources.push(ResourceEdit::CoreTitle(value)),
+            Edit::DefaultAlignment { value } => resources.push(ResourceEdit::DefaultAlignment(
+                value.as_deref().map(alignment).transpose()?,
+            )),
+            Edit::AbstractStart {
+                abstract_id,
+                level,
+                value,
+            } => resources.push(ResourceEdit::AbstractStart(AbstractStart {
+                abstract_id,
+                level,
+                start: value,
+            })),
+            Edit::StyleAdd { definition } => styles.push(StyleEdit::Add(definition.into())),
+            Edit::StyleReplace { id, definition } => styles.push(StyleEdit::Replace {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                definition: definition.into(),
+            }),
+            Edit::StyleRemove { id } => styles.push(StyleEdit::Remove(
+                doc.style_anchor(&id).map_err(|e| e.to_string())?,
+            )),
+            Edit::StylePatch { id, bold, italic } => styles.push(StyleEdit::Patch {
+                target: doc.style_anchor(&id).map_err(|e| e.to_string())?,
+                bold,
+                italic,
+            }),
+            Edit::Control {
+                target,
+                tag,
+                alias,
+                text,
+            } => controls.push(ControlEdit {
+                target: doc
+                    .controls()
+                    .get(target)
+                    .ok_or("unknown control index")?
+                    .anchor
+                    .clone(),
+                tag,
+                alias,
+                text,
+            }),
+            Edit::StoryImage {
+                target,
+                mode,
+                bytes,
+            } => headers.push(target.image(doc, &mut stories, &mode, bytes)?),
             Edit::LegacyAlignment(e) | Edit::Alignment(e) => align.push(ParagraphAlignmentEdit {
                 target: paragraph(doc, e.target)?.anchor.clone(),
                 alignment: alignment(&e.alignment)?,
@@ -199,54 +465,19 @@ pub(super) fn preview(doc: &ImportedDocument, edits: Vec<Edit>) -> Result<EditPr
                 target: paragraph(doc, target)?.anchor.clone(),
                 paragraph: resolve(Paragraph::new(text))?,
             }),
-            Edit::InsertTable { target, rows } => {
-                let width = rows.first().map_or(0, Vec::len);
-                if width == 0 || rows.iter().any(|r| r.len() != width) {
-                    return Err("rows must form a nonempty rectangular table".into());
-                }
-                let mut result = Vec::new();
-                for row in rows {
-                    let mut cells = Vec::new();
-                    for text in row {
-                        cells.push(TableCell::new(vec![Paragraph::new(text).into()]).into());
-                    }
-                    result.push(TableRow::new(cells).into());
-                }
-                tables.push(TableInsertion {
-                    target: paragraph(doc, target)?.anchor.clone(),
-                    table: resolve(Table::new(result))?,
-                })
-            }
+            Edit::InsertTable { target, rows } => tables.push(TableInsertion {
+                target: paragraph(doc, target)?.anchor.clone(),
+                table: table(rows)?,
+            }),
             Edit::HeaderImage {
                 target,
                 mode,
                 bytes,
             } => {
-                let variant = match target.variant.as_str() {
-                    "default" => HeaderFooterType::Default,
-                    "first" => HeaderFooterType::First,
-                    _ => return Err("unknown header variant".into()),
-                };
-                let mode = match mode.as_str() {
-                    "shared" => HeaderEditMode::Shared,
-                    "section-local" => HeaderEditMode::SectionLocal,
-                    _ => return Err("unknown header edit mode".into()),
-                };
-                if stories.is_none() {
-                    stories = Some(cli_headers(doc)?.collect::<Vec<_>>());
+                if !matches!(target.variant.as_str(), "default" | "first") {
+                    return Err("unknown header variant".into());
                 }
-                let anchor = stories
-                    .iter()
-                    .flatten()
-                    .filter(|s| s.section_index == target.section_index && s.variant == variant)
-                    .find_map(|s| s.anchor.clone())
-                    .ok_or("missing header target")?;
-                let inline = resolve(ImageRun::new(bytes))?;
-                headers.push(HeaderImageEdit {
-                    target: anchor,
-                    mode,
-                    image: inline.image().ok_or("expected image")?.clone(),
-                });
+                headers.push(Slot::legacy(target).image(doc, &mut stories, &mode, bytes)?);
             }
             Edit::CellAlignment {
                 target,
@@ -273,16 +504,28 @@ pub(super) fn preview(doc: &ImportedDocument, edits: Vec<Edit>) -> Result<EditPr
             }
         }
     }
-    doc.preview_mixed(
-        &align,
-        &tables,
-        &headers,
-        &texts,
-        &paragraphs,
-        &cells,
-        &removals,
-    )
-    .map_err(|e| format!("preview: {e}"))
+    let preview = doc
+        .preview_edits(EditBatch {
+            alignments: &align,
+            tables: &tables,
+            header_images: &headers,
+            run_text: &texts,
+            paragraphs: &paragraphs,
+            cells: &cells,
+            run_removals: &removals,
+            ranges: &ranges,
+            blocks: &blocks,
+            inline_edits: &inline_edits,
+            structural: &structural,
+            styles: &styles,
+            resources: &resources,
+            controls: &controls,
+        })
+        .map_err(|e| format!("preview: {e}"))?;
+    Ok((
+        preview.to_docx().map_err(|e| e.to_string())?,
+        report(&preview, snapshot),
+    ))
 }
 
 pub(super) fn report(p: &EditPreview, snapshot: String) -> Value {
@@ -306,6 +549,8 @@ pub(super) fn report(p: &EditPreview, snapshot: String) -> Value {
             "target": c.after_body_index, "rows": c.rows, "columns": c.columns
         })),
         "paragraph_insertions": p.paragraph_insertions(),
+        "block_changes": p.block_changes(),
+        "inline_changes": p.inline_changes(),
         "header_images": headers,
         "run_text": records(p.run_text_changes(), |c| json!({
             "target": c.body_index, "inline_index": c.inline_index, "before": c.before, "after": c.after

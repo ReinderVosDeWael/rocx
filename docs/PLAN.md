@@ -20,7 +20,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #48 Resources | Inspect and set/clear core title, paragraph-default alignment and shared abstract numbering level start. | Creating missing parts, editing instances/overrides or paragraph numbering references, other defaults and metadata. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
-| #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
+| #51 JSON CLI / #3 follow-up | Digest-bound transport for every `b0a28b0` ordinary batch family, all story image slots, physical story text, tracked text/moves and revision review. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; additions to the core after `b0a28b0` require corresponding transport. See [CLI contract](CLI.md). |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 
 **#3 table follow-up:** direct-body table layout can be inspected, set or
@@ -49,6 +49,16 @@ Node inspection and 23 native/Node editor byte comparisons. All eleven catalog
 files matched across Rust, Python 3.12 and Node 26. The mixed flag/break-type
 batch matched all three bindings, independent python-docx and XML/ZIP readback,
 and Transitional schema/OPC validation (11 schema-covered parts).
+
+Standalone #3 CLI follow-up on `b0a28b0`: three Rust process tests, eight
+schema-required Python process tests and native binary Clippy passed. A
+nine-operation batch matched the installed Python API byte for byte. Separate
+fixtures cover all seven structural table operations, revision review, footer
+images, physical story/entry text, declaration resolution, digest replay,
+exclusive saves and rejected batches. The transport contract is in [CLI.md](CLI.md).
+
+The structural integration extends the CLI to paragraph and section flags,
+section break types and table layout in the same digest-bound batch.
 
 ## Selected standalone topic results (before ten-way integration)
 
