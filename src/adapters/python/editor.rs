@@ -124,6 +124,48 @@ struct PyRunTextEdit {
     inner: editor::RunTextEdit,
 }
 
+#[pyclass(name = "ControlAnchor", frozen, module = "rocx.editor")]
+struct PyControlAnchor {
+    inner: editor::ControlAnchor,
+}
+
+#[pyclass(name = "ImportedControl", frozen, get_all, module = "rocx.editor")]
+struct PyImportedControl {
+    anchor: Py<PyControlAnchor>,
+    context: &'static str,
+    id: Option<String>,
+    tag: Option<String>,
+    alias: Option<String>,
+    lock: Option<String>,
+    bound: bool,
+}
+
+#[pyclass(name = "ControlEdit", frozen, module = "rocx.editor")]
+struct PyControlEdit {
+    inner: editor::ControlEdit,
+}
+
+#[pymethods]
+impl PyControlEdit {
+    #[new]
+    #[pyo3(signature = (target, *, tag=None, alias=None, text=None))]
+    fn new(
+        target: PyRef<'_, PyControlAnchor>,
+        tag: Option<String>,
+        alias: Option<String>,
+        text: Option<String>,
+    ) -> Self {
+        Self {
+            inner: editor::ControlEdit {
+                target: target.inner.clone(),
+                tag,
+                alias,
+                text,
+            },
+        }
+    }
+}
+
 #[pymethods]
 impl PyRunTextEdit {
     #[new]
@@ -838,6 +880,32 @@ struct PyImportedStyles {
 #[pymethods]
 impl PyImportedDocument {
     #[getter]
+    fn controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.controls()
+            .iter()
+            .map(|c| {
+                Ok(PyImportedControl {
+                    anchor: Py::new(
+                        py,
+                        PyControlAnchor {
+                            inner: c.anchor.clone(),
+                        },
+                    )?,
+                    context: c.context.as_str(),
+                    id: c.id.clone(),
+                    tag: c.tag.clone(),
+                    alias: c.alias.clone(),
+                    lock: c.lock.clone(),
+                    bound: c.bound,
+                })
+            })
+            .collect()
+    }
+    #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
         let doc = self
             .inner
@@ -1057,7 +1125,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, controls=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1067,6 +1135,7 @@ impl PyImportedDocument {
         run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
+        controls: Option<Vec<PyRef<'_, PyControlEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -1094,7 +1163,7 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_mixed(
+                doc.preview_with_controls(
                     &edits,
                     &insertions,
                     &header_images,
@@ -1121,6 +1190,11 @@ impl PyImportedDocument {
                         .iter()
                         .map(|anchor| anchor.inner.clone())
                         .collect::<Vec<_>>(),
+                    &controls
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| e.inner.clone())
+                        .collect::<Vec<_>>(),
                 )
                 .map_err(rust_error)?,
             ),
@@ -1129,6 +1203,9 @@ impl PyImportedDocument {
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyControlAnchor>()?;
+    module.add_class::<PyControlEdit>()?;
+    module.add_class::<PyImportedControl>()?;
     module.add_class::<PyHeaderAnchor>()?;
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;

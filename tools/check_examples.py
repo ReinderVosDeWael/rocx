@@ -817,6 +817,8 @@ def verify_first_header_scopes(original: bytes, first_shared: bytes, first_local
 
 
 def verify_run_text(original: bytes, replaced: bytes) -> None:
+    edited_doc = docx.Document(io.BytesIO(replaced))
+    assert edited_doc.element.xpath("//w:sdtPr[w:id/@w:val='5001']/w:alias/@w:val") == ["Imported editor caption"]
     paragraphs = [p.text for p in docx.Document(io.BytesIO(replaced)).paragraphs]
     anchor = paragraphs.index("Imported editor: replaced this run by its anchor. " + "".join(INLINE_LINK_RUNS))
     assert paragraphs[anchor + 1] == "Imported editor: inserted paragraph."

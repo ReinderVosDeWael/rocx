@@ -7,6 +7,7 @@ import {
 } from "rocx-docx";
 
 export interface Fixtures {
+  "control-source": Uint8Array;
   base: Uint8Array;
   unsafe: Uint8Array;
   ambiguous: Uint8Array;
@@ -377,6 +378,20 @@ export async function mixedTransactionAtomicityAndRepeatPreview(
 }
 
 export async function run(fixtures: Fixtures) {
+  const controlled = await openDocx(fixtures["control-source"]);
+  const controls = controlled.controls();
+  same(controls.map(c => c.context), ["block", "inline", "row", "cell", "block", "block"], "contexts");
+  check(controls.every(c => c.tag === "repeat" && c.id === undefined) && controls[4].bound, "source metadata");
+  const [block, inline, row, cell, bound, unsafe] = controls.map(c => c.anchor);
+  const edits = [{target: block, text: " block "}, {target: inline, alias: "caption"},
+    {target: row, text: "new row"}, {target: cell, tag: "cell", text: "new cell"}];
+  rejects(() => controlled.preview({ controls: [edits[0], {target: inline, text: "no"}] }), /locked/);
+  rejects(() => controlled.preview({ controls: [{target: block, tag: "no"}] }), /locked/);
+  rejects(() => controlled.preview({ controls: [edits[0], {target: bound, alias: "no"}] }), /XML-bound/);
+  rejects(() => controlled.preview({ controls: [edits[0], {target: unsafe, text: "no"}] }), /structure/);
+  rejects(() => controlled.preview({ controls: [edits[0], edits[0]] }), /duplicate/);
+  const stale = await openDocx(fixtures["control-source"]);
+  rejects(() => stale.preview({ controls: edits }), /snapshot/);
   const resolved = await payloads(fixtures.image);
   const doc = await openDocx(fixtures.base);
   const first = paragraph(doc, 0).inlineStructure[0];
@@ -390,6 +405,7 @@ export async function run(fixtures: Fixtures) {
   check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
   return {
     removal: removal.toDocx(),
+    controlEdits: controlled.preview({ controls: edits }).toDocx(),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),
@@ -398,6 +414,8 @@ export async function run(fixtures: Fixtures) {
 
 // Compile only. Check public inputs and output types without letting invalid calls execute.
 export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  // @ts-expect-error source tags and IDs are not physical control anchors
+  doc.preview({ controls: [{ target: "repeat", tag: "new" }] });
   for (const e of doc.entryStories()) {
     const id: string = e.id;
     for (const block of e.blocks) {

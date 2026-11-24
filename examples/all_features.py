@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    TableInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion, ControlEdit,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -477,7 +477,11 @@ async def generate(output: pathlib.Path) -> bytes:
     label, inline_link = inline_block.inline_structure
     replacement = "Imported editor: replaced this run by its anchor. "
     inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
+    assert {(c.context, c.id) for c in imported.controls} >= {
+        ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
+    caption, = (c for c in imported.controls if c.id == "5001")
     preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)],
+                               controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
                                paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])
     assert preview.paragraph_insertions == [
         next(i for i, block in enumerate(imported.body)

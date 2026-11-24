@@ -2,6 +2,17 @@ import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 
 declare const anchor: unique symbol;
 
+export interface ControlAnchor { readonly [anchor]: "control" }
+export interface ImportedControl {
+  readonly anchor: ControlAnchor;
+  readonly context: "block" | "inline" | "row" | "cell";
+  readonly id?: string;
+  readonly tag?: string;
+  readonly alias?: string;
+  readonly lock?: string;
+  readonly bound: boolean;
+}
+
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
 /** Direct body table address for cell alignment edits. */
@@ -185,6 +196,7 @@ export interface ImportedStyles {
   readonly styles: readonly ImportedStyle[];
 }
 export interface ImportedDocument {
+  controls(): readonly ImportedControl[];
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
   sections(): readonly ImportedSection[];

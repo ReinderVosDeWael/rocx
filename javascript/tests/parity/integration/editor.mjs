@@ -1,10 +1,11 @@
 import { run } from "../editor.mts";
 
 export async function editorFixtures(read) {
-  const names = ["base", "unsafe", "ambiguous", "drawing", "relocated", "styles-edge", "styles-missing", "styles-invalid"];
+  const names = ["base", "control-source", "unsafe", "ambiguous", "drawing", "relocated", "styles-edge", "styles-missing", "styles-invalid"];
   const sources = await Promise.all(names.map(async (name) => [name, await read(`${name}.docx`)]));
   const result = await run({ ...Object.fromEntries(sources), image: await read("image.png") });
   const files = {
+    controlEdits: result.controlEdits,
     body: result.body,
     cell: result.cell,
     mixedBody: result.mixedBody,

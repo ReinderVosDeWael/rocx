@@ -167,9 +167,10 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "runRemovals",
             "paragraphInsertions",
             "cellAlignments",
+            "controls",
         ],
     )?;
-    let preview = source.document().preview_mixed(
+    let preview = source.document().preview_with_controls(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -186,6 +187,27 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &edits(&batch, "paragraphInsertions", paragraph_insertion)?,
         &edits(&batch, "cellAlignments", cell_alignment_edit)?,
         &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
+        &edits(&batch, "controls", |input, path| {
+            let edit = Record::new(input, path, &["target", "alias", "tag", "text"])?;
+            let string = |field: &str| -> Result<Option<String>> {
+                let value = edit.get(field)?;
+                if value.js().is_undefined() {
+                    Ok(None)
+                } else {
+                    b::string(&value, &edit.path(field)).map(Some)
+                }
+            };
+            Ok(rocx::editor::ControlEdit {
+                target: (*borrow_target::<rocx::editor::ControlAnchor>(
+                    &edit,
+                    &edit.path("target"),
+                )?)
+                .clone(),
+                alias: string("alias")?,
+                tag: string("tag")?,
+                text: string("text")?,
+            })
+        })?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",

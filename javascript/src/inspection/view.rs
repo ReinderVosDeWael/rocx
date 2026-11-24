@@ -46,7 +46,7 @@ fn optional(result: &JsValue, key: &str, value: Option<&str>) {
     }
 }
 
-fn cached<K: Eq + Hash, T: Clone + 'static>(
+pub(super) fn cached<K: Eq + Hash, T: Clone + 'static>(
     cache: &RefCell<HashMap<K, JsValue>>,
     key: K,
     kind: &str,

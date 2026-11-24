@@ -132,6 +132,11 @@ Transitional DOCX snapshot. Its methods are synchronous:
   with read-only inline anchors. Nested table blocks remain opaque.
   A direct block control (`kind: "contentControl"`) exposes optional literal
   `tag`, `alias` and `lock`; its contents are opaque and it has no edit anchor.
+- `controls()` lists physical block, inline, row and cell controls in the main
+  story. Each has an `anchor`, `context`, `bound`, and optional literal `id`,
+  `tag`, `alias`, and `lock`. Pass `anchor` to `preview({controls: [{target:
+  anchor, alias: "Caption"}]})` to patch an eligible control's alias, tag or
+  single-run text. Tags and IDs are not unique addresses.
 - `styles()` returns `undefined` when the styles relationship is absent.
   Otherwise it reports the physical part and direct style IDs, kinds, names
   and `basedOn` references in source order, without resolving inheritance.

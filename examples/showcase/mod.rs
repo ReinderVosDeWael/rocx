@@ -617,7 +617,24 @@ pub async fn generate(output: &Path) -> Result<()> {
     else {
         panic!("expected paragraph payload");
     };
-    let preview = imported.preview_with_paragraphs(
+    let controls = imported.controls();
+    for (context, id) in [
+        ("inline", "5001"),
+        ("block", "5002"),
+        ("row", "5003"),
+        ("cell", "5004"),
+    ] {
+        assert!(
+            controls
+                .iter()
+                .any(|c| c.context.as_str() == context && c.id.as_deref() == Some(id))
+        );
+    }
+    let caption = controls
+        .iter()
+        .find(|c| c.id.as_deref() == Some("5001"))
+        .unwrap();
+    let preview = imported.preview_with_controls(
         &[],
         &[],
         &[],
@@ -628,6 +645,14 @@ pub async fn generate(output: &Path) -> Result<()> {
         &[editor::ParagraphInsertion {
             target: paragraph.anchor.clone(),
             paragraph: inserted_paragraph.clone(),
+        }],
+        &[],
+        &[],
+        &[editor::ControlEdit {
+            target: caption.anchor.clone(),
+            alias: Some("Imported editor caption".into()),
+            tag: None,
+            text: None,
         }],
     )?;
     assert_eq!(preview.paragraph_insertions(), &[paragraph_index]);

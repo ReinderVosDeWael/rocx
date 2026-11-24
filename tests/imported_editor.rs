@@ -495,6 +495,83 @@ fn reads_direct_body_blocks_and_paragraph_properties() {
 }
 
 #[test]
+fn control_targets_refuse_active_ranges_nested_wrappers_and_ambiguous_properties() {
+    use rocx::editor::ControlEdit;
+    let inline = "<w:sdt><w:sdtPr><w:tag w:val='copy'/></w:sdtPr><w:sdtContent><w:r><w:t>keep</w:t></w:r></w:sdtContent></w:sdt>";
+    let document = |contents: &str| {
+        let body = format!(
+            "<w:document xmlns:w='{W}'><w:body>{contents}<w:sectPr/></w:body></w:document>"
+        );
+        ImportedDocument::open(&fixture_with_body(&body)).unwrap()
+    };
+    let nested =
+        format!("<w:sdt><w:sdtPr/><w:sdtContent><w:p>{inline}</w:p></w:sdtContent></w:sdt>");
+    for (xml, i, reason) in [
+        (
+            format!(
+                "<w:p><w:bookmarkStart w:id='1' w:name='a'/>{inline}<w:bookmarkEnd w:id='1'/></w:p>"
+            ),
+            0,
+            "protected",
+        ),
+        (
+            format!("<w:p><w:r><w:fldChar w:fldCharType='begin'/></w:r>{inline}</w:p>"),
+            0,
+            "protected",
+        ),
+        (nested.clone(), 0, "structure"),
+        (nested, 1, "nested"),
+        (
+            format!(
+                "<w:p>{}</w:p>",
+                inline.replace("</w:sdtPr>", "<w:tag w:val='other'/></w:sdtPr>")
+            ),
+            0,
+            "ambiguous",
+        ),
+        (
+            format!(
+                "<w:p>{}</w:p>",
+                inline.replace("</w:sdtPr>", "<w:lock w:val='unknown'/></w:sdtPr>")
+            ),
+            0,
+            "locked",
+        ),
+        (
+            format!(
+                "<w:p>{}</w:p>",
+                inline.replace(
+                    "</w:sdtPr>",
+                    "<x:dataBinding xmlns:x='urn:future'/></w:sdtPr>"
+                )
+            ),
+            0,
+            "XML-bound",
+        ),
+        (
+            format!(
+                "<w:p>{}</w:p>",
+                inline.replace("</w:sdtPr>", "<w:dropDownList/></w:sdtPr>")
+            ),
+            0,
+            "properties",
+        ),
+    ] {
+        let doc = document(&xml);
+        let bad = ControlEdit {
+            target: doc.controls()[i].anchor.clone(),
+            tag: None,
+            alias: Some("after".into()),
+            text: None,
+        };
+        let error = doc
+            .preview_with_controls(&[], &[], &[], &[], &[], &[], &[], &[bad])
+            .unwrap_err();
+        assert!(error.to_string().contains(reason), "{error}");
+    }
+}
+
+#[test]
 fn direct_control_metadata_is_read_only_and_preserved() {
     let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
 <w:sdt><w:sdtPr><w:tag w:val="customer &amp; id"/><w:alias w:val="Name"/><w:lock w:val="futureLock"/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>secret</w:t></w:r></w:p></w:sdtContent></w:sdt>

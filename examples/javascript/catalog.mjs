@@ -168,6 +168,8 @@ export async function generateCatalog(fixtures, options) {
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const insertedParagraph = await resolveComponent({ kind: "paragraph", text: "Imported editor: inserted paragraph." });
   const textPreview = imported.preview({
+    controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
+      alias: "Imported editor caption" }],
     runText: [textEdit],
     paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
   });

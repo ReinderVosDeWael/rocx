@@ -1,5 +1,13 @@
 # Active plan — editing existing DOCX files
 
+Controls follow-up: inspect physical main-story block, inline, row and cell controls;
+stage snapshot-targeted alias/tag and single-text edits with lock and structural guards.
+The topic fixture produced identical DOCX bytes in Rust, the installed Python
+package and packed Node. Independent python-docx, schema and ZIP checks covered
+target placement, extension retention and untouched parts. All nine catalog
+outputs matched across these bindings. Integrated browser qualification remains
+with the combined gate.
+
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
 ## Current milestone: qualify the combined #3 editor

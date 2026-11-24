@@ -38,8 +38,26 @@ below describes the broader goal, not the currently supported surface.
 Direct body controls expose source tag, alias and lock: Rust
 `BodyBlock::ContentControl`, Python `BodyContentControl`, JavaScript
 `kind: "contentControl"`. Missing attributes are absent, empty strings remain
-empty and unknown lock values stay literal. There is no edit anchor or traversal
-of the contents. Controls in other contexts remain opaque.
+empty and unknown lock values stay literal.
+
+For physical control targets, use Rust `ImportedDocument::controls()`, Python
+`ImportedDocument.controls`, or JavaScript `ImportedDocument.controls()`. This
+ordered main-body view distinguishes `block`, `inline`, `row` and `cell`.
+It reports literal `id`, `tag`, `alias`, `lock`, a `bound` flag, and an opaque
+snapshot anchor. Neither `id` nor `tag` needs to be unique. The existing body,
+table and inline projections keep their original shape.
+
+Use Rust `ControlEdit` with `preview_with_controls`, Python `ControlEdit` with
+`preview([], controls=[...])`, or JavaScript `preview({controls: [...]})`.
+An edit sets the supplied tag, alias, or single-line text; omitted fields stay
+unchanged. The wrapper must contain a single run/text leaf, with the ordinary
+paragraph, row and cell containers for its context. Text edits preserve run
+formatting. Metadata edits preserve unrecognized extension properties; a text
+edit refuses unknown control properties. Content locks prohibit text edits,
+control locks prohibit metadata edits, and combined or unknown locks prohibit
+both. Bound controls, nested controls, protected ranges, ambiguous wrappers,
+and specialized controls (e.g. lists) are not editable. This does not insert
+or remove wrappers or edit controls in headers, footers or entry stories.
 
 Paragraph insertion adds a resolved paragraph immediately after a direct body paragraph.
 Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
@@ -137,12 +155,12 @@ The broader story view also supplies an image-edit anchor for default and
 first-page headers. Other story slots have no such anchor. Local edits restore
 inheritance only for the selected variant; shared edits include all aliases.
 
-To combine **all seven edit kinds** in one call, Rust uses
-`preview_mixed(alignments, tables, header_images, run_text, paragraphs, cells, run_removals)`.
+To combine control edits with the original seven edit kinds in one call, Rust uses
+`preview_with_controls(alignments, tables, header_images, run_text, paragraphs, cells, run_removals, controls)`.
 Python uses `preview(alignments, table_insertions=..., header_images=..., run_text=...,
-paragraph_insertions=..., cell_alignments=..., run_removals=...)`; JavaScript uses
+paragraph_insertions=..., cell_alignments=..., run_removals=..., controls=...)`; JavaScript uses
 `preview({alignments, tableInsertions, headerImages, runText, paragraphInsertions,
-cellAlignments, runRemovals})`. Every target comes from the original snapshot.
+cellAlignments, runRemovals, controls})`. Every target comes from the original snapshot.
 A shared edit conflicts with any other image edit on that
 physical header. Distinct sections may each fork the same original header
 with section-local edits. A rejected operation produces no partial preview.

@@ -112,6 +112,66 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    {
+        use rocx::editor::ControlEdit;
+        let data = fs::read(directory.join("control-source.docx")).unwrap();
+        let source = ImportedDocument::open(&data).unwrap();
+        let c = source.controls();
+        assert_eq!(
+            c.iter().map(|c| c.context.as_str()).collect::<Vec<_>>(),
+            ["block", "inline", "row", "cell", "block", "block"]
+        );
+        assert!(
+            c.iter()
+                .all(|c| c.tag.as_deref() == Some("repeat") && c.id.is_none())
+                && c[4].bound
+        );
+        let edit =
+            |i: usize, tag: Option<&str>, alias: Option<&str>, text: Option<&str>| ControlEdit {
+                target: c[i].anchor.clone(),
+                tag: tag.map(str::to_owned),
+                alias: alias.map(str::to_owned),
+                text: text.map(str::to_owned),
+            };
+        let edits = [
+            edit(0, None, None, Some(" block ")),
+            edit(1, None, Some("caption"), None),
+            edit(2, None, None, Some("new row")),
+            edit(3, Some("cell"), None, Some("new cell")),
+        ];
+        let preview = |doc: &ImportedDocument, edits: &[ControlEdit]| {
+            doc.preview_with_controls(&[], &[], &[], &[], &[], &[], &[], edits)
+        };
+        for (bad, reason) in [
+            (edit(1, None, None, Some("no")), "locked"),
+            (edit(0, Some("no"), None, None), "locked"),
+            (edit(4, None, Some("no"), None), "XML-bound"),
+            (edit(5, None, None, Some("no")), "structure"),
+            (edits[0].clone(), "duplicate"),
+        ] {
+            let batch = if bad.tag.is_some() {
+                vec![bad]
+            } else {
+                vec![edits[0].clone(), bad]
+            };
+            assert!(
+                preview(&source, &batch)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(reason)
+            );
+        }
+        assert!(
+            preview(&ImportedDocument::open(&data).unwrap(), &edits)
+                .unwrap_err()
+                .to_string()
+                .contains("snapshot")
+        );
+        write(
+            "native-controlEdits.docx",
+            preview(&source, &edits).unwrap().to_docx().unwrap(),
+        );
+    }
     let BodyBlock::Paragraph(first) = &doc.body()[0] else {
         panic!("paragraph")
     };

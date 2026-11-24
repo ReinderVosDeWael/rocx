@@ -17,6 +17,7 @@ from rocx.editor import (
     BodyParagraph,
     BodyTable,
     CellAlignmentEdit,
+    ControlEdit,
     HeaderImageChange,
     HeaderImageEdit,
     HeaderImagePreview,
@@ -41,6 +42,37 @@ from rocx.editor import (
 )
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
+
+
+def test_mixed_control_edit_and_removal_use_original_run_positions():
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    source = docx.Document()
+    paragraph = source.add_paragraph("remove")
+    run = paragraph.add_run("keep")
+    run.italic = True
+    control, props, content = (OxmlElement("w:" + tag) for tag in ("sdt", "sdtPr", "sdtContent"))
+    tag = OxmlElement("w:tag")
+    tag.set(qn("w:val"), "sample")
+    props.append(tag)
+    content.append(run._r)
+    control.extend((props, content))
+    paragraph._p.append(control)
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    target = imported.controls[0].anchor
+    noop = imported.preview([], controls=[ControlEdit(target, tag="sample", text="keep")]).to_docx()
+    with ZipFile(io.BytesIO(data)) as before, ZipFile(io.BytesIO(noop)) as after:
+        assert before.read("word/document.xml") == after.read("word/document.xml")
+    preview = imported.preview([], run_removals=[imported.body[0].inline_structure[0].anchor],
+                               controls=[ControlEdit(target, text="changed")])
+    changed = docx.Document(io.BytesIO(preview.to_docx()))
+    assert changed.element.xpath("//w:p/w:r") == []
+    assert changed.element.xpath("//w:sdtContent/w:r/w:t/text()") == ["changed"]
+    assert changed.element.xpath("//w:sdtContent/w:r/w:rPr/w:i")
 
 
 def test_inline_revision_inspection_preserves_opaque_boundaries():
