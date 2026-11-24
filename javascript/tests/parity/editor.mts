@@ -446,7 +446,7 @@ async function editPhysicalResources(source: Uint8Array) {
   }).toDocx();
   const numbered = await openDocx(staged);
   const table = numbered.partTables(owner)[0];
-  const donor = await resolveComponent({kind:"table", style:"Owner Table Style", rows:[
+  const donor = await resolveComponent({kind:"table", properties:{style:"Owner Table Style"}, rows:[
     {kind:"tableRow", children:[{kind:"tableCell", children:[{kind:"paragraph",text:"Donor text must not move"}]}]},
   ]});
   check(donor, "resolved physical style donor");
