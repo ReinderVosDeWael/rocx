@@ -173,6 +173,83 @@ fn paragraph(doc: &ImportedDocument, index: usize) -> &rocx::editor::ImportedPar
     }
 }
 
+#[test]
+fn removes_original_run_targets_and_rejects_unsafe_or_conflicting_batches() {
+    use rocx::editor::{ImportedInlineNode::Run, RunTextEdit};
+    let xml = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>
+        <w:r><w:rPr><w:b/></w:rPr><w:t>first</w:t></w:r>
+        <w:r><w:t>keep</w:t></w:r><w:r><w:t>last</w:t></w:r>
+        <w:r><w:t>bad</w:t><w:tab/></w:r>
+        <w:r><w:rPr><w:rPrChange w:id="1"/></w:rPr><w:t>revision</w:t></w:r>
+        <w:r w:rsidR="12345678"><w:t>attributed</w:t></w:r>
+        <w:r><w:rPr><w:b w:id="3"/></w:rPr><w:t>unknown attribute</w:t></w:r>
+        <w:bookmarkStart w:id="7" w:name="guard"/><w:r><w:t>in range</w:t></w:r><w:bookmarkEnd w:id="7"/>
+        </w:p><w:sectPr/></w:body></w:document>"#;
+    let data = fixture_with_body(xml);
+    let doc = ImportedDocument::open(&data).unwrap();
+    let nodes = &paragraph(&doc, 0).inline_structure;
+    let anchor = |i| match &nodes[i] {
+        Run(run) => run.anchor.clone(),
+        _ => panic!("run"),
+    };
+    let preview = doc
+        .preview_with_run_removals(&[], &[], &[], &[], &[anchor(2), anchor(0)])
+        .unwrap();
+    assert_eq!(
+        preview
+            .run_removals()
+            .iter()
+            .map(|c| (c.inline_index, c.before.as_str()))
+            .collect::<Vec<_>>(),
+        [(0, "first"), (2, "last")]
+    );
+    let output = preview.to_docx().unwrap();
+    assert_eq!(
+        paragraph(&ImportedDocument::open(&output).unwrap(), 0).text,
+        "keepbad\trevisionattributedunknown attributein range"
+    );
+    for (name, value) in parts(&data) {
+        if name != "word/document.xml" {
+            assert_eq!(parts(&output)[&name], value, "{name}");
+        }
+    }
+    let stale = ImportedDocument::open(&data).unwrap();
+    let Run(stale_run) = &paragraph(&stale, 0).inline_structure[0] else {
+        panic!("run")
+    };
+    for targets in [
+        vec![anchor(0), anchor(0)],
+        vec![anchor(0), anchor(3)],
+        vec![anchor(0), anchor(4)],
+        vec![anchor(0), anchor(5)],
+        vec![anchor(0), anchor(6)],
+        vec![anchor(0), anchor(8)],
+        vec![anchor(0), stale_run.anchor.clone()],
+    ] {
+        assert!(
+            doc.preview_with_run_removals(&[], &[], &[], &[], &targets)
+                .is_err()
+        );
+    }
+    assert!(
+        doc.preview_with_run_removals(
+            &[],
+            &[],
+            &[],
+            &[RunTextEdit {
+                target: anchor(0),
+                text: "x".into()
+            }],
+            &[anchor(0)]
+        )
+        .is_err()
+    );
+    assert_eq!(
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap()),
+        parts(&data)
+    );
+}
+
 // Compare XML structure rather than serialization; the edited part may be reserialized.
 fn tree(node: roxmltree::Node<'_, '_>, skip_jc: bool) -> String {
     if node.is_text() {

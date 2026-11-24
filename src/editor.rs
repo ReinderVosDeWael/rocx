@@ -356,6 +356,7 @@ pub struct AlignmentChange {
 #[derive(Debug)]
 pub struct EditPreview {
     run_text_changes: Vec<RunTextChange>,
+    run_removals: Vec<RunRemovalChange>,
     changes: Vec<AlignmentChange>,
     insertions: Vec<TableInsertionChange>,
     header_changes: Vec<HeaderImageChange>,
@@ -363,6 +364,10 @@ pub struct EditPreview {
 }
 
 impl EditPreview {
+    /// Removed direct body runs, in original document order.
+    pub fn run_removals(&self) -> &[RunRemovalChange] {
+        &self.run_removals
+    }
     /// Changed direct body runs, in original document order.
     pub fn run_text_changes(&self) -> &[RunTextChange] {
         &self.run_text_changes
@@ -560,12 +565,25 @@ impl ImportedDocument {
         header_images: &[HeaderImageEdit],
         run_text: &[RunTextEdit],
     ) -> Result<EditPreview> {
+        self.preview_with_run_removals(edits, tables, header_images, run_text, &[])
+    }
+
+    /// Stage removal of direct plain-text body runs together with other edits.
+    pub fn preview_with_run_removals(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+        run_removals: &[InlineAnchor],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
             .chain(tables.iter().map(|insertion| &insertion.target.snapshot))
             .chain(header_images.iter().map(HeaderImageEdit::target_snapshot))
             .chain(run_text.iter().map(|edit| &edit.target.snapshot))
+            .chain(run_removals.iter().map(|target| &target.snapshot))
         {
             self.validate_snapshot(snapshot)?;
         }
@@ -594,15 +612,17 @@ impl ImportedDocument {
         let mut insertions = Vec::new();
         let mut header_changes = Vec::new();
         let mut run_text_changes = Vec::new();
+        let mut removed_runs = Vec::new();
         if !by_index.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !run_text.is_empty()
+            || !run_removals.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
-            run_text_changes = text::apply(body, run_text)?;
+            (run_text_changes, removed_runs) = text::apply(body, run_text, run_removals)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -663,6 +683,7 @@ impl ImportedDocument {
             }
             if !changes.is_empty()
                 || !run_text_changes.is_empty()
+                || !removed_runs.is_empty()
                 || !insertions.is_empty()
                 || header_changes
                     .iter()
@@ -673,6 +694,7 @@ impl ImportedDocument {
         }
         Ok(EditPreview {
             run_text_changes,
+            run_removals: removed_runs,
             changes,
             insertions,
             header_changes,

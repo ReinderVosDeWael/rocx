@@ -112,6 +112,19 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    let BodyBlock::Paragraph(first) = &doc.body()[0] else {
+        panic!("paragraph")
+    };
+    let rocx::editor::ImportedInlineNode::Run(run) = &first.inline_structure[0] else {
+        panic!("run")
+    };
+    write(
+        "native-removal.docx",
+        doc.preview_with_run_removals(&[], &[], &[], &[], std::slice::from_ref(&run.anchor))
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+    );
     for (name, a, t, h) in [
         ("native-noop.docx", &[][..], &[][..], &[][..]),
         (

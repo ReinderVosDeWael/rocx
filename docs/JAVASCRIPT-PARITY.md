@@ -414,3 +414,12 @@ E04's report arrays; `before` is absent for a previously unset alignment.
 expose anchored run-text replacements and reports. The portable catalog checks
 entry metadata, inline lookup, duplicate-target rejection and change details;
 the `.run-text.docx` artifact must match Rust/Python in Node and Chromium.
+# Anchored body-run removal
+
+`preview({runRemovals: [anchor]})` and `runRemovals()` correspond to Rust
+`preview_with_run_removals` / `run_removals` and Python
+`preview([], run_removals=[anchor])` / `run_removals`. Installed editor parity
+fixtures cover the removal report, stale and conflicting targets, independent
+readback, unchanged parts and exact Rust/Python/JavaScript bytes. Packed Node
+22.23.5 and 24.22.3 and Chromium 159 development and production checks passed,
+including schema/OPC validation and reproducible package provenance.

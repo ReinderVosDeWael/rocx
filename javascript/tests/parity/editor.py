@@ -241,6 +241,17 @@ def verify(directory):
     image = (directory / "image.png").read_bytes()
     reports = json.loads((directory / "reports.json").read_text(encoding="utf8"))
     assert parts(directory / "noop.docx") == source
+    removal = parts(directory / "removal.docx")
+    untouched(source, removal, (MAIN,))
+    assert Document(directory / "removal.docx").paragraphs[0].text == ""
+    root = etree.fromstring(removal[MAIN])
+    assert root.find(".//" + qn("w:fldSimple")) is not None
+    from rocx.editor import ImportedDocument
+    imported = ImportedDocument.open((directory / "base.docx").read_bytes())
+    anchor = imported.body[0].inline_structure[0].anchor
+    python_preview = imported.preview([], run_removals=[anchor])
+    assert python_preview.run_removals[0].before == "Source bold"
+    assert python_preview.to_docx() == (directory / "removal.docx").read_bytes()
 
     body = parts(directory / "body.docx")
     untouched(source, body, (MAIN, MAIN_RELS))

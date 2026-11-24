@@ -28,6 +28,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
             "editPreviewRunTextChanges",
             (run_text_changes, Paths::Package),
         ),
+        ("editPreviewRunRemovals", (run_removals, Paths::Package)),
         ("editPreviewInsertions", (insertions, Paths::Package)),
         ("editPreviewHeaderChanges", (header_changes, Paths::Package)),
         ("editPreviewToDocx", (edit_docx, Paths::Package)),
@@ -107,9 +108,15 @@ fn preview(input: &Wire) -> Result<JsValue> {
     let batch = Record::new(
         &argument(&call, "batch")?,
         "batch",
-        &["alignments", "tableInsertions", "headerImages", "runText"],
+        &[
+            "alignments",
+            "tableInsertions",
+            "headerImages",
+            "runText",
+            "runRemovals",
+        ],
     )?;
-    let preview = source.document().preview_with_text(
+    let preview = source.document().preview_with_run_removals(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
@@ -123,6 +130,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
                 text: b::string(&edit.get("text")?, &edit.path("text"))?,
             })
         })?,
+        &edits(&batch, "runRemovals", crate::inspection::inline_anchor)?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",
@@ -131,11 +139,23 @@ fn preview(input: &Wire) -> Result<JsValue> {
         &[
             ("changes", "editPreviewChanges"),
             ("runTextChanges", "editPreviewRunTextChanges"),
+            ("runRemovals", "editPreviewRunRemovals"),
             ("insertions", "editPreviewInsertions"),
             ("headerChanges", "editPreviewHeaderChanges"),
             ("toDocx", "editPreviewToDocx"),
         ],
     ))
+}
+
+fn run_removals(input: &Wire) -> Result<JsValue> {
+    let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
+    Ok(array(preview.run_removals().iter().map(|c| {
+        b::record(&[
+            ("bodyIndex", c.body_index.into()),
+            ("inlineIndex", c.inline_index.into()),
+            ("before", (&c.before).into()),
+        ])
+    })))
 }
 
 fn preview_header(input: &Wire) -> Result<JsValue> {

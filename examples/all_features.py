@@ -471,6 +471,8 @@ async def generate(output: pathlib.Path) -> bytes:
     replacement = "Imported editor: replaced this run by its anchor. "
     preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)])
     assert preview.run_text_changes[0].before == INLINE_LABEL
+    removal = imported.preview([], run_removals=[label.anchor])
+    assert removal.run_removals[0].before == INLINE_LABEL
     output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
     assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]

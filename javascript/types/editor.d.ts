@@ -24,12 +24,18 @@ export interface HeaderImageEdit {
 
 export interface EditBatch {
   readonly runText?: readonly RunTextEdit[];
+  readonly runRemovals?: readonly InlineAnchor[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
   readonly tableInsertions?: readonly TableInsertion[];
   readonly headerImages?: readonly HeaderImageEdit[];
 }
 
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
+export interface RunRemovalChange {
+  readonly bodyIndex: number;
+  readonly inlineIndex: number;
+  readonly before: string;
+}
 export interface RunTextChange {
   readonly bodyIndex: number;
   readonly inlineIndex: number;
@@ -64,6 +70,7 @@ export interface EditPreview {
   /** Changes in original body order, excluding unchanged alignments. */
   changes(): readonly AlignmentChange[];
   runTextChanges(): readonly RunTextChange[];
+  runRemovals(): readonly RunRemovalChange[];
   /** Insertions in original body order. */
   insertions(): readonly TableInsertionChange[];
   /** Changes in target section order. */

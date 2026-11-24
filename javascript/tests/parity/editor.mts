@@ -325,7 +325,18 @@ export async function mixedTransactionAtomicityAndRepeatPreview(
 
 export async function run(fixtures: Fixtures) {
   const resolved = await payloads(fixtures.image);
+  const doc = await openDocx(fixtures.base);
+  const first = paragraph(doc, 0).inlineStructure[0];
+  check(first?.kind === "run", "expected removable run");
+  const removal = doc.preview({ runRemovals: [first.anchor] });
+  same(removal.runRemovals(), [{ bodyIndex: 0, inlineIndex: 0, before: "Source bold" }], "removal report");
+  rejects(() => doc.preview({ runRemovals: [first.anchor, first.anchor] }), /duplicate|conflicting/);
+  rejects(() => doc.preview({ runRemovals: [first.anchor], runText: [{ target: first.anchor, text: "x" }] }), /duplicate|conflicting/);
+  const other = await openDocx(fixtures.base);
+  rejects(() => other.preview({ runRemovals: [first.anchor] }), /different document snapshot/);
+  check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
   return {
+    removal: removal.toDocx(),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),
@@ -346,6 +357,7 @@ export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, heade
   const run = p.inlineStructure[0];
   if (run?.kind === "run") {
     const text: string = doc.preview({runText: [{target: run.anchor, text: "New"}]}).runTextChanges()[0].after;
+    const before: string = doc.preview({runRemovals: [run.anchor]}).runRemovals()[0].before;
   }
   // @ts-expect-error text edits target runs, not whole paragraphs
   doc.preview({runText: [{target: p.anchor, text: "New"}]});

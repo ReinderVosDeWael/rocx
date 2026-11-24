@@ -2,7 +2,8 @@
 
 Direct paragraphs in body table cells expose ``inline_items`` and
 ``inline_structure``. Use ``ImportedDocument.inline_at`` to resolve a run or
-hyperlink anchor in the same snapshot. These anchors are read-only.
+hyperlink anchor in the same snapshot. Supported direct-body run anchors may
+also be used for text replacement or whole-run removal.
 
 Pass table insertions and header image edits to ``ImportedDocument.preview``
 with ``table_insertions=`` and ``header_images=`` to stage them alongside
@@ -30,6 +31,7 @@ from ._native import (
     ImportedStyle,
     ImportedStyles,
     RunTextEdit,
+    RunRemovalChange,
     RunTextChange,
     ImportedCellParagraph,
     ImportedHeader,
@@ -69,6 +71,7 @@ __all__ = [
     "ImportedStyle",
     "ImportedStyles",
     "RunTextEdit",
+    "RunRemovalChange",
     "RunTextChange",
     "ImportedCellParagraph",
     "ImportedHeader",

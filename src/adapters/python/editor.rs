@@ -145,6 +145,13 @@ struct PyRunTextChange {
     after: String,
 }
 
+#[pyclass(name = "RunRemovalChange", frozen, module = "rocx.editor", get_all)]
+struct PyRunRemovalChange {
+    body_index: usize,
+    inline_index: usize,
+    before: String,
+}
+
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
 struct PyImportedSection {
     #[pyo3(get)]
@@ -611,6 +618,21 @@ struct PyEditPreview {
 #[pymethods]
 impl PyEditPreview {
     #[getter]
+    fn run_removals(&self) -> PyResult<Vec<PyRunRemovalChange>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .run_removals()
+            .iter()
+            .map(|c| PyRunRemovalChange {
+                body_index: c.body_index,
+                inline_index: c.inline_index,
+                before: c.before.clone(),
+            })
+            .collect())
+    }
+    #[getter]
     fn run_text_changes(&self) -> PyResult<Vec<PyRunTextChange>> {
         Ok(self
             .inner
@@ -921,13 +943,14 @@ impl PyImportedDocument {
     }
 
     /// Stage alignment edits, table insertions and header images against one snapshot.
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
         table_insertions: Option<Vec<PyRef<'_, PyTableInsertion>>>,
         header_images: Option<Vec<PyRef<'_, PyHeaderImageEdit>>>,
         run_text: Option<Vec<PyRef<'_, PyRunTextEdit>>>,
+        run_removals: Option<Vec<PyRef<'_, PyInlineAnchor>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -955,7 +978,7 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_with_text(
+                doc.preview_with_run_removals(
                     &edits,
                     &insertions,
                     &header_images,
@@ -963,6 +986,11 @@ impl PyImportedDocument {
                         .unwrap_or_default()
                         .iter()
                         .map(|e| e.inner.clone())
+                        .collect::<Vec<_>>(),
+                    &run_removals
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|anchor| anchor.inner.clone())
                         .collect::<Vec<_>>(),
                 )
                 .map_err(rust_error)?,
@@ -981,6 +1009,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedStyles>()?;
     module.add_class::<PyRunTextEdit>()?;
     module.add_class::<PyRunTextChange>()?;
+    module.add_class::<PyRunRemovalChange>()?;
     module.add_class::<PyImportedSection>()?;
     module.add_class::<PyHeaderImageEdit>()?;
     module.add_class::<PyHeaderImageChange>()?;

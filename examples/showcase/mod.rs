@@ -606,6 +606,14 @@ pub async fn generate(output: &Path) -> Result<()> {
         }],
     )?;
     assert_eq!(preview.run_text_changes()[0].before, INLINE_LABEL);
+    let removal = imported.preview_with_run_removals(
+        &[],
+        &[],
+        &[],
+        &[],
+        std::slice::from_ref(&label.anchor),
+    )?;
+    assert_eq!(removal.run_removals()[0].before, INLINE_LABEL);
     std::fs::write(output.with_extension("run-text.docx"), preview.to_docx()?)?;
     assert_eq!(
         label.items,

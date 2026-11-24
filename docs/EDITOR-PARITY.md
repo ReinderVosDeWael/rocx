@@ -49,7 +49,7 @@ values; `ImportedDocument::inline_at` in Rust and
 `ImportedDocument.inline_at` in Python reject anchors from another open,
 even when both snapshots came from identical bytes. Individual run items and
 opaque nodes are not addressable. Direct body run anchors support a single-text
-replacement via `RunTextEdit`; all other inline addresses remain read-only.
+replacement via `RunTextEdit` and removal of supported direct body runs; all other inline addresses remain read-only.
 
 Inline `w:ins` and `w:del` wrappers are also inspectable without applying them:
 Rust `ImportedInlineNode::Revision`, Python `ImportedRevision`, and JavaScript
