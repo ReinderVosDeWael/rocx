@@ -498,7 +498,6 @@ fn field_at(input: &Wire) -> Result<JsValue> {
     Ok(view)
 }
 fn patch_field(input: &Wire) -> Result<JsValue> {
-    use rocx::editor::FieldPatch;
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
     let batch = Record::new(
@@ -512,6 +511,17 @@ fn patch_field(input: &Wire) -> Result<JsValue> {
         "batch.inlineIndex",
     )?)
     .map_err(|_| Failure::invalid("batch.inlineIndex", "index too large"))?;
+    let patch = decode_field_patch(&batch)?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .patch_field(&target, index, patch)?
+            .as_slice(),
+    )
+    .into())
+}
+fn decode_field_patch(batch: &Record) -> Result<rocx::editor::FieldPatch> {
+    use rocx::editor::FieldPatch;
     let v = batch.get("value")?;
     let flag = || {
         if v.js().is_undefined() {
@@ -520,22 +530,83 @@ fn patch_field(input: &Wire) -> Result<JsValue> {
             v.js()
                 .as_bool()
                 .map(Some)
-                .ok_or_else(|| Failure::invalid("batch.value", "expected boolean"))
+                .ok_or_else(|| Failure::invalid(&batch.path("value"), "expected boolean"))
         }
     };
-    let patch = match b::string(&batch.get("property")?, "batch.property")?.as_str() {
-        "instruction" => FieldPatch::Instruction(b::string(&v, "batch.value")?),
-        "dirty" => FieldPatch::Dirty(flag()?),
-        "locked" => FieldPatch::Locked(flag()?),
-        _ => return Err(Failure::invalid("batch.property", "unknown field property")),
-    };
-    Ok(Uint8Array::from(
-        source
-            .document()
-            .patch_field(&target, index, patch)?
-            .as_slice(),
+    Ok(
+        match b::string(&batch.get("property")?, &batch.path("property"))?.as_str() {
+            "instruction" => FieldPatch::Instruction(b::string(&v, &batch.path("value"))?),
+            "dirty" => FieldPatch::Dirty(flag()?),
+            "locked" => FieldPatch::Locked(flag()?),
+            _ => {
+                return Err(Failure::invalid(
+                    &batch.path("property"),
+                    "unknown field property",
+                ));
+            }
+        },
     )
-    .into())
+}
+fn field_edit(input: &Wire, path: &str) -> Result<rocx::editor::FieldEdit> {
+    use rocx::editor::{FieldAction, FieldEdit};
+    let r = Record::new(
+        input,
+        path,
+        &[
+            "target",
+            "inlineIndex",
+            "op",
+            "property",
+            "value",
+            "field",
+            "children",
+        ],
+    )?;
+    let op = b::string(&r.get("op")?, &r.path("op"))?;
+    let fields: &[&str] = match op.as_str() {
+        "patch" => &["target", "inlineIndex", "op", "property", "value"],
+        "replace" => &["target", "inlineIndex", "op", "field"],
+        "cache" => &["target", "inlineIndex", "op", "children"],
+        _ => return Err(Failure::invalid(&r.path("op"), "unknown field edit")),
+    };
+    let r = Record::new(input, path, fields)?;
+    let target = (*borrow_target::<ParagraphAnchor>(&r, &r.path("target"))?).clone();
+    let inline_index = usize::try_from(b::u64_number(
+        &r.get("inlineIndex")?,
+        &r.path("inlineIndex"),
+    )?)
+    .map_err(|_| Failure::invalid(&r.path("inlineIndex"), "index too large"))?;
+    let action = match op.as_str() {
+        "patch" => FieldAction::Patch(decode_field_patch(&r)?),
+        "cache" => FieldAction::Cache(
+            b::list(&r.get("children")?, &r.path("children"))?
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    Ok((*b::borrow::<rocx::ResolvedInline>(
+                        v,
+                        &format!("{}[{i}]", r.path("children")),
+                    )?)
+                    .clone())
+                })
+                .collect::<Result<_>>()?,
+        ),
+        _ => {
+            let f = r.get("field")?;
+            if f.js().is_undefined() {
+                FieldAction::Remove
+            } else {
+                FieldAction::Replace(Box::new(
+                    (*b::borrow::<rocx::ResolvedInline>(&f, &r.path("field"))?).clone(),
+                ))
+            }
+        }
+    };
+    Ok(FieldEdit {
+        target,
+        inline_index,
+        action,
+    })
 }
 fn replace_field(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
@@ -568,42 +639,50 @@ fn replace_field(input: &Wire) -> Result<JsValue> {
 fn paired_range(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
-    let batch = Record::new(
-        &argument(&call, "batch")?,
-        "batch",
-        &["id", "bookmark", "endpoints"],
-    )?;
-    let id = u32::try_from(b::u64_number(&batch.get("id")?, "batch.id")?)
-        .map_err(|_| Failure::invalid("batch.id", "id too large"))?;
+    let e = paired_edit(&argument(&call, "batch")?, "batch")?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .set_paired_range(
+                e.id,
+                e.bookmark.as_deref(),
+                e.endpoints.as_ref().map(|(a, b)| (a, b)),
+            )?
+            .as_slice(),
+    )
+    .into())
+}
+fn paired_edit(input: &Wire, path: &str) -> Result<rocx::editor::PairedRangeEdit> {
+    let batch = Record::new(input, path, &["id", "bookmark", "endpoints"])?;
+    let id = u32::try_from(b::u64_number(&batch.get("id")?, &batch.path("id"))?)
+        .map_err(|_| Failure::invalid(&batch.path("id"), "id too large"))?;
     let name = batch.get("bookmark")?;
     let name = if name.js().is_undefined() {
         None
     } else {
-        Some(b::string(&name, "batch.bookmark")?)
+        Some(b::string(&name, &batch.path("bookmark"))?)
     };
     let endpoints = batch.get("endpoints")?;
     let endpoints = if endpoints.js().is_undefined() {
         None
     } else {
-        let items = b::list(&endpoints, "batch.endpoints")?;
+        let items = b::list(&endpoints, &batch.path("endpoints"))?;
         let [a, z] = items.as_slice() else {
             return Err(Failure::invalid(
-                "batch.endpoints",
+                &batch.path("endpoints"),
                 "expected two inline anchors",
             ));
         };
         Some((
-            crate::inspection::inline_anchor(a, "batch.endpoints[0]")?,
-            crate::inspection::inline_anchor(z, "batch.endpoints[1]")?,
+            crate::inspection::inline_anchor(a, &format!("{path}.endpoints[0]"))?,
+            crate::inspection::inline_anchor(z, &format!("{path}.endpoints[1]"))?,
         ))
     };
-    Ok(Uint8Array::from(
-        source
-            .document()
-            .set_paired_range(id, name.as_deref(), endpoints.as_ref().map(|(a, z)| (a, z)))?
-            .as_slice(),
-    )
-    .into())
+    Ok(rocx::editor::PairedRangeEdit {
+        id,
+        bookmark: name,
+        endpoints,
+    })
 }
 fn format_runs(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
@@ -1050,6 +1129,8 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "cellAlignments",
             "blockEdits",
             "inlineEdits",
+            "fields",
+            "pairedRanges",
             "tableStructure",
             "styleEdits",
             "resources",
@@ -1069,6 +1150,8 @@ fn preview(input: &Wire) -> Result<JsValue> {
         text_insertions: &edits(&batch, "textInsertions", text_insertion)?,
         blocks: &edits(&batch, "blockEdits", block_edit)?,
         inline_edits: &edits(&batch, "inlineEdits", inline_edit)?,
+        fields: &edits(&batch, "fields", field_edit)?,
+        paired_ranges: &edits(&batch, "pairedRanges", paired_edit)?,
         structural: &edits(&batch, "tableStructure", structure_edit)?,
         styles: &edits(&batch, "styleEdits", style_edit)?,
         resources: &edits(&batch, "resources", resource_edit)?,

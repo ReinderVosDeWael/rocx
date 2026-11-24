@@ -149,6 +149,11 @@ def generate_controls(directory):
                     etree.tostring(root), doc.part.package)
         doc.part.relate_to(part, NS["r"]+"/"+tag+"s")
         doc.add_paragraph().add_run()._r.append(elem(tag+"Reference",id="1"))
+    p = doc.add_paragraph("mixed-field left")
+    field = elem("fldSimple", instr=" PAGE ")
+    field.append(p.add_run("cached page")._r)
+    p._p.append(field)
+    p.add_run("mixed-field right")
     doc.add_section()
     doc.save(directory / "rich-control-source.docx")
 
@@ -263,7 +268,8 @@ def verify_controls(directory):
 
     import asyncio
     from rocx import declarative as d
-    from rocx.editor import WrapperEdit as W, HeaderImageEdit, ParagraphAlignmentEdit, ParagraphInsertion
+    from rocx.editor import (FieldEdit, InlineEdit, PairedRangeEdit, WrapperEdit as W,
+                             HeaderImageEdit, ParagraphAlignmentEdit, ParagraphInsertion)
     rich_path = directory / "rich-control-source.docx"
     rich = ImportedDocument.open(rich_path.read_bytes())
     assert sorted(c.owner_part for c in rich.story_controls) == [
@@ -280,9 +286,19 @@ def verify_controls(directory):
         c = rich.controls
         wrappers = [wrap("block","range start","range end","group"),wrap("inline","one","two","runs"),
                     W.replace_blocks(c[0].anchor, [a,b]), W.replace_inlines(c[1].anchor,runs)]
+        p = next(p for p in rich.body if getattr(p, "text", "").startswith("mixed-field left"))
+        left, _, right = p.inline_structure
+        field = FieldEdit.patch(p.anchor, 1, "dirty", True)
+        mixed_range = PairedRangeEdit(91, "MixedControl", (left.anchor, right.anchor))
+        crossed = PairedRangeEdit(92, "Crossed",
+                                  (rich.body[1].inline_structure[0].anchor, rich.body[3].inline_structure[0].anchor))
         refused(lambda: rich.preview([], wrappers=[wrappers[0],W.replace_blocks(c[2].anchor,[a])]),"locked")
         refused(lambda: rich.preview([ParagraphAlignmentEdit(rich.body[1].anchor,"center")],wrappers=wrappers),"conflicting")
+        refused(lambda: rich.preview([], wrappers=wrappers, paired_ranges=[crossed]), "conflicting")
         return rich.preview([],wrappers=wrappers,paragraph_insertions=[ParagraphInsertion(rich.body[0].anchor,adjacent)],
+            fields=[field], paired_ranges=[mixed_range],
+            inline_edits=[InlineEdit.insert_after(rich.body[0].inline_structure[0].anchor,image),
+                          InlineEdit.patch_format(left.anchor,size=13.5)],
             header_images=[HeaderImageEdit(rich.default_headers[0].anchor,image,mode="shared")]).to_docx()
     mixed = asyncio.run(rich_batch())
     assert mixed == (directory / "richControls.docx").read_bytes()
@@ -294,11 +310,16 @@ def verify_controls(directory):
     assert xml.xpath("//w:sdt[w:sdtPr/w:lock/@w:val='sdtLocked']/w:sdtContent/w:p/w:r/w:t/text()") == ["A","B"]
     readback = Document(io.BytesIO(mixed))
     assert [p.text for p in readback.paragraphs[:2]] == ["ordinary","adjacent"]
-    assert len(readback.inline_shapes)==1
+    assert len(readback.inline_shapes)==2
     header=readback.sections[0].header._element
-    assert header.xpath(".//wp:docPr/@id") != xml.xpath(".//wp:docPr/@id") and len(header.xpath(".//wp:docPr"))==1
+    ids = header.xpath(".//wp:docPr/@id") + xml.xpath(".//wp:docPr/@id")
+    assert len(ids) == len(set(ids)) == 3
+    assert xml.xpath("//w:fldSimple/@w:dirty") == ["1"]
+    assert xml.xpath("//w:bookmarkStart[@w:name='MixedControl']/following-sibling::w:r[1]/w:rPr/w:sz/@w:val") == ["27"]
     untouched(parts(rich_path),parts(io.BytesIO(mixed)),(MAIN,MAIN_RELS,HEADER,HEADER_RELS,TYPES))
     promoted=ImportedDocument.open(mixed)
+    protected = next(p for p in promoted.body if getattr(p, "text", "").startswith("mixed-field left"))
+    refused(lambda: promoted.preview_tracked_bold(protected.inline_structure[1].anchor, False, "Reviewer"), "protected")
     data=promoted.preview([],wrappers=[W.unwrap(c.anchor) for c in promoted.controls if c.tag in ("group","runs")]).to_docx()
     assert data == (directory / "richUnwrapped.docx").read_bytes()
     restored=Document(io.BytesIO(data))
@@ -343,6 +364,28 @@ def generate(directory):
         p._p.append(link)
     owners.add_section()
     owners.save(directory / "format-owners-source.docx")
+    # A complex field starts in one paragraph and ends in another. Its result
+    # has multiple leaves in a formatted run; unsupported symbol neighbors
+    # and XML comments lie immediately outside the editable span.
+    p = paired.add_paragraph()
+    p.add_run()._r.append(elem("sym", font="Wingdings", char="F0FC"))
+    p._p.append(etree.Comment("before-field"))
+    p.add_run()._r.append(elem("fldChar", fldCharType="begin", fldLock="1"))
+    code = elem("instrText")
+    code.text = " PAGE "
+    p.add_run()._r.append(code)
+    p.add_run()._r.append(elem("fldChar", fldCharType="separate"))
+    run = p.add_run("old")
+    run.italic = True
+    run.add_tab()
+    run.add_text("cache")
+    q = paired.add_paragraph()
+    q.paragraph_format.keep_together = True
+    q.add_run("more old cache")
+    q.add_run()._r.append(elem("fldChar", fldCharType="end"))
+    q._p.append(etree.Comment("after-field"))
+    q.add_run()._r.append(elem("sym", font="Wingdings", char="F0FD"))
+    paired.save(directory / "field-batch-source.docx")
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
@@ -548,6 +591,54 @@ def verify_ordinary(directory):
     assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
 
 
+def verify_field_batch(directory):
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import FieldEdit, ImportedDocument, InlineEdit, PairedRangeEdit
+    source = directory / "field-batch-source.docx"
+    doc = ImportedDocument.open(source.read_bytes())
+    async def payload():
+        return [await d.Hyperlink("https://example.invalid/cache", [d.TextRun("remote")]).resolve(),
+                await d.Hyperlink(d.BookmarkTarget("BatchMark"), [d.TextRun("jump")]).resolve()]
+    at = lambda p, i: doc.body[p].inline_structure[i].anchor
+    fields = [
+        FieldEdit.cache(doc.body[4].anchor, 1, asyncio.run(payload())),
+        FieldEdit.patch(doc.body[4].anchor, 1, "dirty", False),
+        FieldEdit.patch(doc.body[0].anchor, 0, "dirty", True),
+        FieldEdit.patch(doc.body[0].anchor, 0, "instruction", " NUMPAGES "),
+    ]
+    ranges = [PairedRangeEdit(7, "BatchMark", (at(1, 1), at(2, 0))),
+              PairedRangeEdit(0, endpoints=(at(2, 0), at(3, 0)))]
+    links = [InlineEdit.hyperlink_tooltip(at(2, 0), "Batch tooltip"), InlineEdit.hyperlink_history(at(2, 0), False)]
+    batch = doc.preview([], fields=fields, paired_ranges=ranges, inline_edits=links)
+    data = batch.to_docx()
+    assert doc.preview([], fields=fields[::-1], paired_ranges=ranges[::-1], inline_edits=links[::-1]).to_docx() == data
+    assert data == (directory / "fieldBatch.docx").read_bytes()
+    before, after = parts(source), parts(io.BytesIO(data))
+    untouched(before, after, (MAIN, MAIN_RELS))
+    rels = lambda parts: {n.get("Id"): dict(n.attrib) for n in etree.fromstring(parts[MAIN_RELS])}
+    old, new = rels(before), rels(after)
+    assert old.items() <= new.items()
+    added, = new.keys() - old.keys()
+    assert new[added]["Target"] == "https://example.invalid/cache" and new[added]["TargetMode"] == "External"
+    word = Document(io.BytesIO(data))
+    p, q = word.paragraphs[4:6]
+    assert [link.text for link in p.hyperlinks] == ["remote", "jump"]
+    assert p._p.xpath("w:hyperlink/@r:id") == [added]
+    assert p._p.xpath("w:hyperlink/@w:anchor") == ["BatchMark"]
+    assert p._p.xpath("w:r/w:fldChar/@w:fldCharType") == ["begin", "separate"]
+    assert p._p.xpath("w:r/w:fldChar/@w:dirty") == ["0"] and p._p.xpath("w:r/w:fldChar/@w:fldLock") == ["1"]
+    assert q._p.xpath("w:r/w:fldChar/@w:fldCharType") == ["end"] and q.paragraph_format.keep_together
+    assert word.element.xpath("//w:sym/@w:char") == ["F0FC", "F0FD"]
+    assert [c.text for c in word.element.xpath("//comment()")] == ["before-field", "after-field"]
+    assert word.paragraphs[2].hyperlinks[0].url == BODY_LINK
+    assert word.paragraphs[2]._p.xpath("w:hyperlink/@w:tooltip") == ["Batch tooltip"]
+    assert word.paragraphs[2]._p.xpath("w:hyperlink/@w:history") == ["0"]
+    assert word.element.xpath("//w:fldSimple/@w:dirty") == ["1"]
+    assert word.element.xpath("//w:fldSimple/@w:instr") == [" NUMPAGES "]
+    assert len(word.comments) == 1
+
+
 def verify_fields_ranges(directory):
     import asyncio
     from rocx import declarative as decl
@@ -591,6 +682,7 @@ def verify_fields_ranges(directory):
 
 
 def verify(directory):
+    verify_field_batch(directory)
     verify_fields_ranges(directory)
     from rocx.editor import ImportedDocument, InlineEdit
     raw = (directory / "format-owners-source.docx").read_bytes()

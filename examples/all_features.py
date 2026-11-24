@@ -586,16 +586,12 @@ async def generate(output: pathlib.Path) -> bytes:
         InlineEdit.hyperlink_tooltip(inline_link.anchor, "Catalog link")]).to_docx())
     sample_para = next(p for p in sample.body if getattr(p, "text", "").startswith(INLINE_LABEL))
     assert sample.field_at(sample_para.anchor, 1).instruction == " PAGE "
-    marked = imported.set_paired_range(842901, "CatalogEditorRange", (label.anchor, inline_link.anchor))
-    marked = ImportedDocument.open(marked)
-    protected = next(p for p in marked.body if getattr(p, "text", "").startswith(INLINE_LABEL))
-    assert not any(s.text == INLINE_LABEL for s in marked.control_sites)
-    try:
-        marked.preview_tracked_bold(protected.inline_structure[1].anchor, False, "Reviewer")
-    except ValueError as error:
-        assert "protected" in str(error)
-    else:
-        raise AssertionError("tracked bold inside bookmark")
+    from rocx.editor import FieldEdit, PairedRangeEdit
+    left, _, right = sample_para.inline_structure
+    marked = sample.preview([], fields=[FieldEdit.patch(sample_para.anchor, 1, "dirty", True)],
+        paired_ranges=[PairedRangeEdit(842901, "CatalogEditorRange", (left.anchor, right.anchor))],
+        inline_edits=[InlineEdit.hyperlink_history(right.anchor, True)]).to_docx()
+    assert any(m.name == "CatalogEditorRange" for m in ImportedDocument.open(marked).body_range_markers)
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
     edited_bytes = preview.to_docx()

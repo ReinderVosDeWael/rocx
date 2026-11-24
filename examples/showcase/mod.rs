@@ -759,28 +759,33 @@ pub async fn generate(output: &Path) -> Result<()> {
         sample.field_at(&sample_para.anchor, 1)?.instruction,
         " PAGE "
     );
-    let marked = imported.set_paired_range(
-        842901,
-        Some("CatalogEditorRange"),
-        Some((&label.anchor, &link.anchor)),
-    )?;
-    let marked = editor::ImportedDocument::open(&marked)?;
-    let editor::BodyBlock::Paragraph(marked_para) = &marked.body()[paragraph_index] else {
+    let [Run(left), _, Link(right)] = sample_para.inline_structure.as_slice() else {
         unreachable!()
     };
-    let Run(protected) = &marked_para.inline_structure[1] else {
-        unreachable!()
-    };
+    let marked = sample
+        .preview_edits(editor::EditBatch {
+            fields: &[editor::FieldEdit {
+                target: sample_para.anchor.clone(),
+                inline_index: 1,
+                action: editor::FieldAction::Patch(editor::FieldPatch::Dirty(Some(true))),
+            }],
+            paired_ranges: &[editor::PairedRangeEdit {
+                id: 842901,
+                bookmark: Some("CatalogEditorRange".into()),
+                endpoints: Some((left.anchor.clone(), right.anchor.clone())),
+            }],
+            inline_edits: &[editor::InlineEdit {
+                target: right.anchor.clone(),
+                action: editor::InlineAction::HyperlinkHistory(Some(true)),
+            }],
+            ..Default::default()
+        })?
+        .to_docx()?;
     assert!(
-        marked
-            .preview_tracked_bold(&protected.anchor, false, "Reviewer", None)
-            .is_err()
-    );
-    assert!(
-        !marked
-            .control_sites()
+        editor::ImportedDocument::open(&marked)?
+            .body_range_markers()?
             .iter()
-            .any(|s| s.text == INLINE_LABEL)
+            .any(|m| m.name.as_deref() == Some("CatalogEditorRange"))
     );
     let paragraph_payload = Document::new(vec![
         Section::new(vec![

@@ -283,11 +283,13 @@ export async function generateCatalog(fixtures, options) {
   ]}).toDocx());
   const samplePara = fieldSample.body()[body.indexOf(inline)];
   assert(fieldSample.fieldAt({target:samplePara.anchor,inlineIndex:1}).instruction === " PAGE ", "incorrect new field");
-  const marked = imported.setPairedRange({id:842901,bookmark:"CatalogEditorRange",endpoints:[textEdit.target,inline.inlineStructure[1].anchor]});
-  const protectedDoc = await openDocx(marked);
-  const protectedRun = protectedDoc.body()[body.indexOf(inline)].inlineStructure[1];
-  assert(!protectedDoc.controlSites().some(s => s.text === INLINE_LABEL), "control site inside bookmark");
-  assertThrows(() => protectedDoc.previewTrackedBold({target:protectedRun.anchor,bold:false,author:"Reviewer"}), "tracked bold inside bookmark");
+  const [left,,right] = samplePara.inlineStructure;
+  const marked = fieldSample.preview({
+    fields:[{target:samplePara.anchor,inlineIndex:1,op:"patch",property:"dirty",value:true}],
+    pairedRanges:[{id:842901,bookmark:"CatalogEditorRange",endpoints:[left.anchor,right.anchor]}],
+    inlineEdits:[{kind:"hyperlinkHistory",target:right.anchor,value:true}],
+  }).toDocx();
+  assert((await openDocx(marked)).bodyRangeMarkers().some(m => m.name === "CatalogEditorRange"), "incorrect range insertion");
   const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
   assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&

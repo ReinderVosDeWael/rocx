@@ -26,10 +26,10 @@ mod insertion;
 mod objects;
 pub(crate) use insertion::BoundaryState;
 mod fields;
-pub use fields::{FieldPatch, ImportedField};
+pub use fields::{FieldAction, FieldEdit, FieldPatch, ImportedField};
 mod paired;
 pub use objects::{DrawingOccurrence, DrawingProperty};
-pub use paired::BodyRangeMarker;
+pub use paired::{BodyRangeMarker, PairedRangeEdit};
 mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
 mod resource_fields;
@@ -829,6 +829,8 @@ impl ImportedDocument {
             resources,
             controls,
             wrappers,
+            fields,
+            paired_ranges,
         } = batch;
         for snapshot in edits
             .iter()
@@ -842,6 +844,7 @@ impl ImportedDocument {
             .chain(text_insertions.iter().map(|e| &e.target.snapshot))
             .chain(inline_edits.iter().map(|edit| &edit.target.snapshot))
             .chain(controls.iter().map(|edit| &edit.target.snapshot))
+            .chain(fields.iter().map(|edit| &edit.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
             .chain(structural.iter().map(|edit| &edit.target._snapshot))
         {
@@ -912,14 +915,53 @@ impl ImportedDocument {
             || !controls.is_empty()
             || !wrappers.is_empty()
             || !structural.is_empty()
+            || !fields.is_empty()
+            || !paired_ranges.is_empty()
         {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
-            let mut occupied = by_index
+            let mut slots = batch::Slots::new();
+            let mut pairs = BTreeMap::new();
+            let mut names = BTreeSet::new();
+            for e in paired_ranges {
+                if pairs.insert((e.bookmark.is_none(), e.id), e).is_some()
+                    || e.bookmark
+                        .as_ref()
+                        .is_some_and(|s| !names.insert(s.to_ascii_lowercase()))
+                {
+                    return Err(unsupported("duplicate paired range identity"));
+                }
+            }
+            for e in pairs.values() {
+                self.plan_pair(&root, e, &mut slots)?;
+            }
+            if !slots.is_empty() {
+                // Fragment codecs validate typed REF and hyperlink targets
+                // against the eventual bookmark catalog, not obsolete endpoints.
+                let mut catalog = root.clone();
+                text::apply(
+                    catalog.child_mut("w:body").ok_or_else(missing_body)?,
+                    &[],
+                    &[],
+                    Default::default(),
+                    &mut Vec::new(),
+                    slots.clone(),
+                )?;
+                package.put_word(&self.main, catalog)?;
+            }
+            package = fields::prepare(
+                root.child("w:body").ok_or_else(missing_body)?,
+                package,
+                &self.main,
+                fields,
+                &mut slots,
+            )?;
+            let mut occupied: BTreeSet<usize> = by_index
                 .keys()
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
                 .copied()
+                .chain(slots.keys().map(|s| s.0))
                 .chain(cells.iter().map(|e| e.target._body_index))
                 .chain(structural.iter().map(|e| e.target._body_index))
                 .chain(ranges.iter().map(|e| e.target.body_index))
@@ -936,11 +978,28 @@ impl ImportedDocument {
                         }),
                 )
                 .collect();
-            let inserted_after = table_targets
+            let inserted_after: BTreeSet<usize> = table_targets
                 .keys()
                 .chain(paragraph_targets.keys())
                 .copied()
                 .collect();
+            for e in paired_ranges {
+                if let Some((first, last)) = &e.endpoints
+                    && let (InlineLocation::Body(a), InlineLocation::Body(b)) =
+                        (&first.location, &last.location)
+                {
+                    if inserted_after.range(*a..*b).next().is_some()
+                        || structural
+                            .iter()
+                            .any(|s| (*a..=*b).contains(&s.target._body_index))
+                    {
+                        return Err(unsupported("block or table splice inside staged range"));
+                    }
+                    if !blocks.is_empty() || !wrappers.is_empty() {
+                        occupied.extend(*a..=*b);
+                    }
+                }
+            }
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             let sites = if table_targets.is_empty() {
                 Vec::new()
@@ -967,6 +1026,14 @@ impl ImportedDocument {
                     return Err(unsupported("duplicate or conflicting run target"));
                 }
             }
+            for e in inline_edits {
+                if let (InlineLocation::Body(b), [i]) =
+                    (&e.target.location, e.target.path.as_slice())
+                    && addressed.contains(&(*b, *i))
+                {
+                    return Err(unsupported("duplicate or conflicting run target"));
+                }
+            }
             // Control paths include raw XML child slots: resolve them before
             // any property insertion or run, row, cell or block splice.
             let controls_changed = self.apply_controls(body, controls)?;
@@ -980,8 +1047,15 @@ impl ImportedDocument {
             let (staged, actions) =
                 text::prepare(package, self, inline_edits, &mut wrapper_plan.images)?;
             package = tables::structure(body, staged, &self.main, structural, cells)?;
-            (run_text_changes, removed_runs) =
-                text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
+            (run_text_changes, removed_runs) = text::apply(
+                body,
+                &expanded,
+                run_removals,
+                actions,
+                &mut inline_changes,
+                slots,
+            )?;
+            inline_changes.dedup();
             cell_alignment_changes = tables::apply(body, cells)?;
             for (body_index, paragraph) in body
                 .elements_mut()
@@ -1091,6 +1165,7 @@ impl ImportedDocument {
                 ));
             }
         }
+        paired::recheck_removals(&package, &self.main, paired_ranges)?;
         Ok(EditPreview {
             block_changes,
             run_text_changes,

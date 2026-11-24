@@ -21,7 +21,22 @@ pub struct EditBatch<'a> {
     pub resources: &'a [ResourceEdit],
     pub controls: &'a [ControlEdit],
     pub wrappers: &'a [WrapperEdit],
+    pub fields: &'a [FieldEdit],
+    pub paired_ranges: &'a [PairedRangeEdit],
 }
+
+pub(super) type Site = (usize, usize);
+
+/// Planned against the unmodified tree; shared by field spans and paired
+/// markers. Ordinary actions still pass their original boundary checks.
+#[derive(Clone, Default)]
+pub(super) struct StructuredSlot {
+    pub before: Vec<Node>,
+    pub after: Vec<Node>,
+    pub replacement: Option<Vec<Node>>,
+    pub field: bool,
+}
+pub(super) type Slots = BTreeMap<Site, StructuredSlot>;
 
 // Compatibility entry points all take the original seven mixed-batch slices
 // followed by their extension slice.

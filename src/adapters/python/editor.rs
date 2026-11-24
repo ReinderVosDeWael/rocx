@@ -1160,6 +1160,103 @@ struct PyBodyRangeMarker {
 struct PyInlineEdit {
     inner: editor::InlineEdit,
 }
+fn field_patch(property: &str, value: Option<&Bound<'_, PyAny>>) -> PyResult<editor::FieldPatch> {
+    use editor::FieldPatch::*;
+    Ok(match property {
+        "instruction" => Instruction(
+            value
+                .ok_or_else(|| PyTypeError::new_err("expected instruction text"))?
+                .extract()?,
+        ),
+        "dirty" => Dirty(value.map(|v| v.extract()).transpose()?),
+        "locked" => Locked(value.map(|v| v.extract()).transpose()?),
+        _ => return Err(PyTypeError::new_err("unknown field property")),
+    })
+}
+#[pyclass(name = "FieldEdit", frozen, module = "rocx.editor")]
+struct PyFieldEdit {
+    inner: editor::FieldEdit,
+}
+#[pymethods]
+impl PyFieldEdit {
+    #[staticmethod]
+    #[pyo3(signature=(target,inline_index,property,value=None))]
+    fn patch(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        property: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: editor::FieldAction::Patch(field_patch(property, value)?),
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,inline_index,field=None))]
+    fn replace(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        field: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: field
+                    .map(inline_payload)
+                    .transpose()?
+                    .map_or(editor::FieldAction::Remove, |f| {
+                        editor::FieldAction::Replace(Box::new(f))
+                    }),
+            },
+        })
+    }
+    #[staticmethod]
+    fn cache(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        children: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: editor::FieldAction::Cache(
+                    children
+                        .iter()
+                        .map(inline_payload)
+                        .collect::<PyResult<_>>()?,
+                ),
+            },
+        })
+    }
+}
+#[pyclass(name = "PairedRangeEdit", frozen, module = "rocx.editor")]
+struct PyPairedRangeEdit {
+    inner: editor::PairedRangeEdit,
+}
+#[pymethods]
+impl PyPairedRangeEdit {
+    #[new]
+    #[pyo3(signature=(id,bookmark=None,endpoints=None))]
+    fn new(
+        id: u32,
+        bookmark: Option<String>,
+        endpoints: Option<(PyRef<'_, PyInlineAnchor>, PyRef<'_, PyInlineAnchor>)>,
+    ) -> Self {
+        Self {
+            inner: editor::PairedRangeEdit {
+                id,
+                bookmark,
+                endpoints: endpoints.map(|(a, b)| (a.inner.clone(), b.inner.clone())),
+            },
+        }
+    }
+}
 
 fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
     if !node.is_instance(
@@ -2195,17 +2292,7 @@ impl PyImportedDocument {
         property: &str,
         value: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        use editor::FieldPatch;
-        let patch = match property {
-            "instruction" => FieldPatch::Instruction(
-                value
-                    .ok_or_else(|| PyTypeError::new_err("expected instruction text"))?
-                    .extract()?,
-            ),
-            "dirty" => FieldPatch::Dirty(value.map(|v| v.extract()).transpose()?),
-            "locked" => FieldPatch::Locked(value.map(|v| v.extract()).transpose()?),
-            _ => return Err(PyTypeError::new_err("unknown field property")),
-        };
+        let patch = field_patch(property, value)?;
         let doc = self
             .inner
             .lock()
@@ -2501,7 +2588,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None, wrappers=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, text_insertions=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None, wrappers=None, fields=None, paired_ranges=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -2520,6 +2607,8 @@ impl PyImportedDocument {
         resources: Option<Vec<PyRef<'_, PyResourceEdit>>>,
         controls: Option<Vec<PyRef<'_, PyControlEdit>>>,
         wrappers: Option<Vec<PyRef<'_, PyWrapperEdit>>>,
+        fields: Option<Vec<PyRef<'_, PyFieldEdit>>>,
+        paired_ranges: Option<Vec<PyRef<'_, PyPairedRangeEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -2576,6 +2665,8 @@ impl PyImportedDocument {
                     resources: &inner_edits!(resources),
                     controls: &inner_edits!(controls),
                     wrappers: &inner_edits!(wrappers),
+                    fields: &inner_edits!(fields),
+                    paired_ranges: &inner_edits!(paired_ranges),
                 })
                 .map_err(rust_error)?,
             ),
@@ -2634,6 +2725,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyParagraphInsertion>()?;
     module.add_class::<PyInlineEdit>()?;
+    module.add_class::<PyFieldEdit>()?;
+    module.add_class::<PyPairedRangeEdit>()?;
     module.add_class::<PyImportedField>()?;
     module.add_class::<PyBodyRangeMarker>()?;
     module.add_class::<PyAlignmentChange>()?;

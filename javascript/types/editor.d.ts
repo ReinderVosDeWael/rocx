@@ -67,6 +67,8 @@ export type InlineEdit = { readonly target: InlineAnchor } & (
 );
 
 export interface EditBatch {
+  readonly fields?: readonly FieldEdit[];
+  readonly pairedRanges?: readonly PairedRangeEdit[];
   readonly blockEdits?: readonly BlockEdit[];
   readonly inlineEdits?: readonly InlineEdit[];
   readonly tableStructure?: readonly TableStructureEdit[];
@@ -83,6 +85,18 @@ export interface EditBatch {
   readonly paragraphInsertions?: readonly ParagraphInsertion[];
   readonly headerImages?: readonly HeaderImageEdit[];
   readonly cellAlignments?: readonly CellAlignmentEdit[];
+}
+
+export type FieldEdit = {readonly target: ParagraphAnchor; readonly inlineIndex: number} & (
+  | { readonly op: "patch"; readonly property: "instruction"; readonly value: string }
+  | { readonly op: "patch"; readonly property: "dirty" | "locked"; readonly value?: boolean }
+  | { readonly op: "replace"; readonly field?: import("./structured.js").ResolvedField }
+  | { readonly op: "cache"; readonly children: readonly ResolvedInline[] }
+);
+export interface PairedRangeEdit {
+  readonly id: number;
+  readonly bookmark?: string;
+  readonly endpoints?: readonly [InlineAnchor, InlineAnchor];
 }
 
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }

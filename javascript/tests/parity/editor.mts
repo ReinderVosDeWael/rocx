@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "control-choice-source", "paired-source", "format-owners-source", "rich-control-source",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "control-choice-source", "paired-source", "format-owners-source", "rich-control-source", "field-batch-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -484,11 +484,20 @@ async function editControls(fixtures: Fixtures) {
   const wrappers = [first,wrap("inline","one","two","runs"),
     {kind:"replaceBlocks" as const,target:targetBlock.anchor,blocks:[a,b]},
     {kind:"replaceInlines" as const,target:targetInline.anchor,inlines:[caption,picture]}];
+  const fieldIndex = rich.body().findIndex(p=>p.kind==="paragraph" && p.text.startsWith("mixed-field left"));
+  const fieldPara = paragraph(rich,fieldIndex);
+  const fields = [{target:fieldPara.anchor,inlineIndex:1,op:"patch",property:"dirty",value:true}] as const;
+  const pairedRanges = [{id:91,bookmark:"MixedControl",endpoints:[run(rich,fieldIndex,0).anchor,run(rich,fieldIndex,2).anchor]}] as const;
   rejects(()=>rich.preview({wrappers:[first,{kind:"replaceBlocks",target:locked.anchor,blocks:[a]}]}),/locked/);
   rejects(()=>rich.preview({wrappers,alignments:[{target:paragraph(rich,1).anchor,alignment:"center"}]}),/conflicting/);
-  const mixed = rich.preview({wrappers,paragraphInsertions:[{target:paragraph(rich,0).anchor,paragraph:adjacent}],
+  rejects(()=>rich.preview({wrappers,pairedRanges:[{id:92,bookmark:"Crossed",endpoints:[run(rich,1,0).anchor,run(rich,3,0).anchor]}]}),/conflicting/);
+  const mixed = rich.preview({wrappers,fields,pairedRanges,paragraphInsertions:[{target:paragraph(rich,0).anchor,paragraph:adjacent}],
+    inlineEdits:[{kind:"insertAfter",target:run(rich,0,0).anchor,inline:picture},
+      {kind:"patchFormat",target:run(rich,fieldIndex,0).anchor,format:{size:13.5}}],
     headerImages:[{target:rich.defaultHeaders()[0].anchor,mode:"shared",image:picture.view.image}]}).toDocx();
   const promoted = await openDocx(mixed);
+  const protectedIndex = promoted.body().findIndex(p=>p.kind==="paragraph" && p.text.startsWith("mixed-field left"));
+  rejects(()=>promoted.previewTrackedBold({target:run(promoted,protectedIndex,1).anchor,bold:false,author:"Reviewer"}),/protected/);
   const richUnwrapped = promoted.preview({wrappers:promoted.controls().filter(c=>["group","runs"].includes(c.tag??""))
     .map(c=>({kind:"unwrap",target:c.anchor}))}).toDocx();
   return {guardedWorkflow, richControls:mixed, richUnwrapped, controlWrapped, controlUnwrapped:data, controlEdits:controlled.preview({ controls: edits }).toDocx()};
@@ -516,6 +525,43 @@ async function fieldsAndRanges(bytes:Uint8Array) {
   const removed=await openDocx(d.setPairedRange({id:0}));
   check(paragraph(removed,2).inlineStructure.length===1 && paragraph(removed,3).inlineStructure.length===1 && removed.entryStories().length===1,"paired removal preserves comment definition");
   return d.setPairedRange({id:7,bookmark:"Crossing",endpoints:[at(1,0),at(2,1)]});
+}
+async function mixedFields(bytes: Uint8Array) {
+  const d = await openDocx(bytes);
+  const at = (p: number, i: number) => {
+    const n = paragraph(d,p).inlineStructure[i];
+    check(n.kind === "run" || n.kind === "hyperlink", "original inline target");
+    return n.anchor;
+  };
+  const payload = await resolveComponent({kind:"paragraph", runs:[
+    {kind:"hyperlink", target:{kind:"external",url:"https://example.invalid/cache"}, children:[{kind:"text",text:"remote"}]},
+    {kind:"hyperlink", target:{kind:"bookmark",name:"BatchMark"}, children:[{kind:"text",text:"jump"}]},
+  ]});
+  check(payload, "cache payload");
+  const target = paragraph(d,0).anchor, crossing = paragraph(d,4).anchor;
+  const info = d.fieldAt({target:crossing, inlineIndex:1});
+  same([info.inlineCount,info.instruction,info.lockedXml],[6," PAGE ","1"],"cross-paragraph field metadata");
+  const fields: NonNullable<EditBatch["fields"]> = [
+    {target:crossing,inlineIndex:1,op:"cache",children:payload.view.runs},
+    {target:crossing,inlineIndex:1,op:"patch",property:"dirty",value:false},
+    {target,inlineIndex:0,op:"patch",property:"dirty",value:true},
+    {target,inlineIndex:0,op:"patch",property:"instruction",value:" NUMPAGES "},
+  ];
+  const batch: EditBatch = {fields,
+    pairedRanges:[
+      {id:0,endpoints:[at(2,0),at(3,0)]},
+      {id:7,bookmark:"BatchMark",endpoints:[at(1,1),at(2,0)]},
+    ],
+    inlineEdits:[{kind:"hyperlinkHistory",target:at(2,0),value:false},{kind:"hyperlinkTooltip",target:at(2,0),value:"Batch tooltip"}],
+  };
+  const stale = await openDocx(bytes);
+  rejects(() => stale.preview(batch), /snapshot/);
+  rejects(() => d.preview({...batch, fields:[...fields,fields[1]]}), /duplicate field property/);
+  rejects(() => d.preview({...batch, inlineEdits:[...batch.inlineEdits!,batch.inlineEdits![0]]}), /duplicate/);
+  rejects(() => d.preview({...batch, runRemovals:[at(5,0)]}), /conflicting/);
+  const out = d.preview(batch).toDocx();
+  bytesEqual(d.preview({...batch, fields:[...fields].reverse(),pairedRanges:[...batch.pairedRanges!].reverse()}).toDocx(),out,"mixed batch order");
+  return out;
 }
 export async function run(fixtures: Fixtures) {
   const merged = await openDocx(fixtures["table-layout"]);
@@ -552,6 +598,7 @@ export async function run(fixtures: Fixtures) {
     const reopened=await openDocx(formatOwners);
     rejects(()=>reopened.editRunFormat({ownerPart,inlineEdits}),/snapshot/);
   }
+  const fieldBatch = await mixedFields(fixtures["field-batch-source"]);
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
@@ -691,6 +738,7 @@ export async function run(fixtures: Fixtures) {
     ...blockRevisions,
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, formatOwners, inline: inline.toDocx(),
     fieldsRanges: await fieldsAndRanges(fixtures["paired-source"]),
+    fieldBatch,
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

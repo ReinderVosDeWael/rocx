@@ -404,7 +404,10 @@ fn main() {
         write("native-controlUnwrapped.docx", data);
     }
     {
-        use rocx::editor::{EditBatch, ParagraphInsertion, WrapperEdit as W};
+        use rocx::editor::{
+            EditBatch, FieldAction, FieldEdit, FieldPatch, PairedRangeEdit, ParagraphInsertion,
+            WrapperEdit as W,
+        };
         let source =
             ImportedDocument::open(&fs::read(directory.join("rich-control-source.docx")).unwrap())
                 .unwrap();
@@ -459,8 +462,69 @@ fn main() {
             mode: HeaderEditMode::Shared,
             image: image.clone(),
         };
+        let run = |source: &ImportedDocument, p: usize, i: usize| {
+            let BodyBlock::Paragraph(p) = &source.body()[p] else {
+                panic!("expected paragraph")
+            };
+            let ImportedInlineNode::Run(r) = &p.inline_structure[i] else {
+                panic!("expected run")
+            };
+            r.anchor.clone()
+        };
+        let field_index = |source: &ImportedDocument| {
+            source.body().iter().position(|p| matches!(p,BodyBlock::Paragraph(p) if p.text.starts_with("mixed-field left"))).unwrap()
+        };
+        let idx = field_index(&source);
+        let fields = [FieldEdit {
+            target: anchor(&source, idx),
+            inline_index: 1,
+            action: FieldAction::Patch(FieldPatch::Dirty(Some(true))),
+        }];
+        let range = |id, name: &str, first, last| PairedRangeEdit {
+            id,
+            bookmark: Some(name.into()),
+            endpoints: Some((first, last)),
+        };
+        let paired_ranges = [range(
+            91,
+            "MixedControl",
+            run(&source, idx, 0),
+            run(&source, idx, 2),
+        )];
+        assert!(
+            source
+                .preview_edits(EditBatch {
+                    wrappers: &wrappers,
+                    paired_ranges: &[range(92, "Crossed", run(&source, 1, 0), run(&source, 3, 0))],
+                    ..Default::default()
+                })
+                .is_err()
+        );
+        let inline_edits = [
+            InlineEdit {
+                target: run(&source, 0, 0),
+                action: InlineAction::InsertAfter(rocx::ResolvedInline::Image {
+                    image: image.clone(),
+                    format: Default::default(),
+                    comment: None,
+                }),
+            },
+            InlineEdit {
+                target: run(&source, idx, 0),
+                action: InlineAction::PatchFormat {
+                    set: Box::new(rocx::RunFormat {
+                        size: Some(13.5),
+                        ..Default::default()
+                    }),
+                    clear: vec![],
+                },
+            },
+        ];
         let batch = EditBatch {
             wrappers: &wrappers,
+            fields: &fields,
+            paired_ranges: &paired_ranges,
+            inline_edits: &inline_edits,
             header_images: &[h],
             paragraphs: &[ParagraphInsertion {
                 target: anchor(&source, 0),
@@ -470,6 +534,16 @@ fn main() {
         };
         let data = source.preview_edits(batch).unwrap().to_docx().unwrap();
         let reopened = ImportedDocument::open(&data).unwrap();
+        assert!(
+            reopened
+                .preview_tracked_bold(
+                    &run(&reopened, field_index(&reopened), 1),
+                    false,
+                    "Reviewer",
+                    None
+                )
+                .is_err()
+        );
         write("native-richControls.docx", data);
         let unwrap: Vec<_> = reopened
             .controls()
@@ -804,6 +878,78 @@ fn main() {
                 Some("Crossing"),
                 Some((&paragraph(&d, 1, 0), &link(&d, 1))),
             )
+            .unwrap(),
+        );
+        use rocx::editor::{FieldAction, FieldEdit, PairedRangeEdit};
+        let d = open(fs::read(directory.join("field-batch-source.docx")).unwrap());
+        let children = immediate(Component::resolve(Paragraph::from_children(vec![
+            Hyperlink::new(
+                HyperlinkTarget::external("https://example.invalid/cache").unwrap(),
+                vec![TextRun::new("remote").into()],
+            )
+            .into(),
+            Hyperlink::new(
+                HyperlinkTarget::bookmark(rocx::BookmarkName::new("BatchMark").unwrap()),
+                vec![TextRun::new("jump").into()],
+            )
+            .into(),
+        ])))
+        .unwrap()
+        .unwrap();
+        let fields = [
+            FieldEdit {
+                target: anchor(&d, 4),
+                inline_index: 1,
+                action: FieldAction::Cache(children.runs().to_vec()),
+            },
+            FieldEdit {
+                target: anchor(&d, 4),
+                inline_index: 1,
+                action: FieldAction::Patch(FieldPatch::Dirty(Some(false))),
+            },
+            FieldEdit {
+                target: anchor(&d, 0),
+                inline_index: 0,
+                action: FieldAction::Patch(FieldPatch::Instruction(" NUMPAGES ".into())),
+            },
+            FieldEdit {
+                target: anchor(&d, 0),
+                inline_index: 0,
+                action: FieldAction::Patch(FieldPatch::Dirty(Some(true))),
+            },
+        ];
+        let ranges = [
+            PairedRangeEdit {
+                id: 7,
+                bookmark: Some("BatchMark".into()),
+                endpoints: Some((paragraph(&d, 1, 1), link(&d, 0))),
+            },
+            PairedRangeEdit {
+                id: 0,
+                bookmark: None,
+                endpoints: Some((link(&d, 0), paragraph(&d, 3, 0))),
+            },
+        ];
+        let edits = [
+            InlineEdit {
+                target: link(&d, 0),
+                action: InlineAction::HyperlinkTooltip(Some("Batch tooltip".into())),
+            },
+            InlineEdit {
+                target: link(&d, 0),
+                action: InlineAction::HyperlinkHistory(Some(false)),
+            },
+        ];
+        write(
+            "native-fieldBatch.docx",
+            d.preview_edits(rocx::editor::EditBatch {
+                fields: &fields,
+                paired_ranges: &ranges,
+                inline_edits: &edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
             .unwrap(),
         );
     }

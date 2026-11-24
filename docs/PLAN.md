@@ -63,6 +63,10 @@ when wrapping or unwrapping, compose disjoint wrapper operations with ordinary
 edits on original anchors, and inspect relationship-selected stories by
 physical owner. Bound controls stay opaque.
 
+Next on this topic: plan fields, links and paired ranges against one immutable
+snapshot, preserving source slots and relationship owners. Qualify rich cached
+runs and balanced complex fields spanning direct body paragraphs.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
