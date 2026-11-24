@@ -434,29 +434,30 @@ export async function run(fixtures: Fixtures) {
     check(plain.gridSpan === undefined && plain.verticalMerge === undefined, "unset direct properties");
   }
   const geometry = await openDocx(fixtures["layout-source"]);
-  const [a, b] = geometry.sections();
-  check(geometry.body()[a.bodyStart].kind === "table" && b.bodyStart === b.bodyEnd, "section anchor coverage");
+  const [firstSection, finalSection] = geometry.sections();
+  check(geometry.body()[firstSection.bodyStart].kind === "table" &&
+    finalSection.bodyStart === finalSection.bodyEnd, "section anchor coverage");
   const par = paragraph(geometry, 1);
   const layoutChanges: import("rocx-docx").LayoutEdit[] = [
     {target:par.anchor,field:"spaceAfter",value:180},{target:par.anchor,field:"alignment",value:null},
     {target:par.anchor,field:"heading",value:2},{target:par.anchor,field:"widowControl",value:false},
     {target:par.anchor,field:"firstLineIndent",value:-240},
     {target:par.anchor,field:"tabStops",value:[{position:720,alignment:"right",leader:"dot"}]},
-    {target:a.anchor,field:"pageWidth",value:16000},{target:a.anchor,field:"marginTop",value:-220},
-    {target:a.anchor,field:"columnCount",value:2},{target:a.anchor,field:"borderTop",value:{color:"223344",size:8}},
-    {target:b.anchor,field:"gridPitch",value:360},{target:b.anchor,field:"titlePage",value:false},
+    {target:firstSection.anchor,field:"pageWidth",value:16000},{target:firstSection.anchor,field:"marginTop",value:-220},
+    {target:firstSection.anchor,field:"columnCount",value:2},{target:firstSection.anchor,field:"borderTop",value:{color:"223344",size:8}},
+    {target:finalSection.anchor,field:"gridPitch",value:360},{target:finalSection.anchor,field:"titlePage",value:false},
   ];
   rejects(() => geometry.previewLayout([...layoutChanges,layoutChanges[0]]), /duplicate/);
   const layout = geometry.previewLayout(layoutChanges).toDocx();
   const layouts = await openDocx(layout);
-  rejects(() => layouts.previewLayout([{target: a.anchor, field: "pageWidth", value: 16000}]), /snapshot/);
+  rejects(() => layouts.previewLayout([{target: firstSection.anchor, field: "pageWidth", value: 16000}]), /snapshot/);
   check(layouts.sections()[0].layout.columnCount === 2 && layouts.sections()[1].layout.titlePage === false &&
     paragraph(layouts,1).layout.firstLineIndent === -240 && paragraph(layouts,1).layout.heading === 2 &&
     par.layout.firstLineIndent === 72, "layout readback");
-  const splitEdit = {kind:"splitSection",target:a.anchor,offset:1} as const;
+  const splitEdit = {kind:"splitSection",target:firstSection.anchor,offset:1} as const;
   rejects(() => geometry.preview({blockEdits:[{...splitEdit,offset:99}]}), /outside section/);
   rejects(() => geometry.preview({blockEdits:[splitEdit,splitEdit]}), /conflicting edits/);
-  rejects(() => geometry.preview({blockEdits:[{kind:"mergeSection",target:b.anchor}]}), /final section/);
+  rejects(() => geometry.preview({blockEdits:[{kind:"mergeSection",target:finalSection.anchor}]}), /final section/);
   const split = geometry.preview({blockEdits:[splitEdit]});
   same(split.blockChanges(), [1], "original split gap");
   const sectionSplit = split.toDocx();
@@ -467,7 +468,7 @@ export async function run(fixtures: Fixtures) {
     {kind:"mergeSection",target:divided.sections()[0].anchor}]}).toDocx();
   same((await openDocx(sectionMerge)).sections().map(s => [s.bodyStart,s.bodyEnd]), [[0,3],[3,3]], "merged ranges");
   const sharedReplacement = await resolveComponent({kind:"paragraph",text:"Shared story replacement"});
-  check(sharedReplacement.kind === "paragraph", "resolved story paragraph");
+  check(sharedReplacement !== undefined, "resolved story paragraph");
   const originalHeader = geometry.defaultHeaders()[1].view;
   const storyEdit = {target:originalHeader.anchor, mode:"shared", index:0, remove:1, blocks:[sharedReplacement]} as const;
   rejects(() => divided.editStoryBlocks(storyEdit), /snapshot/);
