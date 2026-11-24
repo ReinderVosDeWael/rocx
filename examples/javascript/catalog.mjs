@@ -323,6 +323,10 @@ export async function generateCatalog(fixtures, options) {
   const clearedWidth = reopenedForCell.preview({tableStructure: [{target: insertedTable.anchor, kind:"patchProperty", field:"width", column:1, source:null}]});
   const partial = (await openDocx(clearedWidth.toDocx())).body()[bodyIndex + 1];
   assert(partial.gridWidths[1] === null && partial.properties.layout.type === "fixed", "cleared one width, retained layout");
+  // Physical-owner sample: clear the nested 1440-twip table's direct layout.
+  const inner = reopenedForCell.partTables().find(t => t.depth === 1 && t.gridWidths.join() === "1440");
+  const nestedCopy = reopenedForCell.editPartTables({ownerPart:inner.partName,tableStructure:[{target:inner.anchor,kind:"layout",value:null}]});
+  assert(!(await openDocx(nestedCopy)).partTables().find(t=>t.path.join()===inner.path.join()).properties.layout,"cleared nested layout");
   // Structural sample: append an empty row to this original table.
   const appended = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "insertRow", index: 1 }] });
   const larger = (await openDocx(appended.toDocx())).body()[bodyIndex + 1];

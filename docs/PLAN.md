@@ -4,6 +4,24 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+The merge of `f269508` into `c1b6627` combines the resource/style and structural
+CLI variants, including both inspection selectors in one request. Physical
+table operations remain owner-scoped; body table replacements can use a style
+staged alongside numbering at an original paragraph anchor. The mixed CLI
+regression checks the installed Python byte oracle, preserves all unrelated
+part payloads, and rejects live numbering deletion and cross-scope batching
+without creating a destination. Table property no-ops retain the original
+body or physical owner; destructive clears still reject annotated markup.
+
+Qualification: 344 Rust all-feature tests, three doctests, native/Wasm Clippy,
+Rust 1.88, 974 schema-required installed Python tests (including 46 focused
+cases), an isolated wheel probe, and the 652-page strict docs build passed.
+Packed Node 24 and
+Chromium 159 in development and production matched all 33 editor outputs
+and 13 catalogs, including schema/OPC and independent readback. The 32
+previous editor outputs and all 13 catalogs remain byte-identical to
+`c1b6627`; the physical-table fixture is the 33rd editor output.
+
 The merge of `30ac174` into the qualified `7d5d08b` keeps the #48 resource
 guards and the recovered layout, section, story and table APIs. Table removal
 is deferred until original body coordinates have been used, while a no-op
@@ -13,7 +31,7 @@ a hyperlink relationship and custom property part, and numbers the paragraph
 after the removed table. It first rejects removal of a still-used numbering
 instance, then reuses the original anchors for a successful preview.
 
-**Merge qualification:** 306 default-feature Rust tests, 343
+**Qualification of `c1b6627`:** 306 default-feature Rust tests, 343
 all-features/all-targets tests, three doctests, native/Wasm Clippy, Rust 1.88,
 and warning-free Rustdoc passed. The installed Python 3.12 wheel passed all
 964 tests with schemas required, the isolated wheel probe, and the 649-page
@@ -83,9 +101,10 @@ story slots and unrelated package payloads, including on table-first and empty
 final sections. The recovered Rust, Python and JavaScript APIs also patch
 direct paragraph/section layout, create/link/remove explicit story references,
 splice header/footer blocks, and edit modeled table/row/cell properties and
-whole nodes. These additions are not yet exposed in the JSON CLI; general
-nested-table editing and mixing the separate layout/story APIs with an
-ordinary edit batch remain open.
+whole nodes. The JSON CLI now transports these operations and the nested and
+physical-story table operations from `fc1cad0`. Layout can batch paragraph
+and section fields; story and physical table operations keep their core
+scopes instead of composing multiple ordinary transactions.
 
 Recovery qualification: Rust all-features/all-targets and doctests, native and
 Wasm Clippy, Rust 1.88, and 924 schema-required tests against the installed
@@ -94,6 +113,14 @@ Python 3.12 wheel passed. All 13 catalogs matched Rust, Python, packed Node
 the Rust oracle in the packed consumers. Installed Python independently matched
 layout, split/merge, shared story and table output bytes, with separate
 anchor, error, schema/OPC and untouched-payload checks.
+
+Follow-up integrated `29be239` and `fc1cad0`: 343 Rust tests, native/Wasm
+Clippy, Rust 1.88, and 35 focused installed-wheel tests passed. Mixed ordinary
+CLI edits, direct layout, story references/splices and physical-table batches
+matched their installed core output byte for byte. Fixtures check stale digests,
+overlap and owner rejection, no-op package payloads, and relationships
+allocated only to the edited footer. Packed Node 22/24 and Chromium
+development/production matched all 31 editor outputs and 13 catalog artifacts.
 
 #48 metadata worktree: core scalars and timestamps, company/manager, and named
 string/boolean custom-property edits passed standalone qualification: 55 Rust
@@ -126,13 +153,13 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs and replace supported section contents. Split or merge anchored direct sections. Inspect and patch direct paragraph styles/headings, alignment, tabs, indents, spacing/line height and flags; section geometry, margins, equal columns, grid, page/line numbering, single borders, alignment, flags and break type. | Story/nested paragraph layout; layout in mixed ordinary batches; richer imported spacing/indents, unequal columns, art/theme borders and unmodeled numbering formats. Paragraph numbering references are a separate slice. |
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
-| #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content or guarded table/row/cell nodes; remove eligible direct tables; inspect and patch modeled direct properties. | Splitting protected merges, unsafe destructive changes, tables in other stories and general editing inside imported nested tables. |
+| #45 Tables | Inspect and patch direct properties, insert/remove physical rows/cells and logical columns, and replace cell content in body, nested and physical story tables. Replace guarded table/row/cell nodes or remove eligible whole tables in the direct body. | Splitting protected merges, unsafe destructive changes, whole-node replacement/removal outside direct-body scope and cross-owner batches. |
 | #46 Stories | Shared/local images and guarded block splices in all six header/footer slots; create/link/remove explicit story references; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Deleting OPC story parts, custom note marks, shared or nested note reference edits, destructive rich block edits, modern comment metadata, reserved entries and local text forks. |
 | #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits and retargeting live users. |
 | #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
-| #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, all story image slots, physical story text, tracked text/moves and revision review. New transport covers point insertions, block flags and section type, legacy table layout, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; newer rich run formatting, direct layout, section lifecycle, story references/splices, table node/property edits and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |
+| #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, story images/text, revision operations, point insertions, block flags, direct layout, section lifecycle, story references/splices, direct and physical table edits, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; newer rich run formatting and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 
 **#3 table follow-up (before section/story/table recovery):** direct-body table layout can be inspected, set or
@@ -141,13 +168,19 @@ are inspectable in all three bindings. The recovery increment covers independent
 direct style, alignment, look flags, border sides, grid widths, row flags and
 height, cell margins, direction, shading and merge fields. Table/row/cell
 replacement and whole-table removal refuse destructive edits over opaque
-markup. Editing inside existing nested tables, addressing controlled rows or
-cells, and editing tables in other stories remain open.
+markup. The physical-owner follow-up discovers nested body/header/footer and
+ordinary note/comment tables; edit properties, rows/cells/columns and guarded
+cell contents with owner-local relationship allocation. Whole physical table
+replacement/deletion outside direct body scope, controlled rows/cells and
+local story forks remain open.
 Both structural edit artifacts and all eleven catalogs matched across Rust,
 installed Python 3.12 and packed Node 26. All 24 Node editor outputs matched
 the native reference; the table fixture and both outputs passed schema/OPC
 validation. Tests cover physical-coordinate conflicts, merged intervals,
 unsupported clears, preserved extension attributes and untouched part payloads.
+The complete isolated `check-packed.sh` on `c54e6dd` passed with Node 22.23.5
+and Chromium 159 dev/production, including the independent 2880-twip, span-2
+inspection fixture and exact offline replay ([#3 evidence](https://github.com/ReinderVosDeWael/rocx/issues/3#issuecomment-7145848269)).
 
 **Combined qualification on `6f11a6a`:** Rust all-features/all-targets and
 doctests, native/Wasm Clippy, Rust 1.88, 894 schema-required Python tests and

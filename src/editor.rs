@@ -55,8 +55,8 @@ pub use resource_fields::{
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{
-    CellAlignmentChange, CellAlignmentEdit, DirectTableProperties, TableOperation, TableSite,
-    TableStructureEdit,
+    CellAlignmentChange, CellAlignmentEdit, DirectTableProperties, LocatedTable, TableOperation,
+    TableSite, TableStructureEdit,
 };
 pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
 mod run_format;
@@ -113,11 +113,13 @@ fn read_content_control(node: &Node) -> ImportedContentControl {
     }
 }
 
-/// Snapshot-scoped identity for a direct body table.
+/// Snapshot-scoped table identity. Body-preview and physical-owner anchors
+/// are issued by different inspections and accepted only in their own scope.
 #[derive(Clone, Debug)]
 pub struct TableAnchor {
     _snapshot: Arc<()>,
     _body_index: usize,
+    physical: Option<tables::PhysicalTable>,
 }
 
 /// Physical direct rows and cells; grid spans and merged cells are not expanded.
@@ -205,6 +207,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
             .map(|c| c.get("w:w").and_then(|s| s.parse().ok()))
             .collect(),
         anchor: TableAnchor {
+            physical: None,
             _snapshot: snapshot.clone(),
             _body_index: body_index,
         },
@@ -847,6 +850,16 @@ impl ImportedDocument {
             self.validate_snapshot(snapshot)?;
         }
         let mut by_index = BTreeMap::new();
+        if cells
+            .iter()
+            .map(|e| &e.target)
+            .chain(structural.iter().map(|e| &e.target))
+            .any(|a| a.physical.is_some())
+        {
+            return Err(unsupported(
+                "physical table anchor requires edit_part_tables",
+            ));
+        }
         let number_refs = numbering::paragraph_targets(self, resources)?;
         for edit in edits {
             if by_index

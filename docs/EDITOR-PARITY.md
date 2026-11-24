@@ -264,6 +264,8 @@ destructive clear refuses to erase unmodeled markup. Look flags expose any
 individual attribute and its packed `maskBit`; `noHBand` and `noVBand` are
 the inverse of banding. Clearing a flag materializes any mask-only siblings
 before dropping the packed mask; unknown mask bits prevent such a clear.
+An unchanged direct property or a clear of a missing property does not
+rewrite the body or physical owner part, unless another edit changes that part.
 
 #### Replace or remove whole nodes
 
@@ -284,6 +286,40 @@ use of the target table; it rejects unknown attributes, raw markup, nested
 source tables, relationships, controls, ranges and other non-disposable
 content at the discarded site. Row/cell replacement refuses vertical merges.
 Targets elsewhere in the batch retain their original body indices.
+
+#### Nested and physical-story tables
+
+Use Rust `doc.part_tables(None)` / Python `doc.part_tables()` / JavaScript
+`doc.partTables()` to discover main-story tables, including tables nested
+directly in ordinary cells. Supply the physical part name from `stories` or
+`entry_stories` (`stories()` / `entryStories()` in JS) to inspect header,
+footer, footnote, endnote or comment tables. `depth == 0` is a top-level
+table within its story. `path` is a descriptive list of element-child indices
+from the physical part root; it is not a public mutation address. Each view
+includes the part name, entry ID where relevant, grid widths and direct
+table/row/cell property maps.
+
+Pass its **physical table anchor** to an explicitly named owner operation:
+
+| Rust | Python | JavaScript |
+| --- | --- | --- |
+| `doc.edit_part_tables(&t.part_name, &[TableStructureEdit { target: t.anchor, operation: TableOperation::InsertRow(1) }])?` | `doc.edit_part_tables(t.part_name, [TableStructureEdit.insert_row(t.anchor, 1)])` | `doc.editPartTables({ownerPart:t.partName, tableStructure:[{target:t.anchor, kind:"insertRow", index:1}]})` |
+
+This returns new DOCX bytes. Reopen them before targeting the result. Aliases
+of a physical header/footer share the change. Within one table, batch distinct
+property patches or distinct cell-content replacements, or make a single
+layout/row/cell/column geometry edit. Source cell and merge guards still
+apply. Replacement paragraphs/tables use the shared codec: style references
+resolve in the document; new hyperlinks belong to the **edited owner**.
+Edits to disjoint sibling tables can share the same owner call. A stale,
+wrong-owner, or overlapping ancestor/descendant target rejects the batch.
+Ordinary body `preview` and physical table calls use distinct anchor scopes.
+
+Discovery does not descend through controls or arbitrary wrappers. Reserved
+notes and duplicate numeric entry IDs are excluded. A protected range across
+an outer table, unsafe ancestor grid, or enclosing merge continuation prevents
+a nested edit. Whole-node replacement and whole-table deletion remain direct
+body operations; no section-local story fork is performed here.
 
 Indices are zero-based; insert before an index or append at the count. A cell
 spanning three grid columns still counts as **one physical cell**. A new row

@@ -786,6 +786,18 @@ struct PyBodyTable {
 struct PyTableAnchor {
     inner: editor::TableAnchor,
 }
+#[pyclass(name = "LocatedTable", frozen, module = "rocx.editor", get_all)]
+struct PyLocatedTable {
+    anchor: Py<PyTableAnchor>,
+    part_name: String,
+    path: Vec<usize>,
+    depth: usize,
+    entry_id: Option<String>,
+    properties: editor::DirectTableProperties,
+    grid_widths: Vec<Option<u32>>,
+    row_properties: Vec<editor::DirectTableProperties>,
+    cell_properties: Vec<Vec<editor::DirectTableProperties>>,
+}
 
 #[pyclass(name = "ImportedTableRow", frozen, module = "rocx.editor")]
 struct PyImportedTableRow {
@@ -2407,6 +2419,51 @@ impl PyImportedDocument {
         ))
     }
 
+    #[pyo3(signature=(owner_part=None))]
+    fn part_tables(
+        &self,
+        py: Python<'_>,
+        owner_part: Option<&str>,
+    ) -> PyResult<Vec<PyLocatedTable>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.part_tables(owner_part)
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|t| {
+                Ok(PyLocatedTable {
+                    anchor: Py::new(py, PyTableAnchor { inner: t.anchor })?,
+                    part_name: t.part_name,
+                    path: t.path,
+                    depth: t.depth,
+                    entry_id: t.entry_id,
+                    properties: t.properties,
+                    grid_widths: t.grid_widths,
+                    row_properties: t.row_properties,
+                    cell_properties: t.cell_properties,
+                })
+            })
+            .collect()
+    }
+    fn edit_part_tables<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyTableStructureEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_part_tables(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
     fn edit_story_text<'py>(
         &self,
         py: Python<'py>,
@@ -2709,6 +2766,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
     module.add_class::<PyTableStructureEdit>()?;
+    module.add_class::<PyLocatedTable>()?;
     module.add_class::<PyCellAlignmentEdit>()?;
     module.add_class::<PyCellAlignmentChange>()?;
     module.add_class::<PyImportedTableRow>()?;

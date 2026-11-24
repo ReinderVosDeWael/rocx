@@ -110,6 +110,7 @@ The following `kind` values can be combined with the seven above in one
 | `text-insertion` | Paragraph `target`, original Unicode scalar `position`, nonempty `text`. At a run boundary, formatting comes from the following run; at the end it comes from the last run. |
 | `replace-paragraph`, `remove-paragraph`, `keep-with-next` | Paragraph `target`; additionally `text` for replacement, boolean `value` for keep-with-next. |
 | `replace-section` | `target` (first direct paragraph), `blocks`. |
+| `split-section`, `merge-section` | Section `target` from `sections`; additionally a section-relative original block `offset` for split. Merge consumes a nonfinal boundary. The core rejects edits overlapping affected sections. |
 | `paragraph-flag`, `section-flag` | Paragraph `target` (section start for section flags), `flag` (Python snake_case name), `value` (`true`, `false`, or explicit `null` to clear). |
 | `section-type` | Section-start paragraph `target`, `value` (`continuous`, `nextPage`, `nextColumn`, `evenPage`, `oddPage`, or explicit `null`). |
 | `insert-inline`, `replace-inline`, `run-bold` | Paragraph `target`, `inline_index` from `inlines`; `inline` for insert-after/replace, boolean `value` for direct run bold. |
@@ -132,12 +133,37 @@ The following `kind` values can be combined with the seven above in one
 or `replace-cell` (`row`, `cell`, `blocks`). Insert before the original index
 or append at the count; columns are logical, cells physical.
 The `layout` operation takes a required `value`: `fixed`, `autofit`, or `null`
-to clear the direct layout. Inspection includes `layout` and `grid_widths`
-on tables, `flags` on paragraphs, and `sections` with original `body_start`,
-exclusive `body_end`, direct `flags`, and `section_type_xml`.
+to clear the direct layout. `remove-table` has no other fields. `replace-node`
+requires `source`; optional `row` and `cell` narrow the target to a physical
+row or cell. `patch-property` takes the exact `field` name from the
+[direct table property inventory](EDITOR-PARITY.md#independent-table-row-and-cell-property-edits), a required `source`
+(explicit `null` clears), and optional `row`, `row` plus `cell`, or `column`
+for the `width` field. Without coordinates it selects a table-level property.
+
+A table `source` has `rows` (arrays of cell strings). It can also supply
+`column_widths` in twips, `layout`, `style`, `alignment`, `look`, `borders`,
+`first_row`, and `first_cell`. A donor property is taken from the first
+row/cell/column where applicable, not from the addressed coordinates.
+`look` accepts `first_row`, `last_row`, `first_column`, `last_column`,
+`horizontal_banding`, and `vertical_banding` booleans.
+`first_row` accepts `height:{"points":12,"rule":"exact"}` (`exact` or
+`atLeast`), `repeat_header`, and `cant_split`. `first_cell` accepts
+`grid_span`, `vertical_merge` (`restart` or `continue`), RGB `background_color`,
+`vertical_alignment`, Word `text_direction` (e.g. `tbRl`), `margins` (points
+for `top`, `start`, `bottom`, `end`), and `borders`. Table and cell border
+records have `side`, `size` in eighth-points, RGB `color` as three bytes,
+and optional `line` (`single` or `dashed`). These declarations are resolved
+by the core; patching a field never imports the donor's text.
+
+Inspection reports `layout`, `grid_widths` and direct `properties` on tables,
+`layout` and `flags` on paragraphs, and `sections` with a numeric `target`,
+original `body_start`, exclusive `body_end`, direct `layout`, `flags` and
+`section_type_xml`.
 
 `blocks` is an array of `{"kind":"paragraph","text":"..."}` or
-`{"kind":"table","rows":[["..."]]}`. An `inline` is a `text` declaration
+`{"kind":"table","rows":[["..."]]}` (optional `column_widths`, required for
+fixed-width story table payloads), or `{"kind":"rich-paragraph","inlines":[...]}`.
+An `inline` is a `text` declaration
 (`text`, optional boolean `bold`, `italic`), `hyperlink` (`url`, `text`), or
 `image` (`bytes`). Paragraph, character and table style definitions take
 `kind`, `name`, optional `base_style` and, except for tables, optional boolean
@@ -168,12 +194,33 @@ direct `next_style`, `linked_style`, and `property_xml`.
 ## Scoped operations
 
 Use exactly one edit per request for these operations. A physical story can
-update several runs in that edit. As with ordinary batches, a rejection
-creates no destination; inspect the saved copy before issuing more edits.
+update several runs, and `part-tables` can address several eligible tables in
+one owner. A separate direct-layout request can contain any combination of
+`paragraph-layout` and `section-layout` records but no other kinds. As with
+ordinary batches, a rejection creates no destination; inspect the saved copy
+before issuing more edits.
+
+Direct layout records take `target`, `field` (snake_case, see the
+[layout field inventory](EDITOR-PARITY.md#direct-paragraph-and-section-layout)),
+and required `value` (an integer, token, boolean, tab-stop array, single-border
+record, or explicit `null` to clear). For example,
+`{"kind":"section-layout","target":0,"field":"margin_top","value":-220}`.
+Section targets come from `sections`, including table-first or empty sections.
 
 | `kind` | Fields besides `kind` |
 | --- | --- |
 | `story-text` | `part` (exact physical part from `stories` or `entries`), `runs` (array of `{block_index,inline_index,text}`; also include `entry_index` for a note/comment). Aliased slots share the edit. Returns `story_part` and the two digests. |
+| `story-reference` | `target` (`{section_index,kind,variant}`; can identify a non-explicit slot), `action`: `{"kind":"create","blocks":[...]}`, `{"kind":"link","part":"..."}`, or `{"kind":"remove"}`. Unlinking a slot resumes inheritance without deleting its physical part. |
+| `story-blocks` | `target` from `stories`, `mode` (`shared` or `section-local`), original block `index`, `remove` (number of blocks to replace or delete), `blocks` (replacement or insertion payload). `stories[].block_count` includes tables and opaque blocks so it can be used as an append index. |
+| `part-tables` | Exact `owner_part` and `operations`, an array of `{path,operation}` using `part_tables` paths from that owner. Operations are the `table-structure` forms except `replace-node` and `remove-table`. Ancestor and descendant targets cannot share one request. |
 | `tracked-text` | `target` (`{target,inline_index}` for a run), `author`, optional `date`, `action` (`{"kind":"delete"}`, or `{"kind":"replace","text":"..."}` / `{"kind":"insert-after","text":"..."}`). |
 | `tracked-move` | Run address objects `target`, `after`; strings `name`, `author`, `date`. |
 | `review-revision` | `target` (address object for a direct revision wrapper), `action` (`accept`/`reject`), optional `paired` wrapper address for moves. |
+
+`inspect` returns `part_tables` for the actual main part by default. To discover
+physical paths in an existing header, footer, or ordinary note/comment part,
+pass `"table_owner":"word/footer1.xml"` (use the exact `part` listed by
+`stories` or `entries`). Paths are zero-based XML element-child coordinates
+from the owner root, not body indices. The request snapshot, owner and path
+together identify the table; there is no cross-owner batch. The same
+inspection request can also specify `numbering_targets` for body paragraphs.

@@ -23,7 +23,14 @@ fn render(
         SectionStoryKind::Header => StoryKind::Header,
         SectionStoryKind::Footer => StoryKind::Footer,
     };
-    crate::ooxml::encode_story_blocks(package, main, (owner, story), blocks, None, "editor.story")
+    crate::ooxml::encode_editor_owner_blocks(
+        package,
+        main,
+        (story, owner),
+        blocks,
+        None,
+        "editor.story",
+    )
 }
 
 fn reference_guard(

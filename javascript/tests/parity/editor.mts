@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source", "layout-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "physical-table-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -428,6 +428,29 @@ async function editControls(fixtures: Fixtures) {
 }
 
 export async function run(fixtures: Fixtures) {
+  let physicalTables:Uint8Array=fixtures["physical-table-source"];
+  for (const [owner,depth] of [[undefined,1],["word/footer1.xml",1],["word/comments.xml",0]] as const) {
+    const source=await openDocx(physicalTables);
+    const nodes=source.partTables(owner);
+    same(nodes.map(t=>t.depth),depth===1?[0,1]:[0],"physical table depths");
+    const t=nodes[depth];
+    check(t.anchor===source.partTables(t.partName)[depth].anchor,"stable physical table handle");
+    if(depth===0) same(t.entryId,"0","comment identity");
+    const op:TableStructureEdit=owner===undefined?{target:t.anchor,kind:"insertRow",index:1}:
+      depth===1?{target:t.anchor,kind:"layout",value:"fixed"}:{target:t.anchor,kind:"patchProperty",column:0,field:"width",source:null};
+    rejects(()=>source.preview({tableStructure:[op]}),/physical table anchor/);
+    rejects(()=>source.editPartTables({ownerPart:"word/styles.xml",tableStructure:[op]}),/owner mismatch/);
+    if(depth===1) rejects(()=>source.editPartTables({ownerPart:t.partName,tableStructure:[op,{target:nodes[0].anchor,kind:"insertRow",index:1}]}),/overlapping/);
+    const other=await openDocx(physicalTables);
+    rejects(()=>other.editPartTables({ownerPart:t.partName,tableStructure:[op]}),/different document snapshot/);
+    physicalTables=source.editPartTables({ownerPart:t.partName,tableStructure:[op]});
+    if(owner==="word/footer1.xml"){
+      const linked=await resolveComponent({kind:"paragraph",runs:[{kind:"hyperlink",target:{kind:"external",url:"https://example.invalid/physical-cell"},children:[{kind:"text",text:"Footer link"}]}]});
+      check(linked,"resolved linked cell paragraph");
+      const doc=await openDocx(physicalTables), table=doc.partTables(owner)[1];
+      physicalTables=doc.editPartTables({ownerPart:owner,tableStructure:[{target:table.anchor,kind:"replaceCell",row:0,cell:0,blocks:[linked]}]});
+    }
+  }
   const merged = await openDocx(fixtures["table-layout"]);
   const physical = merged.body()[0];
   check(physical.kind === "table" && physical.layout === "fixed", "merged table layout");
@@ -698,7 +721,8 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, numberingEdits, tableNodes, layout,
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, numberingEdits,
+    tableNodes, physicalTables, layout,
     sectionSplit, sectionMerge, storyShared, structuralResources, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),

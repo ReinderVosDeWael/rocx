@@ -215,6 +215,10 @@ width with Rust `TableOperation::Property` at `TableSite::Column(1)`, Python
 `TableStructureEdit.patch_property(target, "width", None, column=1)`, or JS
 `{target, kind:"patchProperty", field:"width", column:1, source:null}`. Both
 columns remain, and `properties["layout"]["type"]` still reads `"fixed"`.
+The physical-owner sample finds the nested fixed-width table by depth `1`
+and its single 1440-twip grid column, clears its layout and reopens it by
+path. Rust/Python use `part_tables` and `edit_part_tables`; JavaScript uses
+`partTables` and `editPartTables`. See [physical-story targets](../docs/EDITOR-PARITY.md#nested-and-physical-story-tables).
 
 For the run-text output Rust passes `ParagraphInsertion` to
 `EditBatch.paragraphs` in `preview_edits`, Python passes `paragraph_insertions=[ParagraphInsertion(...)]`

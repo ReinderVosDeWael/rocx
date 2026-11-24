@@ -20,6 +20,7 @@ enum Request {
         custom_properties: Vec<String>,
         #[serde(default)]
         numbering_targets: Vec<usize>,
+        table_owner: Option<String>,
     },
     Preview {
         source: String,
@@ -48,6 +49,7 @@ fn execute(request: Request) -> Result<Value, String> {
             metadata_fields,
             custom_properties,
             numbering_targets,
+            table_owner,
             ..
         } => {
             return rocx_protocol::inspect(
@@ -56,6 +58,7 @@ fn execute(request: Request) -> Result<Value, String> {
                 metadata_fields,
                 custom_properties,
                 numbering_targets,
+                table_owner.as_deref(),
             );
         }
         Request::Preview {

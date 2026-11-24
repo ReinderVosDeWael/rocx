@@ -310,6 +310,61 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    use rocx::editor::{TableOperation, TableSite};
+    let mut physical = fs::read(directory.join("physical-table-source.docx")).unwrap();
+    let linked_cell = immediate(Component::resolve(Paragraph::from_children(vec![
+        Hyperlink::new(
+            HyperlinkTarget::external("https://example.invalid/physical-cell").unwrap(),
+            vec![TextRun::new("Footer link").into()],
+        )
+        .into(),
+    ])))
+    .unwrap()
+    .unwrap();
+    for (owner, depth, operation) in [
+        (None, 1, TableOperation::InsertRow(1)),
+        (
+            Some("word/footer1.xml"),
+            1,
+            TableOperation::Layout(Some(rocx::TableLayout::Fixed)),
+        ),
+        (
+            Some("word/footer1.xml"),
+            1,
+            TableOperation::ReplaceCell {
+                row: 0,
+                cell: 0,
+                blocks: vec![rocx::ResolvedBlock::Paragraph(linked_cell)],
+            },
+        ),
+        (
+            Some("word/comments.xml"),
+            0,
+            TableOperation::Property {
+                site: TableSite::Column(0),
+                field: "width".into(),
+                source: None,
+            },
+        ),
+    ] {
+        let doc = ImportedDocument::open(&physical).unwrap();
+        let t = doc
+            .part_tables(owner)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.depth == depth)
+            .unwrap();
+        physical = doc
+            .edit_part_tables(
+                &t.part_name,
+                &[rocx::editor::TableStructureEdit {
+                    target: t.anchor,
+                    operation,
+                }],
+            )
+            .unwrap();
+    }
+    write("native-physicalTables.docx", physical);
     write(
         "native-tableNodes.docx",
         table_nodes(&directory, &insertions[1].table),

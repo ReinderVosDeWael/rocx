@@ -145,6 +145,16 @@ def verify_controls(directory):
 
 
 def generate(directory):
+    shared = Document()
+    shared.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    comment = shared.add_comment(shared.add_paragraph("reference").runs[0], text="annotation", author="Verifier")
+    comment.add_table(1, 1, Twips(1440)).cell(0,0).text = "comment table"
+    outer = shared.add_table(1, 1)
+    outer.cell(0,0).add_table(1, 1).cell(0,0).text = "nested body"
+    footer = shared.sections[0].footer.add_table(1, 1, Twips(2880))
+    footer.cell(0,0).add_table(1, 1).cell(0,0).text = "shared footer"
+    shared.add_section()
+    shared.save(directory / "physical-table-source.docx")
     merged = Document()
     merged.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     table = merged.add_table(rows=2, cols=3)
@@ -663,6 +673,21 @@ def verify(directory):
     assert cell_readback.tables[1].cell(0, 0).text == "next A"
 
     structure = directory / "tableStructure.docx"
+    physical = directory / "physicalTables.docx"
+    old, new = parts(directory / "physical-table-source.docx"), parts(physical)
+    untouched(old, new, (MAIN, "word/footer1.xml", "word/comments.xml"))
+    assert new.keys() - old.keys() == {"word/_rels/footer1.xml.rels"}
+    link, = xp(etree.fromstring(new["word/footer1.xml"]), ".//w:tbl/w:tr/w:tc/w:p/w:hyperlink/@r:id")
+    assert relations(new,"word/footer1.xml")[link]["Target"] == "https://example.invalid/physical-cell"
+    result = Document(physical)
+    assert len(result.tables[0].rows) == 1
+    inner = result.tables[0].cell(0,0).tables[0]
+    assert [r.cells[0].text for r in inner.rows] == ["nested body",""]
+    for section in result.sections:
+        foot = section.footer.tables[0].cell(0,0).tables[0]
+        assert foot.cell(0,0).text == "Footer link" and foot.autofit is False
+    ct = next(iter(result.comments)).tables[0]
+    assert ct.cell(0,0).text == "comment table" and ct.columns[0].width is None
     nodes = directory / "tableNodes.docx"
     untouched(parts(directory / "table-layout.docx"), parts(nodes), (MAIN,))
     edited = Document(nodes)

@@ -248,6 +248,7 @@ declare module "./inspection.js" {
       | { readonly kind: "author" | "date" | "initials"; readonly value: string }
       | { readonly kind: "clearDate" | "clearInitials" | "deleteUnusedNote" }
     )): Uint8Array;
+    editPartTables(batch: { readonly ownerPart: string; readonly tableStructure: readonly Exclude<TableStructureEdit, {readonly kind: "replaceNode" | "removeTable"}>[] }): Uint8Array;
     /** Atomically stage edits against this snapshot's original anchors. */
     preview(batch: EditBatch): EditPreview;
     /** Append an inline image to a shared header/footer or a section-local fork. */

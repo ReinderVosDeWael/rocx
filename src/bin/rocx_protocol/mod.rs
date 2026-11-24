@@ -10,9 +10,11 @@ mod declarations;
 mod discovery;
 mod resources;
 mod scoped;
+mod structure;
 use declarations::*;
 use resources::*;
 use scoped::*;
+use structure::*;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,6 +88,25 @@ pub(super) enum Edit {
         target: usize,
         blocks: Vec<Block>,
     },
+    SplitSection {
+        target: usize,
+        offset: usize,
+    },
+    MergeSection {
+        target: usize,
+    },
+    ParagraphLayout {
+        target: usize,
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<LayoutInput>,
+    },
+    SectionLayout {
+        target: usize,
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<LayoutInput>,
+    },
     KeepWithNext {
         target: usize,
         value: bool,
@@ -125,6 +146,10 @@ pub(super) enum Edit {
     TableStructure {
         target: usize,
         operation: Geometry,
+    },
+    PartTables {
+        owner_part: String,
+        operations: Vec<PhysicalOperation>,
     },
     CoreTitle {
         #[serde(deserialize_with = "Deserialize::deserialize")]
@@ -233,6 +258,17 @@ pub(super) enum Edit {
         part: String,
         runs: Vec<StoryRun>,
     },
+    StoryReference {
+        target: Slot,
+        action: ReferenceAction,
+    },
+    StoryBlocks {
+        target: Slot,
+        mode: String,
+        index: usize,
+        remove: usize,
+        blocks: Vec<Block>,
+    },
     TrackedText {
         target: RunAddress,
         action: Tracking,
@@ -309,6 +345,7 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
                 .collect();
             json!({"type":"paragraph","target":index,"text":p.text,"alignment_xml":p.alignment_xml,
                    "flags": p.flags.iter().map(|(f,v)|(f.python_name(),v)).collect::<std::collections::BTreeMap<_,_>>(),
+                   "layout": structure::layout_view(&p.layout),
                    "has_opaque_content":p.has_opaque_content,"runs":runs,"inlines":discovery::inlines(&p.inline_structure)})
         }
         BodyBlock::Table(t) => {
@@ -323,6 +360,7 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
                 }
             }
             json!({"type":"table","index":index,"target":index,"cells":cells,"grid_widths":t.grid_widths,
+                "properties":t.properties,
                 "layout":t.layout.map(|l|match l {rocx::TableLayout::Autofit=>"autofit",rocx::TableLayout::Fixed=>"fixed"})})
         }
         BodyBlock::ContentControl(c) => json!({"type":"content-control","index":index,
@@ -338,6 +376,7 @@ pub(super) fn inspect(
     fields: Vec<String>,
     names: Vec<String>,
     numbering_targets: Vec<usize>,
+    table_owner: Option<&str>,
 ) -> Result<Value, String> {
     let body: Vec<_> = doc.body().iter().enumerate().map(inspect_block).collect();
     let mut result = json!({"snapshot":snapshot,"body":body});
@@ -349,6 +388,7 @@ pub(super) fn inspect(
         result["paragraph_numbering"][target.to_string()] =
             json!(reference.map(|r| json!({"id":r.id,"level":r.level})));
     }
+    structure::discover_tables(doc, table_owner, &mut result);
     for field in fields {
         let key = field.parse().map_err(|e: rocx::Error| e.to_string())?;
         result["metadata"][field] = json!(doc.metadata_field(key).map_err(|e| e.to_string())?);
@@ -389,6 +429,9 @@ pub(super) fn preview(
     edits: Vec<Edit>,
     snapshot: String,
 ) -> Result<(Vec<u8>, Value), String> {
+    if edits.iter().any(Edit::is_direct_layout) {
+        return structure::preview_layout(doc, edits, snapshot);
+    }
     let (mut align, mut tables, mut headers, mut texts, mut paragraphs, mut cells, mut removals) =
         (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
     let mut stories = std::cell::OnceCell::new();
@@ -406,13 +449,26 @@ pub(super) fn preview(
     for edit in edits {
         match edit {
             e @ (Edit::StoryText { .. }
+            | Edit::StoryReference { .. }
+            | Edit::StoryBlocks { .. }
+            | Edit::PartTables { .. }
             | Edit::TrackedText { .. }
             | Edit::TrackedMove { .. }
             | Edit::ReviewRevision { .. }) => {
                 if count != 1 {
-                    return Err("story text or revision operation must be the only edit".into());
+                    return Err("a scoped story, physical table or revision operation must be the only edit".into());
                 }
                 return scoped::preview_scoped(doc, e, snapshot);
+            }
+            Edit::ParagraphLayout { .. } | Edit::SectionLayout { .. } => unreachable!(),
+            Edit::SplitSection { target, offset } => {
+                blocks.push(BlockEdit::SplitSection(
+                    section_anchor(doc, target)?,
+                    offset,
+                ));
+            }
+            Edit::MergeSection { target } => {
+                blocks.push(BlockEdit::MergeSection(section_anchor(doc, target)?));
             }
             Edit::TextRange {
                 target,

@@ -178,7 +178,7 @@ pub(super) fn patch(
     source: Option<&ResolvedTable>,
     package: &Package,
     main: &str,
-) -> Result<()> {
+) -> Result<bool> {
     let node = site_node(table, site)?;
     if matches!(site, TableSite::Column(_)) {
         if key != "width" {
@@ -189,11 +189,18 @@ pub(super) fn patch(
                 .column_widths()
                 .and_then(|w| w.first())
                 .ok_or_else(|| unsupported("source needs an explicit first column width"))?;
+            let w = w.to_string();
+            if node.get("w:w") == Some(w.as_str()) {
+                return Ok(false);
+            }
             node.set("w:w", w);
         } else {
+            if node.get("w:w").is_none() {
+                return Ok(false);
+            }
             del_attr(node, "w:w");
         }
-        return Ok(());
+        return Ok(true);
     }
     let (properties, fields) = fields(site);
     let f = fields
@@ -282,36 +289,35 @@ pub(super) fn patch(
         ));
     }
     let Some(pr) = child(node, properties, value.is_some(), true)? else {
-        return Ok(());
+        return Ok(false);
     };
     if pr.child("w:tblPrChange").is_some() {
         return Err(unsupported("tracked table properties"));
     }
     let parent = if let Some(p) = f.parent {
         let Some(v) = child(pr, p, value.is_some(), false)? else {
-            return Ok(());
+            return Ok(false);
         };
         v
     } else {
         pr
     };
+    let created = parent.child(f.leaf).is_none();
     let Some(dest) = child(parent, f.leaf, value.is_some(), false)? else {
-        return Ok(());
+        return Ok(false);
     };
+    let before = dest.attrs.clone();
     if f.bit != 0 {
         let a = f.attrs[0];
         let bit = value.as_ref().and_then(|n| n.get(a));
         if let Some(old) = dest.get("w:val") {
             let mask =
                 u16::from_str_radix(old, 16).map_err(|_| unsupported("invalid table look mask"))?;
-            if bit.is_some() {
-                dest.set(
-                    "w:val",
-                    format!(
-                        "{:04X}",
-                        (mask & !f.bit) | if bit == Some("1") { f.bit } else { 0 }
-                    ),
-                );
+            if let Some(bit) = bit {
+                let patched = (mask & !f.bit) | if bit == "1" { f.bit } else { 0 };
+                if patched != mask {
+                    dest.set("w:val", format!("{patched:04X}"));
+                }
             } else {
                 // A zero bit still specifies false. Preserve the other mask
                 // settings explicitly before removing the selected setting.
@@ -356,6 +362,7 @@ pub(super) fn patch(
             })
         {
             parent.remove(f.leaf);
+            return Ok(true);
         } else {
             del_attr(dest, "w:fill");
         }
@@ -374,6 +381,7 @@ pub(super) fn patch(
             ));
         }
         parent.remove(f.leaf);
+        return Ok(true);
     }
-    Ok(())
+    Ok(created || dest.attrs != before)
 }
