@@ -683,8 +683,60 @@ struct PyImportedDocument {
     inner: Mutex<editor::ImportedDocument>,
 }
 
+#[pyclass(name = "ImportedStyle", module = "rocx.editor", get_all)]
+struct PyImportedStyle {
+    id: Option<String>,
+    kind: &'static str,
+    kind_xml: Option<String>,
+    name: Option<String>,
+    based_on: Option<String>,
+}
+
+#[pyclass(name = "ImportedStyles", module = "rocx.editor", get_all)]
+struct PyImportedStyles {
+    part_name: String,
+    styles: Vec<Py<PyImportedStyle>>,
+}
+
 #[pymethods]
 impl PyImportedDocument {
+    #[getter]
+    fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.styles()
+            .map_err(rust_error)?
+            .map(|styles| {
+                let items = styles
+                    .styles
+                    .into_iter()
+                    .map(|style| {
+                        let kind_xml = match &style.kind {
+                            editor::StyleKind::Unsupported(value) => Some(value.clone()),
+                            editor::StyleKind::Missing => None,
+                            kind => Some(kind.as_str().to_owned()),
+                        };
+                        Py::new(
+                            py,
+                            PyImportedStyle {
+                                id: style.id,
+                                kind: style.kind.as_str(),
+                                kind_xml,
+                                name: style.name,
+                                based_on: style.based_on,
+                            },
+                        )
+                    })
+                    .collect::<PyResult<Vec<_>>>()?;
+                Ok(PyImportedStyles {
+                    part_name: styles.part_name,
+                    styles: items,
+                })
+            })
+            .transpose()
+    }
     #[staticmethod]
     fn open(data: &Bound<'_, PyBytes>) -> PyResult<Self> {
         Ok(Self {
@@ -918,6 +970,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedHeaderParagraph>()?;
     module.add_class::<PyImportedStory>()?;
     module.add_class::<PyImportedEntry>()?;
+    module.add_class::<PyImportedStyle>()?;
+    module.add_class::<PyImportedStyles>()?;
     module.add_class::<PyRunTextEdit>()?;
     module.add_class::<PyRunTextChange>()?;
     module.add_class::<PyImportedSection>()?;

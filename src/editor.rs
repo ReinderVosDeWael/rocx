@@ -15,12 +15,14 @@ use std::sync::{Arc, OnceLock};
 mod entries;
 mod header;
 mod insertion;
+mod resources;
 mod text;
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
+pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use text::{RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.

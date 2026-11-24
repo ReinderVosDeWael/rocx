@@ -141,6 +141,8 @@ export async function generateCatalog(fixtures, options) {
   ], { columnWidths: [2160, 2160], layout: "fixed" }));
 
   const imported = await openDocx(final);
+  assert(imported.styles()?.styles.some((style) => style.name === "Catalog Bullets"
+    && style.kind === "numbering" && style.id), "expected imported numbering style");
   const body = imported.body();
   const controls = body.filter((node) => node.kind === "contentControl" && node.tag === "review-block");
   assert(controls.length === 1 && controls[0].alias === "Review block" &&
