@@ -80,6 +80,7 @@ fn load(package: &Package, main: &str, id: &str) -> Result<(String, Node)> {
     let plot = path(&root, &["chart", "plotArea"])?;
     if root.name != tag("chartSpace")
         || root.child(&tag("externalData")).is_some()
+        || root.child(&tag("pivotSource")).is_some()
         || plot
             .elements()
             .filter(|n| n.name.namespace() == Some(CHART) && n.name.local().ends_with("Chart"))
@@ -138,25 +139,40 @@ pub(in crate::editor) fn fork(
     chart.validate()?;
     let (part, mut root) = load(package, main, id)?;
     let (labels, values) = series(&root)?;
-    if labels.len() != chart.categories.len() {
-        return Err(unsupported(
-            "chartSeries patch requires the original point count; replace the chart to change it",
-        ));
-    }
     if labels == chart.categories && values == chart.values {
         return Ok(id.to_owned());
     }
-    for (names, items) in [
-        (LABELS, chart.categories.clone()),
-        (VALUES, chart.values.iter().map(f64::to_string).collect()),
-    ] {
-        let literal = path_mut(&mut root, names)?;
-        for (point, value) in literal
-            .elements_mut()
-            .filter(|n| n.name == tag("pt"))
-            .zip(items)
-        {
-            path_mut(point, &["v"])?.children = vec![Content::Text(value)];
+    if labels.len() != chart.categories.len() {
+        // Indexed data labels, per-point formatting or opaque extensions can
+        // depend on the original count. Resize only the modeled chart profile.
+        let original = crate::ooxml::chart_space(&ColumnChartProperties {
+            width: chart.width,
+            height: chart.height,
+            categories: labels,
+            values,
+        });
+        if !same_chart_tree(&root, &original) {
+            return Err(unsupported(
+                "changing point count requires a plain modeled column chart",
+            ));
+        }
+        let replacement = crate::ooxml::chart_space(chart);
+        for names in [LABELS, VALUES] {
+            path_mut(&mut root, names)?.children = path(&replacement, names)?.children.clone();
+        }
+    } else {
+        for (names, items) in [
+            (LABELS, chart.categories.clone()),
+            (VALUES, chart.values.iter().map(f64::to_string).collect()),
+        ] {
+            let literal = path_mut(&mut root, names)?;
+            for (point, value) in literal
+                .elements_mut()
+                .filter(|n| n.name == tag("pt"))
+                .zip(items)
+            {
+                path_mut(point, &["v"])?.children = vec![Content::Text(value)];
+            }
         }
     }
     let prefix = part.rsplit_once('/').map_or_else(
@@ -168,4 +184,30 @@ pub(in crate::editor) fn fork(
     package.put(&out, root)?;
     package.content_type(&out, MIME)?;
     package.link(main, "chart", &out)
+}
+
+/// Match expanded names and non-namespace attributes, ignoring only indentation
+/// between elements. Annotations or unsupported descendants prevent resizing.
+fn same_chart_tree(n: &Node, model: &Node) -> bool {
+    fn attrs(n: &Node) -> impl Iterator<Item = (&str, &str)> {
+        n.attrs
+            .iter()
+            .filter(|(k, _)| k.declaration().is_none())
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+    fn content(n: &Node) -> impl Iterator<Item = &Content> {
+        let elements = n.elements().next().is_some();
+        n.children
+            .iter()
+            .filter(move |c| !matches!(c,Content::Text(t) if elements && t.trim().is_empty()))
+    }
+    n.name == model.name
+        && attrs(n).count() == attrs(model).count()
+        && attrs(n).all(|(k, v)| model.get(k) == Some(v))
+        && content(n).count() == content(model).count()
+        && content(n).zip(content(model)).all(|(a, b)| match (a, b) {
+            (Content::Text(a), Content::Text(b)) => a == b,
+            (Content::Element(a), Content::Element(b)) => same_chart_tree(a, b),
+            _ => false,
+        })
 }

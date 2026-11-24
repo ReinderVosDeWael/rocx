@@ -173,6 +173,19 @@ pub(in crate::editor) fn patch(run: &mut Node, from: &Node, property: P) -> Resu
                 &["rot", "flipH", "flipV"],
             );
         }
+        P::ShapeGeometry if kind == "shape" => {
+            let names = ["a:sp", "a:spPr", "a:prstGeom"];
+            let geom = path_mut(body_mut(dest)?, &names)?;
+            if !matches!(geom.get("prst"), Some("rect" | "ellipse"))
+                || !disposable(geom)
+                || geom
+                    .elements()
+                    .any(|n| n.name != "a:avLst" || n.elements().next().is_some())
+            {
+                return Err(ambiguous());
+            }
+            attrs(geom, path(body(source)?, &names)?, &["prst"]);
+        }
         P::ShapeFill | P::ShapeOutline if kind == "shape" => {
             let names = ["a:sp", "a:spPr"];
             let dst = path_mut(body_mut(dest)?, &names)?;

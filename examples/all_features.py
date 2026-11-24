@@ -520,9 +520,19 @@ async def generate(output: pathlib.Path) -> bytes:
     chart = next(n for b in next_doc.body for n in getattr(b, "inline_structure", ())
                  if isinstance(n, ImportedRun) and n.drawing and n.drawing.kind == "chart")
     assert next_doc.chart_series(chart.anchor) == (["Edited"], [9.])
-    fork = next_doc.preview([], inline_edits=[InlineEdit.patch_drawing(chart.anchor, "chartSeries",
-        await d.ColumnChartRun(120, 80, ["Final"], [12]).resolve())])
-    output.with_suffix(".objects.docx").write_bytes(fork.to_docx())
+    shape = next(n for b in next_doc.body for n in getattr(b, "inline_structure", ())
+                 if isinstance(n, ImportedRun) and n.drawing and n.drawing.shape_text == "Edited shape")
+    fork = next_doc.preview([], inline_edits=[
+        InlineEdit.patch_drawing(chart.anchor, "chartSeries", await d.ColumnChartRun(120, 80, ["Final", "Revised"], [12, 8]).resolve()),
+        InlineEdit.patch_drawing(shape.anchor, "shapeGeometry", await d.ShapeRun(10, 10, geometry="ellipse").resolve())])
+    after = ImportedDocument.open(fork.to_docx())
+    site = next(s for s in after.control_sites if s.context == "block" and s.text == EDIT_LABEL)
+    wrapped = ImportedDocument.open(after.preview_wrap_control(site, "object-sibling").to_docx())
+    note = next(e for e in wrapped.entry_stories if e.kind == "footnote" and e.id == "0")
+    note_run = next(n for n in note.blocks[0].inline_structure if isinstance(n, ImportedRun) and
+               len(n.items) == 1 and n.items[0].kind == "text")
+    output.with_suffix(".objects.docx").write_bytes(wrapped.edit_entry_inlines(note.part_name, [
+        InlineEdit.insert_after(note_run.anchor, await image("png").resolve())]))
     replacement = "Imported editor: replaced this run by its anchor. "
     inserted_paragraph = await d.Paragraph(text="Imported editor: inserted paragraph.").resolve()
     targets = [block for block in imported.body if getattr(block, "text", None) == EDIT_LABEL]

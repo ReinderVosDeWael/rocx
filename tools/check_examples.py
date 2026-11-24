@@ -915,19 +915,28 @@ def verify_objects(original: bytes, output: bytes) -> None:
     assert any("Inline equation:" in p.text for p in document.paragraphs)
     with zipfile.ZipFile(io.BytesIO(original)) as src, zipfile.ZipFile(io.BytesIO(output)) as dst:
         additions = set(dst.namelist()) - set(src.namelist())
-        assert len(additions) == 2
+        note = next(part for part in document.part.related_parts.values() if str(part.partname).endswith("/footnotes.xml"))
+        note_part = str(note.partname).lstrip("/")
+        note_rels = str(note.partname.rels_uri).lstrip("/")
+        assert len(additions - {note_rels}) == 2
+        note_xml = etree.fromstring(note.blob)
+        embed, = note_xml.xpath("//w:footnote[@w:id='0']//a:blip/@odr:embed", namespaces=NS)
+        asset = note.related_parts[embed]
+        assert asset.blob == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
+        assert str(asset.partname).lstrip("/") in src.namelist()
         new_chart, = [part for part in additions if "rocx-chart" in part]
         chart = etree.fromstring(dst.read(new_chart))
-        assert chart.xpath("//c:ser/c:cat/c:strLit/c:pt/c:v/text()", namespaces=NS) == ["Final"]
-        assert chart.xpath("//c:ser/c:val/c:numLit/c:pt/c:v/text()", namespaces=NS) == ["12"]
+        assert chart.xpath("//c:ser/c:cat/c:strLit/c:pt/c:v/text()", namespaces=NS) == ["Final", "Revised"]
+        assert chart.xpath("//c:ser/c:val/c:numLit/c:pt/c:v/text()", namespaces=NS) == ["12","8"]
         for name in src.namelist():
-            if name not in {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml"}:
+            if name not in {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml",note_part,note_rels}:
                 assert src.read(name) == dst.read(name), name
         root = etree.fromstring(dst.read("word/document.xml"))
         assert root.xpath("//wp:docPr[@descr='Edited picture']", namespaces=NS)
-        assert root.xpath("//a:t[text()='Edited shape']", namespaces=NS)
+        assert root.xpath("//a:sp[a:spPr/a:prstGeom[@prst='ellipse']]//a:t[text()='Edited shape']", namespaces=NS)
+        assert root.xpath("//w:sdt[w:sdtPr/w:tag[@w:val='object-sibling']]//w:t/text()", namespaces=NS) == [EDIT_LABEL]
         assert root.xpath("//m:f[m:num/m:r/m:t='3' and m:den/m:r/m:t='7']", namespaces=NS)
-        ids = root.xpath("//wp:docPr/@id", namespaces=NS)
+        ids = root.xpath("//wp:docPr/@id", namespaces=NS) + note_xml.xpath("//wp:docPr/@id", namespaces=NS)
         assert len(ids) == len(set(ids))
         rid, = root.xpath("//c:chart/@odr:id", namespaces=NS)
         assert document.part.related_parts[rid].blob == dst.read(new_chart)

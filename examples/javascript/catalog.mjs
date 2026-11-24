@@ -197,8 +197,18 @@ export async function generateCatalog(fixtures, options) {
   const chart = openedObjects.body().flatMap(b => b.inlineStructure ?? []).find(n => n.drawing?.kind === "chart");
   const series = openedObjects.chartSeries(chart.anchor);
   assert(series.categories[0] === "Edited" && series.values[0] === 9, "incorrect literal chart readback");
-  const objects = openedObjects.preview({inlineEdits: [{kind: "patchDrawing", target: chart.anchor, property: "chartSeries",
-    inline: await resolveComponent(d.ColumnChartRun({width: 120, height: 80, categories: ["Final"], values: [12]}))}]}).toDocx();
+  const shape = openedObjects.body().flatMap(b => b.inlineStructure ?? []).find(n => n.drawing?.shapeText === "Edited shape");
+  const fork = await openDocx(openedObjects.preview({inlineEdits: [
+    {kind: "patchDrawing", target: chart.anchor, property: "chartSeries", inline:
+      await resolveComponent(d.ColumnChartRun({width: 120, height: 80, categories: ["Final", "Revised"], values: [12, 8]}))},
+    {kind: "patchDrawing", target: shape.anchor, property: "shapeGeometry", inline:
+      await resolveComponent(d.ShapeRun({width: 10, height: 10, geometry: "ellipse"}))}]}).toDocx());
+  const sibling = fork.controlSites().find(s => s.context === "block" && s.text === EDIT_LABEL);
+  const afterWrap = await openDocx(fork.previewWrapControl({target:sibling.anchor, tag:"object-sibling"}).toDocx());
+  const note = afterWrap.entryStories().find(e => e.kind === "footnote" && e.id === "0");
+  const noteRun = note.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items.length === 1 && n.items[0].kind === "text");
+  const objects = afterWrap.editEntryInlines({ownerPart:note.partName,inlineEdits:[
+    {kind:"insertAfter",target:noteRun.anchor,inline:await resolveComponent(image("png"))}]});
   assertThrows(() => openedObjects.preview({inlineEdits: objectEdits}), "accepted a foreign object anchor");
   assertThrows(() => imported.preview({inlineEdits: [objectEdits[0], objectEdits[0]]}), "accepted duplicate drawing edits");
   assert(imported.inlineAt(fraction.anchor).numerator === "1", "failed object edit changed the source");
