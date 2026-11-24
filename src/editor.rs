@@ -26,7 +26,9 @@ mod insertion;
 pub(crate) use insertion::BoundaryState;
 mod ranges;
 pub use ranges::TextRangeEdit;
+mod numbering;
 mod resource_fields;
+pub use numbering::{ImportedNumberingInstance, NumberingEdit};
 mod resources;
 mod revisions;
 pub use revisions::TrackedText;
@@ -749,6 +751,7 @@ impl ImportedDocument {
             self.validate_snapshot(snapshot)?;
         }
         let mut by_index = BTreeMap::new();
+        let number_refs = numbering::paragraph_targets(self, resources)?;
         for edit in edits {
             if by_index
                 .insert(edit.target.body_index, edit.alignment)
@@ -799,6 +802,7 @@ impl ImportedDocument {
         let mut cell_alignment_changes = Vec::new();
         let mut block_changes = Vec::new();
         if !by_index.is_empty()
+            || !number_refs.is_empty()
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
@@ -815,6 +819,7 @@ impl ImportedDocument {
             let headers = self.plan_header_images(&root, header_images)?;
             let occupied = by_index
                 .keys()
+                .chain(number_refs.keys())
                 .chain(table_targets.keys())
                 .chain(paragraph_targets.keys())
                 .copied()
@@ -880,6 +885,7 @@ impl ImportedDocument {
             (run_text_changes, removed_runs) =
                 text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
             cell_alignment_changes = tables::apply(body, cells)?;
+            let numbering_changed = numbering::patch_paragraphs(body, &number_refs)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -941,6 +947,7 @@ impl ImportedDocument {
             package = block_plan.stage(package, &self.main, body, pending)?;
             block_changes = block_plan.changes;
             if controls_changed
+                || numbering_changed
                 || !changes.is_empty()
                 || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
@@ -964,6 +971,7 @@ impl ImportedDocument {
             }
         }
         // A defaults patch shares the styles part. Read the staged version.
+        numbering::apply(&mut package, &self.main, resources)?;
         resource_fields::apply(&mut package, &self.main, resources)?;
         Ok(EditPreview {
             block_changes,

@@ -18,18 +18,19 @@ pub struct AbstractStart {
 /// Each supplied edit sets or clears one property. Omit the edit to retain it.
 #[derive(Clone, Debug)]
 pub enum ResourceEdit {
+    Numbering(super::NumberingEdit),
     CoreTitle(Option<String>),
     DefaultAlignment(Option<Alignment>),
     AbstractStart(AbstractStart),
 }
 
-enum Part {
+pub(super) enum Part {
     Core,
     Defaults,
     Numbers,
 }
 impl Part {
-    fn load(&self, pkg: &Package, main: &str) -> Result<Option<(String, Node)>> {
+    pub(super) fn load(&self, pkg: &Package, main: &str) -> Result<Option<(String, Node)>> {
         let (owner, rel, mime, root) = match self {
             Self::Core => (
                 "",
@@ -67,7 +68,7 @@ impl Part {
     }
 }
 
-fn unique<'a>(parent: &'a Node, name: &str) -> Result<Option<&'a Node>> {
+pub(super) fn unique<'a>(parent: &'a Node, name: &str) -> Result<Option<&'a Node>> {
     let mut matches = parent.elements().filter(|n| n.name == name);
     let first = matches.next();
     if matches.next().is_some() || parent.child(ALTERNATE).is_some() {
@@ -76,7 +77,7 @@ fn unique<'a>(parent: &'a Node, name: &str) -> Result<Option<&'a Node>> {
     Ok(first)
 }
 
-fn scalar(node: &Node, attr: bool) -> Result<String> {
+pub(super) fn scalar(node: &Node, attr: bool) -> Result<String> {
     if node
         .attrs
         .iter()
@@ -154,7 +155,7 @@ fn parse_alignment(s: &str) -> Result<Alignment> {
     read_alignment(s).ok_or_else(|| unsupported("unsupported default alignment"))
 }
 
-fn id(n: &Node, key: &str) -> Result<u32> {
+pub(super) fn id(n: &Node, key: &str) -> Result<u32> {
     n.get(key)
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| unsupported(&format!("invalid {key}")))
@@ -223,6 +224,7 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
     let (mut title, mut alignment, mut starts) = (None, None, BTreeMap::new());
     for edit in edits {
         let duplicate = match edit {
+            ResourceEdit::Numbering(_) => continue,
             ResourceEdit::CoreTitle(v) => title.replace(v).is_some(),
             ResourceEdit::DefaultAlignment(v) => alignment.replace(v).is_some(),
             ResourceEdit::AbstractStart(v) => {

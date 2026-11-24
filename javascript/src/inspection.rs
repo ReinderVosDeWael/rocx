@@ -32,6 +32,14 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ),
         ("importedAbstractStarts", (abstract_starts, Paths::Package)),
         (
+            "importedNumberingInstances",
+            (numbering_instances, Paths::Package),
+        ),
+        (
+            "importedParagraphNumbering",
+            (paragraph_numbering, Paths::Package),
+        ),
+        (
             "importedStoryInlineStructure",
             (story_inline_structure, Paths::Package),
         ),
@@ -52,6 +60,8 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("coreTitle", "importedCoreTitle"),
     ("defaultAlignment", "importedDefaultAlignment"),
     ("abstractStarts", "importedAbstractStarts"),
+    ("numberingInstances", "importedNumberingInstances"),
+    ("paragraphNumbering", "importedParagraphNumbering"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
     ("previewTrackedText", "importedPreviewTrackedText"),
@@ -209,6 +219,41 @@ fn abstract_starts(input: &Wire) -> Result<JsValue> {
             record
         }),
     ))
+}
+
+fn numbering_instances(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        doc.document().numbering_instances()?.into_iter().map(|n| {
+            b::record(&[
+                ("numId", n.num_id.into()),
+                (
+                    "replacementLevels",
+                    view::array(n.replacement_levels.into_iter().map(Into::into)),
+                ),
+                ("abstractId", n.abstract_id.into()),
+                (
+                    "startOverrides",
+                    view::array(n.start_overrides.into_iter().map(|s| {
+                        b::record(&[("level", s.level.into()), ("start", s.start.into())])
+                    })),
+                ),
+            ])
+        }),
+    ))
+}
+
+fn paragraph_numbering(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let p =
+        b::borrow::<rocx::editor::ParagraphAnchor>(&argument(&call, "paragraph")?, "paragraph")?;
+    Ok(doc
+        .document()
+        .paragraph_numbering(&p)?
+        .map_or(JsValue::UNDEFINED, |r| {
+            b::record(&[("id", r.id.into()), ("level", r.level.into())])
+        }))
 }
 
 pub(crate) struct ImportedSource {

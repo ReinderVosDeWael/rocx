@@ -209,6 +209,13 @@ ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
 `coreTitle`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
 for clearing, absence, and shared-numbering semantics.
 
+In the same sample, the ranged paragraph receives list instance **9049**, linked
+to abstract **9048**, with a Roman label replacement and a separate start of 6.
+The Rust `NumberingEdit::{AddAbstract, AddInstance, InstanceLevel, InstanceStart, Paragraph}`,
+Python `ResourceEdit.{add_abstract, add_instance, instance_level, instance_start, paragraph_numbering}`
+and JavaScript `addAbstract`, `addInstance`, `instanceLevel`, `instanceStart`,
+`paragraphNumbering` forms produce the same `.run-text.docx`.
+
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.

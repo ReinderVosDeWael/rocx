@@ -30,6 +30,7 @@ for single-text runs in a physical header/footer or note/comment owner.
 
 from ._native import (
     AbstractStart,
+    ImportedNumberingInstance,
     ResourceEdit,
     StyleAnchor,
     StyleEdit,
@@ -84,6 +85,7 @@ ImportedStoryParagraph = ImportedHeaderParagraph
 
 __all__ = [
     "AbstractStart",
+    "ImportedNumberingInstance",
     "ResourceEdit",
     "StyleAnchor",
     "StyleEdit",

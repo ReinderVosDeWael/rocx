@@ -746,6 +746,40 @@ pub async fn generate(output: &Path) -> Result<()> {
             text: "Ranged 📝".into(),
         }],
         resources: &[
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddAbstract {
+                abstract_id: 9048,
+                levels: vec![rocx::NumberingLevel {
+                    level: 0,
+                    start: 2,
+                    format: "decimal".into(),
+                    text: "%1.".into(),
+                    ..Default::default()
+                }],
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceLevel {
+                num_id: 9049,
+                level: 0,
+                value: Some(Box::new(rocx::NumberingLevel {
+                    level: 0,
+                    start: 1,
+                    format: "lowerRoman".into(),
+                    text: "(%1)".into(),
+                    ..Default::default()
+                })),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::AddInstance {
+                num_id: 9049,
+                abstract_id: 9048,
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::InstanceStart {
+                num_id: 9049,
+                level: 0,
+                start: Some(6),
+            }),
+            editor::ResourceEdit::Numbering(editor::NumberingEdit::Paragraph {
+                target: targets[0].anchor.clone(),
+                value: Some(rocx::NumberingReference { id: 9049, level: 0 }),
+            }),
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {

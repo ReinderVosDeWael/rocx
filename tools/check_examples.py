@@ -854,6 +854,13 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
         assert styles.xpath("w:docDefaults/w:pPrDefault/w:pPr/w:jc/@w:val", namespaces=NS) == ["center"]
         numbers = etree.fromstring(changed.read("word/numbering.xml"))
         assert numbers.xpath("w:abstractNum[@w:abstractNumId='100']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["7"]
+        assert numbers.xpath("w:abstractNum[@w:abstractNumId='9048']/w:lvl[@w:ilvl='0']/w:start/@w:val", namespaces=NS) == ["2"]
+        instance, = numbers.xpath("w:num[@w:numId='9049']", namespaces=NS)
+        assert instance.xpath("w:abstractNumId/@w:val", namespaces=NS) == ["9048"]
+        assert instance.xpath("w:lvlOverride[@w:ilvl='0']/w:startOverride/@w:val", namespaces=NS) == ["6"]
+        assert instance.xpath("w:lvlOverride[@w:ilvl='0']/w:lvl/w:numFmt/@w:val", namespaces=NS) == ["lowerRoman"]
+        numbered, = [p for p in edited_doc.paragraphs if p.text.startswith("Ranged 📝")]
+        assert numbered._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["9049"]
 
 
 def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:

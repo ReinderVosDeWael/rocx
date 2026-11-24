@@ -104,7 +104,7 @@ fn discardable(n: &Node) -> bool {
         })
 }
 
-fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
+pub(super) fn opaque_reference_context(n: &Node) -> bool {
     // Fields can assemble style names across runs, or use aliases. Also
     // decline deferred content and externally supplied style definitions.
     let baseline_extension = matches!(
@@ -130,9 +130,9 @@ fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
                 | "w:subDoc"
                 | "w:attachedTemplate"
         )
-        || n.attrs.iter().any(|(a, v)| {
+        || n.attrs.iter().any(|(a, _)| {
             a.declaration().is_none()
-                && ((!baseline_extension
+                && (!baseline_extension
                     && !matches!(
                         a.namespace(),
                         Some(
@@ -144,7 +144,14 @@ fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
                     )
                     && a.as_str()
                         != "{http://schemas.openxmlformats.org/markup-compatibility/2006}Ignorable")
-                    || v.eq_ignore_ascii_case(id)
+        })
+}
+
+fn node_may_reference(n: &Node, id: &str, name: &str) -> bool {
+    opaque_reference_context(n)
+        || n.attrs.iter().any(|(a, v)| {
+            a.declaration().is_none()
+                && (v.eq_ignore_ascii_case(id)
                     || v.eq_ignore_ascii_case(name)
                     || v.split(',').any(|s| {
                         s.trim().eq_ignore_ascii_case(id) || s.trim().eq_ignore_ascii_case(name)
@@ -175,6 +182,14 @@ fn check_unused(package: &Package, path: &str, root: &Node, target: &Node) -> Re
     {
         return Err(unsupported("style has live or uninspectable references"));
     }
+    check_other_parts(package, path, |n| possible_reference(n, id, name))
+}
+
+pub(super) fn check_other_parts(
+    package: &Package,
+    path: &str,
+    may_reference: impl Fn(&Node) -> bool,
+) -> Result<()> {
     for part in package
         .parts
         .keys()
@@ -213,8 +228,8 @@ fn check_unused(package: &Package, path: &str, root: &Node, target: &Node) -> Re
                 continue;
             }
         }
-        if !word || possible_reference(&package.word(part)?, id, name) {
-            return Err(unsupported("style has live or uninspectable references"));
+        if !word || may_reference(&package.word(part)?) {
+            return Err(unsupported("resource has live or uninspectable references"));
         }
     }
     Ok(())

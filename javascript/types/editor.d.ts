@@ -1,5 +1,5 @@
 import type { ResolvedImage } from "./drawings.js";
-import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
+import type { StyleDefinition, NumberingStyleDefinition, NumberingLevel } from "./styles.js";
 import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
@@ -88,6 +88,13 @@ export type StyleEdit =
   | { readonly op: "remove"; readonly target: StyleAnchor };
 
 export type ResourceEdit =
+  | { readonly kind: "addAbstract"; readonly abstractId: number; readonly levels: readonly NumberingLevel[] }
+  | { readonly kind: "instanceLevel"; readonly numId: number; readonly level: number; readonly value: NumberingLevel | null }
+  | { readonly kind: "removeAbstract"; readonly abstractId: number }
+  | { readonly kind: "addInstance"; readonly numId: number; readonly abstractId: number }
+  | { readonly kind: "removeInstance"; readonly numId: number }
+  | { readonly kind: "instanceStart"; readonly numId: number; readonly level: number; readonly value: number | null }
+  | { readonly kind: "paragraphNumbering"; readonly target: ParagraphAnchor; readonly value: { readonly id: number; readonly level: number } | null }
   | { readonly kind: "coreTitle"; readonly value: string | null }
   | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
   | { readonly kind: "abstractStart"; readonly abstractId: number; readonly level: number; readonly value: number | null };

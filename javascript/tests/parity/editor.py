@@ -147,6 +147,7 @@ def verify_controls(directory):
 def generate(directory):
     generate_controls(directory)
     catalog = Document()
+    catalog.add_paragraph("Numbering target")
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     for name in ["Memo Replace", "Memo Drop", "Memo Active"]:
         catalog.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH).font.italic = False
@@ -352,10 +353,17 @@ def verify(directory):
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d
-    from rocx.editor import ImportedDocument, StyleEdit
+    from rocx.editor import ImportedDocument, ResourceEdit, StyleEdit
     source_path = directory / "styles-source.docx"
     style_path = directory / "styleEdits.docx"
     styles_source = ImportedDocument.open(source_path.read_bytes())
+    numbered = directory / "numberingEdits.docx"
+    assert styles_source.preview([], resources=[
+        ResourceEdit.add_abstract(90, [d.NumberingLevel()]), ResourceEdit.add_instance(91, 90),
+        ResourceEdit.paragraph_numbering(styles_source.body[0].anchor, (91, 0)),
+    ]).to_docx() == numbered.read_bytes()
+    untouched(parts(source_path), parts(numbered), (MAIN, "word/numbering.xml"))
+    assert Document(numbered).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["91"]
     edit = styles_source.preview([], style_edits=[
         StyleEdit.add(d.ParagraphStyleDefinition(name="Memo Added", base_style="Memo Active")),
         StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
