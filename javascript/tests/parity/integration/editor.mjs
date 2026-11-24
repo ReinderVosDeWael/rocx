@@ -10,6 +10,7 @@ export async function editorFixtures(read) {
     mixedBody: result.mixedBody,
     blocks: result.blocks,
     noop: result.noop,
+    inline: result.inline,
     removal: result.removal,
     range: result.range,
     shared: result.shared,

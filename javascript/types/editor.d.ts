@@ -1,7 +1,7 @@
 import type { ResolvedImage } from "./drawings.js";
 import type { HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
-import type { Alignment, ResolvedParagraph } from "./text-layout.js";
+import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
 
 export interface ParagraphAlignmentEdit {
   readonly target: ParagraphAnchor;
@@ -48,6 +48,11 @@ export interface HeaderImageEdit {
   readonly mode: HeaderEditMode;
   readonly image: ResolvedImage;
 }
+
+export type InlineEdit = { readonly target: InlineAnchor } & (
+  | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
+  | { readonly kind: "setBold"; readonly bold: boolean }
+);
 
 export interface EditBatch {
   readonly textRanges?: readonly TextRangeEdit[];
@@ -107,6 +112,7 @@ export interface EditPreview {
   /** Insertions in original body order. */
   insertions(): readonly TableInsertionChange[];
   /** Original body indices after which paragraphs were inserted. */
+  inlineChanges(): readonly (readonly [number, number])[];
   paragraphInsertions(): readonly number[];
   /** Changes in target section order. */
   headerChanges(): readonly HeaderImageChange[];

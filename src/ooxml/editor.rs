@@ -27,22 +27,7 @@ pub(crate) fn encode_editor_paragraphs(
             "editor.paragraph",
         )?;
     }
-    let style_part = if style_refs.is_empty() {
-        None
-    } else {
-        package.related(main, "styles")?
-    };
-    let styles = match style_part {
-        Some((_, path)) => package.word(&path)?,
-        None => Node::new("w:styles"),
-    };
-    if styles.name != "w:styles" {
-        return Err(unsupported("unexpected styles part root").into());
-    }
-    let styles = StyleCatalog::new(&styles)?;
-    for (kind, name) in style_refs {
-        styles.get_typed(&name, kind)?;
-    }
+    let styles = editor_styles(&package, main, style_refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
     let story =
         renderer
@@ -56,16 +41,7 @@ pub(crate) fn encode_editor_paragraphs(
     Ok((renderer.package, output))
 }
 
-pub(crate) fn encode_editor_tables(
-    package: Package,
-    main: &str,
-    tables: Vec<(ResolvedTable, i64)>,
-) -> Result<(Package, Vec<Node>)> {
-    let mut style_refs = BTreeSet::new();
-    let path = DeclarationPath::root("sections").index(0).field("children");
-    for (index, (table, _)) in tables.iter().enumerate() {
-        check_table(table, &path.index(index), &mut style_refs)?;
-    }
+fn editor_styles(package: &Package, main: &str, style_refs: StyleRefs) -> Result<StyleCatalog> {
     let style_part = if style_refs.is_empty() {
         None
     } else {
@@ -82,6 +58,44 @@ pub(crate) fn encode_editor_tables(
     for (kind, name) in style_refs {
         styles.get_typed(&name, kind)?;
     }
+    Ok(styles)
+}
+
+pub(crate) fn encode_editor_inlines(
+    package: Package,
+    main: &str,
+    inlines: &[&ResolvedInline],
+) -> Result<(Package, Vec<Vec<Node>>)> {
+    let mut refs = StyleRefs::new();
+    for inline in inlines {
+        check_inline(inline, &mut refs, "editor.inline")?;
+        inline.validate()?;
+    }
+    let styles = editor_styles(&package, main, refs)?;
+    let mut renderer = fragment_renderer(package, main, styles);
+    let story =
+        renderer
+            .stories
+            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+    let context = renderer.context(story, 8640);
+    let output = inlines
+        .iter()
+        .map(|inline| renderer.inline(inline, &context))
+        .collect::<Result<_>>()?;
+    Ok((renderer.package, output))
+}
+
+pub(crate) fn encode_editor_tables(
+    package: Package,
+    main: &str,
+    tables: Vec<(ResolvedTable, i64)>,
+) -> Result<(Package, Vec<Node>)> {
+    let mut style_refs = BTreeSet::new();
+    let path = DeclarationPath::root("sections").index(0).field("children");
+    for (index, (table, _)) in tables.iter().enumerate() {
+        check_table(table, &path.index(index), &mut style_refs)?;
+    }
+    let styles = editor_styles(&package, main, style_refs)?;
     let mut renderer = fragment_renderer(package, main, styles);
     let story =
         renderer
@@ -194,47 +208,44 @@ fn check_table(
     Ok(())
 }
 
+fn check_inline(run: &ResolvedInline, styles: &mut StyleRefs, scope: &'static str) -> Result<()> {
+    if let Some(style) = run.format().and_then(|format| format.style.as_ref()) {
+        styles.insert(("character", style.clone()));
+    }
+    match run {
+        ResolvedInline::Text {
+            comment: None,
+            revision: None,
+            ..
+        }
+        | ResolvedInline::Tab { comment: None, .. }
+        | ResolvedInline::Break { comment: None, .. }
+        | ResolvedInline::Fraction { .. } => Ok(()),
+        ResolvedInline::Hyperlink(link) if link.target().bookmark_name().is_none() => {
+            for child in link.children() {
+                check_inline(child, styles, scope)?;
+            }
+            Ok(())
+        }
+        _ => Err(Diagnostic::new(
+            Rule::UnsupportedEdit,
+            match scope {
+                "editor.table" => "unsupported inline content in an inserted table",
+                "editor.inline" => "unsupported inline declaration",
+                _ => "unsupported inline content in an inserted paragraph",
+            },
+        )
+        .at(scope)
+        .into()),
+    }
+}
+
 fn check_blocks(
     blocks: &[ResolvedBlock],
     path: &DeclarationPath,
     styles: &mut StyleRefs,
     scope: &'static str,
 ) -> Result<()> {
-    fn check_inline(
-        run: &ResolvedInline,
-        styles: &mut StyleRefs,
-        scope: &'static str,
-    ) -> Result<()> {
-        if let Some(style) = run.format().and_then(|format| format.style.as_ref()) {
-            styles.insert(("character", style.clone()));
-        }
-        match run {
-            ResolvedInline::Text {
-                comment: None,
-                revision: None,
-                ..
-            }
-            | ResolvedInline::Tab { comment: None, .. }
-            | ResolvedInline::Break { comment: None, .. }
-            | ResolvedInline::Fraction { .. } => Ok(()),
-            ResolvedInline::Hyperlink(link) if link.target().bookmark_name().is_none() => {
-                for child in link.children() {
-                    check_inline(child, styles, scope)?;
-                }
-                Ok(())
-            }
-            _ => Err(Diagnostic::new(
-                Rule::UnsupportedEdit,
-                if scope == "editor.table" {
-                    "unsupported inline content in an inserted table"
-                } else {
-                    "unsupported inline content in an inserted paragraph"
-                },
-            )
-            .at(scope)
-            .into()),
-        }
-    }
     for (index, block) in blocks.iter().enumerate() {
         let path = path.index(index);
         match block {

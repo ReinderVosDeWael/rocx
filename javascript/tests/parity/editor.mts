@@ -407,6 +407,23 @@ export async function run(fixtures: Fixtures) {
   rejects(() => doc.preview({textRanges: [{...selection, target: paragraph(doc, 0).anchor}]}), /plain direct body/);
   same(ranged.preview({textRanges: [selection]}).runTextChanges().map(c => c.after), ["a 🐈 ", "", "d"], "scalar ranges retain run containers");
   check(paragraph(doc, 0).text.startsWith("Source bold"), "source unchanged");
+  const second = paragraph(doc, 1).inlineStructure[0];
+  const fourth = paragraph(doc, 4).inlineStructure[0];
+  check(second.kind === "run" && fourth.kind === "run", "inline targets");
+  const payload = await resolveComponent({kind: "paragraph", runs: [
+    {kind: "break", breakType: "line"}, {kind: "hyperlink", target: {kind: "external", url: "https://example.invalid/inline"}, children: [{kind: "text", text: "editable link"}]},
+  ]});
+  check(payload, "inline declarations resolved");
+  const inlineEdits: NonNullable<EditBatch["inlineEdits"]> = [
+    { kind: "insertAfter", target: fourth.anchor, inline: payload.view.runs[0] },
+    { kind: "setBold", target: first.anchor, bold: false },
+    { kind: "replace", target: second.anchor, inline: payload.view.runs[1] },
+  ];
+  const inline = doc.preview({inlineEdits});
+  same(inline.inlineChanges(), [[0,0],[1,0],[4,0]], "inline change sites");
+  rejects(() => other.preview({inlineEdits}), /different document snapshot/);
+  rejects(() => doc.preview({inlineEdits, runRemovals: [first.anchor]}), /conflicting/);
+  bytesEqual(doc.preview({inlineEdits}).toDocx(), inline.toDocx(), "inline retry");
   return {
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),

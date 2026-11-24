@@ -633,6 +633,57 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "InlineEdit", frozen, module = "rocx.editor")]
+struct PyInlineEdit {
+    inner: editor::InlineEdit,
+}
+
+fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
+    if !node.is_instance(
+        &node
+            .py()
+            .import("rocx.resolution.snapshot")?
+            .getattr("ResolvedNode")?,
+    )? {
+        return Err(PyTypeError::new_err("expected resolved inline"));
+    }
+    super::content::inline(node)?.ok_or_else(|| PyTypeError::new_err("expected resolved inline"))
+}
+
+#[pymethods]
+impl PyInlineEdit {
+    #[staticmethod]
+    fn insert_after(
+        target: PyRef<'_, PyInlineAnchor>,
+        inline: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::InsertAfter(inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn replace(target: PyRef<'_, PyInlineAnchor>, inline: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::Replace(inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn set_bold(target: PyRef<'_, PyInlineAnchor>, bold: bool) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetBold(bold),
+            },
+        }
+    }
+}
+
 #[pyclass(name = "ParagraphInsertion", frozen, module = "rocx.editor")]
 struct PyParagraphInsertion {
     target: editor::ParagraphAnchor,
@@ -1269,6 +1320,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyParagraphAlignmentEdit>()?;
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyParagraphInsertion>()?;
+    module.add_class::<PyInlineEdit>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;

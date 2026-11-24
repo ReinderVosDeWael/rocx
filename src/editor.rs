@@ -32,7 +32,7 @@ pub use header::{
 };
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit};
-pub use text::{RunRemovalChange, RunTextChange, RunTextEdit};
+pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -373,6 +373,7 @@ pub struct AlignmentChange {
 pub struct EditPreview {
     block_changes: Vec<usize>,
     run_text_changes: Vec<RunTextChange>,
+    inline_changes: Vec<(usize, usize)>,
     run_removals: Vec<RunRemovalChange>,
     cell_alignment_changes: Vec<CellAlignmentChange>,
     changes: Vec<AlignmentChange>,
@@ -390,6 +391,10 @@ impl EditPreview {
     /// Changed physical cells in original document order.
     pub fn cell_alignment_changes(&self) -> &[CellAlignmentChange] {
         &self.cell_alignment_changes
+    }
+    /// Changed (body index, direct inline index) pairs in original document order.
+    pub fn inline_changes(&self) -> &[(usize, usize)] {
+        &self.inline_changes
     }
     /// Removed direct body runs, in original document order.
     pub fn run_removals(&self) -> &[RunRemovalChange] {
@@ -734,6 +739,7 @@ impl ImportedDocument {
         let mut insertions = Vec::new();
         let mut header_changes = Vec::new();
         let mut run_text_changes = Vec::new();
+        let mut inline_changes = Vec::new();
         let mut removed_runs = Vec::new();
         let mut cell_alignment_changes = Vec::new();
         let mut block_changes = Vec::new();
@@ -742,6 +748,7 @@ impl ImportedDocument {
             || !header_images.is_empty()
             || !ranges.is_empty()
             || !run_text.is_empty()
+            || !inline_edits.is_empty()
             || !run_removals.is_empty()
             || !paragraph_targets.is_empty()
             || !cells.is_empty()
@@ -854,6 +861,7 @@ impl ImportedDocument {
             if !changes.is_empty()
                 || !block_changes.is_empty()
                 || !run_text_changes.is_empty()
+                || !inline_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
                 || !insertions.is_empty()
@@ -868,6 +876,7 @@ impl ImportedDocument {
         Ok(EditPreview {
             block_changes,
             run_text_changes,
+            inline_changes,
             run_removals: removed_runs,
             cell_alignment_changes,
             changes,
