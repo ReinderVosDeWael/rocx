@@ -4,8 +4,8 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
-The ten topic branches start from `fad29a9`. This is the scope of the
-combined candidate, not a record of default-branch acceptance. #3 remains
+The ten topic branches start from `fad29a9` and are combined in
+[#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
 and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#operation-contract).
 
@@ -23,13 +23,16 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 
-**Qualification:** topic-specific Rust, installed Python and packed JavaScript
-results belong to the individual branches, which exercised different artifacts
-and runtimes. Before accepting the combined candidate, run the mixed-batch
-and conflict oracles, all eleven catalog comparisons, independent readback and
-untouched-part/schema checks across installed consumers, including Node and
-Chromium. Record the tested commit and results separately. Keep partially met
-tickets open.
+**Combined qualification on `6f11a6a`:** Rust all-features/all-targets and
+doctests, native/Wasm Clippy, Rust 1.88, 894 schema-required Python tests and
+the 592-page strict docs build passed locally. Packed Node 22/24 and Chromium
+development/production passed all eleven catalog and 23 editor comparisons,
+schema/OPC validation, independent readback and offline package replay.
+The mixed edit was byte-identical in Rust, Python and all three JavaScript
+consumers. Regressions cover crossing a bookmark inside math, live style
+aliases, protected move and bound-control template edits, proofing ranges
+across cells, and sharing a staged style catalog across operations.
+Keep #48 open for the remaining resource inventory; #52 is separate.
 
 ## Selected standalone topic results (before ten-way integration)
 
