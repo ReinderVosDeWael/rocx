@@ -113,6 +113,9 @@ The following `kind` values can be combined with the seven above in one
 | `paragraph-flag`, `section-flag` | Paragraph `target` (section start for section flags), `flag` (Python snake_case name), `value` (`true`, `false`, or explicit `null` to clear). |
 | `section-type` | Section-start paragraph `target`, `value` (`continuous`, `nextPage`, `nextColumn`, `evenPage`, `oddPage`, or explicit `null`). |
 | `insert-inline`, `replace-inline`, `run-bold` | Paragraph `target`, `inline_index` from `inlines`; `inline` for insert-after/replace, boolean `value` for direct run bold. |
+| `inline-edit` | Paragraph `target`, `inline_index`, and the rich inline `operation` below. |
+| `field` | Paragraph `target`, original `inline_index` of a simple field or complex field begin run, and `operation`. |
+| `paired-range` | `id`, optional `bookmark`, and optional pair `endpoints` of inclusive `{target,inline_index}` addresses. No bookmark name means an existing comment definition; no endpoints removes the pair. |
 | `table-structure` | Table `target`, `operation`. For example `{"kind":"insert-column","index":1}`. |
 | `story-image` | `target` copied from `stories` (`section_index`, `kind`: `header`/`footer`, `variant`: `default`/`first`/`even`), `mode`, `bytes` as for `header-image`. |
 | `style-add`, `style-replace`, `style-patch`, `style-remove` | Add/replace require `definition`. All except add require exact `id` from `styles.definitions`. Patch supports optional boolean `bold`, `italic`. |
@@ -126,6 +129,7 @@ The following `kind` values can be combined with the seven above in one
 | `instance-start`, `instance-level` | `num_id`, `level`, and `value` (unsigned integer or numbering level object, respectively; explicit `null` clears). |
 | `paragraph-numbering` | Paragraph `target` and `value` (`{"id":42,"level":0}` or explicit `null`). |
 | `control` | `target` from `controls`, optional strings `tag`, `alias`, `text`. Physical control numbers are independent of body indices, tags and XML IDs. |
+| `control-wrapper` | An `operation` using `controls` or `control_sites` indices, as described below. |
 
 `operation.kind` is `insert-row`, `remove-row`, `insert-column`, `remove-column`
 (each takes `index`), `insert-cell`, `remove-cell` (each takes `row`, `cell`),
@@ -137,9 +141,38 @@ on tables, `flags` on paragraphs, and `sections` with original `body_start`,
 exclusive `body_end`, direct `flags`, and `section_type_xml`.
 
 `blocks` is an array of `{"kind":"paragraph","text":"..."}` or
-`{"kind":"table","rows":[["..."]]}`. An `inline` is a `text` declaration
-(`text`, optional boolean `bold`, `italic`), `hyperlink` (`url`, `text`), or
-`image` (`bytes`). Paragraph, character and table style definitions take
+`{"kind":"table","rows":[["..."]]}`. Supported `inline` declarations are:
+
+| `kind` | Fields besides `kind` |
+| --- | --- |
+| `text` | `text`; optional `bold`, `italic`, `style` (character style name or ID), and `size` (points). |
+| `hyperlink`, `bookmark-link` | `url` or `name`, respectively, and `text`. A bookmark link can target a pair staged in the same batch. |
+| `image` | `bytes`, as for `header-image`. |
+| `fraction` | `numerator`, `denominator`. |
+| `column-chart` | `width`, `height` in points; `categories` (strings), `values` (numbers). |
+| `field` | `instruction` object (`page`, `num-pages`, `table-of-contents`, `reference` with `name`, or `raw` with `text`); optional `children` (cached inlines), `complex`, `dirty`, `locked`. |
+
+An `inline-edit` operation is `format` (`set` with optional `style`, `font`,
+`size`, `bold`, `italic`, `strike`, `all_caps`, `small_caps`; `clear` is a list
+of core format field keys such as `size` or `fontEastAsia`), `drawing-description`
+(`value`: string or `null`), `drawing-property` (`property` such as `size` or
+`chartSeries`, plus an `inline` declaration of the appropriate drawing type),
+`image-asset` (`bytes`), `remove-object`, `hyperlink-tooltip`, `hyperlink-history`
+(`value` or explicit `null`), or `remove-hyperlink`.
+
+A `field` edit operation is `instruction` (`value`: string), `dirty` or
+`locked` (`value`: boolean or `null`), `cache` (`children`), `replace` (`inline`
+field declaration), or `remove`. These edit kinds do not evaluate fields.
+
+A `control-wrapper` operation is `wrap` (`first` and optional `last` from
+`control_sites`, `tag`), `unwrap` (`target` from `controls`), `replace-inlines`
+(`target`, `inlines`), `replace-blocks` (`target`, `blocks`), `choice`
+(`target`, `selected`, optional `items` of `{display_text,value}`), or `define`
+(`target`, `text` object, optional `id`, `tag`, `alias`, `lock`). The definition
+`text.kind` is `rich`, `plain` (optional `multi_line`), or `drop-down` (`items`,
+`selected`); lock names are `unlocked`, `control`, `content`, or `both`.
+
+Paragraph, character and table style definitions take
 `kind`, `name`, optional `base_style` and, except for tables, optional boolean
 `bold` and `italic`. A `numbering` definition takes `name` and `numbering_id`.
 A numbering level takes `level`, `start`, `format`, `text`, and optionally
@@ -150,9 +183,11 @@ bytes. These are declaration shorthands; the editor validates the resolved
 content and references.
 
 `inspect` also returns `core_title`, `default_alignment`, `abstract_starts`,
-`controls`, `styles`, `stories`, and `entries`. Independent failed inventory
-reads return `<field>_error`. `inlines` identifies direct runs, hyperlinks and
-revision wrappers with their original indices. Story and entry `blocks` list
+`controls`, `control_sites`, `styles`, `stories`, and `entries`. Independent
+failed inventory reads return `<field>_error`. `inlines` identifies direct runs,
+simple fields, fractions, hyperlinks and revision wrappers with original
+indices. Runs can carry `drawing`, `has_field_marker` or `property_revision`;
+paragraphs with a tracked terminator report `mark_revision`. Story and entry `blocks` list
 direct paragraphs with original `block_index` and `inlines`.
 
 `inspect` includes `core_subject`. To read specific scalar and custom fields,
@@ -176,4 +211,7 @@ creates no destination; inspect the saved copy before issuing more edits.
 | `story-text` | `part` (exact physical part from `stories` or `entries`), `runs` (array of `{block_index,inline_index,text}`; also include `entry_index` for a note/comment). Aliased slots share the edit. Returns `story_part` and the two digests. |
 | `tracked-text` | `target` (`{target,inline_index}` for a run), `author`, optional `date`, `action` (`{"kind":"delete"}`, or `{"kind":"replace","text":"..."}` / `{"kind":"insert-after","text":"..."}`). |
 | `tracked-move` | Run address objects `target`, `after`; strings `name`, `author`, `date`. |
-| `review-revision` | `target` (address object for a direct revision wrapper), `action` (`accept`/`reject`), optional `paired` wrapper address for moves. |
+| `tracked-bold` | Run address object `target`, boolean `value`, `author`, optional `date`. |
+| `tracked-paragraph` | Paragraph `target`, `author`, optional `date`, and `operation` (`{"kind":"delete"}` or `{"kind":"insert-before","text":"..."}`). |
+| `review-revision` | `target` (address object for a direct revision wrapper or run property revision), `action` (`accept`/`reject`), optional `paired` wrapper address for moves. |
+| `review-paragraph-revision` | Paragraph `target`, `action` (`accept`/`reject`); reviews the paired terminator and text together. |

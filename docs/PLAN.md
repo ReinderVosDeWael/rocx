@@ -4,6 +4,16 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+The isolated branch now merges the qualified `7d5d08b` resource and structural
+integration. The mixed CLI/installed-Python fixture uses a staged character
+style and numbering definition, a picture, a field cache referring to a
+same-batch bookmark, and a rich wrapper. It checks wrapper/numbering collisions
+and retains a pending revision when a disjoint drawing and metadata change
+are applied. Revision proposals and reviews remain separate requests. Final
+style/numbering checks reject new live or opaque references. `ProcessContent`
+guards now cover DrawingML properties and relationship-selected chart content.
+See [the CLI contract](CLI.md) for the body rich-edit transport.
+
 The isolated inline integration starts at `ae0cefd` and merges `ec54da1`,
 `f4c9ac6` and snapshots of the outstanding controls, fields and drawings work.
 The `richControls` oracle combines rich wrappers, three drawing insertions,

@@ -9,9 +9,11 @@ use serde_json::{Value, json};
 mod declarations;
 mod discovery;
 mod resources;
+mod rich;
 mod scoped;
 use declarations::*;
 use resources::*;
+use rich::*;
 use scoped::*;
 
 #[derive(Deserialize)]
@@ -121,6 +123,25 @@ pub(super) enum Edit {
         target: usize,
         inline_index: usize,
         value: bool,
+    },
+    #[serde(rename = "inline-edit")]
+    RichInline {
+        target: usize,
+        inline_index: usize,
+        operation: RichInline,
+    },
+    Field {
+        target: usize,
+        inline_index: usize,
+        operation: FieldOperation,
+    },
+    PairedRange {
+        id: u32,
+        bookmark: Option<String>,
+        endpoints: Option<[RunAddress; 2]>,
+    },
+    ControlWrapper {
+        operation: WrapperOperation,
     },
     TableStructure {
         target: usize,
@@ -246,6 +267,22 @@ pub(super) enum Edit {
         author: String,
         date: String,
     },
+    TrackedBold {
+        target: RunAddress,
+        value: bool,
+        author: String,
+        date: Option<String>,
+    },
+    TrackedParagraph {
+        target: usize,
+        operation: ParagraphTracking,
+        author: String,
+        date: Option<String>,
+    },
+    ReviewParagraphRevision {
+        target: usize,
+        action: Review,
+    },
     ReviewRevision {
         target: RunAddress,
         action: Review,
@@ -309,6 +346,7 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
                 .collect();
             json!({"type":"paragraph","target":index,"text":p.text,"alignment_xml":p.alignment_xml,
                    "flags": p.flags.iter().map(|(f,v)|(f.python_name(),v)).collect::<std::collections::BTreeMap<_,_>>(),
+                   "mark_revision":p.mark_revision.as_ref().map(discovery::revision_metadata),
                    "has_opaque_content":p.has_opaque_content,"runs":runs,"inlines":discovery::inlines(&p.inline_structure)})
         }
         BodyBlock::Table(t) => {
@@ -402,12 +440,16 @@ pub(super) fn preview(
         mut resources,
         mut controls,
     ) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
+    let (mut fields, mut paired_ranges, mut wrappers) = (vec![], vec![], vec![]);
     let count = edits.len();
     for edit in edits {
         match edit {
             e @ (Edit::StoryText { .. }
             | Edit::TrackedText { .. }
             | Edit::TrackedMove { .. }
+            | Edit::TrackedBold { .. }
+            | Edit::TrackedParagraph { .. }
+            | Edit::ReviewParagraphRevision { .. }
             | Edit::ReviewRevision { .. }) => {
                 if count != 1 {
                     return Err("story text or revision operation must be the only edit".into());
@@ -504,6 +546,40 @@ pub(super) fn preview(
                 target: run(doc, target, inline_index)?,
                 action: InlineAction::SetBold(value),
             }),
+            Edit::RichInline {
+                target,
+                inline_index,
+                operation,
+            } => inline_edits.push(InlineEdit {
+                target: inline_anchor(doc, target, inline_index)?,
+                action: operation.resolve()?,
+            }),
+            Edit::Field {
+                target,
+                inline_index,
+                operation,
+            } => fields.push(FieldEdit {
+                target: paragraph(doc, target)?.anchor.clone(),
+                inline_index,
+                action: operation.resolve()?,
+            }),
+            Edit::PairedRange {
+                id,
+                bookmark,
+                endpoints,
+            } => paired_ranges.push(PairedRangeEdit {
+                id,
+                bookmark,
+                endpoints: endpoints
+                    .map(|[a, z]| {
+                        Ok::<_, String>((
+                            inline_anchor(doc, a.target, a.inline_index)?,
+                            inline_anchor(doc, z.target, z.inline_index)?,
+                        ))
+                    })
+                    .transpose()?,
+            }),
+            Edit::ControlWrapper { operation } => wrappers.push(operation.resolve(doc)?),
             Edit::TableStructure { target, operation } => {
                 let Some(BodyBlock::Table(t)) = doc.body().get(target) else {
                     return Err("expected direct body table".into());
@@ -716,7 +792,9 @@ pub(super) fn preview(
             styles: &styles,
             resources: &resources,
             controls: &controls,
-            ..Default::default()
+            fields: &fields,
+            paired_ranges: &paired_ranges,
+            wrappers: &wrappers,
         })
         .map_err(|e| format!("preview: {e}"))?;
     Ok((

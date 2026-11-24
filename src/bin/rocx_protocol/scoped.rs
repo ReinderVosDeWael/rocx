@@ -65,7 +65,8 @@ pub(super) fn inline_anchor(
     match paragraph(doc, target)?.inline_structure.get(index) {
         Some(ImportedInlineNode::Run(r)) => Ok(r.anchor.clone()),
         Some(ImportedInlineNode::Hyperlink(h)) => Ok(h.anchor.clone()),
-        _ => Err("expected direct run or hyperlink".into()),
+        Some(ImportedInlineNode::Fraction { anchor, .. }) => Ok(anchor.clone()),
+        _ => Err("expected a direct run, hyperlink or fraction".into()),
     }
 }
 impl RunAddress {
@@ -78,7 +79,10 @@ impl RunAddress {
             .get(self.inline_index)
         {
             Some(ImportedInlineNode::Revision(r)) => Ok(r.anchor.clone()),
-            _ => Err("expected direct revision wrapper".into()),
+            Some(ImportedInlineNode::Run(r)) if r.property_revision.is_some() => {
+                Ok(r.anchor.clone())
+            }
+            _ => Err("expected direct revision wrapper or run property revision".into()),
         }
     }
 }
@@ -102,6 +106,20 @@ pub(crate) enum Tracking {
 pub(crate) enum Review {
     Accept,
     Reject,
+}
+impl From<Review> for rocx::TextRevisionAction {
+    fn from(value: Review) -> Self {
+        match value {
+            Review::Accept => Self::Accept,
+            Review::Reject => Self::Reject,
+        }
+    }
+}
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum ParagraphTracking {
+    InsertBefore { text: String },
+    Delete {},
 }
 pub(super) fn preview_scoped(
     doc: &ImportedDocument,
@@ -166,16 +184,36 @@ pub(super) fn preview_scoped(
             author,
             date,
         } => doc.preview_tracked_move(&target.run(doc)?, &after.run(doc)?, &name, &author, &date),
+        Edit::TrackedBold {
+            target,
+            value,
+            author,
+            date,
+        } => doc.preview_tracked_bold(&target.run(doc)?, value, &author, date.as_deref()),
+        Edit::TrackedParagraph {
+            target,
+            operation,
+            author,
+            date,
+        } => doc.preview_tracked_paragraph(
+            &paragraph(doc, target)?.anchor,
+            match operation {
+                ParagraphTracking::InsertBefore { text } => TrackedParagraph::InsertBefore(text),
+                ParagraphTracking::Delete {} => TrackedParagraph::Delete,
+            },
+            &author,
+            date.as_deref(),
+        ),
+        Edit::ReviewParagraphRevision { target, action } => {
+            doc.preview_paragraph_revision(&paragraph(doc, target)?.anchor, action.into())
+        }
         Edit::ReviewRevision {
             target,
             action,
             paired,
         } => doc.preview_revision(
             &target.revision(doc)?,
-            match action {
-                Review::Accept => rocx::TextRevisionAction::Accept,
-                Review::Reject => rocx::TextRevisionAction::Reject,
-            },
+            action.into(),
             paired.map(|p| p.revision(doc)).transpose()?.as_ref(),
         ),
         _ => unreachable!(),

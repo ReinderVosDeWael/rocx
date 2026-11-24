@@ -1,26 +1,44 @@
 use super::*;
 
+pub(super) fn revision_metadata(r: &ImportedPropertyRevision) -> Value {
+    json!({"kind":r.kind,"id":r.id,"author":r.author,"date":r.date})
+}
+
 pub(super) fn inlines(nodes: &[ImportedInlineNode]) -> Vec<Value> {
     nodes
         .iter()
         .enumerate()
         .filter_map(|(i, node)| {
-            let value = match node {
+            Some(match node {
                 ImportedInlineNode::Run(r) => {
                     let text = match r.items.as_slice() {
                         [ImportedInline::Text(s)] => Some(s),
                         _ => None,
                     };
-                    json!({"kind":"run","inline_index":i,"text":text})
+                    let mut value = json!({"kind":"run","inline_index":i,"text":text});
+                    if let Some(r) = &r.property_revision {
+                        value["property_revision"] = revision_metadata(r);
+                    }
+                    if let Some(d) = &r.drawing {
+                        value["drawing"] = json!({"kind":d.kind,"description":d.description,
+                            "placement":d.placement,"relationship_id":d.relationship_id});
+                    }
+                    if r.items.iter().any(|n| matches!(n, ImportedInline::Opaque(name) if name == "w:fldChar")) {
+                        value["has_field_marker"] = json!(true);
+                    }
+                    value
                 }
                 ImportedInlineNode::Hyperlink(_) => json!({"kind":"hyperlink","inline_index":i}),
+                ImportedInlineNode::Fraction { numerator, denominator, .. } =>
+                    json!({"kind":"fraction","inline_index":i,"numerator":numerator,"denominator":denominator}),
+                ImportedInlineNode::Opaque(name) if name == "w:fldSimple" =>
+                    json!({"kind":"field","inline_index":i}),
                 ImportedInlineNode::Revision(r) => json!({
                     "kind":"revision","inline_index":i,"revision_kind":r.kind,
                     "author":r.author,"id":r.id,"date":r.date
                 }),
                 _ => return None,
-            };
-            Some(value)
+            })
         })
         .collect()
 }
@@ -157,7 +175,15 @@ pub(super) fn extend(doc: &ImportedDocument, result: &mut Value) {
         .enumerate()
         .map(|(i, c)| {
             json!({"target":i,"context":c.context.as_str(),"id":c.id,
-               "tag":c.tag,"alias":c.alias,"lock":c.lock,"bound":c.bound})
+               "tag":c.tag,"alias":c.alias,"lock":c.lock,"bound":c.bound,
+               "kind":c.kind,"selected":c.selected,
+               "choices":c.choices.iter().map(|c|json!({"display_text":c.display_text,"value":c.value})).collect::<Vec<_>>()})
         })
+        .collect();
+    result["control_sites"] = doc
+        .control_sites()
+        .iter()
+        .enumerate()
+        .map(|(i, s)| json!({"target":i,"context":s.context.as_str(),"text":s.text}))
         .collect();
 }
