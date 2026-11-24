@@ -380,6 +380,7 @@ version = "0.3.0"
 dependencies = [
  "flate2",
  "futures",
+ "futures-executor",
  "futures-util",
  "pyo3",
  "roxmltree",

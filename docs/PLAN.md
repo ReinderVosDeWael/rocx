@@ -17,7 +17,7 @@ verify combined batches, preservation and exact cross-binding output again.
 
 Nine slices based on `aefcec8` are integrated in [#41](https://github.com/ReinderVosDeWael/rocx/pull/41).
 Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
-[CLI contract](CLI.md) for its narrower, digest-bound alignment workflow.
+[CLI contract](CLI.md) for its digest-bound mixed-edit workflow.
 
 | Slice | Scope in this candidate |
 | --- | --- |
@@ -27,7 +27,7 @@ Use the [editor inventory](EDITOR-PARITY.md) for the supported targets and the
 | Stories | Append an inline image to a default or first-page header with explicit shared or section-local intent. |
 | Resources | Inspect relationship-selected style identities, kinds, names and base references. |
 | Controls and revisions | Inspect direct body control metadata and inline insertion/deletion wrappers; neither is editable. |
-| CLI | Inspect direct body blocks, preview alignment edits, and save to a new path. |
+| CLI | Inspect paragraph, run, physical cell and header-slot addresses; preview all seven core edit kinds together and save to a new path. |
 
 **Combined verification passed locally on `6b34ff0`.** All Rust targets, three
 doctests, native/Wasm Clippy, the Rust 1.88 check, 822 schema-required Python
@@ -266,10 +266,12 @@ until the hosted preflight succeeds and registry setup is confirmed.
 
 ## Editor goal: declarative parity
 
-Parallel task 9 CLI slice: a JSON interface covers direct-body inspection and
-anchored alignment preview/save-copy using a complete-source digest to bind
-targets across invocations. This does not complete the broader editor milestone;
-remaining operations and acceptance remain open.
+Task 9 CLI follow-up on `fad29a9`: legacy alignment requests and six additional
+edit kinds share the core mixed transaction. The insertion wire forms cover
+plain paragraphs and rectangular text tables; header images use inline bytes.
+Two seven-kind batches matched installed Python output byte for byte, passed
+schema/OPC validation and python-docx readback, and preserved source and
+untouched part bytes. Richer declarations and future editor operations remain open.
 
 Complete #3 before releasing 0.4.0. Footnote, endnote and comment entries
 already have relationship-based inspection.
