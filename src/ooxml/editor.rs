@@ -33,6 +33,26 @@ pub(crate) fn encode_editor_blocks(
     cell_width: Option<i64>,
     scope: &'static str,
 ) -> Result<(Package, Vec<Node>)> {
+    encode_editor_owner_blocks(
+        package,
+        main,
+        (StoryKind::Body, main),
+        blocks,
+        cell_width,
+        scope,
+    )
+}
+
+/// Style resolution belongs to the main document; fragment relationships
+/// belong to the physical story that contains the edited cell.
+pub(crate) fn encode_editor_owner_blocks(
+    package: Package,
+    main: &str,
+    owner: (StoryKind, &str),
+    blocks: &[ResolvedBlock],
+    cell_width: Option<i64>,
+    scope: &'static str,
+) -> Result<(Package, Vec<Node>)> {
     let mut style_refs = BTreeSet::new();
     let path = DeclarationPath::root("sections").index(0).field("children");
     check_blocks(blocks, &path, &mut style_refs, scope)?;
@@ -41,7 +61,7 @@ pub(crate) fn encode_editor_blocks(
     let story =
         renderer
             .stories
-            .register(StoryKind::Body, PartName::new(main)?, StoryContent::Blocks)?;
+            .register(owner.0, PartName::new(owner.1)?, StoryContent::Blocks)?;
     let mut output = Vec::with_capacity(blocks.len());
     for block in blocks {
         let node = match block {
@@ -66,6 +86,14 @@ pub(crate) fn encode_editor_blocks(
         output.push(node);
     }
     Ok((renderer.package, output))
+}
+
+pub(crate) fn editor_table_style(
+    package: &Package,
+    main: &str,
+    name: &str,
+) -> Result<crate::StyleId> {
+    editor_styles(package, main, BTreeSet::from([("table", name.to_owned())]))?.get(name)
 }
 
 fn editor_styles(package: &Package, main: &str, style_refs: StyleRefs) -> Result<StyleCatalog> {

@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit,
+    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit, LayoutEdit,
     TableInsertion, TextRangeEdit, TextInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
@@ -614,6 +614,14 @@ async def generate(output: pathlib.Path) -> bytes:
     layout = reopened.preview([], table_structure=[TableStructureEdit.layout(inserted.anchor, "autofit")])
     adjusted = ImportedDocument.open(layout.to_docx()).body[table_index]
     assert adjusted.layout == "autofit" and adjusted.grid_widths == inserted.grid_widths
+    # Direct property sample: clear a single grid width.
+    cleared = reopened.preview([], table_structure=[TableStructureEdit.patch_property(inserted.anchor, "width", None, column=1)])
+    partial = ImportedDocument.open(cleared.to_docx()).body[table_index]
+    assert partial.grid_widths == [2160, None] and partial.properties["layout"] == {"type": "fixed"}
+    # Physical-owner sample: clear the nested 1440-twip table's direct layout.
+    nested = next(t for t in reopened.part_tables() if t.depth == 1 and t.grid_widths == [1440])
+    nested_copy = reopened.edit_part_tables(nested.part_name, [TableStructureEdit.layout(nested.anchor, None)])
+    assert "layout" not in next(t for t in ImportedDocument.open(nested_copy).part_tables() if t.path == nested.path).properties
     # Structural sample: append an empty row to this original table.
     appended = reopened.preview([], table_structure=[TableStructureEdit.insert_row(inserted.anchor, 1)])
     assert len(ImportedDocument.open(appended.to_docx()).body[table_index].children) == 2
@@ -642,6 +650,14 @@ async def generate(output: pathlib.Path) -> bytes:
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
     target = header_doc.body[2].anchor
+    layout = header_doc.preview_layout([LayoutEdit.paragraph(target, "space_after", 180),
+                                        LayoutEdit.section(header_doc.sections[1].anchor, "grid_pitch", 360)])
+    assert ImportedDocument.open(layout.to_docx()).sections[1].layout["grid_pitch"] == 360
+    split = header_doc.preview([], block_edits=[BlockEdit.split_section(header_doc.sections[1].anchor, 1)])
+    divided = ImportedDocument.open(split.to_docx())
+    assert len(divided.sections) == 3
+    merged = divided.preview([], block_edits=[BlockEdit.merge_section(divided.sections[1].anchor)])
+    assert len(ImportedDocument.open(merged.to_docx()).sections) == 2
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
                  BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True),
@@ -675,6 +691,14 @@ async def generate(output: pathlib.Path) -> bytes:
     assert [[item.value for item in header_doc.inline_at(run.anchor).items]
             for run in header_link.children] == [[text] for text in HEADER_LINK_RUNS]
     stories = header_doc.stories
+    rich = await d.Paragraph(children=[d.Hyperlink("https://example.com/story-block", [d.TextRun("Story block link")])]).resolve()
+    footer_slot = (1, "footer", "first")
+    created = ImportedDocument.open(header_doc.edit_story_reference(*footer_slot, "create", blocks=[rich]))
+    new_part = next(s.part_name for s in created.stories if (s.section_index,s.kind,s.variant) == footer_slot)
+    removed = ImportedDocument.open(created.edit_story_reference(*footer_slot, "remove"))
+    linked = ImportedDocument.open(removed.edit_story_reference(*footer_slot, "link", part_name=new_part))
+    output.with_suffix(".story-blocks.docx").write_bytes(linked.edit_story_blocks(
+        linked.default_headers[0].anchor, "section_local", 2, 0, [resolved_table, rich]))
     assert [(s.section_index, s.kind, s.variant, s.inherited) for s in stories] == [
         (index, kind, variant, bool(index))
         for index in range(2) for kind in ("header", "footer") for variant in variants

@@ -5,7 +5,7 @@ use pyo3::{
     IntoPyObjectExt,
     exceptions::{PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyBytes, PyDict, PyModule},
+    types::{PyBool, PyBytes, PyDict, PyList, PyModule},
 };
 
 use super::rust_error;
@@ -32,6 +32,162 @@ struct PyParagraphAnchor {
 #[pyclass(name = "StoryParagraphAnchor", frozen, module = "rocx.editor")]
 struct PyStoryParagraphAnchor {
     inner: editor::StoryParagraphAnchor,
+}
+
+#[pyclass(name = "SectionAnchor", frozen, module = "rocx.editor")]
+struct PySectionAnchor {
+    inner: editor::SectionAnchor,
+}
+
+#[pyclass(name = "LayoutEdit", frozen, module = "rocx.editor")]
+struct PyLayoutEdit {
+    inner: editor::LayoutEdit,
+}
+
+fn layout_value(o: &Bound<'_, PyAny>) -> PyResult<editor::LayoutValue> {
+    use editor::LayoutValue::*;
+    if o.is_instance_of::<PyBool>() {
+        return Ok(Boolean(o.extract()?));
+    }
+    if let Ok(s) = o.extract::<String>() {
+        return Ok(Token(s));
+    }
+    if let Ok(d) = o.cast::<PyDict>() {
+        if d.keys().iter().any(|k| {
+            !matches!(
+                k.extract::<String>().as_deref(),
+                Ok("size" | "space" | "color")
+            )
+        }) {
+            return Err(PyValueError::new_err("unknown page border field"));
+        }
+        let num = |k: &str| {
+            d.get_item(k)?
+                .map(|v| {
+                    if v.is_instance_of::<PyBool>() {
+                        Err(PyValueError::new_err("expected integer"))
+                    } else {
+                        v.extract::<i32>()
+                    }
+                })
+                .transpose()
+        };
+        return Ok(Border(editor::LayoutBorder {
+            size: num("size")?,
+            space: num("space")?,
+            color: d.get_item("color")?.map(|v| v.extract()).transpose()?,
+        }));
+    }
+    if let Ok(tabs) = o.cast::<PyList>() {
+        return Ok(Tabs(
+            tabs.iter()
+                .map(|item| {
+                    let d = item.cast::<PyDict>()?;
+                    if d.keys().iter().any(|k| {
+                        !matches!(
+                            k.extract::<String>().as_deref(),
+                            Ok("position" | "alignment" | "leader")
+                        )
+                    }) {
+                        return Err(PyValueError::new_err("unknown tab stop field"));
+                    }
+                    let pos = d
+                        .get_item("position")?
+                        .ok_or_else(|| PyValueError::new_err("missing tab position"))?;
+                    if pos.is_instance_of::<PyBool>() {
+                        return Err(PyValueError::new_err("expected integer tab position"));
+                    }
+                    Ok(editor::LayoutTab {
+                        position: pos.extract()?,
+                        alignment: d
+                            .get_item("alignment")?
+                            .ok_or_else(|| PyValueError::new_err("missing tab alignment"))?
+                            .extract()?,
+                        leader: d.get_item("leader")?.map(|k| k.extract()).transpose()?,
+                    })
+                })
+                .collect::<PyResult<_>>()?,
+        ));
+    }
+    Ok(Integer(o.extract()?))
+}
+fn layout_field(s: &str) -> PyResult<editor::LayoutField> {
+    editor::LayoutField::ALL
+        .iter()
+        .copied()
+        .find(|f| f.python_name() == s)
+        .ok_or_else(|| PyValueError::new_err("unknown layout field"))
+}
+#[pymethods]
+impl PyLayoutEdit {
+    #[staticmethod]
+    fn paragraph(
+        target: PyRef<'_, PyParagraphAnchor>,
+        field: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::LayoutEdit::Paragraph(
+                target.inner.clone(),
+                layout_field(field)?,
+                value.map(layout_value).transpose()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn section(
+        target: PyRef<'_, PySectionAnchor>,
+        field: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::LayoutEdit::Section(
+                target.inner.clone(),
+                layout_field(field)?,
+                value.map(layout_value).transpose()?,
+            ),
+        })
+    }
+}
+type LayoutMap = std::collections::BTreeMap<editor::LayoutField, editor::LayoutValue>;
+fn layout_view<'py>(py: Python<'py>, values: &LayoutMap) -> PyResult<Bound<'py, PyDict>> {
+    use editor::LayoutValue::*;
+    let d = PyDict::new(py);
+    for (f, v) in values {
+        let k = f.python_name();
+        match v {
+            Token(s) => d.set_item(k, s)?,
+            Boolean(b) => d.set_item(k, b)?,
+            Integer(i) => d.set_item(k, i)?,
+            Border(b) => {
+                let edge = PyDict::new(py);
+                if let Some(v) = b.size {
+                    edge.set_item("size", v)?
+                }
+                if let Some(v) = b.space {
+                    edge.set_item("space", v)?
+                }
+                if let Some(v) = &b.color {
+                    edge.set_item("color", v)?
+                }
+                d.set_item(k, edge)?;
+            }
+            Tabs(stops) => {
+                let list = PyList::empty(py);
+                for t in stops {
+                    let tab = PyDict::new(py);
+                    tab.set_item("position", t.position)?;
+                    tab.set_item("alignment", &t.alignment)?;
+                    if let Some(l) = &t.leader {
+                        tab.set_item("leader", l)?
+                    }
+                    list.append(tab)?;
+                }
+                d.set_item(k, list)?;
+            }
+        }
+    }
+    Ok(d)
 }
 
 #[pyclass(name = "HeaderAnchor", frozen, module = "rocx.editor")]
@@ -241,6 +397,9 @@ struct PyRunRemovalChange {
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
 struct PyImportedSection {
     #[pyo3(get)]
+    anchor: Py<PySectionAnchor>,
+    layout: LayoutMap,
+    #[pyo3(get)]
     flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     body_start: usize,
@@ -355,6 +514,7 @@ impl PyHeaderImagePreview {
 
 #[pyclass(name = "BodyParagraph", frozen, module = "rocx.editor")]
 struct PyBodyParagraph {
+    layout: LayoutMap,
     #[pyo3(get)]
     flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
@@ -377,6 +537,21 @@ struct PyBodyParagraph {
 #[derive(PartialEq)]
 struct PyInlineAnchor {
     inner: editor::InlineAnchor,
+}
+
+#[pymethods]
+impl PyBodyParagraph {
+    #[getter]
+    fn layout<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        layout_view(py, &self.layout)
+    }
+}
+#[pymethods]
+impl PyImportedSection {
+    #[getter]
+    fn layout<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        layout_view(py, &self.layout)
+    }
 }
 
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
@@ -600,6 +775,8 @@ impl From<&editor::ImportedInline> for PyImportedInline {
 #[pyclass(name = "BodyTable", frozen, module = "rocx.editor")]
 struct PyBodyTable {
     #[pyo3(get)]
+    properties: editor::DirectTableProperties,
+    #[pyo3(get)]
     layout: Option<String>,
     #[pyo3(get)]
     grid_widths: Vec<Option<u32>>,
@@ -613,15 +790,31 @@ struct PyBodyTable {
 struct PyTableAnchor {
     inner: editor::TableAnchor,
 }
+#[pyclass(name = "LocatedTable", frozen, module = "rocx.editor", get_all)]
+struct PyLocatedTable {
+    anchor: Py<PyTableAnchor>,
+    part_name: String,
+    path: Vec<usize>,
+    depth: usize,
+    entry_id: Option<String>,
+    properties: editor::DirectTableProperties,
+    grid_widths: Vec<Option<u32>>,
+    row_properties: Vec<editor::DirectTableProperties>,
+    cell_properties: Vec<Vec<editor::DirectTableProperties>>,
+}
 
 #[pyclass(name = "ImportedTableRow", frozen, module = "rocx.editor")]
 struct PyImportedTableRow {
+    #[pyo3(get)]
+    properties: editor::DirectTableProperties,
     #[pyo3(get)]
     children: Vec<Py<PyAny>>,
 }
 
 #[pyclass(name = "ImportedTableCell", frozen, module = "rocx.editor")]
 struct PyImportedTableCell {
+    #[pyo3(get)]
+    properties: editor::DirectTableProperties,
     #[pyo3(get)]
     grid_span: Option<u32>,
     #[pyo3(get)]
@@ -688,6 +881,7 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                             Ok(Py::new(
                                 py,
                                 PyImportedTableCell {
+                                    properties: cell.properties.clone(),
                                     blocks,
                                     grid_span: cell.grid_span,
                                     vertical_merge: cell.vertical_merge.clone(),
@@ -697,13 +891,21 @@ fn table_object(py: Python<'_>, table: &editor::ImportedTable) -> PyResult<Py<Py
                         }
                     })
                     .collect::<PyResult<_>>()?;
-                Ok(Py::new(py, PyImportedTableRow { children })?.into_any())
+                Ok(Py::new(
+                    py,
+                    PyImportedTableRow {
+                        children,
+                        properties: row.properties.clone(),
+                    },
+                )?
+                .into_any())
             }
         })
         .collect::<PyResult<_>>()?;
     Ok(Py::new(
         py,
         PyBodyTable {
+            properties: table.properties.clone(),
             layout: table.layout.map(|v| v.xml().to_owned()),
             grid_widths: table.grid_widths.clone(),
             anchor: Py::new(
@@ -744,8 +946,70 @@ struct PyParagraphAlignmentEdit {
 struct PyTableStructureEdit {
     inner: editor::TableStructureEdit,
 }
+fn table_site(
+    row: Option<usize>,
+    cell: Option<usize>,
+    column: Option<usize>,
+) -> PyResult<editor::TableSite> {
+    use editor::TableSite::*;
+    Ok(match (row, cell, column) {
+        (None, None, None) => Table,
+        (Some(r), None, None) => Row(r),
+        (Some(r), Some(c), None) => Cell(r, c),
+        (None, None, Some(c)) => Column(c),
+        _ => return Err(PyValueError::new_err("invalid table site coordinates")),
+    })
+}
 #[pymethods]
 impl PyTableStructureEdit {
+    #[staticmethod]
+    #[pyo3(signature=(target,field,source,*,row=None,cell=None,column=None))]
+    fn patch_property(
+        target: PyRef<'_, PyTableAnchor>,
+        field: String,
+        source: Option<&Bound<'_, PyAny>>,
+        row: Option<usize>,
+        cell: Option<usize>,
+        column: Option<usize>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::Property {
+                    site: table_site(row, cell, column)?,
+                    field,
+                    source: source.map(resolved_block_table).transpose()?.map(Box::new),
+                },
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,source,*,row=None,cell=None))]
+    fn replace_node(
+        target: PyRef<'_, PyTableAnchor>,
+        source: &Bound<'_, PyAny>,
+        row: Option<usize>,
+        cell: Option<usize>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::ReplaceNode {
+                    site: table_site(row, cell, None)?,
+                    source: Box::new(resolved_block_table(source)?),
+                },
+            },
+        })
+    }
+    #[staticmethod]
+    fn remove_table(target: PyRef<'_, PyTableAnchor>) -> Self {
+        Self {
+            inner: editor::TableStructureEdit {
+                target: target.inner.clone(),
+                operation: editor::TableOperation::RemoveTable,
+            },
+        }
+    }
     #[staticmethod]
     #[pyo3(signature = (target, value))]
     fn layout(
@@ -1088,6 +1352,18 @@ struct PyBlockEdit {
 #[pymethods]
 impl PyBlockEdit {
     #[staticmethod]
+    fn split_section(target: PyRef<'_, PySectionAnchor>, offset: usize) -> Self {
+        Self {
+            inner: editor::BlockEdit::SplitSection(target.inner.clone(), offset),
+        }
+    }
+    #[staticmethod]
+    fn merge_section(target: PyRef<'_, PySectionAnchor>) -> Self {
+        Self {
+            inner: editor::BlockEdit::MergeSection(target.inner.clone()),
+        }
+    }
+    #[staticmethod]
     fn replace(
         target: PyRef<'_, PyParagraphAnchor>,
         paragraph: &Bound<'_, PyAny>,
@@ -1192,6 +1468,19 @@ impl PyTableInsertion {
             table: resolved_block_table(resolved_table)?,
         })
     }
+}
+
+fn story_blocks_payload(blocks: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<crate::ResolvedBlock>> {
+    blocks
+        .iter()
+        .map(|b| {
+            if super::kind(b)? == "Table" {
+                resolved_block_table(b).map(crate::ResolvedBlock::Table)
+            } else {
+                resolved_block_paragraph(b).map(crate::ResolvedBlock::Paragraph)
+            }
+        })
+        .collect()
 }
 
 fn resolved_block_table(resolved_table: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedTable> {
@@ -1994,27 +2283,35 @@ impl PyImportedDocument {
     }
 
     #[getter]
-    fn sections(&self) -> PyResult<Vec<PyImportedSection>> {
+    fn sections(&self, py: Python<'_>) -> PyResult<Vec<PyImportedSection>> {
         let doc = self
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        Ok(doc
-            .sections()
+        doc.sections()
             .map_err(rust_error)?
             .into_iter()
-            .map(|section| PyImportedSection {
-                flags: section
-                    .flags
-                    .iter()
-                    .map(|(f, v)| (f.python_name(), *v))
-                    .collect(),
-                body_start: section.body_start,
-                body_end: section.body_end,
-                section_type: section.section_type.map(crate::SectionType::xml),
-                section_type_xml: section.section_type_xml,
+            .map(|section| {
+                Ok(PyImportedSection {
+                    layout: section.layout,
+                    anchor: Py::new(
+                        py,
+                        PySectionAnchor {
+                            inner: section.anchor,
+                        },
+                    )?,
+                    flags: section
+                        .flags
+                        .iter()
+                        .map(|(f, v)| (f.python_name(), *v))
+                        .collect(),
+                    body_start: section.body_start,
+                    body_end: section.body_end,
+                    section_type: section.section_type.map(crate::SectionType::xml),
+                    section_type_xml: section.section_type_xml,
+                })
             })
-            .collect())
+            .collect()
     }
 
     #[getter]
@@ -2166,6 +2463,72 @@ impl PyImportedDocument {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (section_index, story_kind, variant, action, *, blocks=None, part_name=None))]
+    fn edit_story_reference<'py>(
+        &self,
+        py: Python<'py>,
+        section_index: usize,
+        story_kind: &str,
+        variant: &Bound<'_, PyAny>,
+        action: &str,
+        blocks: Option<Vec<Bound<'_, PyAny>>>,
+        part_name: Option<String>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        use editor::{SectionStoryKind, StoryReferenceEdit::*};
+        let kind = match story_kind {
+            "header" => SectionStoryKind::Header,
+            "footer" => SectionStoryKind::Footer,
+            _ => return Err(PyValueError::new_err("expected header or footer")),
+        };
+        let variant = super::values::headerfootertype(variant)?;
+        let edit = match (action, blocks, part_name) {
+            ("create", Some(b), None) => Create(story_blocks_payload(b)?),
+            ("link", None, Some(p)) => Link(p),
+            ("remove", None, None) => Remove,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected create with blocks, link with part_name, or remove",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_reference(section_index, kind, variant, edit)
+                .map_err(rust_error)?,
+        ))
+    }
+
+    fn edit_story_blocks<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyHeaderAnchor>,
+        mode: &str,
+        index: usize,
+        remove: usize,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let mode = match mode {
+            "shared" => editor::HeaderEditMode::Shared,
+            "section_local" => editor::HeaderEditMode::SectionLocal,
+            _ => return Err(PyValueError::new_err("expected shared or section_local")),
+        };
+        let blocks = story_blocks_payload(blocks)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_story_blocks(&target.inner, mode, index, remove, &blocks)
+                .map_err(rust_error)?,
+        ))
+    }
+
     fn edit_entry_inlines<'py>(
         &self,
         py: Python<'py>,
@@ -2184,6 +2547,51 @@ impl PyImportedDocument {
         ))
     }
 
+    #[pyo3(signature=(owner_part=None))]
+    fn part_tables(
+        &self,
+        py: Python<'_>,
+        owner_part: Option<&str>,
+    ) -> PyResult<Vec<PyLocatedTable>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.part_tables(owner_part)
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|t| {
+                Ok(PyLocatedTable {
+                    anchor: Py::new(py, PyTableAnchor { inner: t.anchor })?,
+                    part_name: t.part_name,
+                    path: t.path,
+                    depth: t.depth,
+                    entry_id: t.entry_id,
+                    properties: t.properties,
+                    grid_widths: t.grid_widths,
+                    row_properties: t.row_properties,
+                    cell_properties: t.cell_properties,
+                })
+            })
+            .collect()
+    }
+    fn edit_part_tables<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyTableStructureEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_part_tables(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
     fn edit_story_text<'py>(
         &self,
         py: Python<'py>,
@@ -2227,6 +2635,7 @@ impl PyImportedDocument {
                 BodyBlock::Paragraph(p) => Ok(Py::new(
                     py,
                     PyBodyParagraph {
+                        layout: p.layout.clone(),
                         flags: p.flags.iter().map(|(f, v)| (f.python_name(), *v)).collect(),
                         anchor: Py::new(
                             py,
@@ -2307,6 +2716,17 @@ impl PyImportedDocument {
                 doc.preview_tracked_text(&target.inner, edit, author, date)
                     .map_err(rust_error)?,
             ),
+        })
+    }
+
+    fn preview_layout(&self, edits: Vec<PyRef<'_, PyLayoutEdit>>) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyEditPreview {
+            inner: Mutex::new(doc.preview_layout(&edits).map_err(rust_error)?),
         })
     }
 
@@ -2464,6 +2884,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyHeaderImageChange>()?;
     module.add_class::<PyHeaderImagePreview>()?;
     module.add_class::<PyParagraphAnchor>()?;
+    module.add_class::<PySectionAnchor>()?;
+    module.add_class::<PyLayoutEdit>()?;
     module.add_class::<PyBodyParagraph>()?;
     module.add_class::<PyImportedInline>()?;
     module.add_class::<PyInlineAnchor>()?;
@@ -2473,6 +2895,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBodyTable>()?;
     module.add_class::<PyTableAnchor>()?;
     module.add_class::<PyTableStructureEdit>()?;
+    module.add_class::<PyLocatedTable>()?;
     module.add_class::<PyCellAlignmentEdit>()?;
     module.add_class::<PyCellAlignmentChange>()?;
     module.add_class::<PyImportedTableRow>()?;

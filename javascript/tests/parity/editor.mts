@@ -7,8 +7,9 @@ import {
 } from "rocx-docx";
 
 export const editorSources = [
-  "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout",
+  "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source", "layout-source",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout", "physical-table-source",
+  "physical-resources-source",
   "numbering-linked", "numbering-dangling", "numbering-opaque",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
@@ -471,7 +472,72 @@ async function editLinkedNumbering(fixtures: Fixtures) {
   return output;
 }
 
+async function editPhysicalResources(source: Uint8Array) {
+  const owner = "word/footer1.xml";
+  const original = await openDocx(source);
+  const site = {ownerPart: owner, blockIndex: 0};
+  const sourceNumber = original.storyParagraphAnchor(site);
+  const staged = original.preview({
+    styleEdits: [
+      {op:"add", definition:{kind:"table", name:"Owner Table Style"}},
+      {op:"add", definition:{kind:"numbering", name:"Owner Numbering Style", numberingId:773}},
+    ],
+    resources: [
+      {kind:"addAbstract", abstractId:772, levels:[{level:0, start:1, format:"decimal", text:"%1."}]},
+      {kind:"addInstance", numId:773, abstractId:772},
+      {kind:"storyParagraphNumbering", target:sourceNumber, value:{id:773, level:0}},
+    ],
+  }).toDocx();
+  const numbered = await openDocx(staged);
+  const table = numbered.partTables(owner)[0];
+  const donor = await resolveComponent({kind:"table", properties:{style:"Owner Table Style"}, rows:[
+    {kind:"tableRow", children:[{kind:"tableCell", children:[{kind:"paragraph",text:"Donor text must not move"}]}]},
+  ]});
+  check(donor, "resolved physical style donor");
+  const properties = [{target:table.anchor, kind:"patchProperty", field:"style", source:donor}] as const;
+  rejects(() => numbered.editPartTables({ownerPart:"word/document.xml", tableStructure:properties}), /owner mismatch/);
+  rejects(() => numbered.storyParagraphNumbering(sourceNumber), /snapshot/);
+  const tablesEdited = numbered.editPartTables({ownerPart:owner, tableStructure:properties});
+  const preLayout = await openDocx(tablesEdited);
+  const section = preLayout.sections()[0].anchor;
+  rejects(() => preLayout.previewLayout([{target:section, field:"borderRight", value:null}]), /opaque/);
+  const result = preLayout.previewLayout([
+    {target:section, field:"marginLeft", value:1440},
+    {target:section, field:"borderTop", value:{size:12,color:"123456"}},
+  ]).toDocx();
+  const reopened = await openDocx(result);
+  same(reopened.storyParagraphNumbering(reopened.storyParagraphAnchor(site)), {id:773,level:0}, "numbering survives physical table and layout edits");
+  same(reopened.partTables(owner)[0].properties.style?.val, "OwnerTableStyle", "owned table style");
+  rejects(() => reopened.preview({resources:[{kind:"removeInstance",numId:773}]}), /references/);
+  rejects(() => reopened.preview({styleEdits:[{op:"remove",target:reopened.styleAnchor("OwnerTableStyle")}]}), /used|referenc/);
+  return result;
+}
+
 export async function run(fixtures: Fixtures) {
+  const physicalResources = await editPhysicalResources(fixtures["physical-resources-source"]);
+  let physicalTables:Uint8Array=fixtures["physical-table-source"];
+  for (const [owner,depth] of [[undefined,1],["word/footer1.xml",1],["word/comments.xml",0]] as const) {
+    const source=await openDocx(physicalTables);
+    const nodes=source.partTables(owner);
+    same(nodes.map(t=>t.depth),depth===1?[0,1]:[0],"physical table depths");
+    const t=nodes[depth];
+    check(t.anchor===source.partTables(t.partName)[depth].anchor,"stable physical table handle");
+    if(depth===0) same(t.entryId,"0","comment identity");
+    const op:TableStructureEdit=owner===undefined?{target:t.anchor,kind:"insertRow",index:1}:
+      depth===1?{target:t.anchor,kind:"layout",value:"fixed"}:{target:t.anchor,kind:"patchProperty",column:0,field:"width",source:null};
+    rejects(()=>source.preview({tableStructure:[op]}),/physical table anchor/);
+    rejects(()=>source.editPartTables({ownerPart:"word/styles.xml",tableStructure:[op]}),/owner mismatch/);
+    if(depth===1) rejects(()=>source.editPartTables({ownerPart:t.partName,tableStructure:[op,{target:nodes[0].anchor,kind:"insertRow",index:1}]}),/overlapping/);
+    const other=await openDocx(physicalTables);
+    rejects(()=>other.editPartTables({ownerPart:t.partName,tableStructure:[op]}),/different document snapshot/);
+    physicalTables=source.editPartTables({ownerPart:t.partName,tableStructure:[op]});
+    if(owner==="word/footer1.xml"){
+      const linked=await resolveComponent({kind:"paragraph",runs:[{kind:"hyperlink",target:{kind:"external",url:"https://example.invalid/physical-cell"},children:[{kind:"text",text:"Footer link"}]}]});
+      check(linked,"resolved linked cell paragraph");
+      const doc=await openDocx(physicalTables), table=doc.partTables(owner)[1];
+      physicalTables=doc.editPartTables({ownerPart:owner,tableStructure:[{target:table.anchor,kind:"replaceCell",row:0,cell:0,blocks:[linked]}]});
+    }
+  }
   const linkedNumbering = await editLinkedNumbering(fixtures);
   const merged = await openDocx(fixtures["table-layout"]);
   const physical = merged.body()[0];
@@ -484,6 +550,50 @@ export async function run(fixtures: Fixtures) {
     same([wide.gridSpan, wide.verticalMerge], [2, index ? "continue" : "restart"], "merged interval");
     check(plain.gridSpan === undefined && plain.verticalMerge === undefined, "unset direct properties");
   }
+  const geometry = await openDocx(fixtures["layout-source"]);
+  const [firstSection, finalSection] = geometry.sections();
+  check(geometry.body()[firstSection.bodyStart].kind === "table" &&
+    finalSection.bodyStart === finalSection.bodyEnd, "section anchor coverage");
+  const par = paragraph(geometry, 1);
+  const layoutChanges: import("rocx-docx").LayoutEdit[] = [
+    {target:par.anchor,field:"spaceAfter",value:180},{target:par.anchor,field:"alignment",value:null},
+    {target:par.anchor,field:"heading",value:2},{target:par.anchor,field:"widowControl",value:false},
+    {target:par.anchor,field:"firstLineIndent",value:-240},
+    {target:par.anchor,field:"tabStops",value:[{position:720,alignment:"right",leader:"dot"}]},
+    {target:firstSection.anchor,field:"pageWidth",value:16000},{target:firstSection.anchor,field:"marginTop",value:-220},
+    {target:firstSection.anchor,field:"columnCount",value:2},{target:firstSection.anchor,field:"borderTop",value:{color:"223344",size:8}},
+    {target:finalSection.anchor,field:"gridPitch",value:360},{target:finalSection.anchor,field:"titlePage",value:false},
+  ];
+  rejects(() => geometry.previewLayout([...layoutChanges,layoutChanges[0]]), /duplicate/);
+  const layout = geometry.previewLayout(layoutChanges).toDocx();
+  const layouts = await openDocx(layout);
+  rejects(() => layouts.previewLayout([{target: firstSection.anchor, field: "pageWidth", value: 16000}]), /snapshot/);
+  check(layouts.sections()[0].layout.columnCount === 2 && layouts.sections()[1].layout.titlePage === false &&
+    paragraph(layouts,1).layout.firstLineIndent === -240 && paragraph(layouts,1).layout.heading === 2 &&
+    par.layout.firstLineIndent === 72, "layout readback");
+  const splitEdit = {kind:"splitSection",target:firstSection.anchor,offset:1} as const;
+  rejects(() => geometry.preview({blockEdits:[{...splitEdit,offset:99}]}), /outside section/);
+  rejects(() => geometry.preview({blockEdits:[splitEdit,splitEdit]}), /conflicting edits/);
+  rejects(() => geometry.preview({blockEdits:[{kind:"mergeSection",target:finalSection.anchor}]}), /final section/);
+  const split = geometry.preview({blockEdits:[splitEdit]});
+  same(split.blockChanges(), [1], "original split gap");
+  const sectionSplit = split.toDocx();
+  const divided = await openDocx(sectionSplit);
+  rejects(() => divided.preview({blockEdits:[splitEdit]}), /snapshot/);
+  same(divided.sections().map(s => [s.bodyStart,s.bodyEnd]), [[0,2],[2,4],[4,4]], "split section ranges");
+  const sectionMerge = divided.preview({blockEdits:[
+    {kind:"mergeSection",target:divided.sections()[0].anchor}]}).toDocx();
+  same((await openDocx(sectionMerge)).sections().map(s => [s.bodyStart,s.bodyEnd]), [[0,3],[3,3]], "merged ranges");
+  const sharedReplacement = await resolveComponent({kind:"paragraph",text:"Shared story replacement"});
+  check(sharedReplacement !== undefined, "resolved story paragraph");
+  const originalHeader = geometry.defaultHeaders()[1].view;
+  const storyEdit = {target:originalHeader.anchor, mode:"shared", index:0, remove:1, blocks:[sharedReplacement]} as const;
+  rejects(() => divided.editStoryBlocks(storyEdit), /snapshot/);
+  rejects(() => geometry.editStoryBlocks({...storyEdit,index:2}), /out of bounds/);
+  const storyShared = geometry.editStoryBlocks(storyEdit);
+  const sharedHeaders = (await openDocx(storyShared)).defaultHeaders();
+  check(sharedHeaders.length === 2 && sharedHeaders.every(s => s.view.partName === originalHeader.partName),
+    "shared edit retains aliases");
   const catalog = await openDocx(fixtures["styles-source"]);
   const listTarget = paragraph(catalog, 0).anchor;
   const numberingEdits = catalog.preview({resources: [
@@ -550,6 +660,69 @@ export async function run(fixtures: Fixtures) {
   rejects(() => reopened.preview({styleEdits: [{op: "patch", target: active, bold: true}]}), /different document snapshot/);
   check(reopened.styles()?.styles.find(s => s.id === "MemoAdded")?.basedOn === "MemoActive", "new style inheritance");
   const resolved = await payloads(fixtures.image);
+  const drop = merged.body()[1];
+  check(drop.kind === "table", "second table for removal");
+  const styledTable = await resolveComponent({
+    kind: "table", properties: {style: "Staged Table"},
+    rows: [{kind: "tableRow", children: [{kind: "tableCell", children: [{
+      kind: "paragraph", runs: [{kind: "hyperlink",
+        target: {kind: "external", url: "https://example.invalid/staged-table"},
+        children: [{kind: "text", text: "staged link"}]}],
+    }]}]}],
+  });
+  check(styledTable, "resolved styled table");
+  const afterTables = paragraph(merged, 2).anchor;
+  const stagedBatch: EditBatch = {
+    tableStructure: [{target: physical.anchor, kind: "replaceNode", source: styledTable},
+      {target: drop.anchor, kind: "removeTable"}],
+    styleEdits: [{op: "add", definition: {kind: "table", name: "Staged Table"}}],
+    resources: [
+      {kind: "addAbstract", abstractId: 90, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}]},
+      {kind: "addInstance", numId: 91, abstractId: 90},
+      {kind: "paragraphNumbering", target: afterTables, value: {id: 91, level: 0}},
+      {kind: "customProperty", name: "Staged", value: true},
+    ],
+  };
+  rejects(() => merged.preview({...stagedBatch,
+    resources: [...stagedBatch.resources!, {kind: "removeInstance", numId: 1}]}), /references/);
+  const structuralResources = merged.preview(stagedBatch).toDocx();
+  bytesEqual(merged.preview(stagedBatch).toDocx(), structuralResources, "repeat staged transaction");
+  check(merged.paragraphNumbering(afterTables) === undefined, "original numbering unchanged");
+  const staged = await openDocx(structuralResources);
+  check(staged.body().length === 2 && staged.customProperty("Staged") === true, "removal and custom part");
+  const stagedTable = staged.body()[0];
+  check(stagedTable.kind === "table" && stagedTable.properties.style.val === "StagedTable", "staged style applied");
+  rejects(() => staged.paragraphNumbering(afterTables), /snapshot/);
+  same(staged.paragraphNumbering(paragraph(staged, 1).anchor), {id: 91, level: 0}, "numbering after table removal");
+  const single = await resolveComponent({kind: "table", properties: {alignment:"center"},
+    rows: [{kind:"tableRow", properties:{repeatHeader:false}, children:[{
+      kind:"tableCell", properties:{margins:{top:4.5}}, children:[text("cell")]}]}]});
+  check(single, "resolved single cell");
+  let tableNodes = merged.preview({
+    alignments:[{target:paragraph(merged,2).anchor,alignment:"right"}],
+    tableStructure:[{target:physical.anchor,kind:"replaceNode",source:resolved.auto},{target:drop.anchor,kind:"removeTable"}]
+  }).toDocx();
+  const steps: ((target:TableAnchor)=>TableStructureEdit[])[] = [
+    target=>[{target,kind:"replaceNode",row:0,source:resolved.auto}],
+    target=>[{target,kind:"replaceNode",row:0,cell:1,source:single}],
+    target=>[{target,kind:"patchProperty",field:"alignment",source:single},
+      {target,kind:"patchProperty",field:"repeatHeader",row:0,source:single},
+      {target,kind:"patchProperty",field:"margin.top",row:0,cell:0,source:single}],
+  ];
+  for (const step of steps) {
+    const doc = await openDocx(tableNodes), target=doc.body()[0];
+    check(target.kind==="table", "reopened table");
+    const ops=step(target.anchor);
+    rejects(()=>merged.preview({tableStructure:ops}),/different document snapshot/);
+    rejects(()=>doc.preview({tableStructure:[...ops,ops[0]]}),/duplicate|exclusive/);
+    tableNodes=doc.preview({tableStructure:ops}).toDocx();
+  }
+  const result=(await openDocx(tableNodes)).body()[0];
+  check(result.kind==="table" && result.properties.alignment.val==="center","copied alignment");
+  const row=result.children[0];
+  check(row.kind==="row" && row.properties.repeatHeader.val==="0","explicit false");
+  const padded=row.children[0];
+  check(padded.kind==="cell" && padded.properties["margin.top"].w==="90","top padding in twips");
   const doc = await openDocx(fixtures.base);
   const first = paragraph(doc, 0).inlineStructure[0];
   check(first?.kind === "run", "expected removable run");
@@ -665,7 +838,8 @@ export async function run(fixtures: Fixtures) {
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, styleCreate, styleRetarget,
-    runFormatting, numberingEdits, styleOwnedList, linkedNumbering, inline: inline.toDocx(),
+    runFormatting, numberingEdits, styleOwnedList, linkedNumbering, tableNodes, physicalTables, layout,
+    sectionSplit, sectionMerge, storyShared, structuralResources, physicalResources, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

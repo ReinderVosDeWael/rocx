@@ -23,6 +23,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
         ("importedStories", (stories, Paths::Package)),
         ("importedEntryStories", (entry_stories, Paths::Package)),
+        ("importedPartTables", (part_tables, Paths::Package)),
         ("importedStyles", (styles, Paths::Package)),
         ("importedStyleAnchor", (style_anchor, Paths::Package)),
         ("importedCoreTitle", (core_title, Paths::Package)),
@@ -78,6 +79,8 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("defaultHeaders", "importedDefaultHeaders"),
     ("stories", "importedStories"),
     ("entryStories", "importedEntryStories"),
+    ("partTables", "importedPartTables"),
+    ("editPartTables", "importedEditPartTables"),
     ("styles", "importedStyles"),
     ("styleAnchor", "importedStyleAnchor"),
     ("coreTitle", "importedCoreTitle"),
@@ -95,6 +98,8 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("storyParagraphNumbering", "importedStoryParagraphNumbering"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
+    ("editStoryReference", "importedEditStoryReference"),
+    ("editStoryBlocks", "importedEditStoryBlocks"),
     ("editEntryInlines", "importedEditEntryInlines"),
     ("editNoteReference", "importedEditNoteReference"),
     ("editEntry", "importedEditEntry"),
@@ -102,15 +107,18 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("previewTrackedMove", "importedPreviewTrackedMove"),
     ("previewRevision", "importedPreviewRevision"),
     ("preview", "importedPreview"),
+    ("previewLayout", "importedPreviewLayout"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
 ];
 
 #[derive(Default)]
 struct Anchors {
+    sections: RefCell<HashMap<usize, JsValue>>,
     styles: RefCell<HashMap<String, JsValue>>,
     controls: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
+    physical_tables: RefCell<HashMap<(String, Vec<usize>), JsValue>>,
     headers: RefCell<HashMap<(usize, rocx::editor::SectionStoryKind, usize), JsValue>>,
     inlines: RefCell<HashMap<InlineKey, JsValue>>,
 }
@@ -148,6 +156,67 @@ fn entry_stories(input: &Wire) -> Result<JsValue> {
             .iter()
             .map(|entry| view::entry(entry, &source.anchors)),
     )
+}
+
+fn part_tables(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let args = b::list(&call.get("args")?, "args")?;
+    let owner = args
+        .first()
+        .filter(|v| !v.js().is_undefined())
+        .map(|v| b::string(v, "ownerPart"))
+        .transpose()?;
+    Ok(view::array(
+        source
+            .document()
+            .part_tables(owner.as_deref())?
+            .into_iter()
+            .map(|t| {
+                let v = b::record(&[
+                    ("partName", t.part_name.as_str().into()),
+                    ("depth", (t.depth as u32).into()),
+                    (
+                        "path",
+                        view::array(t.path.iter().map(|i| (*i as u32).into())),
+                    ),
+                    (
+                        "anchor",
+                        view::cached(
+                            &source.anchors.physical_tables,
+                            (t.part_name.clone(), t.path.clone()),
+                            "tableAnchor",
+                            &t.anchor,
+                        ),
+                    ),
+                    (
+                        "gridWidths",
+                        view::array(
+                            t.grid_widths
+                                .iter()
+                                .map(|w| w.map_or(JsValue::NULL, JsValue::from)),
+                        ),
+                    ),
+                    ("properties", view::table_properties(&t.properties)),
+                    (
+                        "rowProperties",
+                        view::array(t.row_properties.iter().map(view::table_properties)),
+                    ),
+                    (
+                        "cellProperties",
+                        view::array(
+                            t.cell_properties
+                                .iter()
+                                .map(|row| view::array(row.iter().map(view::table_properties))),
+                        ),
+                    ),
+                ]);
+                if let Some(id) = t.entry_id {
+                    b::set(&v, "entryId", &id.into())
+                }
+                v
+            }),
+    ))
 }
 
 fn controls(input: &Wire) -> Result<JsValue> {
@@ -555,7 +624,12 @@ fn body(input: &Wire) -> Result<JsValue> {
 fn sections(input: &Wire) -> Result<JsValue> {
     let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(view::array(
-        source.document().sections()?.iter().map(view::section),
+        source
+            .document()
+            .sections()?
+            .iter()
+            .enumerate()
+            .map(|(i, s)| view::section(s, i, &source.anchors)),
     ))
 }
 

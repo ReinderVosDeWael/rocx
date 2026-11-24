@@ -18,6 +18,7 @@ enum Request {
         metadata_fields: Vec<String>,
         #[serde(default)]
         custom_properties: Vec<String>,
+        table_owner: Option<String>,
         #[serde(default)]
         numbering_targets: Vec<usize>,
         #[serde(default)]
@@ -49,6 +50,7 @@ fn execute(request: Request) -> Result<Value, String> {
         Request::Inspect {
             metadata_fields,
             custom_properties,
+            table_owner,
             numbering_targets,
             numbering_story_targets,
             ..
@@ -58,6 +60,7 @@ fn execute(request: Request) -> Result<Value, String> {
                 snapshot,
                 metadata_fields,
                 custom_properties,
+                table_owner.as_deref(),
                 numbering_targets,
                 numbering_story_targets,
             );

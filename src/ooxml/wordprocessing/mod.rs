@@ -29,5 +29,5 @@ pub(crate) mod run_child;
 pub(crate) mod sections;
 mod stories;
 pub(crate) mod styles;
-mod table;
+pub(crate) mod table;
 pub(crate) mod text;

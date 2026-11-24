@@ -41,7 +41,8 @@ pub(super) fn extend(doc: &ImportedDocument, result: &mut Value) {
             Err(e) => obj[format!("{key}_error")] = json!(e.to_string()),
         }
     }
-    add(result, "sections", doc.sections().map(|sections| Value::Array(sections.iter().map(|s| json!({
+    add(result, "sections", doc.sections().map(|sections| Value::Array(sections.iter().enumerate().map(|(i,s)| json!({
+        "target":i,"layout":structure::layout_view(&s.layout),
         "body_start":s.body_start,"body_end":s.body_end,"section_type_xml":s.section_type_xml,
         "flags":s.flags.iter().map(|(f,v)|(f.python_name(),v)).collect::<std::collections::BTreeMap<_,_>>()
     })).collect())));
@@ -63,7 +64,7 @@ pub(super) fn extend(doc: &ImportedDocument, result: &mut Value) {
                 .collect();
             result["stories"] = stories.iter().map(|s|json!({
                 "target":{"kind":s.kind.as_str(),"section_index":s.section_index,"variant":variant(s.variant)},
-                "part":s.part_name,"inherited":s.inherited,
+                "part":s.part_name,"inherited":s.inherited,"block_count":s.blocks.len(),
                 "blocks":blocks(s.blocks.len(),|i|s.inline_structure(i))
             })).collect();
         }

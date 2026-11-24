@@ -17,6 +17,7 @@ export const catalogNames = Object.freeze({
   headerFirstLocal: "all_features-javascript.header-first-local.docx",
   entryText: "all_features-javascript.entry-text.docx",
   entryEdits: "all_features-javascript.entry-edits.docx",
+  storyBlocks: "all_features-javascript.story-blocks.docx",
   footerEven: "all_features-javascript.footer-even.docx",
   runText: "all_features-javascript.run-text.docx",
 });
@@ -336,6 +337,14 @@ export async function generateCatalog(fixtures, options) {
   const layout = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "layout", value: "autofit" }] });
   const adjusted = (await openDocx(layout.toDocx())).body()[bodyIndex + 1];
   assert(adjusted.layout === "autofit" && adjusted.gridWidths.join() === "2160,2160", "layout patch preserved grid");
+  // Direct property sample: clear a single grid width.
+  const clearedWidth = reopenedForCell.preview({tableStructure: [{target: insertedTable.anchor, kind:"patchProperty", field:"width", column:1, source:null}]});
+  const partial = (await openDocx(clearedWidth.toDocx())).body()[bodyIndex + 1];
+  assert(partial.gridWidths[1] === null && partial.properties.layout.type === "fixed", "cleared one width, retained layout");
+  // Physical-owner sample: clear the nested 1440-twip table's direct layout.
+  const inner = reopenedForCell.partTables().find(t => t.depth === 1 && t.gridWidths.join() === "1440");
+  const nestedCopy = reopenedForCell.editPartTables({ownerPart:inner.partName,tableStructure:[{target:inner.anchor,kind:"layout",value:null}]});
+  assert(!(await openDocx(nestedCopy)).partTables().find(t=>t.path.join()===inner.path.join()).properties.layout,"cleared nested layout");
   // Structural sample: append an empty row to this original table.
   const appended = reopenedForCell.preview({ tableStructure: [{ target: insertedTable.anchor, kind: "insertRow", index: 1 }] });
   const larger = (await openDocx(appended.toDocx())).body()[bodyIndex + 1];
@@ -365,6 +374,14 @@ export async function generateCatalog(fixtures, options) {
     paired: pair.body()[2].inlineStructure[2].anchor, action: "reject"});
   assert((await openDocx(restored.toDocx())).body()[0].text === HEADER_BATCH_LABEL, "rejected move");
   const blockTarget = headers.body()[2].anchor;
+  const directLayout = headers.previewLayout([{target: blockTarget, field: "spaceAfter", value: 180},
+    {target: headers.sections()[1].anchor, field: "gridPitch", value: 360}]);
+  assert((await openDocx(directLayout.toDocx())).sections()[1].layout.gridPitch === 360, "section grid pitch");
+  const split = headers.preview({blockEdits:[{kind:"splitSection",target:headers.sections()[1].anchor,offset:1}]});
+  const divided = await openDocx(split.toDocx());
+  assert(divided.sections().length === 3, "split section");
+  const merged = divided.preview({blockEdits:[{kind:"mergeSection",target:divided.sections()[1].anchor}]});
+  assert((await openDocx(merged.toDocx())).sections().length === 2, "merged section");
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},
@@ -390,6 +407,17 @@ export async function generateCatalog(fixtures, options) {
   assert(headerLink.relationshipId && headerLink.anchor === first.inlineStructure(1)[1].anchor,
     "header aliases must share the physical hyperlink anchor");
   checkInheritedStories(headers, first);
+  const rich = await resolveComponent(para([hyperlink({kind:"external",url:"https://example.com/story-block"},[text("Story block link")])]));
+  const footerSlot = {sectionIndex:1, storyKind:"footer", variant:"first"};
+  const createdFooter = await openDocx(headers.editStoryReference({...footerSlot,action:"create",blocks:[rich]}));
+  const partName = createdFooter.stories().find(s => s.view.sectionIndex===1 && s.view.kind==="footer" && s.view.variant==="first").view.partName;
+  const removedFooter = await openDocx(createdFooter.editStoryReference({...footerSlot,action:"remove"}));
+  const linkedFooter = await openDocx(removedFooter.editStoryReference({...footerSlot,action:"link",partName}));
+  const localBlocks = {target:linkedFooter.defaultHeaders()[0].view.anchor,mode:"sectionLocal",index:2,remove:0,blocks:[resolvedTable,rich]};
+  assertThrows(() => headers.editStoryBlocks(localBlocks),"accepted a stale story anchor");
+  const storyBlocks = linkedFooter.editStoryBlocks(localBlocks);
+  const localHeader = (await openDocx(storyBlocks)).defaultHeaders();
+  assert(localHeader[0].view.partName !== localHeader[1].view.partName && localHeader[1].view.partName === first.view.partName, "next section lost its header");
   const headerTarget = headers.body()[0];
   assert(headerTarget.kind === "paragraph" && headerTarget.text === HEADER_BATCH_LABEL, "expected header batch anchor");
   const resolvedImage = (await resolveComponent(image("png"))).view.image;
@@ -429,5 +457,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits };
+  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits, storyBlocks };
 }

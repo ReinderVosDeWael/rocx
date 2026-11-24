@@ -221,6 +221,106 @@ requires exclusive use of the table within the table edit batch. Duplicate
 layout elements, tracked table properties, and clears that would discard
 extension attributes or children on the property are rejected.
 
+#### Independent table, row and cell property edits
+
+Read `properties` on each inspected physical table, row and cell (all bindings).
+It maps the field names below to **direct, lexical attribute values**. For
+example `properties["height"] = {"val": "320", "hRule": "exact"}` means exactly
+16 points; an empty `repeatHeader` map means the on/off element is present
+without a `val`. Missing keys mean no modeled direct value. The view is not a
+style cascade. Grid-column widths use the ordered `grid_widths`/`gridWidths`
+view instead.
+
+| Site | Field keys (identical in all bindings) |
+| --- | --- |
+| Table | `alignment`, `style`, `layout`; `look.firstRow`, `look.lastRow`, `look.firstColumn`, `look.lastColumn`, `look.horizontalBanding`, `look.verticalBanding`; `border.top`, `border.left`, `border.bottom`, `border.right`, `border.insideH`, `border.insideV` |
+| Grid column | `width` (twips; clearing leaves the column present) |
+| Physical row | `height`, `repeatHeader`, `cantSplit` |
+| Physical cell | `gridSpan`, `verticalMerge`, `backgroundColor`, `verticalAlignment`, `textDirection`; `margin.top`, `margin.start`, `margin.bottom`, `margin.end`; `border.top`, `border.start`, `border.bottom`, `border.end` |
+
+Pass a **resolved table** as `source` to copy the selected property through the
+authoring codec. Row and cell sources are its first row and first physical cell;
+column sources use its first explicit column width. Only the selected property
+is copied. A missing source property generally rejects the edit; setting layout
+from a fixed-width declaration also accepts the codec's implied fixed layout.
+To clear, explicitly pass `None`/`null`. Example: patch only the top margin of
+the third physical cell in the second row:
+
+| Rust `TableOperation` | Python `TableStructureEdit` | JavaScript `tableStructure` item |
+| --- | --- | --- |
+| `Property { site: TableSite::Cell(1, 2), field: "margin.top".into(), source: Some(Box::new(table)) }` | `patch_property(target, "margin.top", table, row=1, cell=2)` | `{target, kind: "patchProperty", row: 1, cell: 2, field: "margin.top", source: table}` |
+
+Rust sites are `TableSite::{Table, Row(r), Cell(r,c), Column(c)}`; omit
+coordinates for a whole-table property in Python/JavaScript. Distinct fields
+can share a batch. Duplicate fields, a second vertical-alignment write to the
+same cell, and property/structural edits on the same table reject. Grid and
+merge chains must be valid after the patches together. A new merge continuation
+must not hide existing content.
+
+Table style names resolve against the staged table-style catalog. Border
+patches affect one side (style, size and color together); margin patches
+affect one side; RGB fill leaves unrelated shading attributes intact. A
+destructive clear refuses to erase unmodeled markup. Look flags expose any
+individual attribute and its packed `maskBit`; `noHBand` and `noVBand` are
+the inverse of banding. Clearing a flag materializes any mask-only siblings
+before dropping the packed mask; unknown mask bits prevent such a clear.
+An unchanged direct property or a clear of a missing property does not
+rewrite the body or physical owner part, unless another edit changes that part.
+
+#### Replace or remove whole nodes
+
+`TableOperation::ReplaceNode { site, source: Box::new(table) }`,
+`TableStructureEdit.replace_node(target, table, ...)`, and
+`{target, kind: "replaceNode", source: table, ...}` replace a whole table,
+row or cell. The donor must contain exactly one row for a row replacement or
+one row with one cell for a cell replacement. A new row must cover the grid;
+a replacement cell must keep the target span. Explicit widths or unambiguous
+available width are required. A whole table can change dimensions. Whole-node
+replacement, unlike `ReplaceCell`/`replace_cell`/`replaceCell`, replaces the
+selected node's properties as well as its children.
+
+`TableOperation::RemoveTable`, `TableStructureEdit.remove_table(target)` and
+`{target, kind: "removeTable"}` remove an eligible body table. Row/cell removal
+uses the existing coordinate operations. A destructive edit requires exclusive
+use of the target table; it rejects unknown attributes, raw markup, nested
+source tables, relationships, controls, ranges and other non-disposable
+content at the discarded site. Row/cell replacement refuses vertical merges.
+Targets elsewhere in the batch retain their original body indices.
+
+#### Nested and physical-story tables
+
+Use Rust `doc.part_tables(None)` / Python `doc.part_tables()` / JavaScript
+`doc.partTables()` to discover main-story tables, including tables nested
+directly in ordinary cells. Supply the physical part name from `stories` or
+`entry_stories` (`stories()` / `entryStories()` in JS) to inspect header,
+footer, footnote, endnote or comment tables. `depth == 0` is a top-level
+table within its story. `path` is a descriptive list of element-child indices
+from the physical part root; it is not a public mutation address. Each view
+includes the part name, entry ID where relevant, grid widths and direct
+table/row/cell property maps.
+
+Pass its **physical table anchor** to an explicitly named owner operation:
+
+| Rust | Python | JavaScript |
+| --- | --- | --- |
+| `doc.edit_part_tables(&t.part_name, &[TableStructureEdit { target: t.anchor, operation: TableOperation::InsertRow(1) }])?` | `doc.edit_part_tables(t.part_name, [TableStructureEdit.insert_row(t.anchor, 1)])` | `doc.editPartTables({ownerPart:t.partName, tableStructure:[{target:t.anchor, kind:"insertRow", index:1}]})` |
+
+This returns new DOCX bytes. Reopen them before targeting the result. Aliases
+of a physical header/footer share the change. Within one table, batch distinct
+property patches or distinct cell-content replacements, or make a single
+layout/row/cell/column geometry edit. Source cell and merge guards still
+apply. Replacement paragraphs/tables use the shared codec: style references
+resolve in the document; new hyperlinks belong to the **edited owner**.
+Edits to disjoint sibling tables can share the same owner call. A stale,
+wrong-owner, or overlapping ancestor/descendant target rejects the batch.
+Ordinary body `preview` and physical table calls use distinct anchor scopes.
+
+Discovery does not descend through controls or arbitrary wrappers. Reserved
+notes and duplicate numeric entry IDs are excluded. A protected range across
+an outer table, unsafe ancestor grid, or enclosing merge continuation prevents
+a nested edit. Whole-node replacement and whole-table deletion remain direct
+body operations; no section-local story fork is performed here.
+
 Indices are zero-based; insert before an index or append at the count. A cell
 spanning three grid columns still counts as **one physical cell**. A new row
 contains blank cells except where it must continue an existing vertical merge;
@@ -552,6 +652,57 @@ Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
 original start index per changed operation, sorted in body order. Distinct
 property patches can therefore report the same index; no-op patches are omitted.
 
+## Direct paragraph and section layout
+
+Read `paragraph.layout` or `section.layout` for explicit, recognized direct
+values. Use a paragraph's anchor for paragraph layout, or **the section's own
+anchor** for section layout. Section anchors address the original physical
+section in `sections()` / `.sections` / `.sections()`, including a table-first
+section or an empty implicit final section. An edit to the latter materializes
+terminal properties if needed. Reopening even identical bytes invalidates old
+anchors. This addressing does not change the older `ReplaceSection` rules.
+
+| Rust | Python (`rocx.editor`) | JavaScript |
+|---|---|---|
+| `doc.preview_layout(&[LayoutEdit::Paragraph(p.anchor.clone(), LayoutField::FirstLineIndent, Some(LayoutValue::Integer(-240)))])?` | `doc.preview_layout([LayoutEdit.paragraph(p.anchor, "first_line_indent", -240)])` | `doc.previewLayout([{target: p.anchor, field: "firstLineIndent", value: -240}])` |
+| `LayoutEdit::Section(s.anchor.clone(), LayoutField::Margins, None)` | `LayoutEdit.section(s.anchor, "margins", None)` | `{target: s.anchor, field: "margins", value: null}` |
+
+The layout preview is a separate atomic batch of paragraph and section field
+changes. It exposes normal `to_docx` / `toDocx` output; read back `layout` in
+the reopened snapshot for the result. Existing mixed-batch reports such as
+`block_changes` are not layout change reports. Duplicate fields, overlapping
+whole-group and member edits, wrong or stale anchors, competing representations
+and protected or ambiguous owners fail without publishing partial edits.
+
+The table uses the Rust `LayoutField` spellings. Python uses snake case and
+JavaScript lower camel case for **both** editing and readback: e.g.
+`GridCharSpace` / `grid_char_space` / `gridCharSpace`. Values are integers,
+tokens, booleans, tab lists or single border records (`LayoutValue` in Rust).
+An omitted operation leaves the field alone; `None` / `None` / `null` clears it.
+
+| Target | Fields | Values and units |
+|---|---|---|
+| Paragraph style and alignment | `StyleId`, `Heading`, `OutlineLevel`, `Alignment` | Exact existing paragraph style ID, heading 1–9 mapped to an existing `Heading1`–`Heading9` style, independent outline level 0–9, or direct Word alignment token (e.g. `both` for justified). Heading and style ID address the same property. Clearing `Heading` leaves a non-heading style alone. |
+| Paragraph spacing | `SpaceBefore`, `SpaceAfter`, `LineHeight`, `LineRule` | Before/after in twips; positive line height in 240ths of a line for `auto`, or twips for `exact`/`atLeast`. Set or clear height and rule together when both must change. |
+| Paragraph indents | `LeftIndent`, `RightIndent`, `FirstLineIndent` | Signed twips. A negative first-line value is a hanging indent; setting it switches the underlying attribute. |
+| Paragraph tabs | `TabStops` | Replace the direct list with `LayoutTab {position, alignment, leader}` or records with the same names. Position is signed twips, alignment is required, leader optional. Clear the list to remove overrides. |
+| Section page | `PageWidth`, `PageHeight`, `Orientation`, `VerticalAlign`, `SectionType` | Positive dimensions in twips. Orientation (`portrait`/`landscape`) does **not** swap dimensions: change both dimensions explicitly when desired. |
+| Section margins | `MarginTop`, `MarginBottom`, `MarginLeft`, `MarginRight`, `MarginHeader`, `MarginFooter`, `MarginGutter`, `Margins` | Twips; only top/bottom may be negative. All seven attributes are schema-required. Setting one when no record exists fills template defaults (top/bottom 1440, left/right 1800, header/footer 720, gutter 0). Clear `Margins` to remove the whole record. |
+| Section columns/grid | `ColumnCount`, `ColumnSpace`, `ColumnSeparator`, `GridMode`, `GridPitch`, `GridCharSpace` | Equal-width columns: 1–45, twip spacing, boolean separator. Grid mode, positive twip pitch and signed character pitch delta (1/4096 point). |
+| Section numbering | `PageStart`, `PageFormat`, `LineStart`, `LineCountBy`, `LineDistance`, `LineRestart`, `LineNumbering` | Page start and recognized page-format token; line start 0–32767, count interval 1–100, distance in twips, restart `newPage`/`newSection`/`continuous`. Clear `LineNumbering` to remove the whole record. |
+| Section borders | `BorderOffset`, `BorderDisplay`, `BorderZOrder`, `BorderTop`, `BorderLeft`, `BorderBottom`, `BorderRight` | Each edge is independently replaced/cleared. A `LayoutBorder` or `{size, space, color}` record describes a single line: optional width 2–96 eighth-points, space 0–31 points, color six hex digits or `auto`. |
+| Flags | `TitlePage`, `Bidi`, `RtlGutter` on sections; `KeepWithNext`, `KeepTogether`, `PageBreakBefore`, `WidowControl`, `SuppressLineNumbers`, `ParagraphBidi`, `SnapToGrid`, `ContextualSpacing`, `MirrorIndents` on paragraphs | Explicit on/off or clear. |
+
+Readback omits unsupported values; it is not a computed layout or an OOXML
+round-trip template. Setting an ordinary attribute preserves other attributes
+and markup. Removing a whole node, group, tab list or border edge rejects
+destructive edits over opaque annotations. The supported page-format tokens
+are `decimal`, `upperRoman`, `lowerRoman`, `upperLetter`, `lowerLetter`,
+`ordinal`, `cardinalText`, `ordinalText`, `decimalZero`, and `none`.
+Character-unit or automatic spacing/indent variants, unequal or individually
+sized columns, art/theme borders, nested/story paragraphs, paragraph numbering
+references and structural section insertion/removal are outside this layout API.
+
 ## Imported style edits
 
 | Operation | Rust | Python (`rocx.editor`) | JavaScript |
@@ -637,3 +788,31 @@ Fields, protected wrappers and ambiguous/opaque references reject the transactio
 Retarget is the only style operation in its batch; other supported edit
 families stage first. There is no rewriting of field instructions, display
 names or linked numbering-style owners.
+
+## Section boundaries and header/footer blocks
+
+| Rust | Python | JavaScript |
+| --- | --- | --- |
+| `preview_blocks` with `BlockEdit::SplitSection(anchor, offset)` or `BlockEdit::MergeSection(anchor)` | `preview(block_edits=[BlockEdit.split_section(anchor, offset)])` or `BlockEdit.merge_section(anchor)` | `preview({blockEdits: [{kind: "splitSection", target: anchor, offset}]})` or `kind: "mergeSection"` without `offset` |
+| `edit_story_reference(index, kind, variant, StoryReferenceEdit::Create(blocks))` (also `Link(part)` and `Remove`) | `edit_story_reference(index, kind, variant, "create", blocks=blocks)` (also `"link"` with `part_name`, or `"remove"`) | `editStoryReference({sectionIndex, storyKind, variant, action: "create", blocks})` (also `"link"` with `partName`, or `"remove"`) |
+| `edit_story_blocks(&anchor, mode, index, remove, &blocks)` | `edit_story_blocks(anchor, mode, index, remove, blocks)` | `editStoryBlocks({target: anchor, mode, index, remove, blocks})` |
+
+Split offsets count original body blocks within the selected section and
+insert a dedicated boundary paragraph; in a nonfinal section, place it before
+the existing boundary owner. The prefix receives the original explicit story
+references, and the suffix inherits them. The final section can be split even
+if it has no blocks. Merge removes a nonfinal boundary and uses the following
+section's geometry and explicit story choices, preserving its previously
+inherited references. Only a completely empty boundary paragraph is removed;
+opaque properties and protected boundaries are rejected. Reopen to obtain
+fresh anchors after either operation. Boundary edits cannot share a batch with
+resource, story image, or control edits, or with other edits targeting the
+affected section ranges.
+
+Story reference changes use snapshot-relative section indices and follow
+inheritance until the next explicit reference for that kind and slot. Removing
+a reference does not delete the part. Block splices use physical block indices
+and can insert or replace resolved paragraphs and fixed-width tables.
+Shared mode edits the physical part; section-local mode forks a supported story
+and preserves the following section's previous reference. Destructive edits
+over opaque content, drawings, protected ranges, or fields are rejected.

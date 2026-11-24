@@ -1184,6 +1184,42 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert!(
         matches!(&editor::ImportedDocument::open(&layout)?.body()[after], editor::BodyBlock::Table(t) if t.layout == Some(TableLayout::Autofit) && t.grid_widths == table.grid_widths)
     );
+    // Direct property sample: clear only the second grid width, keeping its column.
+    let cleared = reopened
+        .preview_edits(editor::EditBatch {
+            structural: &[editor::TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: editor::TableOperation::Property {
+                    site: editor::TableSite::Column(1),
+                    field: "width".into(),
+                    source: None,
+                },
+            }],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    assert!(
+        matches!(&editor::ImportedDocument::open(&cleared)?.body()[after], editor::BodyBlock::Table(t) if t.grid_widths == [Some(2160),None] && t.properties["layout"]["type"] == "fixed")
+    );
+    // Physical-owner sample: change only the catalog's nested 1440-twip table.
+    let nested = reopened
+        .part_tables(None)?
+        .into_iter()
+        .find(|t| t.depth == 1 && t.grid_widths == [Some(1440)])
+        .expect("nested fixed table");
+    let bytes = reopened.edit_part_tables(
+        &nested.part_name,
+        &[editor::TableStructureEdit {
+            target: nested.anchor,
+            operation: editor::TableOperation::Layout(None),
+        }],
+    )?;
+    assert!(
+        editor::ImportedDocument::open(&bytes)?
+            .part_tables(None)?
+            .iter()
+            .any(|t| t.path == nested.path && !t.properties.contains_key("layout"))
+    );
     // Structural sample: append an empty row to this original table.
     let appended = reopened
         .preview_with_table_structure(
@@ -1310,10 +1346,37 @@ pub async fn generate(output: &Path) -> Result<()> {
         unreachable!()
     };
     let target = &last.anchor;
+    // Labeled header-source sample: inspect direct layout in an independent preview.
+    {
+        use editor::{LayoutEdit as E, LayoutField as F, LayoutValue as V};
+        let layout = imported.preview_layout(&[
+            E::Paragraph(target.clone(), F::SpaceAfter, Some(V::Integer(180))),
+            E::Section(
+                imported.sections()?[1].anchor.clone(),
+                F::GridPitch,
+                Some(V::Integer(360)),
+            ),
+        ])?;
+        let edited = editor::ImportedDocument::open(&layout.to_docx()?)?;
+        assert_eq!(edited.sections()?[1].layout[&F::GridPitch], V::Integer(360));
+    }
     let payload = Component::resolve(Paragraph::new("Block editor: replacement paragraph."))
         .await?
         .unwrap();
     use editor::BlockEdit;
+    let sections = imported.sections()?;
+    let split =
+        imported.preview_blocks(&[BlockEdit::SplitSection(sections[1].anchor.clone(), 1)])?;
+    let reopened = editor::ImportedDocument::open(&split.to_docx()?)?;
+    let sections = reopened.sections()?;
+    assert_eq!(sections.len(), 3);
+    let merged = reopened.preview_blocks(&[BlockEdit::MergeSection(sections[1].anchor.clone())])?;
+    assert_eq!(
+        editor::ImportedDocument::open(&merged.to_docx()?)?
+            .sections()?
+            .len(),
+        2
+    );
     for edit in [
         BlockEdit::Replace(target.clone(), Box::new(payload.clone())),
         BlockEdit::Remove(target.clone()),
@@ -1379,6 +1442,54 @@ pub async fn generate(output: &Path) -> Result<()> {
     assert_eq!(link.children.len(), HEADER_LINK_RUNS.len());
     let stories = imported.stories()?;
     let (explicit, inherited) = stories.split_at(6);
+    use editor::{SectionStoryKind, StoryReferenceEdit};
+    let footer_slot = (SectionStoryKind::Footer, HeaderFooterType::First);
+    let rich = Component::resolve(Paragraph::from_children(vec![
+        Hyperlink::new(
+            HyperlinkTarget::external("https://example.com/story-block")?,
+            vec![TextRun::new("Story block link").into()],
+        )
+        .into(),
+    ]))
+    .await?
+    .unwrap();
+    let bytes = imported.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Create(vec![ResolvedBlock::Paragraph(rich.clone())]),
+    )?;
+    let created = editor::ImportedDocument::open(&bytes)?;
+    let part = created
+        .stories()?
+        .into_iter()
+        .find(|s| s.section_index == 1 && (s.kind, s.variant) == footer_slot)
+        .unwrap()
+        .part_name;
+    let bytes = created.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Remove,
+    )?;
+    let bytes = editor::ImportedDocument::open(&bytes)?.edit_story_reference(
+        1,
+        footer_slot.0,
+        footer_slot.1,
+        StoryReferenceEdit::Link(part),
+    )?;
+    let linked = editor::ImportedDocument::open(&bytes)?;
+    let bytes = linked.edit_story_blocks(
+        &linked.default_headers()?[0].anchor,
+        editor::HeaderEditMode::SectionLocal,
+        2,
+        0,
+        &[
+            ResolvedBlock::Table(resolved_table.clone()),
+            ResolvedBlock::Paragraph(rich),
+        ],
+    )?;
+    std::fs::write(output.with_extension("story-blocks.docx"), bytes)?;
     assert_eq!(inherited.len(), explicit.len());
     for (first, second) in explicit.iter().zip(inherited) {
         assert_eq!((first.section_index, second.section_index), (0, 1));

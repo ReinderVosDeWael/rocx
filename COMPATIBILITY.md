@@ -60,6 +60,9 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Insert/replace a direct inline or patch modeled direct run formatting | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
 | Insert/remove rows, cells or columns; replace cell contents | `TableStructureEdit` / `preview_with_table_structure` | `preview([], table_structure=[edit])` | `preview({tableStructure: [edit]})` |
 | Set/clear direct table layout (same batch field) | `TableOperation::Layout(Some(TableLayout::Fixed))` / `Layout(None)` | `TableStructureEdit.layout(target, "fixed")` / `layout(target, None)` | `{target, kind: "layout", value: "fixed"}` / `value: null` |
+| Inspect/patch a direct table, row or cell property | `properties` / `TableOperation::Property { site, field, source }` | `properties` / `TableStructureEdit.patch_property(target, field, source, ...)` | `properties` / `{target, kind:"patchProperty", field, source, ...}` |
+| Replace table/row/cell or remove table | `TableOperation::ReplaceNode` / `RemoveTable` | `TableStructureEdit.replace_node(...)` / `remove_table(target)` | `kind: "replaceNode"` / `"removeTable"` |
+| Discover and edit nested or non-body tables | `part_tables(Some(owner))` / `edit_part_tables(owner, &edits)` | `part_tables(owner)` / `edit_part_tables(owner, edits)` | `partTables(owner)` / `editPartTables({ownerPart, tableStructure})` |
 | Edit supported style definitions | `StyleEdit` / `preview_with_styles` | `preview([], style_edits=[edit])` | `preview({styleEdits: [edit]})` |
 | Set/clear title, default alignment or abstract level start | `ResourceEdit` / `preview_with_resources` | `preview([], resources=[edit])` | `preview({resources: [edit]})` |
 | Edit simple text in a physical header/footer, footnote/endnote or comment part | `edit_story_text(owner_part, edits)` | `edit_story_text(owner_part, edits)` | `editStoryText({ownerPart, runText})` |

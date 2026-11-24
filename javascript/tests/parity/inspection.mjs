@@ -225,10 +225,15 @@ async function importedBodySectionsAndPhysicalCells() {
   const run = (node, value) => ({ kind: "run", format: {}, hasOpaqueFormatting: false, anchor: node.anchor, items: [text(value)] });
   assert.deepEqual(table, {
     kind: "table", anchor: table.anchor, gridWidths: [2880, 2880, 2880],
+    properties: {
+      "look.firstRow": {firstRow:"1",maskBit:"1"}, "look.lastRow": {lastRow:"0",maskBit:"0"},
+      "look.firstColumn": {firstColumn:"1",maskBit:"1"}, "look.lastColumn": {lastColumn:"0",maskBit:"0"},
+      "look.horizontalBanding": {noHBand:"0",maskBit:"0"}, "look.verticalBanding": {noVBand:"1",maskBit:"1"},
+    },
     children: [
       opaque("w:sdt"),
-      { kind: "row", children: [
-        { kind: "cell", gridSpan: 2, blocks: [
+      { kind: "row", properties: {}, children: [
+        { kind: "cell", gridSpan: 2, properties: {gridSpan:{val:"2"}}, blocks: [
           {
             kind: "paragraph",
             inlineItems: [text("Span"), opaque("w:fldSimple"), text("Cell"), text("Link")],
@@ -244,7 +249,7 @@ async function importedBodySectionsAndPhysicalCells() {
             inlineStructure: [run(afterRun, "After nested")] },
         ] },
         opaque("w:sdt"),
-        { kind: "cell", blocks: [
+        { kind: "cell", properties: {}, blocks: [
           { kind: "paragraph", inlineItems: [text("Tail")], inlineStructure: [run(tailRun, "Tail")] },
         ] },
       ] },
@@ -266,7 +271,7 @@ async function importedBodySectionsAndPhysicalCells() {
   const reopened = await openDocx(input);
   assert.notEqual(table.anchor, reopened.body()[2].anchor);
   assert.throws(() => reopened.inlineAt(right.anchor), /different document snapshot/);
-  assert.deepEqual((await openDocx(bytes("implicit"))).sections(), [
+  assert.deepEqual((await openDocx(bytes("implicit"))).sections().map(({anchor, layout, ...rest}) => rest), [
     { bodyStart: 0, bodyEnd: 1, flags: {}, sectionType: "continuous", sectionTypeXml: "continuous" },
     { bodyStart: 1, bodyEnd: 2, flags: {}, sectionTypeXml: "unknown" },
     { bodyStart: 2, bodyEnd: 3, flags: {} },

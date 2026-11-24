@@ -27,7 +27,22 @@ impl Slot {
             "section-local" => HeaderEditMode::SectionLocal,
             _ => return Err("unknown image edit mode".into()),
         };
-        let target = stories
+        let target = self.anchor(doc, stories)?;
+        Ok(HeaderImageEdit {
+            target,
+            mode,
+            image: resolve(ImageRun::new(bytes))?
+                .image()
+                .ok_or("expected image")?
+                .clone(),
+        })
+    }
+    fn anchor(
+        &self,
+        doc: &ImportedDocument,
+        stories: &std::cell::OnceCell<Result<Vec<ImportedStory>, String>>,
+    ) -> Result<HeaderAnchor, String> {
+        stories
             .get_or_init(|| doc.stories().map_err(|e| e.to_string()))
             .as_ref()
             .map_err(Clone::clone)?
@@ -38,15 +53,7 @@ impl Slot {
                     && variant(s.variant) == self.variant
             })
             .and_then(|s| s.anchor.clone())
-            .ok_or("unknown story image slot")?;
-        Ok(HeaderImageEdit {
-            target,
-            mode,
-            image: resolve(ImageRun::new(bytes))?
-                .image()
-                .ok_or("expected image")?
-                .clone(),
-        })
+            .ok_or_else(|| "unknown story slot".into())
     }
 }
 pub(super) fn variant(v: HeaderFooterType) -> &'static str {
@@ -109,6 +116,56 @@ pub(super) fn preview_scoped(
     snapshot: String,
 ) -> Result<(Vec<u8>, Value), String> {
     let p = match edit {
+        Edit::PartTables {
+            owner_part,
+            operations,
+        } => {
+            return structure::preview_physical(doc, owner_part, operations, snapshot);
+        }
+        Edit::StoryReference { target, action } => {
+            let kind = match target.kind.as_str() {
+                "header" => SectionStoryKind::Header,
+                "footer" => SectionStoryKind::Footer,
+                _ => return Err("unknown story kind".into()),
+            };
+            let variant = match target.variant.as_str() {
+                "default" => HeaderFooterType::Default,
+                "first" => HeaderFooterType::First,
+                "even" => HeaderFooterType::Even,
+                _ => return Err("unknown story variant".into()),
+            };
+            let action = match action {
+                ReferenceAction::Create { blocks } => {
+                    StoryReferenceEdit::Create(resolve_blocks(blocks)?)
+                }
+                ReferenceAction::Link { part } => StoryReferenceEdit::Link(part),
+                ReferenceAction::Remove {} => StoryReferenceEdit::Remove,
+            };
+            return Ok((
+                doc.edit_story_reference(target.section_index, kind, variant, action)
+                    .map_err(|e| e.to_string())?,
+                json!({"snapshot":snapshot,"section_index":target.section_index}),
+            ));
+        }
+        Edit::StoryBlocks {
+            target,
+            mode,
+            index,
+            remove,
+            blocks,
+        } => {
+            let anchor = target.anchor(doc, &std::cell::OnceCell::new())?;
+            let mode = match mode.as_str() {
+                "shared" => HeaderEditMode::Shared,
+                "section-local" => HeaderEditMode::SectionLocal,
+                _ => return Err("unknown story block edit mode".into()),
+            };
+            return Ok((
+                doc.edit_story_blocks(&anchor, mode, index, remove, &resolve_blocks(blocks)?)
+                    .map_err(|e| e.to_string())?,
+                json!({"snapshot":snapshot,"section_index":target.section_index}),
+            ));
+        }
         Edit::StoryText { part, runs } => {
             let stories = if runs.iter().any(|r| r.entry_index.is_none()) {
                 doc.stories().map_err(|e| e.to_string())?

@@ -331,7 +331,7 @@ pub(super) fn disposable_run(run: &Node, tag: &str, text: &str) -> bool {
         && run.child("w:rPr").is_none_or(disposable_properties)
 }
 
-fn check_whole(node: &Node, discard: bool) -> Result<()> {
+pub(super) fn check_whole(node: &Node, discard: bool) -> Result<()> {
     if node.name != "w:hyperlink" {
         return check_run(node, discard);
     }

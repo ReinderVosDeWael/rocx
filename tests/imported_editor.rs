@@ -34,6 +34,164 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn section_lifecycle_guards_protected_gaps_and_opaque_donors() {
+    use rocx::editor::BlockEdit;
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(
+            r#"<w:document xmlns:w="{W}" xmlns:x="urn:test"><w:body>{body}</w:body></w:document>"#
+        )))
+        .unwrap()
+    };
+    let doc = make(
+        r#"<w:p><w:bookmarkStart w:id="1" w:name="protected"/></w:p>
+        <w:p><w:bookmarkEnd w:id="1"/></w:p><w:p/><w:sectPr/>"#,
+    );
+    let section = &doc.sections().unwrap()[0].anchor;
+    assert!(
+        doc.preview_blocks(&[BlockEdit::SplitSection(section.clone(), 1)])
+            .is_err()
+    );
+    assert!(
+        doc.preview_blocks(&[BlockEdit::SplitSection(section.clone(), 2)])
+            .is_ok()
+    );
+    let doc = make(r#"<w:p/><w:p><w:pPr><w:sectPr x:keep="true"/></w:pPr></w:p><w:sectPr/>"#);
+    let section = &doc.sections().unwrap()[0].anchor;
+    for edit in [
+        BlockEdit::SplitSection(section.clone(), 1),
+        BlockEdit::MergeSection(section.clone()),
+    ] {
+        assert!(doc.preview_blocks(&[edit]).is_err());
+    }
+    assert_eq!(doc.sections().unwrap().len(), 2);
+}
+
+#[test]
+fn layout_edits_guard_ranges_alternatives_opaque_values_and_foreign_section_owners() {
+    use rocx::editor::{
+        LayoutBorder, LayoutEdit as E, LayoutField as F, LayoutTab, LayoutValue as V,
+    };
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(r#"<w:document xmlns:w="{W}" xmlns:x="urn:example"><w:body>{body}</w:body></w:document>"#))).unwrap()
+    };
+    let make_p = |props: &str| make(&format!("<w:p><w:pPr>{props}</w:pPr></w:p>"));
+    for (props, field, val) in [
+        (
+            "<w:jc x:note=\"retain\" w:val=\"left\"/>",
+            F::Alignment,
+            None,
+        ),
+        (
+            "<w:spacing w:beforeLines=\"1\"/>",
+            F::SpaceBefore,
+            Some(V::Integer(42)),
+        ),
+        (
+            "<w:ind w:hanging=\"240\" w:firstLine=\"80\"/>",
+            F::FirstLineIndent,
+            Some(V::Integer(-120)),
+        ),
+        (
+            "<w:tabs><w:tab w:pos=\"100\" w:val=\"left\" x:tag=\"retain\"/></w:tabs>",
+            F::TabStops,
+            None,
+        ),
+        ("<w:pPrChange/>", F::LeftIndent, Some(V::Integer(42))),
+        ("<w:spacing/><w:spacing/>", F::LineRule, None),
+        (
+            "",
+            F::TabStops,
+            Some(V::Tabs(vec![LayoutTab {
+                position: 10,
+                alignment: "future".into(),
+                leader: None,
+            }])),
+        ),
+        ("", F::StyleId, Some(V::Token("missing style".into()))),
+    ] {
+        let d = make_p(props);
+        assert!(
+            d.preview_layout(&[E::Paragraph(paragraph(&d, 0).anchor.clone(), field, val)])
+                .is_err(),
+            "{props}"
+        );
+    }
+    for (source, field, v) in [
+        (
+            "<w:p><w:bookmarkStart w:id=\"1\"/></w:p><w:sectPr/>",
+            F::PageWidth,
+            Some(V::Integer(5000)),
+        ),
+        (
+            "<w:sectPr><w:cols w:equalWidth=\"0\"><w:col/></w:cols></w:sectPr>",
+            F::ColumnCount,
+            Some(V::Integer(2)),
+        ),
+        (
+            "<w:sectPr><w:pgBorders><w:top w:val=\"single\" x:opaque=\"yes\"/></w:pgBorders></w:sectPr>",
+            F::BorderTop,
+            None,
+        ),
+        (
+            "<w:sectPr><w:lnNumType x:opaque=\"yes\"/></w:sectPr>",
+            F::LineNumbering,
+            None,
+        ),
+        (
+            "<w:sectPr/>",
+            F::BorderLeft,
+            Some(V::Border(LayoutBorder {
+                size: Some(100),
+                space: None,
+                color: None,
+            })),
+        ),
+    ] {
+        let d = make(source);
+        assert!(
+            d.preview_layout(&[E::Section(
+                d.sections().unwrap()[0].anchor.clone(),
+                field,
+                v
+            )])
+            .is_err(),
+            "{source}"
+        );
+    }
+    let d = make("<w:p/><w:p><w:pPr><w:sectPr/></w:pPr></w:p>");
+    let sections = d.sections().unwrap();
+    assert_eq!((sections[1].body_start, sections[1].body_end), (2, 2));
+    let a = sections[1].anchor.clone();
+    let e = |f, v| E::Section(a.clone(), f, v);
+    let data = d
+        .preview_layout(&[
+            e(F::MarginLeft, Some(V::Integer(600))),
+            e(F::LineCountBy, Some(V::Integer(3))),
+            e(F::PageFormat, Some(V::Token("lowerRoman".into()))),
+            e(F::ColumnSeparator, Some(V::Boolean(false))),
+            e(F::GridCharSpace, Some(V::Integer(-40))),
+        ])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let result = ImportedDocument::open(&data).unwrap();
+    assert!(result.preview_layout(&[e(F::PageFormat, None)]).is_err());
+    let s = result.sections().unwrap();
+    assert!(s[0].layout.is_empty());
+    assert_eq!(s[1].layout[&F::MarginRight], V::Integer(1800));
+    assert_eq!(s[1].layout[&F::GridCharSpace], V::Integer(-40));
+    let noop = E::Section(
+        s[1].anchor.clone(),
+        F::PageFormat,
+        Some(V::Token("lowerRoman".into())),
+    );
+    assert_eq!(
+        parts(&result.preview_layout(&[noop]).unwrap().to_docx().unwrap()),
+        parts(&data)
+    );
+}
+
+#[test]
 fn direct_property_edits_set_clear_and_refuse_ambiguous_or_protected_targets() {
     use rocx::editor::{BlockEdit as E, ParagraphFlag as P, SectionFlag as S};
     let make = |body: &str| {
@@ -3320,6 +3478,109 @@ fn first_header_image_local_preserves_aliases_and_inheritance() {
             assert_eq!(&story.part_name, expected);
         }
     }
+}
+
+#[test]
+fn unknown_look_bits_and_duplicate_leafs_fail_atomically_with_table_removal() {
+    use rocx::editor::{EditBatch, TableOperation, TableSite, TableStructureEdit};
+    let t = r#"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2400"/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#;
+    for (props, field, message) in [
+        (
+            "<w:tblLook w:val=\"8020\"/>",
+            "look.firstRow",
+            "unknown mask bits",
+        ),
+        (
+            "<w:jc w:val=\"left\"/><w:jc w:val=\"right\"/>",
+            "alignment",
+            "ambiguous table properties",
+        ),
+    ] {
+        let xml = format!(
+            "<w:document xmlns:w=\"{W}\"><w:body>{t}{}<w:sectPr/></w:body></w:document>",
+            t.replace("<w:tblPr/>", &format!("<w:tblPr>{props}</w:tblPr>"))
+        );
+        let bytes = fixture_with_body(&xml);
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let [BodyBlock::Table(first), BodyBlock::Table(second)] = doc.body() else {
+            panic!("tables")
+        };
+        let remove = TableStructureEdit {
+            target: first.anchor.clone(),
+            operation: TableOperation::RemoveTable,
+        };
+        let clear = TableStructureEdit {
+            target: second.anchor.clone(),
+            operation: TableOperation::Property {
+                field: field.into(),
+                site: TableSite::Table,
+                source: None,
+            },
+        };
+        assert!(
+            doc.preview_edits(EditBatch {
+                structural: &[remove.clone(), clear],
+                ..Default::default()
+            })
+            .unwrap_err()
+            .to_string()
+            .contains(message)
+        );
+        let output = doc
+            .preview_edits(EditBatch {
+                structural: &[remove],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        assert_eq!(ImportedDocument::open(&output).unwrap().body().len(), 1);
+        assert_eq!(
+            parts(&bytes),
+            parts(&doc.preview(&[]).unwrap().to_docx().unwrap())
+        );
+    }
+}
+
+#[test]
+fn physical_nested_tables_reject_hidden_merge_continuations_without_invalidating_peers() {
+    use rocx::editor::{TableOperation, TableStructureEdit};
+    let inner = r#"<w:tbl><w:tblGrid><w:gridCol w:w="1200"/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#;
+    let main = format!(
+        r#"<w:document xmlns:w="{W}"><w:body><w:tbl><w:tblGrid><w:gridCol w:w="1200"/></w:tblGrid>
+      <w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr>{inner}<w:p/></w:tc></w:tr>
+      <w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr>{inner}<w:p/></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#
+    );
+    let source = ImportedDocument::open(&fixture_with_body(&main)).unwrap();
+    let tables = source.part_tables(None).unwrap();
+    assert_eq!(
+        tables.iter().map(|t| t.depth).collect::<Vec<_>>(),
+        [0, 1, 1]
+    );
+    let edit = |i: usize| TableStructureEdit {
+        target: tables[i].anchor.clone(),
+        operation: TableOperation::InsertRow(1),
+    };
+    let owner = &tables[0].part_name;
+    assert!(
+        source
+            .edit_part_tables(owner, &[edit(1), edit(2)])
+            .unwrap_err()
+            .to_string()
+            .contains("protected")
+    );
+    let out = source.edit_part_tables(owner, &[edit(1)]).unwrap();
+    let readback = ImportedDocument::open(&out)
+        .unwrap()
+        .part_tables(None)
+        .unwrap();
+    assert_eq!(
+        readback
+            .iter()
+            .map(|t| t.row_properties.len())
+            .collect::<Vec<_>>(),
+        [2, 2, 1]
+    );
 }
 
 #[test]
