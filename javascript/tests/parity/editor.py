@@ -263,6 +263,13 @@ def verify(directory):
     assert len(local_readback.sections[1].header.paragraphs) == 2
     assert len(local_readback.sections[2].header.paragraphs) == 1
 
+    first_shared = Document(directory / "firstShared.docx")
+    first_local = Document(directory / "firstLocal.docx")
+    assert len(first_shared.sections[3].first_page_header._element.xpath(".//w:drawing")) == 1
+    assert len(first_local.sections[3].first_page_header._element.xpath(".//w:drawing")) == 1
+    assert len(first_local.sections[0].header._element.xpath(".//w:drawing")) == 0
+    assert parts(directory / "firstLocal.docx")[HEADER] == source[HEADER]
+
     relocated_source = parts(directory / "relocated.docx")
     relocated = parts(directory / "relocated-out.docx")
     untouched(relocated_source, relocated, (MAIN, MAIN_RELS, TYPES))

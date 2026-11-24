@@ -47,7 +47,8 @@ Output:
 - Paired `.header-source.docx`, `.header-shared.docx`, and `.header-local.docx`
   artifacts: a two-section source with six inherited header/footer slots and two
   independent transactions, each combining an alignment patch, a table insertion,
-  and a default-header image.
+  and a default-header image. The `.header-first-shared.docx` and
+  `.header-first-local.docx` artifacts separately preview first-page images.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -70,15 +71,16 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode uv run --no-sync python tools/check_exampl
 The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.template.docx`, `all_features-javascript.edited.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
-`all_features-javascript.header-local.docx`, and `all_features-javascript.run-text.docx`. Repeat `--javascript-dir` to check
-multiple runtime outputs. The checker requires all seven exact byte matches and
+`all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
+`all_features-javascript.header-first-local.docx`, and `all_features-javascript.run-text.docx`. Repeat `--javascript-dir` to check
+multiple runtime outputs. The checker requires all nine exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
 In Chromium, import `generateCatalog` from `catalog.mjs` with the installed
 package resolved by a bundler or import map. Pass a filename-to-`Uint8Array`
 map of the six image fixtures, or an async function that reads a fixture by
 basename. The function returns `final`, `template`, `edited`, `headerSource`,
-`headerShared`, `headerLocal` and `runText` byte arrays; use the exported `catalogNames`
+`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal` and `runText` byte arrays; use the exported `catalogNames`
 to name output files. The common module never reads DOCX fixtures or performs I/O
 except through the caller's image loader. Node uses `imageFile()` for the
 named-image sample; the browser supplies named bytes.
@@ -153,6 +155,15 @@ edits that collide on a physical source header are rejected. Distinct local edit
 may fork the same original header independently; an adjacent local edit takes
 precedence over restoring inheritance at its section. Failed batches return no
 preview and leave the source unchanged.
+
+The catalog also previews first-page header images in both scopes. Select a
+`stories()` entry with `kind == SectionStoryKind::Header` and `variant ==
+HeaderFooterType::First`, then pass its `anchor` to `HeaderImageEdit` in Rust;
+in Python select `document.stories` with `kind == "header"` and `variant ==
+"first"` and pass `story.anchor` to `HeaderImageEdit`; in JavaScript select
+`imported.stories()` by `view.kind === "header"` and `view.variant ===
+"first"`, then pass `story.view.anchor` to `previewHeaderImage`. These are
+reference slots, not a claim that a particular page displays the story.
 
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle
 rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque

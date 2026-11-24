@@ -12,6 +12,8 @@ export const catalogNames = Object.freeze({
   headerSource: "all_features-javascript.header-source.docx",
   headerShared: "all_features-javascript.header-shared.docx",
   headerLocal: "all_features-javascript.header-local.docx",
+  headerFirstShared: "all_features-javascript.header-first-shared.docx",
+  headerFirstLocal: "all_features-javascript.header-first-local.docx",
   runText: "all_features-javascript.run-text.docx",
 });
 const EDIT_TABLE_LABEL = "Imported editor table: bold label";
@@ -202,6 +204,15 @@ export async function generateCatalog(fixtures, options) {
   const headerTarget = headers.body()[0];
   assert(headerTarget.kind === "paragraph" && headerTarget.text === HEADER_BATCH_LABEL, "expected header batch anchor");
   const resolvedImage = (await resolveComponent(image("png"))).view.image;
+  const firstPage = headers.stories().find(({view}) => view.sectionIndex === 1 && view.kind === "header" && view.variant === "first").view;
+  const firstOutputs = [];
+  for (const mode of ["shared", "sectionLocal"]) {
+    const firstPreview = headers.previewHeaderImage({target: firstPage.anchor, mode, image: resolvedImage});
+    const change = firstPreview.change();
+    assert(JSON.stringify(change.affectedSections) === JSON.stringify(mode === "shared" ? [0, 1] : [1]),
+      "unexpected first-page header scope");
+    firstOutputs.push(firstPreview.toDocx());
+  }
 
   async function headerEdit(mode, affectedSections) {
     const headerImages = [{ target: inherited.view.anchor, mode, image: resolvedImage }];
@@ -219,5 +230,6 @@ export async function generateCatalog(fixtures, options) {
   }
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
-  return { final, template, edited, headerSource, headerShared, headerLocal, runText };
+  const [headerFirstShared, headerFirstLocal] = firstOutputs;
+  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText };
 }

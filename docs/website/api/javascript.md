@@ -156,7 +156,7 @@ round-trip authoring declaration.
 | Synchronous API | Behavior |
 | --- | --- |
 | `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, `headerImages` and `runText` in one transaction against the original snapshot. |
-| `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one default-header image append. `change()` reports the effect. |
+| `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one default- or first-page-header image append. Obtain the latter target from `stories()`; `change()` reports the effect. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
 Alignment edits take a `ParagraphAnchor` and `alignment`; table insertions

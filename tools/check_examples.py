@@ -39,7 +39,8 @@ HEADER_BATCH_LABEL = "Combined editor batch: this paragraph is centered and foll
 HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
-                    ".header-shared.docx", ".header-local.docx", ".run-text.docx")
+                    ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
+                    ".header-first-local.docx", ".run-text.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -794,6 +795,13 @@ def generate(directory: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     return rust, python
 
 
+def verify_first_header_scopes(first_shared: bytes, first_local: bytes) -> None:
+    for data, expected in ((first_shared, [1, 1]), (first_local, [0, 1])):
+        document = docx.Document(io.BytesIO(data))
+        assert [len(section.first_page_header._element.xpath(".//w:drawing"))
+                for section in document.sections] == expected
+
+
 def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> None:
     """Require every file and check content and untouched payloads separately."""
     artifacts = []
@@ -806,11 +814,12 @@ def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> No
             raise AssertionError(f"{path}: {error}") from error
         artifacts.append(data)
         print(f"Byte-identical {path}: {len(data)} bytes; SHA-256 {digest}")
-    final, template, edited, source, shared, local, _ = artifacts
+    final, template, edited, source, shared, local, first_shared, first_local, _ = artifacts
     # Compare source/result payloads within the JS artifacts, independent of the Rust oracle.
     verify_content(final, template)
     verify_edited(final, edited)
     verify_header_scopes(source, shared, local)
+    verify_first_header_scopes(first_shared, first_local)
 
 
 def main() -> None:
@@ -835,13 +844,16 @@ def main() -> None:
         assert all(source.read(n) == changed.read(n) for n in source.namelist() if n != "word/document.xml")
     verify_content(rust.read_bytes(), rust.with_suffix(".template.docx").read_bytes())
     verify_edited(rust.read_bytes(), edited)
-    for suffix in [".header-source.docx", ".header-shared.docx", ".header-local.docx"]:
+    for suffix in [".header-source.docx", ".header-shared.docx", ".header-local.docx",
+                   ".header-first-shared.docx", ".header-first-local.docx"]:
         data = rust.with_suffix(suffix).read_bytes()
         header_digest = exact_bytes(data, python.with_suffix(suffix).read_bytes())
         print(f"Byte-identical {suffix[1:]}: {len(data)} bytes; SHA-256 {header_digest}")
     verify_header_scopes(*(rust.with_suffix(suffix).read_bytes() for suffix in [
         ".header-source.docx", ".header-shared.docx", ".header-local.docx"
     ]))
+    verify_first_header_scopes(rust.with_suffix(".header-first-shared.docx").read_bytes(),
+                               rust.with_suffix(".header-first-local.docx").read_bytes())
     print(f"Byte-identical DOCX: {len(rust.read_bytes())} bytes; SHA-256 {digest}")
     print(f"Byte-identical edited DOCX: {len(edited)} bytes; SHA-256 {edited_digest}")
     print(f"Rust:   {rust}\nPython: {python}")

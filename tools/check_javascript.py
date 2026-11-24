@@ -8,6 +8,7 @@ from check_examples import (
     exact_bytes,
     verify_content,
     verify_edited,
+    verify_first_header_scopes,
     verify_header_scopes,
     verify_javascript_workflow,
     verify_plain_workflow,
@@ -20,7 +21,7 @@ PORTABLE_ORACLES = (
     "tables", "tables-auto", "tables-layout",
     "fresh", "override", "edited", "structured",
 )
-EDITOR_OUTPUTS = ("body", "noop", "shared", "local", "relocated-out", "mixed", "mixedShared")
+EDITOR_OUTPUTS = ("body", "noop", "shared", "local", "firstShared", "firstLocal", "relocated-out", "mixed", "mixedShared")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:
@@ -43,7 +44,7 @@ def verify_catalog(validator: Validator, parity: Path) -> None:
             verify_file(validator, references / f"all_features-{language}{suffix}", data, language=language)
 
     for runtime in RUNTIMES:
-        final, template, edited, source, shared, local, _ = (
+        final, template, edited, source, shared, local, first_shared, first_local, _ = (
             verify_file(validator, parity / runtime / f"catalog{suffix}", data, language=runtime)
             for suffix, data in zip(CATALOG_SUFFIXES, native, strict=True)
         )
@@ -51,6 +52,7 @@ def verify_catalog(validator: Validator, parity: Path) -> None:
         verify_content(final, template)
         verify_edited(final, edited)
         verify_header_scopes(source, shared, local)
+        verify_first_header_scopes(first_shared, first_local)
         print(f"{runtime}: catalog, independent python-docx and untouched-part checks passed")
 
 

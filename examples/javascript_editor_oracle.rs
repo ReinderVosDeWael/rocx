@@ -147,6 +147,31 @@ fn main() {
             doc.preview_header_image(e).unwrap().to_docx().unwrap(),
         );
     }
+    let stories = doc.stories().unwrap();
+    let first_page = stories
+        .iter()
+        .find(|s| {
+            s.section_index == 3
+                && s.kind == rocx::editor::SectionStoryKind::Header
+                && s.variant == rocx::HeaderFooterType::First
+        })
+        .unwrap();
+    for (name, mode) in [
+        ("native-firstShared.docx", HeaderEditMode::Shared),
+        ("native-firstLocal.docx", HeaderEditMode::SectionLocal),
+    ] {
+        write(
+            name,
+            doc.preview_header_image(&HeaderImageEdit {
+                target: first_page.anchor.clone().unwrap(),
+                mode,
+                image: image.clone(),
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
+    }
     let relocated =
         ImportedDocument::open(&fs::read(directory.join("relocated.docx")).unwrap()).unwrap();
     let target = relocated.default_headers().unwrap()[1].anchor.clone();

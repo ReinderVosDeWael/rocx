@@ -1999,3 +1999,92 @@ fn shared_edit_counts_aliases_on_first_page_headers() {
     assert_header_image_relationship(&output, &shared.output_part);
     assert_header_image_relationship(&output, &local.output_part);
 }
+
+#[test]
+fn first_header_image_local_preserves_aliases_and_inheritance() {
+    use rocx::editor::{HeaderEditMode, HeaderImageEdit, SectionStoryKind};
+    let mut entries = parts(&header_fixture("<w:p/>", false));
+    let xml = String::from_utf8(entries["word/document.xml"].clone()).unwrap();
+    entries.insert(
+        "word/document.xml".into(),
+        xml.replace(
+            r#"<w:headerReference w:type="default" r:id="headerTest"/>"#,
+            r#"<w:headerReference w:type="default" r:id="headerTest"/><w:headerReference w:type="first" r:id="headerTest"/>"#,
+        )
+        .into_bytes(),
+    );
+    let input = package_bytes(entries);
+    let doc = ImportedDocument::open(&input).unwrap();
+    let stories = doc.stories().unwrap();
+    let first = stories
+        .iter()
+        .find(|s| {
+            s.section_index == 1
+                && s.kind == SectionStoryKind::Header
+                && s.variant == rocx::HeaderFooterType::First
+        })
+        .unwrap();
+    assert!(first.inherited);
+    let default = &doc.default_headers().unwrap()[1].anchor;
+    let first_local = HeaderImageEdit {
+        target: first.anchor.clone().unwrap(),
+        mode: HeaderEditMode::SectionLocal,
+        image: header_image(),
+    };
+    let default_local = HeaderImageEdit {
+        target: default.clone(),
+        mode: HeaderEditMode::SectionLocal,
+        image: header_image(),
+    };
+    let both = doc
+        .preview_transaction(&[], &[], &[first_local.clone(), default_local.clone()])
+        .unwrap();
+    assert_eq!(both.header_changes().len(), 2);
+    assert_ne!(
+        both.header_changes()[0].output_part,
+        both.header_changes()[1].output_part
+    );
+    let mut shared = first_local.clone();
+    shared.mode = HeaderEditMode::Shared;
+    assert!(
+        doc.preview_transaction(&[], &[], &[shared, default_local])
+            .is_err()
+    );
+    for mode in [HeaderEditMode::Shared, HeaderEditMode::SectionLocal] {
+        let preview = doc
+            .preview_header_image(&HeaderImageEdit {
+                target: first.anchor.clone().unwrap(),
+                mode,
+                image: header_image(),
+            })
+            .unwrap();
+        let bytes = preview.to_docx().unwrap();
+        let output = parts(&bytes);
+        assert_header_image_relationship(&output, &preview.change().output_part);
+        if mode == HeaderEditMode::Shared {
+            assert_eq!(preview.change().affected_sections, [0, 1, 2]);
+            continue;
+        }
+        assert_eq!(preview.change().affected_sections, [1]);
+        assert_eq!(preview.change().restored_section, Some(2));
+        assert_eq!(
+            parts(&input)["word/headerTest.xml"],
+            output["word/headerTest.xml"]
+        );
+        let reopened = ImportedDocument::open(&bytes).unwrap();
+        for story in reopened
+            .stories()
+            .unwrap()
+            .iter()
+            .filter(|s| s.kind == SectionStoryKind::Header)
+        {
+            let expected =
+                if story.section_index == 1 && story.variant == rocx::HeaderFooterType::First {
+                    &preview.change().output_part
+                } else {
+                    &preview.change().source_part
+                };
+            assert_eq!(&story.part_name, expected);
+        }
+    }
+}

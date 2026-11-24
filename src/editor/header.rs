@@ -1,4 +1,4 @@
-//! Header/footer inspection and explicitly scoped default-header editing.
+//! Header/footer inspection and explicitly scoped header editing.
 
 use super::{
     ALTERNATE, EditPreview, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedSection,
@@ -23,6 +23,7 @@ const XML: &str = "http://www.w3.org/XML/1998/namespace";
 pub struct HeaderAnchor {
     snapshot: Arc<()>,
     section_index: usize,
+    variant: usize,
 }
 
 #[derive(Debug)]
@@ -92,6 +93,8 @@ const VARIANTS: [HeaderFooterType; 3] = [
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedStory {
+    /// Image-edit target for default and first-page headers, if supported.
+    pub anchor: Option<HeaderAnchor>,
     pub section_index: usize,
     pub kind: SectionStoryKind,
     /// The reference slot in a section's properties, not a pagination result.
@@ -154,7 +157,7 @@ impl StoryInspection {
 pub enum HeaderEditMode {
     /// Modify the header part itself, including all sections that reference it.
     Shared,
-    /// Copy the header and redirect only the selected section's default header.
+    /// Copy the header and redirect only the selected section's header slot.
     SectionLocal,
 }
 
@@ -254,6 +257,7 @@ impl ImportedDocument {
                     anchor: HeaderAnchor {
                         snapshot: self.snapshot.clone(),
                         section_index: alias.section_index,
+                        variant: 0,
                     },
                     section_index: alias.section_index,
                     part_name: alias.part_name.to_string(),
@@ -284,6 +288,16 @@ impl ImportedDocument {
             .map(|alias| {
                 let physical = inspection.parts[&alias.part_name].clone();
                 ImportedStory {
+                    anchor: (alias.kind == SectionStoryKind::Header
+                        && matches!(
+                            alias.variant,
+                            HeaderFooterType::Default | HeaderFooterType::First
+                        ))
+                    .then(|| HeaderAnchor {
+                        snapshot: self.snapshot.clone(),
+                        section_index: alias.section_index,
+                        variant: alias.variant as usize,
+                    }),
                     section_index: alias.section_index,
                     kind: alias.kind,
                     variant: alias.variant,
@@ -375,7 +389,7 @@ impl ImportedDocument {
         StoryPart { blocks, structures }
     }
 
-    /// Stage an image in one existing default header, with explicit sharing intent.
+    /// Stage an image in one existing default or first-page header, with explicit sharing intent.
     pub fn preview_header_image(&self, edit: &HeaderImageEdit) -> Result<HeaderImagePreview> {
         Ok(HeaderImagePreview {
             batch: self.preview_transaction(&[], &[], std::slice::from_ref(edit))?,
@@ -392,7 +406,10 @@ impl ImportedDocument {
         }
         let mut targets = BTreeMap::new();
         for edit in edits {
-            if targets.insert(edit.target.section_index, edit).is_some() {
+            if targets
+                .insert((edit.target.section_index, edit.target.variant), edit)
+                .is_some()
+            {
                 return Err(unsupported(
                     "multiple header image edits target one section",
                 ));
@@ -405,8 +422,8 @@ impl ImportedDocument {
             SectionStoryKind::Header,
         )?;
         let mut sources = BTreeMap::new();
-        for (&index, edit) in &targets {
-            let source = default_source(&sections, index)?;
+        for (&(index, variant), edit) in &targets {
+            let source = header_source(&sections, index, variant)?;
             if let Some(previous) = sources.insert(&source.part, edit.mode)
                 && (previous == HeaderEditMode::Shared || edit.mode == HeaderEditMode::Shared)
             {
@@ -419,17 +436,18 @@ impl ImportedDocument {
     }
 }
 
-fn default_source(sections: &[SectionStoryRefs], index: usize) -> Result<&StoryRef> {
+fn header_source(sections: &[SectionStoryRefs], index: usize, variant: usize) -> Result<&StoryRef> {
     sections
         .get(index)
-        .and_then(|section| section.effective[0].as_ref())
-        .ok_or_else(|| unsupported("target has no effective default header"))
+        .and_then(|section| section.effective.get(variant))
+        .and_then(Option::as_ref)
+        .ok_or_else(|| unsupported("target has no effective header"))
 }
 
 #[derive(Default)]
 pub(super) struct HeaderBatch<'a> {
     sections: Vec<SectionStoryRefs>,
-    targets: BTreeMap<usize, &'a HeaderImageEdit>,
+    targets: BTreeMap<(usize, usize), &'a HeaderImageEdit>,
 }
 
 impl HeaderBatch<'_> {
@@ -441,9 +459,9 @@ impl HeaderBatch<'_> {
     ) -> Result<(Package, Vec<HeaderImageChange>)> {
         let mut changes = Vec::with_capacity(self.targets.len());
         let mut resources = None;
-        for (&index, edit) in &self.targets {
+        for (&(index, variant), edit) in &self.targets {
             let (mut header, change) =
-                self.prepare_image(&mut package, main, body, index, edit.mode)?;
+                self.prepare_image(&mut package, main, body, index, variant, edit.mode)?;
             let (staged, paragraph) = encode_header_image(
                 package,
                 main,
@@ -465,10 +483,11 @@ impl HeaderBatch<'_> {
         main: &str,
         body: &mut Node,
         index: usize,
+        variant: usize,
         mode: HeaderEditMode,
     ) -> Result<(Node, HeaderImageChange)> {
         let sections = &self.sections;
-        let source = default_source(sections, index)?;
+        let source = header_source(sections, index, variant)?;
         let mut header = package.word(&source.part)?;
         if header.name != "w:hdr" || !insertion::can_append(&header) {
             return Err(unsupported("header cannot be safely extended"));
@@ -501,14 +520,13 @@ impl HeaderBatch<'_> {
                 package.copy_sibling_relationships(&source.part, &output)?;
                 package.content_type(&output, HEADER_MIME)?;
                 let id = package.link(main, "header", &output)?;
-                set_default_reference(body, sections[index].slot, &id)?;
+                set_header_reference(body, sections[index].slot, variant, &id)?;
                 // A following section with its own local edit gets that new
                 // reference, not a restoration. It still forks the original.
-                if let Some(next) = sections
-                    .get(index + 1)
-                    .filter(|part| !part.explicit[0] && !self.targets.contains_key(&(index + 1)))
-                {
-                    set_default_reference(body, next.slot, &source.id)?;
+                if let Some(next) = sections.get(index + 1).filter(|part| {
+                    !part.explicit[variant] && !self.targets.contains_key(&(index + 1, variant))
+                }) {
+                    set_header_reference(body, next.slot, variant, &source.id)?;
                     restored_section = Some(index + 1);
                 }
                 (output, vec![index])
@@ -666,7 +684,8 @@ fn hides_section(node: &Node) -> bool {
     node.name == ALTERNATE && contains_section(node)
 }
 
-fn set_default_reference(body: &mut Node, slot: Slot, id: &str) -> Result<()> {
+fn set_header_reference(body: &mut Node, slot: Slot, variant: usize, id: &str) -> Result<()> {
+    let variant = VARIANTS[variant].xml();
     let props = match slot {
         Slot::Terminal => body.ensure("w:sectPr"),
         Slot::Paragraph(index) => match body.children.get_mut(index) {
@@ -679,13 +698,13 @@ fn set_default_reference(body: &mut Node, slot: Slot, id: &str) -> Result<()> {
     };
     let existing = props
         .elements_mut()
-        .find(|node| node.name == "w:headerReference" && node.get("w:type") == Some("default"));
+        .find(|node| node.name == "w:headerReference" && node.get("w:type") == Some(variant));
     if let Some(existing) = existing {
         existing.set("r:id", id);
     } else {
         props.push(
             Node::new("w:headerReference")
-                .attr("w:type", "default")
+                .attr("w:type", variant)
                 .attr("r:id", id),
         );
     }

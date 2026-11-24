@@ -768,6 +768,34 @@ async def test_header_image_preview(mode, selected, affected):
     assert document.default_headers[1].part_name == headers[0].part_name
 
 
+@pytest.mark.parametrize("mode", ["shared", "section_local"])
+async def test_first_page_header_image_edit(mode):
+    source = docx.Document()
+    source.sections[0].first_page_header.paragraphs[0].text = "First"
+    source.add_section()
+    source.add_section()
+    buf = io.BytesIO()
+    source.save(buf)
+    original = buf.getvalue()
+    imported = ImportedDocument.open(original)
+    first = next(s for s in imported.stories if (s.section_index, s.kind, s.variant) == (1, "header", "first"))
+    assert first.inherited and first.anchor is not None
+    image = await d.ImageRun(data=(FIXTURES / "images/sample.png").read_bytes()).resolve()
+    preview = imported.preview_header_image(HeaderImageEdit(first.anchor, image, mode=mode))
+    assert preview.change.affected_sections == ([0, 1, 2] if mode == "shared" else [1])
+    output = preview.to_docx()
+    reopened = docx.Document(io.BytesIO(output))
+    assert [len(s.first_page_header._element.xpath(".//w:drawing")) for s in reopened.sections] == (
+        [1, 1, 1] if mode == "shared" else [0, 1, 0]
+    )
+    if mode == "section_local":
+        assert preview.change.restored_section == 2
+        assert _parts(original)[first.part_name] == _parts(output)[first.part_name]
+    other = ImportedDocument.open(original)
+    with pytest.raises(ValueError, match="different document snapshot"):
+        other.preview_header_image(HeaderImageEdit(first.anchor, image, mode=mode))
+
+
 async def test_header_image_edit_rejects_invalid_inputs_and_foreign_anchor():
     original = await d.Document([
         d.Section([d.Paragraph(text="body")], headers={

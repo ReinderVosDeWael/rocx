@@ -140,6 +140,8 @@ export type ImportedStoryBlock = ImportedHeaderBlock;
 
 /** A section's effective reference to a physical header or footer part. */
 export interface ImportedStoryView {
+  /** Image-edit target for default and first-page headers; absent for other stories. */
+  readonly anchor?: HeaderAnchor;
   readonly sectionIndex: number;
   readonly kind: SectionStoryKind;
   /** The section reference slot, not a pagination result. */
