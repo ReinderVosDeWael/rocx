@@ -156,7 +156,7 @@ fn width_for(section: Option<&Node>) -> Result<i64> {
 /// Known body ranges must not silently gain content. Foreign branches are not
 /// resolved in this editor; if an alternate may carry body markers, refuse.
 #[derive(Default)]
-pub(super) struct BoundaryState {
+pub(crate) struct BoundaryState {
     fields: usize,
     proof_ranges: [bool; 2],
     ranges: BTreeSet<(&'static str, String)>,
@@ -164,14 +164,23 @@ pub(super) struct BoundaryState {
 }
 
 impl BoundaryState {
-    pub(super) fn safe(&self) -> bool {
+    pub(crate) fn safe(&self) -> bool {
         self.fields == 0
             && !self.proof_ranges.contains(&true)
             && self.ranges.is_empty()
             && !self.uncertain
     }
 
-    pub(super) fn advance(&mut self, node: &Node) {
+    pub(crate) fn advance(&mut self, node: &Node) {
+        if self.enter(node) {
+            for child in node.elements() {
+                self.advance(child);
+            }
+        }
+    }
+
+    /// Observe this element alone; return whether its descendants share this state.
+    pub(crate) fn enter(&mut self, node: &Node) -> bool {
         let name = node.name.as_str();
         if name == ALTERNATE {
             self.uncertain = true;
@@ -184,8 +193,14 @@ impl BoundaryState {
         {
             self.uncertain = true;
         }
-        if node.name.namespace() != Some(W) || matches!(name, "w:pPr" | "w:rPr" | "w:txbxContent") {
-            return;
+        // Office Math belongs to the enclosing story: a Word range can open
+        // or close inside an equation and continue across ordinary runs.
+        if !matches!(
+            node.name.namespace(),
+            Some(W | "http://schemas.openxmlformats.org/officeDocument/2006/math")
+        ) || matches!(name, "w:pPr" | "w:rPr" | "w:txbxContent")
+        {
+            return false;
         }
         if name == "w:fldChar" {
             match node.get("w:fldCharType") {
@@ -203,7 +218,7 @@ impl BoundaryState {
                 Some("gramEnd") => (1, false),
                 _ => {
                     self.uncertain = true;
-                    return;
+                    return false;
                 }
             };
             self.uncertain |= std::mem::replace(&mut self.proof_ranges[index], open) == open;
@@ -221,9 +236,7 @@ impl BoundaryState {
                 self.uncertain = true;
             }
         }
-        for child in node.elements() {
-            self.advance(child);
-        }
+        true
     }
 }
 

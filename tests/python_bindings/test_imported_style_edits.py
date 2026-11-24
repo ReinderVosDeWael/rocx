@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from lxml import etree
 
 from rocx import declarative as d
-from rocx.editor import ImportedDocument, ParagraphAlignmentEdit, StyleEdit
+from rocx.editor import ImportedDocument, ParagraphAlignmentEdit, ParagraphInsertion, ResourceEdit, StyleEdit
 
 
 def parts(data):
@@ -125,3 +125,28 @@ def test_duplicate_type_and_inheritance_guards():
         ambiguous.style_anchor("MemoStyle")
     with pytest.raises(ValueError, match="duplicate style ID"):
         ambiguous.preview([], style_edits=[add("New Style")])
+
+
+async def test_staged_style_catalog_is_shared_by_body_and_defaults_edits():
+    source = save(fixture())
+    imported = ImportedDocument.open(source)
+    target = imported.body[0].anchor
+    new_style = d.ParagraphStyleDefinition(name="Review Summary")
+    insertion = ParagraphInsertion(target, await d.Paragraph(text="Summary", style=new_style.name).resolve())
+    defaults = [ResourceEdit.default_alignment("right")]
+    output = imported.preview([], paragraph_insertions=[insertion], resources=defaults,
+                              style_edits=[StyleEdit.add(new_style)]).to_docx()
+    readback = Document(io.BytesIO(output))
+    assert readback.paragraphs[1].text == "Summary"
+    assert readback.paragraphs[1].style.name == "Review Summary"
+    assert ImportedDocument.open(output).default_alignment == "right"
+    before, after = parts(source), parts(output)
+    assert {k for k in before.keys() | after.keys() if before.get(k) != after.get(k)} == {
+        "word/styles.xml", "word/document.xml"}
+
+    memo = ParagraphInsertion(target, await d.Paragraph(text="Use", style="Memo Style").resolve())
+    replace = StyleEdit.replace(imported.style_anchor("MemoStyle"), d.ParagraphStyleDefinition(name="Memo Style"))
+    with pytest.raises(ValueError, match="references"):
+        imported.preview([], paragraph_insertions=[memo], resources=defaults, style_edits=[replace])
+    assert imported.default_alignment is None
+    assert parts(imported.preview([]).to_docx()) == before

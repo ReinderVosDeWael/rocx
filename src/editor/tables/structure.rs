@@ -374,6 +374,9 @@ pub(in crate::editor) fn apply(
 fn contains_range(n: &Node) -> bool {
     let s = n.name.as_str();
     s == "w:fldChar"
+        // A proof range can open and close in different cells while leaving
+        // BoundaryState safe at both edges of the table.
+        || s == "w:proofErr"
         || s == ALTERNATE
         || s.ends_with("Start")
         || s.ends_with("End")

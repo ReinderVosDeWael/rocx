@@ -1,5 +1,6 @@
 //! Transform imported direct paragraph text revisions. P1 (2016) §17.13.5.
 use super::TextRevisionAction;
+use crate::editor::BoundaryState;
 use crate::xml::{Content, Node, W};
 use crate::{Diagnostic, Error, Result, Rule};
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,10 +10,38 @@ pub(crate) fn edit_text_revisions(root: &mut Node, action: TextRevisionAction) -
         body_story: root.name == "w:document",
         ..Default::default()
     };
+    if moves.body_story {
+        guard_move_ranges(root, &mut BoundaryState::default())?;
+    }
     let mut dirty = false;
     visit(root, action, false, &mut 0, &mut moves, &mut dirty)?;
     moves.finish()?;
     Ok(dirty)
+}
+
+fn guard_move_ranges(node: &Node, boundaries: &mut BoundaryState) -> Result<()> {
+    if node.name.namespace() != Some(W) {
+        // Foreign regions may affect subsequent sites, but are not edited.
+        boundaries.advance(node);
+        return Ok(());
+    }
+    if move_start(&node.name).is_some() && !boundaries.safe() {
+        return Err(unsupported(
+            "text move intersects a protected range or field",
+        ));
+    }
+    let mut local;
+    let descendants = if boundaries.enter(node) {
+        boundaries
+    } else {
+        // Properties and text boxes cannot open or close ranges in the body.
+        local = BoundaryState::default();
+        &mut local
+    };
+    for child in node.elements() {
+        guard_move_ranges(child, descendants)?;
+    }
+    Ok(())
 }
 
 fn visit(

@@ -23,6 +23,7 @@ mod controls;
 mod entries;
 mod header;
 mod insertion;
+pub(crate) use insertion::BoundaryState;
 mod ranges;
 pub use ranges::TextRangeEdit;
 mod resource_fields;

@@ -166,7 +166,8 @@ the contents to a required empty paragraph. Replace the origin of a merged cell,
 not its continuation. Destructive edits only discard plain paragraphs/runs and
 basic geometry; foreign markup, formatting outside the whitelist, revisions,
 fields, protected ranges, and merges that would be split or vertically misaligned cause
-rejection. Nested tables are preserved outside a destructive target. Removing
+rejection. Structural edits reject a target table containing spelling or grammar
+range markers, including ranges that span cells. Nested tables are preserved outside a destructive target. Removing
 the final row or final physical cell of a row is unsupported. A geometry edit
 needs exclusive access to its table for the batch; distinct content replacements
 can be batched on the same table. Other original body targets can be edited in
@@ -383,7 +384,8 @@ original start index per operation (unchanged direct keep-with-next omitted).
 | Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
 
 Add paragraph, character or table declarations to an existing relationship-selected
-styles part. Names and generated IDs must be unambiguous. The authoring codec
+styles part. Names, source aliases, and generated IDs must be unambiguous
+across styles under ASCII case-insensitive comparison. The authoring codec
 resolves forward references and checks their types and inheritance cycles.
 Patches address direct paragraph/character run properties, including explicit
 false; omitted properties, unknown siblings and attributes are preserved.

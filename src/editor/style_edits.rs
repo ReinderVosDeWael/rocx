@@ -360,6 +360,16 @@ impl ImportedDocument {
             if let Some(name) = unique_child(node, "w:name")?.and_then(|n| n.get("w:val")) {
                 claim(&mut aliases, name, id)?;
             }
+            // Fields such as STYLEREF can identify a style by any of its
+            // comma-separated alternate names, even without using its ID.
+            if let Some(list) = unique_child(node, "w:aliases")? {
+                let value = list
+                    .get("w:val")
+                    .ok_or_else(|| unsupported("missing style aliases value"))?;
+                for alias in value.split(',') {
+                    claim(&mut aliases, alias.trim(), id)?;
+                }
+            }
         }
         let mut targets = BTreeSet::new();
         let mut definitions = Vec::new();
@@ -404,7 +414,7 @@ impl ImportedDocument {
                 } else if aliases.contains_key(&id.to_ascii_lowercase())
                     || aliases.contains_key(&name.to_ascii_lowercase())
                 {
-                    return Err(unsupported("duplicate style ID or name"));
+                    return Err(unsupported("duplicate style ID, name or alias"));
                 }
                 claim(&mut aliases, &id, &id)?;
                 claim(&mut aliases, name, &id)?;
