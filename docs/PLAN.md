@@ -56,6 +56,16 @@ Numbering and document defaults remain separate workstreams; #3 closure
 requires reconciling the individual slices against the editor inventory and
 qualifying their combined behavior.
 
+On merge `fe5e5df`, all 11 catalog DOCX files matched across Rust, installed
+Python 3.12 and packed Node 26. The run-text output combines core subject,
+creator, extended manager, a boolean custom property and body point insertion;
+independent readback and schema/OPC validation passed. All 25 packed Node
+editor outputs matched the Rust oracle. The Wasm adapter built and the strict
+TypeScript editor consumer compiled. All 338 Rust all-features/all-targets
+tests and three doctests passed. The installed Python 3.12 wheel passed
+all 907 tests with required schemas. All eleven catalogs also passed
+schema/OPC validation.
+
 The #42 follow-up adds `TextInsertion` alongside nonempty `TextRangeEdit`.
 The python-docx fixture exercises run-boundary formatting, paragraph end and a
 runless paragraph; its complete output matched Rust, installed Python, packed

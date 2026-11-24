@@ -36,8 +36,9 @@ for an absent scalar; absent numbering yields an empty list.
 
 Title and subject independently follow the **package** core-properties relationship.
 An empty subject, like an empty title, is distinct from an absent property. Defaults and
-numbering use the main document's relationships. Missing parts cannot be
-created. Duplicate targets, duplicate IDs/levels, ambiguous property paths,
+numbering use the main document's relationships. These operations require an
+existing part to set a value. For extended and custom part creation, see
+[package metadata](#package-metadata). Duplicate targets, duplicate IDs/levels, ambiguous property paths,
 and annotated or nested property leaves are rejected. Titles and subjects accept at most
 255 XML characters; justification accepts the existing alignment enum.
 Numbering inspection lists direct physical levels (0–8) and optional unsigned
