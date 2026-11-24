@@ -155,6 +155,8 @@ export async function generateCatalog(fixtures, options) {
   const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
   const textPreview = imported.preview({runText: [textEdit]});
   const [change] = textPreview.runTextChanges();
+  const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
+  assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
     change.bodyIndex === body.indexOf(inline) && change.inlineIndex === 0, "incorrect text change");
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");

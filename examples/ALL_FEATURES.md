@@ -177,3 +177,11 @@ bad border/conditional-order mutations. `tests/showcase.rs` runs the Rust catalo
 without Python and checks combined property order. Nothing is normalized,
 unpacked/repacked or rewritten before byte comparison; ZIP diagnostics are only
 used after a failure.
+# Anchored run removal
+
+The catalogs also preview removal of the labeled body run without changing their
+existing outputs. Equivalent APIs are Rust
+`preview_with_run_removals(&[], &[], &[], &[], &[anchor])`, Python
+`preview([], run_removals=[anchor])`, and JavaScript
+`preview({runRemovals: [anchor]})`. Removal is limited to supported single-text
+direct body runs and rejects opaque or unsafe run markup.

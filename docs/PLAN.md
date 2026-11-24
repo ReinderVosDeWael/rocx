@@ -209,6 +209,10 @@ relationship-based inspection of footnote, endnote and comment entries.
 Re-run release preflight on the integrated candidate, not the earlier docs commit.
 The working branch also stages plain single-text run replacements in the mixed
 transaction; property, block, table, resource and revision operations remain.
+It also stages conservative whole-run removal for direct body paragraphs.
+Packed Node 22/24 and Chromium development/production checks passed, including
+exact removal bytes against Rust and Python, independent readback, untouched
+payloads, schema/OPC validation, and reproducible package provenance.
 Every new editor slice must ship together in Rust, Python and JavaScript,
 including the installed JS package's Node and Chromium parity checks.
 
@@ -262,8 +266,9 @@ The editor opens a Transitional DOCX in Rust and Python, exposes direct body
 paragraphs, tables, and placeholders for unsupported blocks, and previews
 alignment patches and declarative table insertions in one batch. Direct body
 and default-header paragraphs expose run and hyperlink structure with
-snapshot-scoped read-only anchors alongside their flat projections. Inline
-edits are not yet available. The section view reports body ranges and explicit section types,
+snapshot-scoped anchors alongside their flat projections. Direct body
+single-text runs support replacement and conservative removal; other inline
+edits remain unavailable. The section view reports body ranges and explicit section types,
 without inferring defaults. Tables can contain formatted paragraphs, nested
 tables, fractions, and external links. The editor sizes
 automatic tables only in simple single-column sections and rejects insertion

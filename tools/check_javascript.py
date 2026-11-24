@@ -20,7 +20,7 @@ PORTABLE_ORACLES = (
     "tables", "tables-auto", "tables-layout",
     "fresh", "override", "edited", "structured",
 )
-EDITOR_OUTPUTS = ("body", "noop", "shared", "local", "relocated-out", "mixed", "mixedShared")
+EDITOR_OUTPUTS = ("body", "noop", "removal", "shared", "local", "relocated-out", "mixed", "mixedShared")
 
 
 def verify_file(validator: Validator, path: Path, reference: bytes, *, language: str) -> bytes:

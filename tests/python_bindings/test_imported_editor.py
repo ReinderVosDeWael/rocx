@@ -39,6 +39,41 @@ from rocx.editor import (
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 
 
+def test_remove_runs_is_atomic_and_preserves_unrelated_parts():
+    source = docx.Document()
+    p = source.add_paragraph()
+    p.add_run("first").italic = True
+    p.add_run("keep").bold = True
+    p.add_run("last")
+    p.add_run("tab\tunsafe")
+    stream = io.BytesIO()
+    source.save(stream)
+    data = stream.getvalue()
+    imported = ImportedDocument.open(data)
+    first, keep, last, unsafe = imported.body[0].inline_structure
+    alignment = ParagraphAlignmentEdit(imported.body[0].anchor, "center")
+    preview = imported.preview([alignment], run_removals=[last.anchor, first.anchor])
+    assert [(c.body_index, c.inline_index, c.before) for c in preview.run_removals] == [
+        (0, 0, "first"), (0, 2, "last")]
+    output = preview.to_docx()
+    paragraph = docx.Document(io.BytesIO(output)).paragraphs[0]
+    assert paragraph.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    runs = paragraph.runs
+    assert [(r.text, r.bold) for r in runs] == [("keep", True), ("tab\tunsafe", None)]
+    assert all(value == _parts(output)[name] for name, value in _parts(data).items()
+               if name != "word/document.xml")
+    other = ImportedDocument.open(data).body[0].inline_structure[0]
+    for removals, edits in [
+        ([first.anchor, first.anchor], []),
+        ([first.anchor, unsafe.anchor], []),
+        ([first.anchor, other.anchor], []),
+        ([first.anchor], [RunTextEdit(first.anchor, "conflict")]),
+    ]:
+        with pytest.raises(ValueError):
+            imported.preview([], run_removals=removals, run_text=edits)
+    assert _parts(imported.preview([]).to_docx()) == _parts(data)
+
+
 def test_run_text_batch_preserves_formatting_and_is_atomic():
     source = docx.Document()
     p = source.add_paragraph()

@@ -23,7 +23,7 @@ values; `ImportedDocument::inline_at` in Rust and
 `ImportedDocument.inline_at` in Python reject anchors from another open,
 even when both snapshots came from identical bytes. Individual run items and
 opaque nodes are not addressable. Direct body run anchors support a single-text
-replacement via `RunTextEdit`; all other inline addresses remain read-only.
+replacement via `RunTextEdit` and removal of supported direct body runs; all other inline addresses remain read-only.
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in
