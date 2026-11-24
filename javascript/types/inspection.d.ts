@@ -190,6 +190,9 @@ export interface ImportedStyle {
   readonly kindXml?: string;
   readonly name?: string;
   readonly basedOn?: string;
+  readonly nextStyle?: string;
+  readonly linkedStyle?: string;
+  readonly propertyXml: readonly string[];
 }
 export interface ImportedStyles {
   readonly partName: string;

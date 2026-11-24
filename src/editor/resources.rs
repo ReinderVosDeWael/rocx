@@ -35,6 +35,11 @@ pub struct ImportedStyle {
     pub kind: StyleKind,
     pub name: Option<String>,
     pub based_on: Option<String>,
+    pub next_style: Option<String>,
+    pub linked_style: Option<String>,
+    /// Standalone XML of direct paragraph/run/table/row/cell property groups
+    /// and conditional table regions, in physical source order.
+    pub property_xml: Vec<String>,
 }
 
 /// The physical styles part and its styles in source order.
@@ -105,6 +110,24 @@ fn inspect(root: &Node) -> Vec<ImportedStyle> {
                     .child("w:basedOn")
                     .and_then(|n| n.get("w:val"))
                     .map(str::to_owned),
+                next_style: node
+                    .child("w:next")
+                    .and_then(|n| n.get("w:val"))
+                    .map(str::to_owned),
+                linked_style: node
+                    .child("w:link")
+                    .and_then(|n| n.get("w:val"))
+                    .map(str::to_owned),
+                property_xml: node
+                    .elements()
+                    .filter(|n| {
+                        matches!(
+                            n.name.as_str(),
+                            "w:rPr" | "w:pPr" | "w:tblPr" | "w:trPr" | "w:tcPr" | "w:tblStylePr"
+                        )
+                    })
+                    .map(Node::xml)
+                    .collect(),
             }
         })
         .collect()

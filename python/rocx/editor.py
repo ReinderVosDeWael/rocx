@@ -18,8 +18,12 @@ accept or reject one wrapper (both wrappers for moves). Paragraph text omits
 unreviewed wrappers; ``inline_structure`` retains their text and metadata.
 
 Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
-accepts paragraph, character and table declarations. ``StyleEdit.patch`` sets
-direct bold/italic flags; ``replace`` and ``remove`` require unused, simple custom styles.
+accepts paragraph, character, table and numbering declarations. A numbering
+style binds an existing concrete list. ``StyleEdit.field`` sets or clears a
+direct scalar field; ``StyleEdit.region`` sets or clears a conditional table
+region. ``replace`` and ``remove`` require unused, recognized custom definitions.
+Each ``ImportedStyle.property_xml`` entry contains one direct property group
+or table region, with its namespace declarations.
 
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Every effective slot

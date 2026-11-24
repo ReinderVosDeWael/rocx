@@ -361,19 +361,33 @@ def verify(directory):
         StyleEdit.replace(styles_source.style_anchor("MemoReplace"),
                           d.ParagraphStyleDefinition(name="Memo Replace", bold=True)),
         StyleEdit.remove(styles_source.style_anchor("MemoDrop")),
+        StyleEdit.field(styles_source.style_anchor("Heading1"), "next", "MemoAdded"),
+        StyleEdit.region(styles_source.style_anchor("TableGrid"), "nwCell", d.TableSectionFormat(bold=True, background=(10,20,30))),
+        StyleEdit.add(d.NumberingStyleDefinition(name="Memo List", numbering_id=1)),
         StyleEdit.patch(styles_source.style_anchor("MemoActive"), italic=True),
     ])
     assert edit.to_docx() == style_path.read_bytes()
     before, after = parts(source_path), parts(style_path)
     assert before.keys() == after.keys()
-    untouched(before, after, ("word/styles.xml",))
+    untouched(before, after, ("word/styles.xml","word/numbering.xml"))
     readback = Document(style_path)
     assert "Memo Drop" not in readback.styles
     assert readback.styles["Memo Added"].base_style.name == "Memo Active"
     assert readback.styles["Memo Replace"].font.bold and readback.styles["Memo Replace"].font.italic is None
     assert readback.sections[0].header.paragraphs[0].style.font.italic
     original_ids = [s.style_id for s in Document(source_path).styles if s.name != "Memo Drop"]
-    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded"]
+    assert [s.style_id for s in readback.styles] == original_ids + ["MemoAdded","MemoList"]
+    assert readback.styles["Heading 1"].next_paragraph_style.name == "Memo Added"
+    grid = readback.styles["Table Grid"].element
+    assert grid.xpath('./w:tblStylePr[@w:type="nwCell"]/w:tcPr/w:shd/@w:fill') == ["0A141E"]
+    num = etree.fromstring(after["word/numbering.xml"])
+    aid = xp(num,'w:num[@w:numId="1"]/w:abstractNumId/@w:val')[0]
+    backlink = xp(num,f'w:abstractNum[@w:abstractNumId="{aid}"]/w:styleLink')[0]
+    assert backlink.get(qn("w:val")) == "MemoList"
+    backlink.getparent().remove(backlink)
+    def tree(node):
+        return (node.tag, dict(node.attrib), node.text, [tree(n) for n in node])
+    assert tree(num) == tree(etree.fromstring(before["word/numbering.xml"]))
     source = parts(directory / "base.docx")
     image = (directory / "image.png").read_bytes()
     reports = json.loads((directory / "reports.json").read_text(encoding="utf8"))

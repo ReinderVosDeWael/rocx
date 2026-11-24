@@ -13,10 +13,12 @@ and `preview({controls: ...})`, respectively.
 Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 `ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
 JavaScript. The optional result identifies the source part and lists direct
-style IDs, kinds, names, and `basedOn` references, not effective formatting.
-Missing kinds and unknown kind values are distinct. Inspection does not rewrite
-the source package; style editing and inherited property resolution are not yet
-supported.
+style IDs, kinds, names, base/next/linked references and property-group XML.
+Missing kinds and unknown kind values are distinct. An in-memory sample clears
+a first-row bold toggle, replaces last-row formatting and adds a numbering style
+for the existing list 60. These use Rust `StyleEdit::{Field,Region,Add}`,
+Python `StyleEdit.field/region/add`, and JavaScript `field`/`region`/`add`
+style edits. Inspection reports direct stored markup, not inherited formatting.
 
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:

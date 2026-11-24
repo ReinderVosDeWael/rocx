@@ -101,8 +101,8 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   check(normal?.kind === "paragraph" && normal.kindXml === "paragraph"
     && normal.name === "Normal", "typed Normal style metadata");
   const edge = (await openDocx(input["styles-edge"])).styles();
-  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future" },
-    { kind: "missing" }], "unknown and missing style kinds");
+  same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future", propertyXml: [] },
+    { kind: "missing", propertyXml: [] }], "unknown and missing style kinds");
   check((await openDocx(input["styles-missing"])).styles() === undefined, "missing styles relationship");
   const invalidStyles = await openDocx(input["styles-invalid"]);
   rejects(() => invalidStyles.styles(), /invalid styles root/);
@@ -422,12 +422,19 @@ export async function run(fixtures: Fixtures) {
     { op: "add", definition: { kind: "paragraph", name: "Memo Added", baseStyle: "Memo Active" } },
     { op: "replace", target: catalog.styleAnchor("MemoReplace"), definition: {kind: "paragraph", name: "Memo Replace", bold: true} },
     { op: "remove", target: catalog.styleAnchor("MemoDrop") },
+    { op: "field", target: catalog.styleAnchor("Heading1"), field: "next", value: "MemoAdded" },
+    { op: "region", target: catalog.styleAnchor("TableGrid"), region: "nwCell", format: {bold: true, background: [10,20,30]} },
+    { op: "add", definition: {kind: "numbering", name: "Memo List", numberingId: 1} },
     { op: "patch", target: active, italic: true },
   ] };
   rejects(() => catalog.preview({styleEdits: [...batch.styleEdits!, {op: "remove", target: active}]}), /duplicate/);
   rejects(() => catalog.preview({styleEdits: [{op: "remove", target: active}]}), /references/);
   const styleEdits = catalog.preview(batch).toDocx();
   const reopened = await openDocx(styleEdits);
+  check(reopened.styles()?.styles.find(s => s.id === "Heading1")?.nextStyle === "MemoAdded", "changed next reference");
+  check(reopened.styles()?.styles.find(s => s.id === "TableGrid")?.propertyXml.some(x => x.includes("nwCell") && x.includes("0A141E")), "conditional format");
+  rejects(() => catalog.preview({styleEdits: [{op:"field",target:active,field:"basedOn",value:"MemoActive"}]}), /cycle/);
+  rejects(() => reopened.preview({styleEdits: [{op:"region",target:active,region:"firstRow",format:null}]}), /snapshot/);
   rejects(() => reopened.preview({styleEdits: [{op: "patch", target: active, bold: true}]}), /different document snapshot/);
   check(reopened.styles()?.styles.find(s => s.id === "MemoAdded")?.basedOn === "MemoActive", "new style inheritance");
   const resolved = await payloads(fixtures.image);

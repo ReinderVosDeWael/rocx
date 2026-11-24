@@ -549,6 +549,27 @@ pub async fn generate(output: &Path) -> Result<()> {
                 bold: None,
                 italic: Some(true),
             },
+            editor::StyleEdit::Field {
+                target: imported.style_anchor("Regionfirst_row")?,
+                region: Some("firstRow".into()),
+                field: "b".into(),
+                value: None,
+            },
+            editor::StyleEdit::Region {
+                target: imported.style_anchor("Regionlast_row")?,
+                region: "lastRow".into(),
+                format: Some(Box::new(TableSectionFormat {
+                    italic: Some(true),
+                    ..Default::default()
+                })),
+            },
+            editor::StyleEdit::Add(
+                NumberingStyleDefinition {
+                    name: "Catalog Imported List".into(),
+                    numbering_id: 60,
+                }
+                .into(),
+            ),
         ],
     )?;
     assert!(

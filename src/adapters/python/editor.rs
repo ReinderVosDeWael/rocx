@@ -1126,6 +1126,41 @@ struct PyStyleEdit {
 #[pymethods]
 impl PyStyleEdit {
     #[staticmethod]
+    #[pyo3(signature=(target, field, value, *, region=None))]
+    fn field(
+        target: PyRef<'_, PyStyleAnchor>,
+        field: String,
+        value: Option<String>,
+        region: Option<String>,
+    ) -> Self {
+        Self {
+            inner: editor::StyleEdit::Field {
+                target: target.inner.clone(),
+                field,
+                value,
+                region,
+            },
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target, region, format))]
+    fn region(
+        target: PyRef<'_, PyStyleAnchor>,
+        region: String,
+        format: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::StyleEdit::Region {
+                target: target.inner.clone(),
+                region,
+                format: format
+                    .map(super::values::tablesectionformat)
+                    .transpose()?
+                    .map(Box::new),
+            },
+        })
+    }
+    #[staticmethod]
     fn add(definition: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
             inner: editor::StyleEdit::Add(super::style_definition(definition)?),
@@ -1166,6 +1201,9 @@ struct PyImportedStyle {
     kind_xml: Option<String>,
     name: Option<String>,
     based_on: Option<String>,
+    next_style: Option<String>,
+    linked_style: Option<String>,
+    property_xml: Vec<String>,
 }
 
 #[pyclass(name = "ImportedStyles", module = "rocx.editor", get_all)]
@@ -1312,6 +1350,9 @@ impl PyImportedDocument {
                                 kind_xml,
                                 name: style.name,
                                 based_on: style.based_on,
+                                next_style: style.next_style,
+                                linked_style: style.linked_style,
+                                property_xml: style.property_xml,
                             },
                         )
                     })
