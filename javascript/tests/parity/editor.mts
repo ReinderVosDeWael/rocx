@@ -284,6 +284,21 @@ export async function run(fixtures: Fixtures) {
 
 // Compile only. Check public inputs and output types without letting invalid calls execute.
 export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  for (const e of doc.entryStories()) {
+    const id: string = e.id;
+    for (const block of e.blocks) {
+      if (block.kind !== "paragraph") continue;
+      for (const node of block.inlineStructure) {
+        if (node.kind === "run") doc.inlineAt(node.anchor);
+      }
+    }
+  }
+  const run = p.inlineStructure[0];
+  if (run?.kind === "run") {
+    const text: string = doc.preview({runText: [{target: run.anchor, text: "New"}]}).runTextChanges()[0].after;
+  }
+  // @ts-expect-error text edits target runs, not whole paragraphs
+  doc.preview({runText: [{target: p.anchor, text: "New"}]});
   // @ts-expect-error header anchors are not body paragraph anchors
   doc.preview({ tableInsertions: [{ target: header.target, table }] });
   // @ts-expect-error cloned records cannot stand in for header anchors

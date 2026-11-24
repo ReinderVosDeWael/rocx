@@ -30,12 +30,41 @@ from rocx.editor import (
     ImportedTableCell,
     ImportedTableRow,
     ParagraphAlignmentEdit,
+    RunTextEdit,
     TableInsertion,
     TableInsertionChange,
     TableAnchor,
 )
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
+
+
+def test_run_text_batch_preserves_formatting_and_is_atomic():
+    source = docx.Document()
+    p = source.add_paragraph()
+    p.add_run("first").italic = True
+    p.add_run("neighbor").bold = True
+    p.add_run("tab\tand text")
+    buf = io.BytesIO()
+    source.save(buf)
+    imported = ImportedDocument.open(buf.getvalue())
+    first, second, mixed = imported.body[0].inline_structure
+    change = RunTextEdit(first.anchor, " first & last ")
+    alignment = ParagraphAlignmentEdit(imported.body[0].anchor, "center")
+    preview = imported.preview([alignment], run_text=[RunTextEdit(second.anchor, "neighbor"), change])
+    assert [(c.body_index, c.inline_index, c.before, c.after) for c in preview.run_text_changes] == [
+        (0, 0, "first", " first & last ")]
+    reopened = docx.Document(io.BytesIO(preview.to_docx())).paragraphs[0]
+    assert reopened.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert reopened.runs[0].text == " first & last " and reopened.runs[0].italic
+    assert reopened.runs[1].text == "neighbor" and reopened.runs[1].bold
+    assert reopened.runs[2].text == "tab\tand text"
+    other = ImportedDocument.open(buf.getvalue()).body[0].inline_structure[0]
+    for bad in [change, RunTextEdit(mixed.anchor, "bad"), RunTextEdit(other.anchor, "stale"),
+                RunTextEdit(second.anchor, "a\nb")]:
+        with pytest.raises(ValueError):
+            imported.preview([alignment], run_text=[change, bad])
+    assert _parts(imported.preview([]).to_docx()) == _parts(buf.getvalue())
 
 
 def test_entry_stories_distinguish_identical_comment_runs_and_preserve_source():

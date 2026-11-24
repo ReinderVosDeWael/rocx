@@ -18,11 +18,12 @@ ID and bookmark reference, without resolving either. Runs expose ordered text,
 tabs, breaks and opaque run children, but not run or hyperlink formatting.
 Unsupported inline elements are opaque names (not traversed) and stay in the
 package. The existing `text` and `inline_items` projections are unchanged.
-Runs (including empty ones) and hyperlinks have read-only `InlineAnchor`
+Runs (including empty ones) and hyperlinks have snapshot-scoped `InlineAnchor`
 values; `ImportedDocument::inline_at` in Rust and
 `ImportedDocument.inline_at` in Python reject anchors from another open,
 even when both snapshots came from identical bytes. Individual run items and
-opaque nodes are not addressable. No inline edit operations are enabled.
+opaque nodes are not addressable. Direct body run anchors support a single-text
+replacement via `RunTextEdit`; all other inline addresses remain read-only.
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in
@@ -41,7 +42,7 @@ or filter based on first-page or odd/even settings. Footnote, endnote, and comme
 stories are not included. Rust uses `SectionStoryKind` and `HeaderFooterType`;
 Python exposes `kind` and `variant` as lowercase strings.
 
-`entry_stories()` (Python: `entry_stories`) separately inspects footnotes,
+`entry_stories()` (Python: `entry_stories`; JavaScript: `entryStories()`) separately inspects footnotes,
 endnotes and comments in that order, including separator entries. It follows
 main-document relationships; entries preserve source order within each part.
 IDs are source strings, not addresses. Run/link anchors distinguish entries

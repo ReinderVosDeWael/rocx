@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from check_examples import (
+    CATALOG_SUFFIXES,
     exact_bytes,
     verify_content,
     verify_edited,
@@ -14,10 +15,6 @@ from check_examples import (
 from validate_ooxml import Validator, default_directory
 
 RUNTIMES = ("node", "browser-dev", "browser")
-CATALOG_SUFFIXES = (
-    ".docx", ".template.docx", ".edited.docx", ".header-source.docx",
-    ".header-shared.docx", ".header-local.docx",
-)
 PORTABLE_ORACLES = (
     "text-layout", "linked-styles", "numbering-replacements", "drawings", "pictures",
     "tables", "tables-auto", "tables-layout",
@@ -46,7 +43,7 @@ def verify_catalog(validator: Validator, parity: Path) -> None:
             verify_file(validator, references / f"all_features-{language}{suffix}", data, language=language)
 
     for runtime in RUNTIMES:
-        final, template, edited, source, shared, local = (
+        final, template, edited, source, shared, local, _ = (
             verify_file(validator, parity / runtime / f"catalog{suffix}", data, language=runtime)
             for suffix, data in zip(CATALOG_SUFFIXES, native, strict=True)
         )
@@ -54,7 +51,7 @@ def verify_catalog(validator: Validator, parity: Path) -> None:
         verify_content(final, template)
         verify_edited(final, edited)
         verify_header_scopes(source, shared, local)
-        print(f"{runtime}: six-artifact catalog, independent python-docx and untouched-part checks passed")
+        print(f"{runtime}: catalog, independent python-docx and untouched-part checks passed")
 
 
 def verify_focused(validator: Validator, parity: Path) -> None:

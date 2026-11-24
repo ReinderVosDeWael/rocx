@@ -395,3 +395,10 @@ E04's report arrays; `before` is absent for a previously unset alignment.
    evidence, including fields emitted by macros and composed/deferred paths.
    Fix confirmed findings, rerun gates and repeat review; missing evidence is
    a gap. No publishing implied by this contract.
+
+## Editor additions for #3
+
+`entryStories()` exposes Rust `entry_stories()`; `runText` and `runTextChanges()`
+expose anchored run-text replacements and reports. The portable catalog checks
+entry metadata, inline lookup, duplicate-target rejection and change details;
+the `.run-text.docx` artifact must match Rust/Python in Node and Chromium.

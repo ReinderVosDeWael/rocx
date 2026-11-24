@@ -561,6 +561,18 @@ pub async fn generate(output: &Path) -> Result<()> {
     let [Run(label), Link(link)] = paragraph.inline_structure.as_slice() else {
         panic!("expected a standalone run and hyperlink");
     };
+    let replacement = "Imported editor: replaced this run by its anchor. ";
+    let preview = imported.preview_with_text(
+        &[],
+        &[],
+        &[],
+        &[editor::RunTextEdit {
+            target: label.anchor.clone(),
+            text: replacement.into(),
+        }],
+    )?;
+    assert_eq!(preview.run_text_changes()[0].before, INLINE_LABEL);
+    std::fs::write(output.with_extension("run-text.docx"), preview.to_docx()?)?;
     assert_eq!(
         label.items,
         [editor::ImportedInline::Text(INLINE_LABEL.into())]

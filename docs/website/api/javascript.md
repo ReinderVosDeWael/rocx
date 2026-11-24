@@ -135,13 +135,17 @@ Transitional DOCX snapshot. Its methods are synchronous:
 - `stories()` lazily inspects effective default, first-page, and even-page
   header/footer slots, including inherited references. Unset slots are
   omitted, regardless of page selection settings.
+- `entryStories()` lists footnotes, endnotes and comments, including separator
+  entries. Each includes `kind`, `partName`, its original `id` string and
+  `blocks`. Paragraphs expose `inlineItems` and `inlineStructure`; other blocks
+  are opaque. `noteType`, `author`, `date` and `initials` are optional.
 - `defaultHeaders()` inspects effective default headers and supplies
   edit targets. Both story and header handles expose
   `inlineStructure(blockIndex)`: a run/link projection for a paragraph,
   `[]` for an empty paragraph, or `undefined` for opaque or out-of-range blocks.
 - `inlineAt(anchor)` looks up a run or hyperlink. Hyperlinks expose the
   source relationship ID or bookmark, not a resolved URL. Inline anchors
-  are read-only: aliases of one physical story reuse the same inline
+  are snapshot-local: aliases of one physical story reuse the same inline
   addresses, but reopening identical bytes produces a distinct snapshot.
 
 Opaque markers report names, not editable XML. The inspection view is not a
@@ -151,7 +155,7 @@ round-trip authoring declaration.
 
 | Synchronous API | Behavior |
 | --- | --- |
-| `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, and `headerImages` in a single Rust transaction against the original snapshot. |
+| `imported.preview(batch: EditBatch): EditPreview` | Stages optional `alignments`, `tableInsertions`, `headerImages` and `runText` in one transaction against the original snapshot. |
 | `imported.previewHeaderImage(edit: HeaderImageEdit): HeaderImagePreview` | Stages one default-header image append. `change()` reports the effect. |
 | `preview.toDocx(): Uint8Array` | Encodes a new copy. Repeatable; does not consume the preview or modify the imported document. |
 
@@ -162,8 +166,10 @@ the original body paragraph. Header edits take a section-scoped
 image, and `mode`. `"shared"` changes the physical header part for all its
 consumers. `"sectionLocal"` forks a supported header for the selected
 section, preserving other sections' effective headers. This is not
-general story, table-cell, or inline editing. `TableAnchor` and `InlineAnchor`
-remain read-only.
+general story or table-cell editing. To replace a direct body run containing
+one text element outside fields and ranges, pass `runText: [{target: run.anchor,
+text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineIndex`,
+`before` and `after` for changed runs. Formatting and adjacent runs survive.
 
 ```javascript
 import { openDocx } from "rocx-docx";

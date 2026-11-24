@@ -327,3 +327,45 @@ fn story_blocks(blocks: &[ImportedHeaderBlock]) -> Result<JsValue> {
         _ => Err(unmodeled("story block")),
     }))
 }
+
+pub(super) fn entry(entry: &rocx::editor::ImportedEntry, anchors: &Anchors) -> Result<JsValue> {
+    let blocks = try_array(
+        entry
+            .blocks()
+            .iter()
+            .enumerate()
+            .map(|(i, block)| match block {
+                ImportedHeaderBlock::Paragraph(values) => {
+                    let paragraph = flat_paragraph(values)?;
+                    let nodes = entry
+                        .inline_structure(i)
+                        .ok_or_else(|| unmodeled("entry paragraph"))?;
+                    b::set(
+                        &paragraph,
+                        "inlineStructure",
+                        &inline_nodes(nodes, anchors, None)?,
+                    );
+                    Ok(paragraph)
+                }
+                ImportedHeaderBlock::Opaque(name) => Ok(opaque(name)),
+                _ => Err(unmodeled("entry block")),
+            }),
+    )?;
+    let result = record(
+        entry.kind.as_str(),
+        &[
+            ("partName", (&entry.part_name).into()),
+            ("id", (&entry.id).into()),
+            ("blocks", blocks),
+        ],
+    );
+    for (key, value) in [
+        ("noteType", &entry.note_type),
+        ("author", &entry.author),
+        ("initials", &entry.initials),
+        ("date", &entry.date),
+    ] {
+        optional(&result, key, value.as_deref());
+    }
+    Ok(result)
+}

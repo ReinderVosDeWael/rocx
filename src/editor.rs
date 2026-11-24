@@ -15,11 +15,13 @@ use std::sync::{Arc, OnceLock};
 mod entries;
 mod header;
 mod insertion;
+mod text;
 pub use entries::{EntryKind, ImportedEntry};
 pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
+pub use text::{RunTextChange, RunTextEdit};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -309,6 +311,7 @@ pub struct AlignmentChange {
 /// A validated edit batch and its independently writable output.
 #[derive(Debug)]
 pub struct EditPreview {
+    run_text_changes: Vec<RunTextChange>,
     changes: Vec<AlignmentChange>,
     insertions: Vec<TableInsertionChange>,
     header_changes: Vec<HeaderImageChange>,
@@ -316,6 +319,10 @@ pub struct EditPreview {
 }
 
 impl EditPreview {
+    /// Changed direct body runs, in original document order.
+    pub fn run_text_changes(&self) -> &[RunTextChange] {
+        &self.run_text_changes
+    }
     /// Actual changes in document order. No-op edits are omitted.
     pub fn changes(&self) -> &[AlignmentChange] {
         &self.changes
@@ -495,11 +502,24 @@ impl ImportedDocument {
         tables: &[TableInsertion],
         header_images: &[HeaderImageEdit],
     ) -> Result<EditPreview> {
+        self.preview_with_text(edits, tables, header_images, &[])
+    }
+
+    /// Stage text replacements together with paragraph, table and header edits.
+    /// Text targets must be direct, single-text body runs outside protected ranges.
+    pub fn preview_with_text(
+        &self,
+        edits: &[ParagraphAlignmentEdit],
+        tables: &[TableInsertion],
+        header_images: &[HeaderImageEdit],
+        run_text: &[RunTextEdit],
+    ) -> Result<EditPreview> {
         for snapshot in edits
             .iter()
             .map(|edit| &edit.target.snapshot)
             .chain(tables.iter().map(|insertion| &insertion.target.snapshot))
             .chain(header_images.iter().map(HeaderImageEdit::target_snapshot))
+            .chain(run_text.iter().map(|edit| &edit.target.snapshot))
         {
             self.validate_snapshot(snapshot)?;
         }
@@ -527,10 +547,16 @@ impl ImportedDocument {
         let mut changes = Vec::new();
         let mut insertions = Vec::new();
         let mut header_changes = Vec::new();
-        if !by_index.is_empty() || !table_targets.is_empty() || !header_images.is_empty() {
+        let mut run_text_changes = Vec::new();
+        if !by_index.is_empty()
+            || !table_targets.is_empty()
+            || !header_images.is_empty()
+            || !run_text.is_empty()
+        {
             let mut root = package.word(&self.main)?;
             let headers = self.plan_header_images(&root, header_images)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
+            run_text_changes = text::apply(body, run_text)?;
             for (body_index, paragraph) in body
                 .elements_mut()
                 .filter(|node| node.name != "w:sectPr")
@@ -590,6 +616,7 @@ impl ImportedDocument {
                 body.children.extend(original);
             }
             if !changes.is_empty()
+                || !run_text_changes.is_empty()
                 || !insertions.is_empty()
                 || header_changes
                     .iter()
@@ -599,6 +626,7 @@ impl ImportedDocument {
             }
         }
         Ok(EditPreview {
+            run_text_changes,
             changes,
             insertions,
             header_changes,

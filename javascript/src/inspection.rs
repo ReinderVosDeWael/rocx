@@ -21,6 +21,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedInlineAt", (inline_at, Paths::Package)),
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
         ("importedStories", (stories, Paths::Package)),
+        ("importedEntryStories", (entry_stories, Paths::Package)),
         (
             "importedStoryInlineStructure",
             (story_inline_structure, Paths::Package),
@@ -35,6 +36,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("inlineAt", "importedInlineAt"),
     ("defaultHeaders", "importedDefaultHeaders"),
     ("stories", "importedStories"),
+    ("entryStories", "importedEntryStories"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("preview", "importedPreview"),
     ("previewHeaderImage", "importedPreviewHeaderImage"),
@@ -66,6 +68,21 @@ struct StoryPosition {
 struct InlineSource {
     anchor: InlineAnchor,
     story: Option<StoryPosition>,
+}
+
+pub(crate) fn inline_anchor(value: &Wire, path: &str) -> Result<InlineAnchor> {
+    Ok(b::borrow::<InlineSource>(value, path)?.anchor.clone())
+}
+
+fn entry_stories(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    view::try_array(
+        source
+            .document()
+            .entry_stories()?
+            .iter()
+            .map(|entry| view::entry(entry, &source.anchors)),
+    )
 }
 
 pub(crate) struct ImportedSource {

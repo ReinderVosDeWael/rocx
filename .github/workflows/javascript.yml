@@ -46,7 +46,9 @@ jobs:
       - run: cargo fmt --manifest-path javascript/Cargo.toml --check
       - run: cargo clippy --manifest-path javascript/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
       - id: packed
-        run: bash javascript/tests/check-packed.sh
+        # The toolchain action sets CARGO_INCREMENTAL; verify the shipped source
+        # with Cargo's unmodified release defaults, as local consumers do.
+        run: env -u CARGO_INCREMENTAL bash javascript/tests/check-packed.sh
         env:
           TMPDIR: ${{ runner.temp }}
       - uses: actions/upload-artifact@v7.0.2

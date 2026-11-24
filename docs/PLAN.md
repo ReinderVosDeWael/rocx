@@ -197,6 +197,10 @@ until the hosted preflight succeeds and registry setup is confirmed.
 Complete #3 before releasing 0.4.0. Continue the serial checkpoint with
 relationship-based inspection of footnote, endnote and comment entries.
 Re-run release preflight on the integrated candidate, not the earlier docs commit.
+The working branch also stages plain single-text run replacements in the mixed
+transaction; property, block, table, resource and revision operations remain.
+Every new editor slice must ship together in Rust, Python and JavaScript,
+including the installed JS package's Node and Chromium parity checks.
 
 An agent should be able to open an existing DOCX, inspect it as typed rocx
 content, and apply anything rocx can author declaratively at a valid target.

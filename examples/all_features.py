@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion,
+    TableInsertion, RunTextEdit,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -465,6 +465,10 @@ async def generate(output: pathlib.Path) -> bytes:
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
+    replacement = "Imported editor: replaced this run by its anchor. "
+    preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)])
+    assert preview.run_text_changes[0].before == INLINE_LABEL
+    output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
     assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]
     assert inline_link.bookmark == "CatalogBookmark" and inline_link.relationship_id is None
