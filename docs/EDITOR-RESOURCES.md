@@ -105,7 +105,7 @@ are unsupported. `trackRevisions` changes the setting, not existing revisions.
 | Core or extended scalar | `doc.metadata_field(MetadataField::Creator)` / `ResourceEdit::Metadata(MetadataField::Creator, Some("Reviewer".into()))` | `doc.metadata_field("creator")` / `ResourceEdit.metadata("creator", "Reviewer")` | `doc.metadataField("creator")` / `{kind: "metadata", field: "creator", value: "Reviewer"}` |
 | Named custom property | `doc.custom_property("Approved")` / `ResourceEdit::CustomProperty("Approved".into(), Some(CustomValue::Boolean(false)))` | `doc.custom_property("Approved")` / `ResourceEdit.custom_property("Approved", False)` | `doc.customProperty("Approved")` / `{kind: "customProperty", name: "Approved", value: false}` |
 
-The shared field keys are `creator`, `description`, `keywords`, `category`,
+The shared field keys are `title`, `subject`, `creator`, `description`, `keywords`, `category`,
 `version`, `created`, `modified`, `lastPrinted`, `lastModifiedBy`, `revision`,
 `identifier`, `language`, `contentStatus`, `company` and `manager`. Rust enum
 variants capitalize the first letter. All are string-valued. Word's core
@@ -114,8 +114,10 @@ story data. Dates are read as source text; set them with a valid UTC timestamp
 in `YYYY-MM-DDTHH:MM:SSZ` form. Timestamp edits never update another date.
 
 The package relationships select the parts, including relocated targets.
-Company and manager use extended properties. Setting an extended or custom
+Company and manager use extended properties. Setting a core, extended or custom
 property creates its part if missing; clearing never creates a part.
+The `title` metadata key and the dedicated core-title edit are aliases.
+Supplying both, even to clear an absent title, is a duplicate target.
 Custom names use exact spelling. Supported values are a string (`CustomValue::Text`)
 or boolean (`CustomValue::Boolean`). Replacing a supported value retains its
 property ID, including across a type change. Clear with `None`/`null`;
@@ -128,7 +130,8 @@ and other variant types are retained when a supported sibling changes.
 Use Rust `ResourceEdit::Numbering(NumberingEdit::…)`, Python `ResourceEdit`
 factories, or JavaScript `resources` records. IDs are explicit unsigned physical
 IDs in the selected numbering part; 0 is reserved for concrete instances.
-No edit computes displayed labels or allocates a missing part.
+Adding an abstract can create a missing numbering part. The editor does not
+compute displayed labels.
 
 | Operation | Rust variant | Python factory | JavaScript `kind` and fields |
 | --- | --- | --- | --- |
@@ -167,5 +170,11 @@ uninspectable parts can prevent removal even without a known direct reference.
 Duplicate edits and dangling targets fail the entire preview.
 
 There is no general whole-definition replacement, instance relinking, in-place
-abstract level insertion/removal, numbering-style linking, or direct reference
+abstract level insertion/removal, relinking an existing numbering style, or direct reference
 editing in other stories.
+
+A new numbering style may bind a concrete instance created in the same
+preview. The style stores its `numId`, and the abstract gets a reciprocal
+`styleLink`. A simultaneous defaults patch uses the same styles part, including
+when it must be created. Removals check the final staged references; clearing a
+paragraph reference never permits removing an instance still used by a style.

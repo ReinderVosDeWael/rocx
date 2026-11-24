@@ -95,24 +95,11 @@ pub(super) fn add(
             "numbering style requires a local abstract with levels",
         ));
     }
-    if let Some(link) = unique_child(node, "w:styleLink")? {
-        // A second style validation pass sees the link from our first pass.
-        let original = doc.package.word(&path)?;
-        if link.get("w:val") != Some(id)
-            || original
-                .elements()
-                .filter(|n| {
-                    n.name == "w:abstractNum"
-                        && numeric(n, "w:abstractNumId").ok().as_ref() == Some(abs)
-                })
-                .any(|n| n.child("w:styleLink").is_some())
-        {
-            return Err(unsupported("abstract already owns a numbering style"));
-        }
-    } else {
-        node.push(val("styleLink", id));
-        package.put_word(&path, nums)?;
+    if unique_child(node, "w:styleLink")?.is_some() {
+        return Err(unsupported("abstract already owns a numbering style"));
     }
+    node.push(val("styleLink", id));
+    package.put_word(&path, nums)?;
     root.push(
         Node::new("w:style")
             .attr("w:type", "numbering")

@@ -354,20 +354,7 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
             None if !legacy_set && changes.values().all(Option::is_none) => continue,
             None => {
                 let kind = if s { "settings" } else { "styles" };
-                let prefix = main.rsplit_once('/').map_or_else(
-                    || format!("rocx-{kind}"),
-                    |(dir, _)| format!("{dir}/rocx-{kind}"),
-                );
-                let path = pkg.unique(&prefix, "xml");
-                pkg.content_type(
-                    &path,
-                    &format!(
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"
-                    ),
-                )?;
-                pkg.link(main, kind, &path)?;
-                let mut root = Node::new(format!("w:{kind}"));
-                root.namespaces();
+                let (path, root) = super::create_word_part(pkg, main, kind)?;
                 (path, root, true)
             }
         };

@@ -209,6 +209,7 @@ pub(super) fn check_other_parts(
                 | "application/vnd.openxmlformats-package.relationships+xml"
                 | "application/vnd.openxmlformats-package.core-properties+xml"
                 | "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+                | "application/vnd.openxmlformats-officedocument.custom-properties+xml"
                 | "application/vnd.openxmlformats-officedocument.theme+xml"
                 | "application/vnd.openxmlformats-officedocument.customXmlProperties+xml"
         ) {
@@ -326,6 +327,43 @@ fn patch_flags(style: &mut Node, bold: Option<bool>, italic: Option<bool>) -> Re
 }
 
 impl ImportedDocument {
+    /// Recheck references after body payloads and other resources have been
+    /// encoded. Do not replay mutations or overwrite a newly staged catalog.
+    pub(super) fn check_final_style_uses(
+        &self,
+        package: &Package,
+        edits: &[StyleEdit],
+    ) -> Result<()> {
+        let (path, source) = self
+            .style_part()?
+            .ok_or_else(|| unsupported("missing styles part"))?;
+        let final_root = package.word(&path)?;
+        for edit in edits {
+            let anchor = match edit {
+                StyleEdit::Remove(a) | StyleEdit::Replace { target: a, .. } => a,
+                _ => continue,
+            };
+            let id = anchor.id.as_str();
+            let name = source
+                .elements()
+                .find(|n| n.get("w:styleId") == Some(id))
+                .and_then(|n| n.child("w:name"))
+                .and_then(|n| n.get("w:val"))
+                .ok_or_else(|| unsupported("missing style identity"))?;
+            if node_may_reference(&final_root, id, name)
+                || final_root.elements().any(|n| {
+                    !(n.name == "w:style" && n.get("w:styleId") == Some(id))
+                        && possible_reference(n, id, name)
+                })
+            {
+                return Err(unsupported(
+                    "style acquired live or uninspectable references",
+                ));
+            }
+            check_other_parts(package, &path, |n| possible_reference(n, id, name))?;
+        }
+        Ok(())
+    }
     /// Resolve an exact ID in the selected catalog; names are not edit addresses.
     pub fn style_anchor(&self, id: &str) -> Result<StyleAnchor> {
         let (_, root) = self
@@ -349,9 +387,16 @@ impl ImportedDocument {
         if edits.is_empty() {
             return Ok(());
         }
-        let (path, mut root) = self
-            .style_part()?
-            .ok_or_else(|| unsupported("missing styles part"))?;
+        let (path, mut root) = match self.style_part()? {
+            Some(part) => part,
+            None if edits.iter().all(|e| matches!(e, StyleEdit::Add(_))) => {
+                let (path, root) =
+                    super::resource_fields::create_word_part(package, &self.main, "styles")?;
+                package.put_word(&path, root.clone())?;
+                (path, root)
+            }
+            None => return Err(unsupported("missing styles part")),
+        };
         let mut aliases = BTreeMap::new();
         let mut slots = BTreeMap::new();
         for (slot, content) in root.children.iter().enumerate() {

@@ -756,6 +756,13 @@ pub async fn generate(output: &Path) -> Result<()> {
         .find(|c| c.id.as_deref() == Some("5001"))
         .unwrap();
     let preview = imported.preview_edits(editor::EditBatch {
+        styles: &[editor::StyleEdit::Add(
+            rocx::NumberingStyleDefinition {
+                name: "Reviewed List".into(),
+                numbering_id: 9049,
+            }
+            .into(),
+        )],
         run_text: &[editor::RunTextEdit {
             target: label.anchor.clone(),
             text: replacement.into(),
@@ -806,6 +813,10 @@ pub async fn generate(output: &Path) -> Result<()> {
                 value: Some(rocx::NumberingReference { id: 9049, level: 0 }),
             }),
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
+            editor::ResourceEdit::Metadata(
+                editor::MetadataField::Subject,
+                Some("Resource review".into()),
+            ),
             editor::ResourceEdit::Metadata(
                 editor::MetadataField::Creator,
                 Some("Review team".into()),

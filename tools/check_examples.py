@@ -855,6 +855,9 @@ def verify_run_text(original: bytes, replaced: bytes) -> None:
     edited_doc = docx.Document(io.BytesIO(replaced))
     assert edited_doc.element.xpath("//w:sdtPr[w:id/@w:val='5001']/w:alias/@w:val") == ["Imported editor caption"]
     assert edited_doc.core_properties.title == "Edited resource sample"
+    assert edited_doc.core_properties.subject == "Resource review"
+    assert edited_doc.styles["Reviewed List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["9049"]
+    assert edited_doc.part.numbering_part.element.xpath("w:abstractNum[@w:abstractNumId='9048']/w:styleLink/@w:val") == ["ReviewedList"]
     assert edited_doc.core_properties.author == "Review team"
     paragraphs = [p.text for p in edited_doc.paragraphs]
     assert "Ranged 📝" + EDIT_LABEL[8:] in paragraphs

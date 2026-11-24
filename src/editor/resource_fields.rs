@@ -32,7 +32,6 @@ pub enum ResourceEdit {
 }
 
 pub(super) enum Part {
-    Core,
     Defaults,
     Settings,
     Numbers,
@@ -40,12 +39,6 @@ pub(super) enum Part {
 impl Part {
     pub(super) fn load(&self, pkg: &Package, main: &str) -> Result<Option<(String, Node)>> {
         let (owner, rel, mime, root) = match self {
-            Self::Core => (
-                "",
-                "core-properties",
-                "application/vnd.openxmlformats-package.core-properties+xml",
-                "cp:coreProperties",
-            ),
             Self::Defaults => (
                 main,
                 "styles",
@@ -80,6 +73,27 @@ impl Part {
         }
         Ok(Some((path, node)))
     }
+}
+
+/// Allocate a relationship-selected Word part without claiming orphan parts.
+pub(super) fn create_word_part(
+    pkg: &mut Package,
+    main: &str,
+    kind: &str,
+) -> Result<(String, Node)> {
+    let prefix = main.rsplit_once('/').map_or_else(
+        || format!("rocx-{kind}"),
+        |(dir, _)| format!("{dir}/rocx-{kind}"),
+    );
+    let path = pkg.unique(&prefix, "xml");
+    pkg.content_type(
+        &path,
+        &format!("application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"),
+    )?;
+    pkg.link(main, kind, &path)?;
+    let mut root = Node::new(format!("w:{kind}"));
+    root.namespaces();
+    Ok((path, root))
 }
 
 pub(super) fn unique<'a>(parent: &'a Node, name: &str) -> Result<Option<&'a Node>> {
@@ -206,10 +220,7 @@ fn visit_levels(
 
 impl ImportedDocument {
     pub fn core_title(&self) -> Result<Option<String>> {
-        let Some((_, root)) = Part::Core.load(&self.package, &self.main)? else {
-            return Ok(None);
-        };
-        property(&root, &["dc:title"], false)
+        self.metadata_field(MetadataField::Title)
     }
     pub fn default_alignment(&self) -> Result<Option<Alignment>> {
         let Some((_, root)) = Part::Defaults.load(&self.package, &self.main)? else {
@@ -241,12 +252,12 @@ impl ImportedDocument {
 pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Result<()> {
     defaults::apply(pkg, main, edits)?;
     metadata::apply(pkg, edits)?;
-    let (mut title, mut alignment, mut starts) = (None, None, BTreeMap::new());
+    let (mut alignment, mut starts) = (None, BTreeMap::new());
     for edit in edits {
         let duplicate = match edit {
             ResourceEdit::Default(_, _) => continue,
             ResourceEdit::Numbering(_) => continue,
-            ResourceEdit::CoreTitle(v) => title.replace(v).is_some(),
+            ResourceEdit::CoreTitle(_) => continue,
             ResourceEdit::DefaultAlignment(v) => alignment.replace(v).is_some(),
             ResourceEdit::Metadata(..) | ResourceEdit::CustomProperty(..) => continue,
             ResourceEdit::AbstractStart(v) => {
@@ -257,31 +268,16 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
             return Err(unsupported("duplicate resource property edit"));
         }
     }
-    for (part, path, attr, value) in [
-        (Part::Core, &["dc:title"][..], false, title.cloned()),
-        (
-            Part::Defaults,
+    if let Some(value) = alignment
+        && let Some((name, mut root)) = Part::Defaults.load(pkg, main)?
+        && patch(
+            &mut root,
             DEFAULT_PATH,
             true,
-            alignment.map(|v| v.map(|a| a.xml().to_owned())),
-        ),
-    ] {
-        let Some(value) = value else { continue };
-        if !attr && let Some(s) = &value {
-            crate::xml::validate_text(s)?;
-            if s.chars().count() > 255 {
-                return Err(unsupported("title exceeds 255 characters"));
-            }
-        }
-        let Some((part_name, mut root)) = part.load(pkg, main)? else {
-            if value.is_none() {
-                continue;
-            }
-            return Err(unsupported("creating resource parts is unsupported"));
-        };
-        if patch(&mut root, path, attr, value)? {
-            pkg.put_word(part_name, root)?;
-        }
+            value.map(|a| a.xml().to_owned()),
+        )?
+    {
+        pkg.put_word(name, root)?;
     }
     if !starts.is_empty() {
         let (path, mut root) = Part::Numbers

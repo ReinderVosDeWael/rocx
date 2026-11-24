@@ -114,6 +114,13 @@ fn main() {
     let write = |name, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {
+            styles: &[rocx::editor::StyleEdit::Add(
+                rocx::NumberingStyleDefinition {
+                    name: "Batch List".into(),
+                    numbering_id: 702,
+                }
+                .into(),
+            )],
             ranges: &[rocx::editor::TextRangeEdit {
                 target: anchor(&doc, 1),
                 start: 0,
@@ -133,6 +140,28 @@ fn main() {
                     ])),
                 ),
                 rocx::editor::ResourceEdit::CoreTitle(Some("Combined editor".into())),
+                rocx::editor::ResourceEdit::Metadata(
+                    rocx::editor::MetadataField::Subject,
+                    Some("Batch resources".into()),
+                ),
+                rocx::editor::ResourceEdit::Default(
+                    rocx::editor::DefaultField::Bold,
+                    Some(rocx::editor::DefaultValue::Bool(false)),
+                ),
+                rocx::editor::ResourceEdit::Numbering(rocx::editor::NumberingEdit::AddInstance {
+                    num_id: 702,
+                    abstract_id: 701,
+                }),
+                rocx::editor::ResourceEdit::Numbering(rocx::editor::NumberingEdit::AddAbstract {
+                    abstract_id: 701,
+                    levels: vec![rocx::NumberingLevel {
+                        level: 0,
+                        start: 1,
+                        format: "decimal".into(),
+                        text: "%1.".into(),
+                        ..Default::default()
+                    }],
+                }),
             ],
             ..Default::default()
         })

@@ -774,6 +774,9 @@ impl ImportedDocument {
             }
         }
         let mut package = self.package.clone();
+        // Numbering identities must be visible to both styles and body
+        // payloads. Validate removals only after their final users are staged.
+        let removed_numbers = numbering::stage(&mut package, &self.main, resources)?;
         // Check unused definitions against the original snapshot, and make
         // newly added definitions available to every payload codec.
         self.stage_styles(&mut package, styles)?;
@@ -965,16 +968,15 @@ impl ImportedDocument {
             {
                 package.put_word(&self.main, root)?;
             }
-            if destructive_styles {
-                // Revalidate against the staged content, including implicit
-                // style references emitted by payload codecs. The plan always
-                // derives the catalog itself from the immutable source.
-                self.stage_styles(&mut package, styles)?;
-            }
         }
         // A defaults patch shares the styles part. Read the staged version.
-        numbering::apply(&mut package, &self.main, resources)?;
         resource_fields::apply(&mut package, &self.main, resources)?;
+        if destructive_styles {
+            self.check_final_style_uses(&package, styles)?;
+        }
+        if let Some(removed) = removed_numbers {
+            removed.check(&package)?;
+        }
         Ok(EditPreview {
             block_changes,
             run_text_changes,

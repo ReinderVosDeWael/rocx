@@ -326,7 +326,8 @@ def inspect_header(before, after, change, image):
 
 
 def verify_ordinary(directory):
-    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, TextRangeEdit
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, StyleEdit, TextRangeEdit
     source = directory / "base.docx"
     output = directory / "combined.docx"
     doc = ImportedDocument.open(source.read_bytes())
@@ -334,12 +335,15 @@ def verify_ordinary(directory):
         [],
         text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
         block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
+        style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Batch List", 702))],
         resources=[ResourceEdit.document_default("tabStops", [(720, "right", "dot")]),
-                   ResourceEdit.core_title("Combined editor")],
+                   ResourceEdit.core_title("Combined editor"), ResourceEdit.metadata("subject", "Batch resources"),
+                   ResourceEdit.document_default("bold", False), ResourceEdit.add_instance(702,701),
+                   ResourceEdit.add_abstract(701, [d.NumberingLevel()])],
     ).to_docx() == output.read_bytes()
     original, result = parts(source), parts(output)
     assert original.keys() == result.keys()
-    untouched(original, result, (MAIN, "docProps/core.xml", "word/styles.xml"))
+    untouched(original, result, (MAIN, "docProps/core.xml", "word/styles.xml", "word/numbering.xml"))
     tab, = xp(etree.fromstring(result["word/styles.xml"]), "w:docDefaults/w:pPrDefault/w:pPr/w:tabs/w:tab")
     assert [tab.get(qn("w:" + attr)) for attr in ("val", "pos", "leader")] == ["right", "720", "dot"]
     for query in (".//w:fldSimple", ".//w:drawing", ".//w:sectPr"):
@@ -347,6 +351,9 @@ def verify_ordinary(directory):
             tree(n) for n in xp(etree.fromstring(result[MAIN]), query)]
     readback = Document(output)
     assert readback.core_properties.title == "Combined editor"
+    assert readback.core_properties.subject == "Batch resources"
+    assert readback.styles["Batch List"].element.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["702"]
+    assert readback.part.numbering_part.element.xpath("w:abstractNum[@w:abstractNumId='701']/w:styleLink/@w:val") == ["BatchList"]
     p = readback.paragraphs
     assert p[1].text == "Xnset alignment"
     assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"

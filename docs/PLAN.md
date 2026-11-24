@@ -4,6 +4,17 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+**#47/#48 integration:** defaults, metadata, numbering and style editing share
+one transaction. Allocate absent resource parts without adopting orphan parts,
+resolve new numbering-style links against staged instances, reject duplicate
+alias edits, and recheck removals against the finished package. Exercise both
+a mixed consumer oracle and an independent fixture that creates all six parts.
+Combined verification: 63 focused Rust and 96 installed Python tests passed;
+strict TypeScript and native/Wasm Clippy passed. All 24 editor outputs matched
+between Rust, packed Node 26 and Chromium 159; installed Python also matched
+the mixed oracle. All 11 catalog packages matched across Rust, Python and Node
+and passed schema/OPC validation and independent readback.
+
 #48 defaults increment: direct run/paragraph defaults and document-wide
 settings now support independent inspection and set/clear. All eleven catalogs
 matched in Rust, installed Python 3.12 and packed Node 26 and passed schema/OPC
@@ -40,7 +51,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
-| #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits, retargeting live users and synthesizing missing parts. |
+| #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits and retargeting live users. |
 | #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |

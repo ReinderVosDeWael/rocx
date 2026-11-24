@@ -476,12 +476,19 @@ export async function run(fixtures: Fixtures) {
   rejects(() => doc.preview({textRanges: [{...selection, target: paragraph(doc, 0).anchor}]}), /plain direct body/);
   same(ranged.preview({textRanges: [selection]}).runTextChanges().map(c => c.after), ["a 🐈 ", "", "d"], "scalar ranges retain run containers");
   const ordinary: EditBatch = {
+    styleEdits: [{op:"add", definition:{kind:"numbering",name:"Batch List",numberingId:702}}],
     textRanges: [{target: paragraph(doc, 1).anchor, start: 0, end: 1, text: "X"}],
     blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true}],
     resources: [{kind: "documentDefault", field: "tabStops", value:[{positionTwips:720, alignment:"right", leader:"dot"}]},
-      {kind: "coreTitle", value: "Combined editor"}],
+      {kind: "coreTitle", value: "Combined editor"}, {kind:"metadata",field:"subject",value:"Batch resources"},
+      {kind:"documentDefault",field:"bold",value:false}, {kind:"addInstance",numId:702,abstractId:701},
+      {kind:"addAbstract",abstractId:701,levels:[{level:0,start:1,format:"decimal",text:"%1."}]}],
   };
   const combined = doc.preview(ordinary).toDocx();
+  const combinedDoc = await openDocx(combined);
+  check(combinedDoc.metadataField("subject") === "Batch resources" && combinedDoc.documentDefaults().bold === false,"mixed properties");
+  rejects(() => combinedDoc.preview({resources:[{kind:"removeInstance",numId:702}]}),/references/);
+  rejects(() => doc.preview({...ordinary,resources:[...ordinary.resources!,{kind:"metadata",field:"title",value:null}]}),/duplicate/);
   same((await openDocx(combined)).documentDefaults().tabStops,
     [{positionTwips:720, alignment:"right", leader:"dot"}], "direct tab stop readback");
   rejects(() => doc.preview({...ordinary, textRanges: [selection]}),

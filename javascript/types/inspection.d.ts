@@ -1,7 +1,7 @@
 import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 
 declare const anchor: unique symbol;
-export type MetadataField = "creator" | "description" | "category" | "keywords" | "version"
+export type MetadataField = "title" | "subject" | "creator" | "description" | "category" | "keywords" | "version"
   | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
   | "identifier" | "language" | "contentStatus" | "company" | "manager";
 

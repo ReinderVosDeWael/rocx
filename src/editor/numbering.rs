@@ -297,7 +297,43 @@ fn remove(root: &mut Node, tag: &str, attr: &str, key: u32) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn apply(pkg: &mut Package, main: &str, resources: &[ResourceEdit]) -> Result<()> {
+pub(super) struct RemovedIdentities {
+    path: String,
+    nums: BTreeSet<u32>,
+    defs: BTreeSet<u32>,
+}
+
+impl RemovedIdentities {
+    /// Check the completed package, including references from body payloads
+    /// and reciprocal links written by numbering-style additions.
+    pub(super) fn check(&self, pkg: &Package) -> Result<()> {
+        fn referenced(n: &Node, nums: &BTreeSet<u32>, defs: &BTreeSet<u32>) -> bool {
+            opaque_reference_context(n)
+                || n.name == "w:numberingChange"
+                || [(nums, "w:numId"), (defs, "w:abstractNumId")]
+                    .into_iter()
+                    .any(|(ids, tag)| {
+                        !ids.is_empty()
+                            && n.name == tag
+                            && value(n).map_or(true, |id| ids.contains(&id))
+                    })
+                || n.elements().any(|c| referenced(c, nums, defs))
+        }
+        let check = |n: &Node| referenced(n, &self.nums, &self.defs);
+        if check(&pkg.word(&self.path)?) {
+            return Err(unsupported(
+                "numbering has live or uninspectable references",
+            ));
+        }
+        check_other_parts(pkg, &self.path, check)
+    }
+}
+
+pub(super) fn stage(
+    pkg: &mut Package,
+    main: &str,
+    resources: &[ResourceEdit],
+) -> Result<Option<RemovedIdentities>> {
     use NumberingEdit::*;
     let edits: Vec<_> = resources
         .iter()
@@ -313,11 +349,15 @@ pub(super) fn apply(pkg: &mut Package, main: &str, resources: &[ResourceEdit]) -
         .iter()
         .all(|e| matches!(e, Paragraph { value: None, .. }))
     {
-        return Ok(());
+        return Ok(None);
     }
-    let (path, mut root) = Part::Numbers
-        .load(pkg, main)?
-        .ok_or_else(|| unsupported("missing numbering part"))?;
+    let (path, mut root) = match Part::Numbers.load(pkg, main)? {
+        Some(part) => part,
+        None if edits.iter().any(|e| matches!(e, AddAbstract { .. })) => {
+            super::resource_fields::create_word_part(pkg, main, "numbering")?
+        }
+        None => return Err(unsupported("missing numbering part")),
+    };
     let mut defs = BTreeMap::<u32, BTreeSet<u32>>::new();
     for n in root.elements().filter(|n| n.name == "w:abstractNum") {
         let aid = id(n, "w:abstractNumId")?;
@@ -497,29 +537,15 @@ pub(super) fn apply(pkg: &mut Package, main: &str, resources: &[ResourceEdit]) -
         for &a in &removed_defs {
             remove(&mut root, "w:abstractNum", "w:abstractNumId", a)?
         }
-        fn referenced(n: &Node, nums: &BTreeSet<u32>, defs: &BTreeSet<u32>) -> bool {
-            opaque_reference_context(n)
-                || n.name == "w:numberingChange"
-                || [(nums, "w:numId"), (defs, "w:abstractNumId")]
-                    .into_iter()
-                    .any(|(ids, tag)| {
-                        !ids.is_empty()
-                            && n.name == tag
-                            && value(n).map_or(true, |id| ids.contains(&id))
-                    })
-                || n.elements().any(|c| referenced(c, nums, defs))
-        }
-        let check = |n: &Node| referenced(n, &removed_nums, &removed_defs);
-        if check(&root) {
-            return Err(unsupported(
-                "numbering has live or uninspectable references",
-            ));
-        }
-        check_other_parts(pkg, &path, check)?;
-        changed = true;
+        pkg.put_word(&path, root)?;
+        return Ok(Some(RemovedIdentities {
+            path,
+            nums: removed_nums,
+            defs: removed_defs,
+        }));
     }
     if changed {
         pkg.put_word(path, root)?;
     }
-    Ok(())
+    Ok(None)
 }

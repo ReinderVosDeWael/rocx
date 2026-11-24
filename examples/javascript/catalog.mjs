@@ -196,9 +196,11 @@ export async function generateCatalog(fixtures, options) {
   assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
     "missing shared abstract numbering level");
   const textPreview = imported.preview({
+    styleEdits: [{op:"add", definition:{kind:"numbering", name:"Reviewed List", numberingId:9049}}],
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
+      {kind:"metadata", field:"subject", value:"Resource review"},
       {kind:"documentDefault", field:"bold", value:false}, {kind:"documentDefault", field:"footnoteStart", value:5},
       {kind:"documentDefault", field:"afterTwips", value:null},
       {kind: "metadata", field: "creator", value: "Review team"},

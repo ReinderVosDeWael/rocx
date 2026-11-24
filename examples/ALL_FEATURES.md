@@ -226,6 +226,9 @@ document and verifies each value in its own package part.
 
 In the same sample, the ranged paragraph receives list instance **9049**, linked
 to abstract **9048**, with a Roman label replacement and a separate start of 6.
+The new numbering style `Reviewed List` owns that instance, and the abstract's
+reciprocal `styleLink` identifies `ReviewedList`. The preview sets the core
+subject to `Resource review` alongside the other metadata and defaults edits.
 The Rust `NumberingEdit::{AddAbstract, AddInstance, InstanceLevel, InstanceStart, Paragraph}`,
 Python `ResourceEdit.{add_abstract, add_instance, instance_level, instance_start, paragraph_numbering}`
 and JavaScript `addAbstract`, `addInstance`, `instanceLevel`, `instanceStart`,

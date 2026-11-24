@@ -148,15 +148,19 @@ async def python_table_structure(source: Path, output: Path) -> None:
 
 
 def python_combined(source: Path) -> bytes:
-    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, TextRangeEdit
+    from rocx import declarative as d
+    from rocx.editor import BlockEdit, ImportedDocument, ResourceEdit, StyleEdit, TextRangeEdit
 
     original = source.read_bytes()
     doc = ImportedDocument.open(original)
     preview = doc.preview(
         [], text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
         block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
+        style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Batch List", 702))],
         resources=[ResourceEdit.document_default("tabStops", [(720, "right", "dot")]),
-                   ResourceEdit.core_title("Combined editor")],
+                   ResourceEdit.core_title("Combined editor"), ResourceEdit.metadata("subject", "Batch resources"),
+                   ResourceEdit.document_default("bold", False), ResourceEdit.add_instance(702,701),
+                   ResourceEdit.add_abstract(701,[d.NumberingLevel()])],
     )
     assert preview.block_changes == [4]
     assert [(c.body_index, c.before, c.after) for c in preview.run_text_changes] == [
@@ -170,7 +174,7 @@ def python_combined(source: Path) -> bytes:
     with zipfile.ZipFile(io.BytesIO(original)) as before, zipfile.ZipFile(io.BytesIO(data)) as after:
         assert set(before.namelist()) == set(after.namelist())
         assert {p for p in before.namelist() if before.read(p) != after.read(p)} == {
-            "word/document.xml", "docProps/core.xml", "word/styles.xml"}
+            "word/document.xml", "docProps/core.xml", "word/styles.xml", "word/numbering.xml"}
     return data
 
 

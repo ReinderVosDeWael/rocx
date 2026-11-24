@@ -508,7 +508,9 @@ async def generate(output: pathlib.Path) -> bytes:
         ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
     caption, = (c for c in imported.controls if c.id == "5001")
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
+                               style_edits=[StyleEdit.add(d.NumberingStyleDefinition("Reviewed List", 9049))],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
+                                          ResourceEdit.metadata("subject", "Resource review"),
                                           ResourceEdit.metadata("creator", "Review team"),
                                           ResourceEdit.metadata("manager", "Review lead"),
                                           ResourceEdit.custom_property("Reviewed", False),

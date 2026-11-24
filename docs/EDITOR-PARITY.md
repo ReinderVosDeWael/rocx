@@ -393,8 +393,8 @@ original start index per operation (unchanged direct keep-with-next omitted).
 | Remove an unused definition | `StyleEdit::Remove(target)` | `StyleEdit.remove(target)` | `{op: "remove", target}` |
 | Stage with content edits | `doc.preview_edits(EditBatch { styles, ..Default::default() })?` | `doc.preview([], style_edits=styles)` | `doc.preview({styleEdits: styles})` |
 
-Add paragraph, character, table or numbering declarations to an existing relationship-selected
-styles part. Names, source aliases, and generated IDs must be unambiguous
+Add paragraph, character, table or numbering declarations to the relationship-selected
+styles part. An addition can create a missing part. Names, source aliases, and generated IDs must be unambiguous
 across styles under ASCII case-insensitive comparison. The authoring codec
 resolves forward references and checks their types and inheritance cycles.
 Patches address direct paragraph/character run properties, including explicit
@@ -418,7 +418,7 @@ in Rust) or `None`/`null` to clear the wrapper. Replacement discards **all**
 formatting inside that wrapper; use `Field` to retain its siblings. Duplicate
 wrappers or opaque markup that would be discarded reject the operation.
 
-Adding `NumberingStyleDefinition` requires a nonzero, existing concrete ID
+Adding `NumberingStyleDefinition` requires a nonzero concrete ID (existing or added in the same preview)
 whose abstract has local levels and no existing style owner. The edit writes
 the style's `numId` and the abstract's reciprocal `styleLink`. It allocates
 no numbering IDs and leaves levels, overrides and paragraph references intact.
@@ -428,5 +428,5 @@ Replace and remove require a nondefault custom style with recognized markup
 its type, ID, display name and source slot. Both operations reject potential
 references elsewhere in the package, including other styles, settings, stories,
 numbering and fields, and reject unsupported markup or parts when usage cannot
-be established. There is no automatic retargeting, replacement of linked numbering styles, or
-synthesis of a missing styles part.
+be established. Live references are not retargeted. Linked numbering styles
+cannot be replaced or removed.
