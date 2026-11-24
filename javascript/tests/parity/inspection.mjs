@@ -86,7 +86,13 @@ table.cell(0, 2).text = "Tail"
 row = table.rows[0]._tr
 row.insert(row.index(row.tc_lst[-1]), elem("sdt"))
 table._tbl.insert(table._tbl.index(row), elem("sdt"))
-doc.element.body.insert(3, elem("sdt"))
+control = elem("sdt")
+props = elem("sdtPr")
+for name, value in [("tag", "customer & id"), ("alias", "Name"), ("lock", "futureLock")]:
+    props.append(elem(name, val=value))
+control.append(props)
+control.append(elem("sdtContent"))
+doc.element.body.insert(3, control)
 
 first = doc.sections[0].header
 first.paragraphs[0].text = "Header "
@@ -197,7 +203,7 @@ async function importedBodySectionsAndPhysicalCells() {
   assert.equal(unknown.alignment, undefined);
   assert.equal(unknown.alignmentXml, "start");
   assert.equal(unknown.hasOpaqueContent, false);
-  assert.deepEqual(unsupported, opaque("w:sdt"));
+  assert.deepEqual(unsupported, { kind: "contentControl", tag: "customer & id", alias: "Name", lock: "futureLock" });
   const [merged, , tail] = table.children[1].children;
   const [spanRun, field, cellLink] = merged.blocks[0].inlineStructure;
   const [left, right] = cellLink.children;
@@ -503,6 +509,7 @@ if (process.argv.includes("--browser")) {
       }
       return {
         body: p.text,
+        control: source.body()[3],
         bodyIdentity: source.inlineAt(firstNode.anchor).anchor === firstNode.anchor,
         cellIdentity: source.inlineAt(cellLink.children[1].anchor).anchor === cellLink.children[1].anchor,
         headerIdentity: legacyAnchor === inherited.inlineStructure(0)[0].anchor
@@ -517,6 +524,7 @@ if (process.argv.includes("--browser")) {
     }, fixtures);
     assert.deepEqual({ ...result, headerError: undefined }, {
       body: "AB\t\n\nLinkJump", bodyIdentity: true, cellIdentity: true,
+      control: { kind: "contentControl", tag: "customer & id", alias: "Name", lock: "futureLock" },
       headerIdentity: true, footerIdentity: true,
       malformedBody: "AB\t\n\nLinkJump", headerError: undefined, foreignError: "anchor",
     });

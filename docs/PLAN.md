@@ -23,6 +23,13 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
+The #3 direct-body content-control inspection slice exposes tag, alias, and raw
+lock metadata across Rust, Python, and JavaScript. Contents and controls in
+other contexts remain opaque; controls are not edit targets. Rust all-targets
+and 813 Python tests passed. Packed Node 22/24 and Chromium 159 development and
+production consumers passed, including exact DOCX parity, schema/OPC checks,
+and clean offline provenance replay. Integration remains pending.
+
 ### Editor checkpoint (#3, PR #31)
 
 The hosted Rust showcase test left the seventh catalog output (`run-text.docx`)

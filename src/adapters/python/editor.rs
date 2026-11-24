@@ -485,6 +485,16 @@ struct PyBodyOpaque {
     xml: String,
 }
 
+#[pyclass(name = "BodyContentControl", frozen, module = "rocx.editor")]
+struct PyBodyContentControl {
+    #[pyo3(get)]
+    tag: Option<String>,
+    #[pyo3(get)]
+    alias: Option<String>,
+    #[pyo3(get)]
+    lock: Option<String>,
+}
+
 #[pyclass(name = "ParagraphAlignmentEdit", frozen, module = "rocx.editor")]
 struct PyParagraphAlignmentEdit {
     target: editor::ParagraphAnchor,
@@ -794,6 +804,15 @@ impl PyImportedDocument {
                 )?
                 .into_any()),
                 BodyBlock::Table(table) => table_object(py, table),
+                BodyBlock::ContentControl(control) => Ok(Py::new(
+                    py,
+                    PyBodyContentControl {
+                        tag: control.tag.clone(),
+                        alias: control.alias.clone(),
+                        lock: control.lock.clone(),
+                    },
+                )?
+                .into_any()),
                 BodyBlock::Opaque(xml) => {
                     Ok(Py::new(py, PyBodyOpaque { xml: xml.clone() })?.into_any())
                 }
@@ -885,6 +904,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedTableCell>()?;
     module.add_class::<PyImportedCellParagraph>()?;
     module.add_class::<PyBodyOpaque>()?;
+    module.add_class::<PyBodyContentControl>()?;
     module.add_class::<PyParagraphAlignmentEdit>()?;
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyAlignmentChange>()?;

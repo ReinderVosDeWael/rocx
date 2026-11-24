@@ -1,5 +1,14 @@
 # Editor declarative parity inventory
 
+Direct body content controls expose only direct source metadata: Rust
+`BodyBlock::ContentControl`, Python `BodyContentControl`, and JavaScript
+`kind: "contentControl"` provide tag, alias, and lock as optional strings.
+Unknown lock values are retained, not interpreted. Missing properties or
+attributes are absent; empty attributes remain empty strings. Controls have no
+edit anchor and their contents are not traversed. Controls in tables, inline
+content, and other stories remain opaque. The original package retains all
+control markup, including unsupported properties.
+
 This is the target inventory for the [editor plan](PLAN.md#editor-goal-declarative-parity), not a statement that all these operations are implemented. The current editor exposes direct body inspection with section ranges, explicit section types, and a read-only projection of paragraph inline items. Default, first, and even headers and footers expose section references, inherited status, physical part names, and ordered direct paragraphs; other direct children are opaque. The broader story view is read-only. The editor supports paragraph alignment patches, anchored insertion of tables with supported content, and shared or section-local inline image insertion into an existing default header. Declarative authoring and existing template operations remain separate, supported APIs.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical

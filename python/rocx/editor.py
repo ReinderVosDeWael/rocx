@@ -17,6 +17,7 @@ image edits still use anchors from ``ImportedDocument.default_headers``.
 from ._native import (
     AlignmentChange,
     BodyOpaque,
+    BodyContentControl,
     BodyParagraph,
     BodyTable,
     EditPreview,
@@ -52,6 +53,7 @@ ImportedStoryParagraph = ImportedHeaderParagraph
 __all__ = [
     "AlignmentChange",
     "BodyOpaque",
+    "BodyContentControl",
     "BodyParagraph",
     "BodyTable",
     "EditPreview",

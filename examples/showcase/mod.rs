@@ -546,6 +546,12 @@ pub async fn generate(output: &Path) -> Result<()> {
         if matches!(found.items.first(), Some(editor::ImportedInline::Text(text)) if text.starts_with("Structured comment:")))
     );
     let inline_label = format!("{INLINE_LABEL}{}", INLINE_LINK_RUNS.concat());
+    assert!(imported.body().iter().any(|block| matches!(
+        block, editor::BodyBlock::ContentControl(control)
+            if control.tag.as_deref() == Some("review-block")
+                && control.alias.as_deref() == Some("Review block")
+                && control.lock.as_deref() == Some("sdtLocked")
+    )));
     let (paragraph_index, paragraph) = imported
         .body()
         .iter()

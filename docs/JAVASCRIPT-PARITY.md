@@ -1,5 +1,11 @@
 # JavaScript parity contract
 
+Direct body controls expose source tag, alias, and lock as
+`BodyBlock::ContentControl` (Rust), `BodyContentControl` (Python), and
+`kind: "contentControl"` (JavaScript). Their contents remain opaque and have
+no edit anchors. The catalog asserts all three metadata values; the installed
+inspection fixture checks their JavaScript projection separately.
+
 Current comparison baseline: `c1c730b` (including `1c17f03` table-cell inline
 readback and `5f103c5` header/footer stories), plus the integrated Rust
 changes in this worktree, including B1's `ImageData::NamedBytes`.

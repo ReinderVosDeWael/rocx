@@ -1,5 +1,10 @@
 # All-features visual inspection catalog
 
+The catalog's block control is also inspected in all three languages: Rust
+`BodyBlock::ContentControl`, Python `BodyContentControl`, and JavaScript
+`kind: "contentControl"` report the source tag, alias, and lock. Its contents
+remain opaque and cannot be targeted for edits.
+
 These are independent authoring programs using the public APIs, not wrappers
 around a shared prebuilt document or XML fixture:
 

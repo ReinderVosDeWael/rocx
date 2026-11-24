@@ -36,8 +36,35 @@ pub struct ParagraphAnchor {
 pub enum BodyBlock {
     Paragraph(ImportedParagraph),
     Table(ImportedTable),
+    /// Direct block content control; its contents remain opaque.
+    ContentControl(ImportedContentControl),
     /// An unsupported element, identified by expanded XML name.
     Opaque(String),
+}
+
+/// Read-only direct body control properties. Values are source XML strings;
+/// absent elements or missing `w:val` attributes produce `None`.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ImportedContentControl {
+    pub tag: Option<String>,
+    pub alias: Option<String>,
+    pub lock: Option<String>,
+}
+
+fn read_content_control(node: &Node) -> ImportedContentControl {
+    let props = node.child("w:sdtPr");
+    let value = |name| {
+        props
+            .and_then(|p| p.child(name))
+            .and_then(|p| p.get("w:val"))
+            .map(str::to_owned)
+    };
+    ImportedContentControl {
+        tag: value("w:tag"),
+        alias: value("w:alias"),
+        lock: value("w:lock"),
+    }
 }
 
 /// Snapshot-scoped identity for a direct body table. Not currently an edit target.
@@ -404,6 +431,7 @@ impl ImportedDocument {
                     })
                 }
                 "w:tbl" => BodyBlock::Table(read_table(node, &snapshot, body_index)),
+                "w:sdt" => BodyBlock::ContentControl(read_content_control(node)),
                 name => BodyBlock::Opaque(name.to_owned()),
             })
             .collect();
