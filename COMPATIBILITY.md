@@ -51,13 +51,18 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 | Inspect the styles part and direct style metadata | `doc.styles()?` | `doc.styles` | `doc.styles()` |
 | Inspect direct body control metadata | `BodyBlock::ContentControl` | `BodyContentControl` | `kind: "contentControl"` |
 | Inspect block/inline/row/cell controls and their physical anchors | `doc.controls()` | `doc.controls` | `doc.controls()` |
+| Discover wrapping sites; wrap / replace / unwrap single-text controls | `control_sites`, `preview_wrap_control`, `preview_replace_control`, `preview_unwrap_control` | Same spellings, `control_sites` is a property | `controlSites`, `previewWrapControl`, `previewReplaceControl`, `previewUnwrapControl` |
+| Select a drop-down value or replace the choices and selection | `preview_control_choice` | `preview_control_choice` | `previewControlChoice` |
 | Patch an eligible control's alias, tag or single-text value | `ControlEdit` / `preview_with_controls` | `ControlEdit` / `preview([], controls=[edit])` | `preview({controls: [edit]})` |
 | Inspect an inline insertion/deletion | `ImportedInlineNode::Revision` | `ImportedRevision` | `kind: "revision"` |
 | Track a direct body text edit / paired move | `preview_tracked_text` / `preview_tracked_move` | `preview_tracked_text` / `preview_tracked_move` | `previewTrackedText` / `previewTrackedMove` |
+| Track direct bold / inspect the pending property change on a run | `preview_tracked_bold` / `property_revision` | `preview_tracked_bold` / `property_revision` | `previewTrackedBold` / `propertyRevision` |
+| Track / review a whole direct body paragraph | `preview_tracked_paragraph` / `preview_paragraph_revision` | `preview_tracked_paragraph` / `preview_paragraph_revision` | `previewTrackedParagraph` / `previewParagraphRevision` |
 | Accept/reject supported anchored revision(s) | `preview_revision` | `preview_revision` | `previewRevision` |
 | Insert a paragraph after a direct body paragraph | `preview_with_paragraphs` / `ParagraphInsertion` | `preview([], paragraph_insertions=[edit])` | `preview({paragraphInsertions: [edit]})` |
 | Replace/remove a paragraph, replace section content or patch keep-with-next | `BlockEdit` / `preview_blocks` | `preview([], block_edits=[edit])` | `preview({blockEdits: [edit]})` |
 | Insert/replace a direct inline or patch modeled direct run formatting | `InlineEdit` / `preview_with_inlines` | `preview([], inline_edits=[edit])` | `preview({inlineEdits: [edit]})` |
+| Format runs in body cells, hyperlinks, shared section stories or ordinary entries | `edit_run_format(owner, &[edit])` | `edit_run_format([edit], owner_part=part)` | `editRunFormat({ownerPart, inlineEdits: [edit]})` |
 | Insert/remove rows, cells or columns; replace cell contents | `TableStructureEdit` / `preview_with_table_structure` | `preview([], table_structure=[edit])` | `preview({tableStructure: [edit]})` |
 | Set/clear direct table layout (same batch field) | `TableOperation::Layout(Some(TableLayout::Fixed))` / `Layout(None)` | `TableStructureEdit.layout(target, "fixed")` / `layout(target, None)` | `{target, kind: "layout", value: "fixed"}` / `value: null` |
 | Inspect/patch a direct table, row or cell property | `properties` / `TableOperation::Property { site, field, source }` | `properties` / `TableStructureEdit.patch_property(target, field, source, ...)` | `properties` / `{target, kind:"patchProperty", field, source, ...}` |

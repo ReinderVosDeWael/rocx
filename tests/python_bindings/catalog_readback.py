@@ -79,11 +79,14 @@ def authored(doc):
         ("insertion", "Catalog editor", "2026-11-20T00:00:00Z", "inserted wording"),
         ("deletion", "Catalog editor", None, "old wording"),
     ]
-    # These are typed *opaque* classifications at c1b6627, not typed import
-    # of instructions/operands. Some become typed in the separate inline work.
+    # Field nodes are still opaque in the sequence; dedicated inspection
+    # decodes the supported instruction and flags.
     field = paragraph(doc, "Field simple PAGE:")
     assert field.has_opaque_content and field.inline_structure[1].xml == "w:fldSimple"
-    assert paragraph(doc, "Inline equation:").inline_structure[1].xml.endswith("}oMath")
+    assert doc.field_at(field.anchor, 1).instruction == " PAGE "
+    fraction = paragraph(doc, "Inline equation:").inline_structure[1]
+    assert isinstance(fraction, e.ImportedFraction)
+    assert (fraction.numerator, fraction.denominator) == ("1", "2")
     assert ("opaque", "w:bookmarkStart") in items(paragraph(doc, "Bookmark CatalogBookmark starts"))
     assert {(c.context, c.id, c.tag) for c in doc.controls if c.id is not None} == {
         ("inline", "5001", "review-caption"), ("block", "5002", "review-block"),
@@ -149,11 +152,40 @@ def verify_catalog(stem, suffixes):
     assert changed.paragraph_numbering(ranged.anchor) == (9049, 0)
     assert (100, 0, 7) in {(x.abstract_id, x.level, x.start) for x in changed.abstract_starts}
 
+    objects = docs.pop(".objects.docx")
+    runs = [r for p in objects.body if isinstance(p, e.BodyParagraph)
+            for r in p.inline_structure if isinstance(r, e.ImportedRun) and r.drawing]
+    picture, = [r.drawing for r in runs if r.drawing.kind == "image" and r.drawing.description == "Edited picture"]
+    assert picture.relationship_id
+    shape, = [r.drawing for r in runs if r.drawing.kind == "shape" and r.drawing.shape_text == "Edited shape"]
+    assert shape.geometry == "ellipse"
+    chart, = [r for r in runs if r.drawing.kind == "chart"]
+    assert objects.chart_series(chart.anchor) == (["Final", "Revised"], [12, 8])
+    fraction = paragraph(objects, "Inline equation:").inline_structure[1]
+    assert isinstance(fraction, e.ImportedFraction)
+    assert (fraction.numerator, fraction.denominator) == ("3", "7")
+    images = [r.drawing.relationship_id for r in entry(objects, "footnote", "0").blocks[0].inline_structure
+              if isinstance(r, e.ImportedRun) and r.drawing and r.drawing.kind == "image"]
+    assert len(images) == 2 and images[0] and images[0] == images[1]
+    assert any(c.tag == "object-sibling" and c.context == "block" for c in objects.controls)
+
+    controls = docs.pop(".controls.docx")
+    status, = (c for c in controls.controls if c.tag == "review-status")
+    assert (status.kind, status.selected) == ("dropDownList", "pending")
+    assert ("Pending", "pending") in status.choices
+    plain, = (c for c in controls.controls if c.alias == "Imported plain-text sample")
+    assert (plain.context, plain.kind, plain.multi_line, plain.tag) == ("block", "text", "0", None)
+    controls.preview_unwrap_control(plain.anchor)
+    with pytest.raises(ValueError, match="snapshot"):
+        objects.preview_unwrap_control(plain.anchor)
+
     linked = docs.pop(".entry-text.docx")
     for kind, id in [("footnote", "0"), ("endnote", "0"), ("comment", "1")]:
         block = entry(linked, kind, id).blocks[0]
         link = block.inline_structure[-1]
         assert isinstance(link, e.ImportedHyperlink) and linked.inline_at(link.anchor).relationship_id
+        child, = link.children
+        assert child.format["size"] == 13.5
         assert items(block)[-2:] == [("text", f"Edited {kind} entry"), ("text", "Review link")]
     lifecycle = docs.pop(".entry-edits.docx")
     assert entry(lifecycle, "comment", "1").initials == "ED"

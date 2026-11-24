@@ -1,4 +1,4 @@
-import { openDocx, resolveComponent } from "rocx-docx";
+import { declarative as d, openDocx, resolveComponent } from "rocx-docx";
 import {
   HEADER_BATCH_LABEL, HEADER_INLINE_LABEL, HEADER_LINK_RUNS, STORY_VARIANTS,
   assert, assertBytes, authorCatalog, storyLabel,
@@ -8,6 +8,7 @@ import { hyperlink } from "./catalog/stories.mjs";
 
 export const catalogNames = Object.freeze({
   final: "all_features-javascript.docx",
+  objects: "all_features-javascript.objects.docx",
   template: "all_features-javascript.template.docx",
   edited: "all_features-javascript.edited.docx",
   headerSource: "all_features-javascript.header-source.docx",
@@ -16,6 +17,7 @@ export const catalogNames = Object.freeze({
   headerFirstShared: "all_features-javascript.header-first-shared.docx",
   headerFirstLocal: "all_features-javascript.header-first-local.docx",
   entryText: "all_features-javascript.entry-text.docx",
+  controls: "all_features-javascript.controls.docx",
   entryEdits: "all_features-javascript.entry-edits.docx",
   storyBlocks: "all_features-javascript.story-blocks.docx",
   footerEven: "all_features-javascript.footer-even.docx",
@@ -148,6 +150,18 @@ export async function generateCatalog(fixtures, options) {
   ], { columnWidths: [2160, 2160], layout: "fixed" }));
 
   const imported = await openDocx(final);
+  const status = imported.controls().find(c => c.tag === "review-status");
+  const pending = await openDocx(imported.previewControlChoice({target:status.anchor, selected:"pending"}).toDocx());
+  const site = pending.controlSites().find(s => s.context === "block" && s.text === EDIT_LABEL);
+  const wrapped = await openDocx(pending.previewWrapControl({target:site.anchor, tag:"workflow"}).toDocx());
+  const workflow = wrapped.controls().find(c => c.tag === "workflow");
+  const controlSample = wrapped.previewReplaceControl({target:workflow.anchor, properties:{
+    alias:"Imported plain-text sample", text:{kind:"plain", multiLine:false}
+  }}).toDocx();
+  const plain = await openDocx(controlSample);
+  const sample = plain.controls().find(c => c.alias === "Imported plain-text sample");
+  assert(sample.tag === undefined && sample.kind === "text","plain control replacement");
+  plain.previewUnwrapControl(sample.anchor);
   const styled = imported.preview({ styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Catalog Imported Child", baseStyle: "Catalog Base" } },
     { op: "patch", target: imported.styleAnchor("CatalogBase"), italic: true },
@@ -171,6 +185,38 @@ export async function generateCatalog(fixtures, options) {
     controls[0].lock === "sdtLocked", "incorrect block control metadata");
   const inline = body.find((node) => node.kind === "paragraph" && node.text === INLINE_LABEL + INLINE_LINK_RUNS.join(""));
   assert(inline, "expected labeled body inline structure");
+  const nodes = body.flatMap(b => b.inlineStructure ?? []);
+  const drawings = kind => nodes.filter(n => n.drawing?.kind === kind).map(n => n.anchor);
+  const fraction = nodes.find(n => n.kind === "fraction" && n.numerator === "1" && n.denominator === "2");
+  const objectEdits = [
+    {kind: "setDrawingDescription", target: drawings("image")[0], value: "Edited picture"},
+    {kind: "setImageAsset", target: drawings("image")[1], image: (await resolveComponent(image("gif"))).view.image},
+    {kind: "patchDrawing", target: drawings("shape")[2], property: "size", inline: await resolveComponent(d.ShapeRun({width: 75, height: 25}))},
+    {kind: "replace", target: drawings("shape")[0], inline: await resolveComponent(image("png"))},
+    {kind: "removeObject", target: drawings("shape")[1]},
+    {kind: "replace", target: drawings("chart")[0], inline: await resolveComponent(d.ShapeRun({width: 40, height: 20, text: "Edited shape"}))},
+    {kind: "insertAfter", target: inline.inlineStructure[0].anchor, inline: await resolveComponent(d.ColumnChartRun({width: 120, height: 80, categories: ["Edited"], values: [9]}))},
+    {kind: "replace", target: fraction.anchor, inline: await resolveComponent(d.InlineFraction("3", "7"))},
+  ];
+  const openedObjects = await openDocx(imported.preview({inlineEdits: objectEdits}).toDocx());
+  const chart = openedObjects.body().flatMap(b => b.inlineStructure ?? []).find(n => n.drawing?.kind === "chart");
+  const series = openedObjects.chartSeries(chart.anchor);
+  assert(series.categories[0] === "Edited" && series.values[0] === 9, "incorrect literal chart readback");
+  const shape = openedObjects.body().flatMap(b => b.inlineStructure ?? []).find(n => n.drawing?.shapeText === "Edited shape");
+  const fork = await openDocx(openedObjects.preview({inlineEdits: [
+    {kind: "patchDrawing", target: chart.anchor, property: "chartSeries", inline:
+      await resolveComponent(d.ColumnChartRun({width: 120, height: 80, categories: ["Final", "Revised"], values: [12, 8]}))},
+    {kind: "patchDrawing", target: shape.anchor, property: "shapeGeometry", inline:
+      await resolveComponent(d.ShapeRun({width: 10, height: 10, geometry: "ellipse"}))}]}).toDocx());
+  const sibling = fork.controlSites().find(s => s.context === "block" && s.text === EDIT_LABEL);
+  const afterWrap = await openDocx(fork.previewWrapControl({target:sibling.anchor, tag:"object-sibling"}).toDocx());
+  const note = afterWrap.entryStories().find(e => e.kind === "footnote" && e.id === "0");
+  const noteRun = note.blocks[0].inlineStructure.find(n => n.kind === "run" && n.items.length === 1 && n.items[0].kind === "text");
+  const objects = afterWrap.editEntryInlines({ownerPart:note.partName,inlineEdits:[
+    {kind:"insertAfter",target:noteRun.anchor,inline:await resolveComponent(image("png"))}]});
+  assertThrows(() => openedObjects.preview({inlineEdits: objectEdits}), "accepted a foreign object anchor");
+  assertThrows(() => imported.preview({inlineEdits: [objectEdits[0], objectEdits[0]]}), "accepted duplicate drawing edits");
+  assert(imported.inlineAt(fraction.anchor).numerator === "1", "failed object edit changed the source");
   const entries = imported.entryStories();
   for (const kind of ["footnote", "endnote"]) {
     assert(entries.some((entry) => entry.kind === kind && entry.id === "0"), `missing ${kind}`);
@@ -196,8 +242,11 @@ export async function generateCatalog(fixtures, options) {
     entryText = source.editEntryInlines(batch);
     const reopened = await openDocx(entryText);
     assertThrows(() => reopened.editEntryInlines(batch), "accepted a stale entry anchor");
-    assert(reopened.entryStories().find(e => e.kind === kind && e.id === entry.id)
-      .blocks[0].inlineStructure.some(n => n.kind === "hyperlink" && n.children[0].items[0].text === "Review link"), "missing inserted link");
+    const link = reopened.entryStories().find(e => e.kind === kind && e.id === entry.id)
+      .blocks[0].inlineStructure.find(n => n.kind === "hyperlink" && n.children[0].items[0].text === "Review link");
+    assert(link, "missing inserted link");
+    entryText = reopened.editRunFormat({ownerPart:entry.partName, inlineEdits:[
+      {kind:"patchFormat",target:link.children[0].anchor,format:{size:13.5}}]});
   }
   const ownerPart = entries.find(e => e.kind === "footnote").partName;
   const noteBody = doc => doc.body().find(p => p.kind === "paragraph" && p.text === "Footnote reference; endnote reference");
@@ -265,6 +314,20 @@ export async function generateCatalog(fixtures, options) {
     {kind: "insertAfter", target: inline.inlineStructure[1].anchor, inline: insertedParagraph.view.runs[0]},
   ]});
   assert(whole.inlineChanges().at(-1)[1] === 1, "incorrect whole-inline report");
+  const field = await resolveComponent({kind:"field", instruction:{kind:"page"}, children:[{kind:"text",text:"sample cache"}]});
+  const fieldSample = await openDocx(imported.preview({inlineEdits:[
+    {kind:"insertAfter",target:textEdit.target,inline:field},
+    {kind:"hyperlinkTooltip",target:inline.inlineStructure[1].anchor,value:"Catalog link"}
+  ]}).toDocx());
+  const samplePara = fieldSample.body()[body.indexOf(inline)];
+  assert(fieldSample.fieldAt({target:samplePara.anchor,inlineIndex:1}).instruction === " PAGE ", "incorrect new field");
+  const [left,,right] = samplePara.inlineStructure;
+  const marked = fieldSample.preview({
+    fields:[{target:samplePara.anchor,inlineIndex:1,op:"patch",property:"dirty",value:true}],
+    pairedRanges:[{id:842901,bookmark:"CatalogEditorRange",endpoints:[left.anchor,right.anchor]}],
+    inlineEdits:[{kind:"hyperlinkHistory",target:right.anchor,value:true}],
+  }).toDocx();
+  assert((await openDocx(marked)).bodyRangeMarkers().some(m => m.name === "CatalogEditorRange"), "incorrect range insertion");
   const [removed] = imported.preview({runRemovals: [textEdit.target]}).runRemovals();
   assert(removed.before === INLINE_LABEL, "incorrect removal report");
   assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
@@ -348,6 +411,8 @@ export async function generateCatalog(fixtures, options) {
   // Tracked replacement and paired move are independent opt-in previews.
   const [from, after] = [0, 2].map(i => headers.body()[i].inlineStructure[0].anchor);
   const metadata = {author: "Reviewer", date: "2026-11-19T00:00:00Z"};
+  const proposal = headers.previewTrackedBold({target: from, bold: true, ...metadata});
+  assert((await openDocx(proposal.toDocx())).body()[0].inlineStructure[0].propertyRevision.author === "Reviewer", "tracked bold author");
   const tracked = headers.previewTrackedText({target: from, kind: "replace", text: "Reviewed label", ...metadata});
   assert((await openDocx(tracked.toDocx())).body()[0].text === "", "tracked replacement projection");
   const moved = headers.previewTrackedMove({target: from, after, name: "CatalogMove", ...metadata});
@@ -364,6 +429,11 @@ export async function generateCatalog(fixtures, options) {
   assert(divided.sections().length === 3, "split section");
   const merged = divided.preview({blockEdits:[{kind:"mergeSection",target:divided.sections()[1].anchor}]});
   assert((await openDocx(merged.toDocx())).sections().length === 2, "merged section");
+  const addition = headers.previewTrackedParagraph({target:blockTarget,kind:"insertBefore",text:"Review this paragraph.",...metadata});
+  const pendingParagraph = await openDocx(addition.toDocx());
+  assert(pendingParagraph.body()[2].markRevision.kind === "insertion", "tracked paragraph mark");
+  const reviewed = pendingParagraph.previewParagraphRevision({target:pendingParagraph.body()[2].anchor,action:"reject"});
+  assert((await openDocx(reviewed.toDocx())).body().length === headers.body().length, "rejected paragraph");
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},
@@ -439,5 +509,5 @@ export async function generateCatalog(fixtures, options) {
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
   const [headerFirstShared, headerFirstLocal] = firstOutputs;
-  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits, storyBlocks };
+  return { final, template, edited, headerSource, headerShared, headerLocal, headerFirstShared, headerFirstLocal, runText, footerEven, entryText, entryEdits, storyBlocks, objects, controls:controlSample };
 }

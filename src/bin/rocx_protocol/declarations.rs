@@ -69,6 +69,8 @@ pub(crate) enum Inline {
         text: String,
         bold: Option<bool>,
         italic: Option<bool>,
+        style: Option<String>,
+        size: Option<f64>,
     },
     Hyperlink {
         url: String,
@@ -77,22 +79,117 @@ pub(crate) enum Inline {
     Image {
         bytes: Vec<u8>,
     },
+    BookmarkLink {
+        name: String,
+        text: String,
+    },
+    Fraction {
+        numerator: String,
+        denominator: String,
+    },
+    ColumnChart {
+        width: f64,
+        height: f64,
+        categories: Vec<String>,
+        values: Vec<f64>,
+    },
+    Field {
+        instruction: Instruction,
+        #[serde(default)]
+        children: Vec<Inline>,
+        #[serde(default)]
+        complex: bool,
+        dirty: Option<bool>,
+        locked: Option<bool>,
+    },
 }
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum Instruction {
+    Page {},
+    NumPages {},
+    Reference { name: String },
+    Raw { text: String },
+    TableOfContents {},
+}
+
 impl Inline {
     pub(super) fn resolve(self) -> Result<ResolvedInline, String> {
         match self {
-            Self::Text { text, bold, italic } => {
-                resolve(TextRun::new(text).with_format(RunFormat {
-                    bold,
-                    italic,
-                    ..Default::default()
-                }))
-            }
+            Self::Text {
+                text,
+                bold,
+                italic,
+                style,
+                size,
+            } => resolve(TextRun::new(text).with_format(RunFormat {
+                bold,
+                italic,
+                style,
+                size,
+                ..Default::default()
+            })),
             Self::Image { bytes } => resolve(ImageRun::new(bytes)),
             Self::Hyperlink { url, text } => resolve(Hyperlink::new(
                 HyperlinkTarget::external(url).map_err(|e| e.to_string())?,
                 vec![TextRun::new(text).into()],
             )),
+            Self::BookmarkLink { name, text } => resolve(Hyperlink::new(
+                HyperlinkTarget::bookmark(
+                    rocx::BookmarkName::new(name).map_err(|e| e.to_string())?,
+                ),
+                vec![TextRun::new(text).into()],
+            )),
+            Self::Fraction {
+                numerator,
+                denominator,
+            } => resolve(rocx::InlineFraction::new(numerator, denominator)),
+            Self::ColumnChart {
+                width,
+                height,
+                categories,
+                values,
+            } => resolve(rocx::ColumnChartRun::new(rocx::ColumnChartProperties {
+                width,
+                height,
+                categories,
+                values,
+            })),
+            Self::Field {
+                instruction,
+                children,
+                complex,
+                dirty,
+                locked,
+            } => {
+                use rocx::FieldInstruction as F;
+                let instruction = match instruction {
+                    Instruction::Page {} => F::Page,
+                    Instruction::NumPages {} => F::NumPages,
+                    Instruction::TableOfContents {} => F::TableOfContents,
+                    Instruction::Reference { name } => {
+                        F::Reference(rocx::BookmarkName::new(name).map_err(|e| e.to_string())?)
+                    }
+                    Instruction::Raw { text } => F::raw(text).map_err(|e| e.to_string())?,
+                };
+                Ok(ResolvedInline::Field(
+                    rocx::ResolvedField::new(
+                        instruction,
+                        super::rich::resolve_inlines(children)?,
+                        rocx::FieldProperties {
+                            form: if complex {
+                                rocx::FieldForm::Complex
+                            } else {
+                                rocx::FieldForm::Simple
+                            },
+                            dirty,
+                            locked,
+                        },
+                    )
+                    .map_err(|e| e.to_string())?,
+                ))
+            }
         }
     }
 }

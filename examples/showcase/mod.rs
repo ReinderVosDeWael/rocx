@@ -701,6 +701,28 @@ pub async fn generate(output: &Path) -> Result<()> {
                 action: editor::InlineAction::InsertAfter(p.runs()[0].clone()),
             }],
         )?;
+        let source = editor::ImportedDocument::open(&entries_output)?;
+        let entry = source
+            .entry_stories()?
+            .iter()
+            .find(|n| n.kind == kind && n.id == e.id)
+            .unwrap();
+        let target = entry.inline_structure(0).unwrap().iter().find_map(|node| {
+            if let editor::ImportedInlineNode::Hyperlink(link) = node
+                && let [Run(r)] = link.children.as_slice()
+                && matches!(r.items.as_slice(),[editor::ImportedInline::Text(t)] if t=="Review link")
+            {Some(r.anchor.clone())} else {None}
+        }).unwrap();
+        entries_output = source.edit_run_format(
+            Some(&entry.part_name),
+            &[editor::InlineEdit {
+                target,
+                action: editor::InlineAction::PatchFormat {
+                    set: Box::new(RunFormat::default().with_size(13.5)),
+                    clear: vec![],
+                },
+            }],
+        )?;
     }
     std::fs::write(output.with_extension("entry-text.docx"), entries_output)?;
     let owner = &entries
@@ -766,6 +788,66 @@ pub async fn generate(output: &Path) -> Result<()> {
         panic!("expected a standalone run and hyperlink");
     };
     let replacement = "Imported editor: replaced this run by its anchor. ";
+    let field = Component::resolve(Paragraph::from_children(vec![
+        Field::new(
+            FieldInstruction::Page,
+            vec![TextRun::new("sample cache").into()],
+        )
+        .into(),
+    ]))
+    .await?
+    .unwrap();
+    let sample = imported
+        .preview_edits(editor::EditBatch {
+            inline_edits: &[
+                editor::InlineEdit {
+                    target: label.anchor.clone(),
+                    action: editor::InlineAction::InsertAfter(field.runs()[0].clone()),
+                },
+                editor::InlineEdit {
+                    target: link.anchor.clone(),
+                    action: editor::InlineAction::HyperlinkTooltip(Some("Catalog link".into())),
+                },
+            ],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    let sample = editor::ImportedDocument::open(&sample)?;
+    let editor::BodyBlock::Paragraph(sample_para) = &sample.body()[paragraph_index] else {
+        unreachable!()
+    };
+    assert_eq!(
+        sample.field_at(&sample_para.anchor, 1)?.instruction,
+        " PAGE "
+    );
+    let [Run(left), _, Link(right)] = sample_para.inline_structure.as_slice() else {
+        unreachable!()
+    };
+    let marked = sample
+        .preview_edits(editor::EditBatch {
+            fields: &[editor::FieldEdit {
+                target: sample_para.anchor.clone(),
+                inline_index: 1,
+                action: editor::FieldAction::Patch(editor::FieldPatch::Dirty(Some(true))),
+            }],
+            paired_ranges: &[editor::PairedRangeEdit {
+                id: 842901,
+                bookmark: Some("CatalogEditorRange".into()),
+                endpoints: Some((left.anchor.clone(), right.anchor.clone())),
+            }],
+            inline_edits: &[editor::InlineEdit {
+                target: right.anchor.clone(),
+                action: editor::InlineAction::HyperlinkHistory(Some(true)),
+            }],
+            ..Default::default()
+        })?
+        .to_docx()?;
+    assert!(
+        editor::ImportedDocument::open(&marked)?
+            .body_range_markers()?
+            .iter()
+            .any(|m| m.name.as_deref() == Some("CatalogEditorRange"))
+    );
     let paragraph_payload = Document::new(vec![
         Section::new(vec![
             Paragraph::new("Imported editor: inserted paragraph.").into(),
@@ -789,6 +871,200 @@ pub async fn generate(output: &Path) -> Result<()> {
         })
         .collect();
     assert_eq!(targets.len(), 1);
+    {
+        use editor::{ImportedInlineNode as N, InlineAction as A, InlineEdit};
+        let nodes: Vec<_> = imported
+            .body()
+            .iter()
+            .filter_map(|b| match b {
+                editor::BodyBlock::Paragraph(p) => Some(&p.inline_structure),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let drawings = |kind| {
+            nodes.iter().filter_map(move |n| match n {
+                N::Run(r) if r.drawing.as_ref().is_some_and(|d| d.kind == kind) => {
+                    Some(r.anchor.clone())
+                }
+                _ => None,
+            })
+        };
+        let fraction = nodes
+            .iter()
+            .find_map(|n| match n {
+                N::Fraction {
+                    anchor,
+                    numerator,
+                    denominator,
+                } if numerator == "1" && denominator == "2" => Some(anchor.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let ResolvedInline::Image { image: asset, .. } = image("gif", None).await?.unwrap() else {
+            unreachable!()
+        };
+        let edits = [
+            (
+                drawings("shape").nth(2).unwrap(),
+                A::PatchDrawing(
+                    editor::DrawingProperty::Size,
+                    ShapeRun::new(ShapeProperties::default().with_width(75.).with_height(25.))
+                        .await?
+                        .unwrap(),
+                ),
+            ),
+            (drawings("image").nth(1).unwrap(), A::SetImageAsset(asset)),
+            (
+                drawings("image").next().unwrap(),
+                A::SetDrawingDescription(Some("Edited picture".into())),
+            ),
+            (
+                drawings("shape").next().unwrap(),
+                A::Replace(image("png", None).await?.unwrap()),
+            ),
+            (drawings("shape").nth(1).unwrap(), A::RemoveObject),
+            (
+                drawings("chart").next().unwrap(),
+                A::Replace(
+                    ShapeRun::new(
+                        ShapeProperties::default()
+                            .with_width(40.)
+                            .with_height(20.)
+                            .with_text("Edited shape"),
+                    )
+                    .await?
+                    .unwrap(),
+                ),
+            ),
+            (
+                label.anchor.clone(),
+                A::InsertAfter(
+                    ColumnChartRun::new(ColumnChartProperties {
+                        width: 120.,
+                        height: 80.,
+                        categories: vec!["Edited".into()],
+                        values: vec![9.],
+                    })
+                    .await?
+                    .unwrap(),
+                ),
+            ),
+            (
+                fraction,
+                A::Replace(InlineFraction::new("3", "7").await?.unwrap()),
+            ),
+        ]
+        .map(|(target, action)| InlineEdit { target, action });
+        let edited = imported.preview_edits(editor::EditBatch {
+            inline_edits: &edits,
+            ..Default::default()
+        })?;
+        assert_eq!(edited.inline_changes().len(), 8);
+        let next = editor::ImportedDocument::open(&edited.to_docx()?)?;
+        let anchor = next
+            .body()
+            .iter()
+            .find_map(|b| {
+                let editor::BodyBlock::Paragraph(p) = b else {
+                    return None;
+                };
+                p.inline_structure.iter().find_map(|n| match n {
+                    N::Run(r) if r.drawing.as_ref().is_some_and(|d| d.kind == "chart") => {
+                        Some(r.anchor.clone())
+                    }
+                    _ => None,
+                })
+            })
+            .unwrap();
+        assert_eq!(
+            next.chart_series(&anchor)?,
+            (vec!["Edited".into()], vec![9.])
+        );
+        let final_chart = ColumnChartRun::new(ColumnChartProperties {
+            width: 120.,
+            height: 80.,
+            categories: vec!["Final".into(), "Revised".into()],
+            values: vec![12., 8.],
+        })
+        .await?
+        .unwrap();
+        let shape_anchor = next
+            .body()
+            .iter()
+            .find_map(|b| match b {
+                editor::BodyBlock::Paragraph(p) => {
+                    p.inline_structure.iter().find_map(|n| match n {
+                        N::Run(r)
+                            if r.drawing.as_ref().and_then(|d| d.shape_text.as_deref())
+                                == Some("Edited shape") =>
+                        {
+                            Some(r.anchor.clone())
+                        }
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .unwrap();
+        let ellipse = ShapeRun::new(
+            ShapeProperties::default()
+                .with_width(10.)
+                .with_height(10.)
+                .with_geometry(ShapeGeometry::Ellipse),
+        )
+        .await?
+        .unwrap();
+        let edit = [
+            InlineEdit {
+                target: anchor,
+                action: A::PatchDrawing(editor::DrawingProperty::ChartSeries, final_chart),
+            },
+            InlineEdit {
+                target: shape_anchor,
+                action: A::PatchDrawing(editor::DrawingProperty::ShapeGeometry, ellipse),
+            },
+        ];
+        let fork = next.preview_edits(editor::EditBatch {
+            inline_edits: &edit,
+            ..Default::default()
+        })?;
+        let after = editor::ImportedDocument::open(&fork.to_docx()?)?;
+        let site = after
+            .control_sites()
+            .iter()
+            .find(|s| s.context == editor::ControlContext::Block && s.text == EDIT_LABEL)
+            .unwrap();
+        let wrapped = editor::ImportedDocument::open(
+            &after
+                .preview_wrap_control(site, "object-sibling")?
+                .to_docx()?,
+        )?;
+        let note = wrapped
+            .entry_stories()?
+            .iter()
+            .find(|e| e.kind == editor::EntryKind::Footnote && e.id == "0")
+            .unwrap();
+        let run = note
+            .inline_structure(0)
+            .unwrap()
+            .iter()
+            .find_map(|n| match n {
+                N::Run(r) if matches!(r.items.as_slice(), [editor::ImportedInline::Text(_)]) => {
+                    Some(r)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let bytes = wrapped.edit_entry_inlines(
+            &note.part_name,
+            &[InlineEdit {
+                target: run.anchor.clone(),
+                action: A::InsertAfter(image("png", None).await?.unwrap()),
+            }],
+        )?;
+        std::fs::write(output.with_extension("objects.docx"), bytes)?;
+    }
     assert_eq!(
         targets[0].inline_items,
         [editor::ImportedInline::Text(EDIT_LABEL.into())]
@@ -809,6 +1085,45 @@ pub async fn generate(output: &Path) -> Result<()> {
             .any(|s| (s.abstract_id, s.level, s.start) == (100, 0, Some(1)))
     );
     let controls = imported.controls();
+    let status = controls
+        .iter()
+        .find(|c| c.tag.as_deref() == Some("review-status"))
+        .unwrap();
+    let pending = editor::ImportedDocument::open(
+        &imported
+            .preview_control_choice(&status.anchor, "pending", None)?
+            .to_docx()?,
+    )?;
+    let site = pending
+        .control_sites()
+        .iter()
+        .find(|s| s.context == editor::ControlContext::Block && s.text == EDIT_LABEL)
+        .unwrap();
+    let wrapped = editor::ImportedDocument::open(
+        &pending.preview_wrap_control(site, "workflow")?.to_docx()?,
+    )?;
+    let workflow = wrapped
+        .controls()
+        .iter()
+        .find(|c| c.tag.as_deref() == Some("workflow"))
+        .unwrap();
+    let definition = ContentControlProperties::default()
+        .with_alias("Imported plain-text sample")
+        .with_text(ContentControlText::Plain {
+            multi_line: Some(false),
+        });
+    let qualified = wrapped
+        .preview_replace_control(&workflow.anchor, &definition)?
+        .to_docx()?;
+    let plain = editor::ImportedDocument::open(&qualified)?;
+    let sample = plain
+        .controls()
+        .iter()
+        .find(|c| c.alias.as_deref() == Some("Imported plain-text sample"))
+        .unwrap();
+    assert!(sample.tag.is_none() && sample.kind == "text");
+    plain.preview_unwrap_control(&sample.anchor)?;
+    std::fs::write(output.with_extension("controls.docx"), qualified)?;
     for (context, id) in [
         ("inline", "5001"),
         ("block", "5002"),
@@ -1229,6 +1544,12 @@ pub async fn generate(output: &Path) -> Result<()> {
         r.anchor.clone()
     };
     let from = run_at(0);
+    let proposal = imported.preview_tracked_bold(&from, true, "Reviewer", Some(STAMP))?;
+    let formatted = editor::ImportedDocument::open(&proposal.to_docx()?)?;
+    assert!(
+        matches!(&formatted.body()[0], editor::BodyBlock::Paragraph(p)
+        if matches!(&p.inline_structure[0], Run(r) if r.property_revision.as_ref().unwrap().author.as_deref() == Some("Reviewer")))
+    );
     let tracked = imported.preview_tracked_text(
         &from,
         editor::TrackedText::Replace("Reviewed label".into()),
@@ -1278,6 +1599,24 @@ pub async fn generate(output: &Path) -> Result<()> {
         let edited = editor::ImportedDocument::open(&layout.to_docx()?)?;
         assert_eq!(edited.sections()?[1].layout[&F::GridPitch], V::Integer(360));
     }
+    let addition = imported.preview_tracked_paragraph(
+        target,
+        editor::TrackedParagraph::InsertBefore("Review this paragraph.".into()),
+        "Reviewer",
+        Some(STAMP),
+    )?;
+    let pending = editor::ImportedDocument::open(&addition.to_docx()?)?;
+    let editor::BodyBlock::Paragraph(p) = &pending.body()[2] else {
+        unreachable!()
+    };
+    assert_eq!(p.mark_revision.as_ref().unwrap().kind, "insertion");
+    let reviewed = pending.preview_paragraph_revision(&p.anchor, TextRevisionAction::Reject)?;
+    assert_eq!(
+        editor::ImportedDocument::open(&reviewed.to_docx()?)?
+            .body()
+            .len(),
+        imported.body().len()
+    );
     let payload = Component::resolve(Paragraph::new("Block editor: replacement paragraph."))
         .await?
         .unwrap();

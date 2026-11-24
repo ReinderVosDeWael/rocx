@@ -830,3 +830,132 @@ async def test_staged_table_and_numbering_share_one_cli_batch(cli, tmp_path):
         dict(kind="paragraph-numbering", target=1, value=dict(id=91, level=0)),
     ])
     assert parts(noop) == changed
+async def test_rich_cli_batch_uses_staged_resources_and_shared_reference_guards(cli, tmp_path):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from rocx.editor import BlockEdit, FieldEdit as F, InlineEdit as I, PairedRangeEdit as P
+    from rocx.editor import ResourceEdit as R, StyleEdit as S, WrapperEdit as W
+
+    source, output = tmp_path / "rich.docx", tmp_path / "mixed.docx"
+    word = independent_document()
+    p = word.add_paragraph("Styled")
+    p.add_run(" Drawing")
+    p = word.add_paragraph("Left")
+    f = OxmlElement("w:fldSimple")
+    f.set(qn("w:instr"), " PAGE ")
+    f.append(p.add_run("Old cache")._r)
+    p._p.append(f)
+    p.add_run("Right")
+    for text in ("Wrap me", "Review me", "Successor"):
+        word.add_paragraph(text)
+    word.save(source)
+    inspected = call(cli, "inspect", source)
+    site, = [s["target"] for s in inspected["control_sites"] if s["context"] == "block" and s["text"] == "Wrap me"]
+    assert inspected["body"][1]["inlines"][1] == {"kind": "field", "inline_index": 1}
+    image = (FIXTURES / "images" / "sample.png").read_bytes()
+    level = dict(level=0, start=1, format="decimal", text="%1.")
+    addr = lambda p, i: dict(target=p, inline_index=i)
+    numbered = dict(kind="paragraph-numbering", target=0, value=dict(id=702, level=0))
+    edits = [
+        dict(kind="style-add", definition=dict(kind="character", name="CLI Rich")),
+        dict(kind="add-abstract", abstract_id=701, levels=[level]),
+        dict(kind="add-instance", num_id=702, abstract_id=701),
+        numbered,
+        dict(kind="core-subject", value="Mixed rich"),
+        dict(kind="document-default", field="italic", value=False),
+        dict(kind="inline-edit", **addr(0, 0), operation=dict(kind="format", set=dict(style="CLIRich", size=13.5))),
+        dict(kind="insert-inline", **addr(0, 1), inline=dict(kind="image", bytes=list(image))),
+        dict(kind="control-wrapper", operation=dict(kind="wrap", first=site, tag="review")),
+        dict(kind="paired-range", id=91, bookmark="MixedTarget", endpoints=[addr(1, 0), addr(1, 2)]),
+        dict(kind="field", **addr(1, 1), operation=dict(kind="cache", children=[
+            dict(kind="bookmark-link", name="MixedTarget", text="Jump"),
+        ])),
+        dict(kind="replace-paragraph", target=4, text="Replacement successor"),
+    ]
+    for overlap in (numbered | {"target": 2},
+                    dict(kind="paragraph-flag", target=2, flag="keep_together", value=True),
+                    dict(kind="replace-paragraph", target=2, text="Conflicting wrapper replacement"),
+                    dict(kind="replace-paragraph", target=1, text="Conflicting field replacement")):
+        failure = call(cli, "save-copy", source, success=False, output=str(output),
+                       snapshot=inspected["snapshot"], edits=[*edits, overlap])
+        assert "conflicting" in str(failure) and not output.exists()
+    changed = checked_copy(cli, source, output, edits)
+    imported = ImportedDocument.open(source.read_bytes())
+    a, b, _, _, successor = imported.body
+    style = d.CharacterStyleDefinition("CLI Rich")
+    resolved_image = await d.ImageRun(image).resolve()
+    jump = await d.Hyperlink(d.BookmarkTarget("MixedTarget"), [d.TextRun("Jump")]).resolve()
+    assert output.read_bytes() == imported.preview(
+        [], style_edits=[S.add(style)],
+        block_edits=[BlockEdit.replace(successor.anchor, await d.Paragraph("Replacement successor").resolve())],
+        resources=[R.add_abstract(701, [d.NumberingLevel(**level)]), R.add_instance(702, 701),
+                   R.paragraph_numbering(a.anchor, (702, 0)), R.core_subject("Mixed rich"),
+                   R.document_default("italic", False)],
+        inline_edits=[I.patch_format(a.inline_structure[0].anchor, style="CLIRich", size=13.5),
+                      I.insert_after(a.inline_structure[1].anchor, resolved_image)],
+        fields=[F.cache(b.anchor, 1, [jump])],
+        paired_ranges=[P(91, "MixedTarget", (b.inline_structure[0].anchor, b.inline_structure[2].anchor))],
+        wrappers=[W.wrap(imported.control_sites[site], "review")],
+    ).to_docx()
+    assert changed["core_subject"] == "Mixed rich" and changed["document_defaults"]["italic"] is False
+    assert call(cli, "inspect", output, numbering_targets=[0])["paragraph_numbering"]["0"] == {"id": 702, "level": 0}
+    reopened = docx.Document(output)
+    assert reopened.paragraphs[0].runs[0].font.size.pt == 13.5
+    assert reopened.element.xpath("//w:fldSimple/w:hyperlink/@w:anchor") == ["MixedTarget"]
+    assert reopened.element.xpath("//w:sdtPr/w:tag/@w:val") == ["review"]
+    assert reopened.paragraphs[-1].text == "Replacement successor"
+    assert len(reopened.inline_shapes) == 1
+    before, after = parts(source), parts(output)
+    changed_parts = {"word/document.xml", "word/_rels/document.xml.rels", "word/styles.xml",
+                     "word/numbering.xml", "docProps/core.xml", "[Content_Types].xml"}
+    assert all(after[p] == before[p] for p in before.keys() - changed_parts)
+
+    described = tmp_path / "described.docx"
+    draw = next(i["inline_index"] for i in changed["body"][0]["inlines"] if "drawing" in i)
+    checked_copy(cli, output, described, [
+        dict(kind="inline-edit", **addr(0, draw), operation=dict(kind="drawing-description", value="Edited")),
+        dict(kind="core-subject", value="Drawing reviewed"),
+    ])
+    assert docx.Document(described).element.xpath("//wp:docPr/@descr") == ["Edited"]
+
+    tracked = tmp_path / "tracked-rich.docx"
+    proposal = dict(kind="tracked-bold", target=addr(3, 0), value=True, author="Reviewer")
+    failure = call(cli, "save-copy", output, success=False, output=str(tracked), snapshot=changed["snapshot"],
+                   edits=[proposal, dict(kind="core-subject", value="Not saved")])
+    assert "only edit" in str(failure) and not tracked.exists()
+    pending = checked_copy(cli, output, tracked, [proposal])
+    assert pending["body"][3]["inlines"][0]["property_revision"]["author"] == "Reviewer"
+    reviewed = tmp_path / "review-rich.docx"
+    failure = call(cli, "save-copy", tracked, success=False, output=str(reviewed), snapshot=pending["snapshot"],
+                   edits=[dict(kind="inline-edit", **addr(3, 0), operation=dict(kind="format", set=dict(size=14))),
+                          dict(kind="core-subject", value="Not saved")])
+    assert "ambiguous run properties" in str(failure) and not reviewed.exists()
+    disjoint = tmp_path / "disjoint-pending.docx"
+    staged = checked_copy(cli, tracked, disjoint, [
+        dict(kind="inline-edit", **addr(0, draw), operation=dict(kind="drawing-description", value="Disjoint")),
+        dict(kind="core-subject", value="Revision kept"),
+    ])
+    assert staged["body"][3]["inlines"][0]["property_revision"] == pending["body"][3]["inlines"][0]["property_revision"]
+    checked_copy(cli, tracked, reviewed, [dict(kind="review-revision", target=addr(3, 0), action="accept")])
+    assert docx.Document(reviewed).element.xpath("//w:r[w:t='Review me']/w:rPr/w:b/@w:val") == ["1"]
+
+    marked, removed = tmp_path / "paragraph-mark.docx", tmp_path / "paragraph-removed.docx"
+    paragraph = checked_copy(cli, reviewed, marked, [
+        dict(kind="tracked-paragraph", target=4, author="Reviewer",
+             operation=dict(kind="insert-before", text="A tracked paragraph")),
+    ])
+    assert paragraph["body"][4]["mark_revision"]["kind"] == "insertion"
+    fail = call(cli, "save-copy", marked, success=False, output=str(removed), snapshot=paragraph["snapshot"],
+                edits=[dict(kind="replace-paragraph", target=4, text="Would discard a revision"),
+                       dict(kind="core-subject", value="Not saved")])
+    assert ("unsupported" in str(fail) or "protected" in str(fail)) and not removed.exists()
+    for change in (
+        numbered | {"target": 4},
+        dict(kind="paragraph-flag", target=4, flag="keep_with_next", value=True),
+        dict(kind="alignment", target=4, alignment="right"),
+    ):
+        fail = call(cli, "save-copy", marked, success=False, output=str(removed), snapshot=paragraph["snapshot"],
+                    edits=[change, dict(kind="core-subject", value="Not saved")])
+        assert "paragraph mark revision" in str(fail) and not removed.exists()
+    checked_copy(cli, marked, removed, [dict(kind="review-paragraph-revision", target=4, action="reject")])
+    assert not any(p.text == "A tracked paragraph" for p in docx.Document(removed).paragraphs)

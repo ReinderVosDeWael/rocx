@@ -325,8 +325,28 @@ struct PyControlAnchor {
     inner: editor::ControlAnchor,
 }
 
+#[pyclass(name = "ControlSite", frozen, module = "rocx.editor")]
+struct PyControlSite {
+    inner: editor::ControlSite,
+}
+
+#[pymethods]
+impl PyControlSite {
+    #[getter]
+    fn context(&self) -> &'static str {
+        self.inner.context.as_str()
+    }
+    #[getter]
+    fn text(&self) -> &str {
+        &self.inner.text
+    }
+}
+
 #[pyclass(name = "ImportedControl", frozen, get_all, module = "rocx.editor")]
 struct PyImportedControl {
+    owner_part: Option<String>,
+    entry_id: Option<String>,
+    entry_index: Option<usize>,
     anchor: Py<PyControlAnchor>,
     context: &'static str,
     id: Option<String>,
@@ -334,11 +354,112 @@ struct PyImportedControl {
     alias: Option<String>,
     lock: Option<String>,
     bound: bool,
+    kind: &'static str,
+    choices: Vec<(String, String)>,
+    multi_line: Option<String>,
+    selected: Option<String>,
 }
 
 #[pyclass(name = "ControlEdit", frozen, module = "rocx.editor")]
 struct PyControlEdit {
     inner: editor::ControlEdit,
+}
+
+#[pyclass(name = "WrapperEdit", frozen, module = "rocx.editor")]
+struct PyWrapperEdit {
+    inner: editor::WrapperEdit,
+}
+
+#[pymethods]
+impl PyWrapperEdit {
+    #[staticmethod]
+    #[pyo3(signature=(first, tag, *, last=None))]
+    fn wrap(
+        first: PyRef<'_, PyControlSite>,
+        tag: String,
+        last: Option<PyRef<'_, PyControlSite>>,
+    ) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Wrap {
+                first: first.inner.clone(),
+                last: last.map(|s| s.inner.clone()),
+                tag,
+            },
+        }
+    }
+    #[staticmethod]
+    fn unwrap(target: PyRef<'_, PyControlAnchor>) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Unwrap(target.inner.clone()),
+        }
+    }
+    #[staticmethod]
+    fn define(target: PyRef<'_, PyControlAnchor>, properties: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::Define(
+                target.inner.clone(),
+                super::content::content_control_properties(properties)?,
+            ),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,selected,*,choices=None))]
+    fn choice(
+        target: PyRef<'_, PyControlAnchor>,
+        selected: String,
+        choices: Option<Vec<(String, String)>>,
+    ) -> Self {
+        Self {
+            inner: editor::WrapperEdit::Choice {
+                target: target.inner.clone(),
+                selected,
+                items: choices.map(|v| {
+                    v.into_iter()
+                        .map(|(display_text, value)| crate::ContentControlListItem {
+                            display_text,
+                            value,
+                        })
+                        .collect()
+                }),
+            },
+        }
+    }
+    #[staticmethod]
+    fn replace_inlines(
+        target: PyRef<'_, PyControlAnchor>,
+        inlines: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::ReplaceInlines(
+                target.inner.clone(),
+                inlines
+                    .iter()
+                    .map(inline_payload)
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn replace_blocks(
+        target: PyRef<'_, PyControlAnchor>,
+        blocks: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::WrapperEdit::ReplaceBlocks(
+                target.inner.clone(),
+                blocks
+                    .iter()
+                    .map(|b| {
+                        if b.getattr("_native_kind")?.extract::<String>()? == "Table" {
+                            resolved_block_table(b).map(crate::ResolvedBlock::Table)
+                        } else {
+                            resolved_block_paragraph(b).map(crate::ResolvedBlock::Paragraph)
+                        }
+                    })
+                    .collect::<PyResult<_>>()?,
+            ),
+        })
+    }
 }
 
 #[pymethods]
@@ -512,6 +633,8 @@ impl PyHeaderImagePreview {
 struct PyBodyParagraph {
     layout: LayoutMap,
     #[pyo3(get)]
+    mark_revision: Option<Py<PyImportedPropertyRevision>>,
+    #[pyo3(get)]
     flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     anchor: Py<PyParagraphAnchor>,
@@ -554,6 +677,8 @@ impl PyImportedSection {
 struct PyImportedRun {
     direct_format: crate::RunFormat,
     #[pyo3(get)]
+    drawing: Option<Py<PyDrawingOccurrence>>,
+    #[pyo3(get)]
     has_opaque_formatting: bool,
     #[pyo3(get)]
     bold: Option<bool>,
@@ -564,9 +689,74 @@ struct PyImportedRun {
     #[pyo3(get)]
     hidden: Option<bool>,
     #[pyo3(get)]
+    property_revision: Option<Py<PyImportedPropertyRevision>>,
+    #[pyo3(get)]
     anchor: Py<PyInlineAnchor>,
     #[pyo3(get)]
     items: Vec<Py<PyImportedInline>>,
+}
+
+#[pyclass(name = "ImportedPropertyRevision", frozen, module = "rocx.editor")]
+struct PyImportedPropertyRevision {
+    #[pyo3(get)]
+    kind: &'static str,
+    #[pyo3(get)]
+    id: Option<String>,
+    #[pyo3(get)]
+    author: Option<String>,
+    #[pyo3(get)]
+    date: Option<String>,
+}
+
+fn revision_metadata(
+    py: Python<'_>,
+    r: Option<&editor::ImportedPropertyRevision>,
+) -> PyResult<Option<Py<PyImportedPropertyRevision>>> {
+    r.map(|r| {
+        Py::new(
+            py,
+            PyImportedPropertyRevision {
+                kind: r.kind,
+                id: r.id.clone(),
+                author: r.author.clone(),
+                date: r.date.clone(),
+            },
+        )
+    })
+    .transpose()
+}
+
+fn review_action(action: &str) -> PyResult<crate::TextRevisionAction> {
+    match action {
+        "accept" => Ok(crate::TextRevisionAction::Accept),
+        "reject" => Ok(crate::TextRevisionAction::Reject),
+        _ => Err(PyValueError::new_err("expected accept or reject")),
+    }
+}
+
+#[pyclass(name = "DrawingOccurrence", frozen, get_all, module = "rocx.editor")]
+struct PyDrawingOccurrence {
+    title: Option<String>,
+    name: Option<String>,
+    geometry: Option<String>,
+    shape_text: Option<String>,
+    crop: Option<[i32; 4]>,
+    rotation: Option<i32>,
+    flip_horizontal: Option<bool>,
+    flip_vertical: Option<bool>,
+    kind: &'static str,
+    placement: &'static str,
+    relationship_id: Option<String>,
+    description: Option<String>,
+    width_emu: Option<i64>,
+    height_emu: Option<i64>,
+}
+
+#[pyclass(name = "ImportedFraction", frozen, get_all, module = "rocx.editor")]
+struct PyImportedFraction {
+    anchor: Py<PyInlineAnchor>,
+    numerator: String,
+    denominator: String,
 }
 
 #[pymethods]
@@ -644,6 +834,10 @@ struct PyImportedHyperlink {
     #[pyo3(get)]
     bookmark: Option<String>,
     #[pyo3(get)]
+    tooltip: Option<String>,
+    #[pyo3(get)]
+    history_xml: Option<String>,
+    #[pyo3(get)]
     children: Vec<Py<PyAny>>,
 }
 
@@ -677,12 +871,38 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
         ImportedInlineNode::Run(run) => Py::new(
             py,
             PyImportedRun {
+                drawing: run
+                    .drawing
+                    .as_ref()
+                    .map(|d| {
+                        Py::new(
+                            py,
+                            PyDrawingOccurrence {
+                                title: d.title.clone(),
+                                name: d.name.clone(),
+                                geometry: d.geometry.clone(),
+                                shape_text: d.shape_text.clone(),
+                                crop: d.crop,
+                                rotation: d.rotation,
+                                flip_horizontal: d.flip_horizontal,
+                                flip_vertical: d.flip_vertical,
+                                kind: d.kind,
+                                placement: d.placement,
+                                relationship_id: d.relationship_id.clone(),
+                                description: d.description.clone(),
+                                width_emu: d.width_emu,
+                                height_emu: d.height_emu,
+                            },
+                        )
+                    })
+                    .transpose()?,
                 direct_format: run.format.clone(),
                 has_opaque_formatting: run.has_opaque_formatting,
                 bold: run.bold,
                 italic: run.italic,
                 strike: run.strike,
                 hidden: run.hidden,
+                property_revision: revision_metadata(py, run.property_revision.as_ref())?,
                 anchor: anchor(&run.anchor)?,
                 items: run
                     .items
@@ -698,6 +918,8 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                 anchor: anchor(&link.anchor)?,
                 relationship_id: link.relationship_id.clone(),
                 bookmark: link.bookmark.clone(),
+                tooltip: link.tooltip.clone(),
+                history_xml: link.history_xml.clone(),
                 children: link
                     .children
                     .iter()
@@ -719,6 +941,19 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
                     .iter()
                     .map(|child| inline_object(py, child))
                     .collect::<PyResult<_>>()?,
+            },
+        )?
+        .into_any(),
+        ImportedInlineNode::Fraction {
+            anchor: target,
+            numerator,
+            denominator,
+        } => Py::new(
+            py,
+            PyImportedFraction {
+                anchor: anchor(target)?,
+                numerator: numerator.clone(),
+                denominator: denominator.clone(),
             },
         )?
         .into_any(),
@@ -1178,9 +1413,124 @@ struct PyTableInsertion {
     table: crate::ResolvedTable,
 }
 
+#[pyclass(name = "ImportedField", frozen, get_all, module = "rocx.editor")]
+struct PyImportedField {
+    complex: bool,
+    instruction: String,
+    dirty_xml: Option<String>,
+    locked_xml: Option<String>,
+    inline_count: usize,
+}
+
+#[pyclass(name = "BodyRangeMarker", frozen, get_all, module = "rocx.editor")]
+struct PyBodyRangeMarker {
+    body_index: usize,
+    inline_index: usize,
+    kind: &'static str,
+    id: Option<String>,
+    name: Option<String>,
+}
+
 #[pyclass(name = "InlineEdit", frozen, module = "rocx.editor")]
 struct PyInlineEdit {
     inner: editor::InlineEdit,
+}
+fn field_patch(property: &str, value: Option<&Bound<'_, PyAny>>) -> PyResult<editor::FieldPatch> {
+    use editor::FieldPatch::*;
+    Ok(match property {
+        "instruction" => Instruction(
+            value
+                .ok_or_else(|| PyTypeError::new_err("expected instruction text"))?
+                .extract()?,
+        ),
+        "dirty" => Dirty(value.map(|v| v.extract()).transpose()?),
+        "locked" => Locked(value.map(|v| v.extract()).transpose()?),
+        _ => return Err(PyTypeError::new_err("unknown field property")),
+    })
+}
+#[pyclass(name = "FieldEdit", frozen, module = "rocx.editor")]
+struct PyFieldEdit {
+    inner: editor::FieldEdit,
+}
+#[pymethods]
+impl PyFieldEdit {
+    #[staticmethod]
+    #[pyo3(signature=(target,inline_index,property,value=None))]
+    fn patch(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        property: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: editor::FieldAction::Patch(field_patch(property, value)?),
+            },
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(target,inline_index,field=None))]
+    fn replace(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        field: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: field
+                    .map(inline_payload)
+                    .transpose()?
+                    .map_or(editor::FieldAction::Remove, |f| {
+                        editor::FieldAction::Replace(Box::new(f))
+                    }),
+            },
+        })
+    }
+    #[staticmethod]
+    fn cache(
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        children: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::FieldEdit {
+                target: target.inner.clone(),
+                inline_index,
+                action: editor::FieldAction::Cache(
+                    children
+                        .iter()
+                        .map(inline_payload)
+                        .collect::<PyResult<_>>()?,
+                ),
+            },
+        })
+    }
+}
+#[pyclass(name = "PairedRangeEdit", frozen, module = "rocx.editor")]
+struct PyPairedRangeEdit {
+    inner: editor::PairedRangeEdit,
+}
+#[pymethods]
+impl PyPairedRangeEdit {
+    #[new]
+    #[pyo3(signature=(id,bookmark=None,endpoints=None))]
+    fn new(
+        id: u32,
+        bookmark: Option<String>,
+        endpoints: Option<(PyRef<'_, PyInlineAnchor>, PyRef<'_, PyInlineAnchor>)>,
+    ) -> Self {
+        Self {
+            inner: editor::PairedRangeEdit {
+                id,
+                bookmark,
+                endpoints: endpoints.map(|(a, b)| (a.inner.clone(), b.inner.clone())),
+            },
+        }
+    }
 }
 
 fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
@@ -1197,6 +1547,45 @@ fn inline_payload(node: &Bound<'_, PyAny>) -> PyResult<crate::ResolvedInline> {
 
 #[pymethods]
 impl PyInlineEdit {
+    #[staticmethod]
+    fn remove_hyperlink(target: PyRef<'_, PyInlineAnchor>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::RemoveHyperlink,
+            },
+        }
+    }
+    #[staticmethod]
+    fn patch_drawing(
+        target: PyRef<'_, PyInlineAnchor>,
+        property: &str,
+        inline: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let property = editor::DrawingProperty::parse(property)
+            .ok_or_else(|| PyValueError::new_err("unknown drawing property"))?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::PatchDrawing(property, inline_payload(inline)?),
+            },
+        })
+    }
+    #[staticmethod]
+    fn set_image_asset(
+        target: PyRef<'_, PyInlineAnchor>,
+        image: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let crate::ResolvedInline::Image { image, .. } = inline_payload(image)? else {
+            return Err(PyTypeError::new_err("expected a resolved ImageRun"));
+        };
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetImageAsset(image),
+            },
+        })
+    }
     #[staticmethod]
     #[pyo3(signature = (target, *, clear=None, **properties))]
     fn patch_format(
@@ -1252,6 +1641,43 @@ impl PyInlineEdit {
                 },
             },
         })
+    }
+    #[staticmethod]
+    #[pyo3(signature = (target, value))]
+    fn set_drawing_description(target: PyRef<'_, PyInlineAnchor>, value: Option<String>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetDrawingDescription(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn hyperlink_tooltip(target: PyRef<'_, PyInlineAnchor>, value: Option<String>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::HyperlinkTooltip(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn hyperlink_history(target: PyRef<'_, PyInlineAnchor>, value: Option<bool>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::HyperlinkHistory(value),
+            },
+        }
+    }
+    #[staticmethod]
+    fn remove_object(target: PyRef<'_, PyInlineAnchor>) -> Self {
+        Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::RemoveObject,
+            },
+        }
     }
     #[staticmethod]
     fn insert_after(
@@ -2087,25 +2513,107 @@ impl PyImportedDocument {
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        doc.controls()
+        doc.controls().iter().map(|c| control_view(py, c)).collect()
+    }
+    #[getter]
+    fn story_controls(&self, py: Python<'_>) -> PyResult<Vec<PyImportedControl>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.story_controls()
+            .map_err(rust_error)?
             .iter()
-            .map(|c| {
-                Ok(PyImportedControl {
-                    anchor: Py::new(
-                        py,
-                        PyControlAnchor {
-                            inner: c.anchor.clone(),
-                        },
-                    )?,
-                    context: c.context.as_str(),
-                    id: c.id.clone(),
-                    tag: c.tag.clone(),
-                    alias: c.alias.clone(),
-                    lock: c.lock.clone(),
-                    bound: c.bound,
-                })
-            })
+            .map(|c| control_view(py, c))
             .collect()
+    }
+    #[getter]
+    fn control_sites(&self) -> PyResult<Vec<PyControlSite>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .control_sites()
+            .iter()
+            .cloned()
+            .map(|inner| PyControlSite { inner })
+            .collect())
+    }
+    fn preview_wrap_control(
+        &self,
+        site: PyRef<'_, PyControlSite>,
+        tag: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_wrap_control(&site.inner, tag)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    fn preview_replace_control(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+        properties: &Bound<'_, PyAny>,
+    ) -> PyResult<PyEditPreview> {
+        let props = super::content::content_control_properties(properties)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_replace_control(&target.inner, &props)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    fn preview_unwrap_control(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_unwrap_control(&target.inner)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+    #[pyo3(signature=(target, selected, *, choices=None))]
+    fn preview_control_choice(
+        &self,
+        target: PyRef<'_, PyControlAnchor>,
+        selected: &str,
+        choices: Option<Vec<(String, String)>>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let choices = choices.map(|items| {
+            items
+                .into_iter()
+                .map(|(display_text, value)| crate::ContentControlListItem {
+                    display_text,
+                    value,
+                })
+                .collect::<Vec<_>>()
+        });
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_control_choice(&target.inner, selected, choices.as_deref())
+                    .map_err(rust_error)?,
+            ),
+        })
     }
     #[getter]
     fn styles(&self, py: Python<'_>) -> PyResult<Option<PyImportedStyles>> {
@@ -2265,6 +2773,25 @@ impl PyImportedDocument {
                 })
             })
             .collect()
+    }
+
+    #[pyo3(signature=(edits, *, owner_part=None))]
+    fn edit_run_format<'py>(
+        &self,
+        py: Python<'py>,
+        edits: Vec<PyRef<'_, PyInlineEdit>>,
+        owner_part: Option<&str>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_run_format(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
     }
 
     #[pyo3(signature = (owner_part, target, kind, *, id=None, text=None))]
@@ -2464,6 +2991,107 @@ impl PyImportedDocument {
                 .map_err(rust_error)?,
         ))
     }
+
+    #[getter]
+    fn body_range_markers(&self) -> PyResult<Vec<PyBodyRangeMarker>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(doc
+            .body_range_markers()
+            .map_err(rust_error)?
+            .into_iter()
+            .map(|m| PyBodyRangeMarker {
+                body_index: m.body_index,
+                inline_index: m.inline_index,
+                kind: m.kind,
+                id: m.id,
+                name: m.name,
+            })
+            .collect())
+    }
+    fn field_at(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+    ) -> PyResult<PyImportedField> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let f = doc
+            .field_at(&target.inner, inline_index)
+            .map_err(rust_error)?;
+        Ok(PyImportedField {
+            complex: f.complex,
+            instruction: f.instruction,
+            dirty_xml: f.dirty_xml,
+            locked_xml: f.locked_xml,
+            inline_count: f.inline_count,
+        })
+    }
+    #[pyo3(signature=(target, inline_index, property, value=None))]
+    fn patch_field<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        property: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let patch = field_patch(property, value)?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.patch_field(&target.inner, inline_index, patch)
+                .map_err(rust_error)?,
+        ))
+    }
+    #[pyo3(signature=(target, inline_index, field=None))]
+    fn replace_field<'py>(
+        &self,
+        py: Python<'py>,
+        target: PyRef<'_, PyParagraphAnchor>,
+        inline_index: usize,
+        field: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let field = field.map(inline_payload).transpose()?;
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.replace_field(&target.inner, inline_index, field.as_ref())
+                .map_err(rust_error)?,
+        ))
+    }
+    #[pyo3(signature=(id, bookmark=None, endpoints=None))]
+    fn set_paired_range<'py>(
+        &self,
+        py: Python<'py>,
+        id: u32,
+        bookmark: Option<&str>,
+        endpoints: Option<(PyRef<'_, PyInlineAnchor>, PyRef<'_, PyInlineAnchor>)>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyBytes::new(
+            py,
+            &doc.set_paired_range(
+                id,
+                bookmark,
+                endpoints.as_ref().map(|(a, b)| (&a.inner, &b.inner)),
+            )
+            .map_err(rust_error)?,
+        ))
+    }
     fn edit_story_text<'py>(
         &self,
         py: Python<'py>,
@@ -2508,6 +3136,7 @@ impl PyImportedDocument {
                     py,
                     PyBodyParagraph {
                         layout: p.layout.clone(),
+                        mark_revision: revision_metadata(py, p.mark_revision.as_ref())?,
                         flags: p.flags.iter().map(|(f, v)| (f.python_name(), *v)).collect(),
                         anchor: Py::new(
                             py,
@@ -2549,7 +3178,16 @@ impl PyImportedDocument {
             .collect()
     }
 
-    /// Read a body or default-header run or hyperlink from this snapshot.
+    /// Read explicit labels and values from a direct body column chart.
+    fn chart_series(&self, target: PyRef<'_, PyInlineAnchor>) -> PyResult<(Vec<String>, Vec<f64>)> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .chart_series(&target.inner)
+            .map_err(rust_error)
+    }
+
+    /// Read the structured inline node identified by this snapshot's anchor.
     fn inline_at(&self, py: Python<'_>, target: PyRef<'_, PyInlineAnchor>) -> PyResult<Py<PyAny>> {
         let doc = self
             .inner
@@ -2602,6 +3240,73 @@ impl PyImportedDocument {
         })
     }
 
+    #[pyo3(signature = (target, bold, author, date=None))]
+    fn preview_tracked_bold(
+        &self,
+        target: PyRef<'_, PyInlineAnchor>,
+        bold: bool,
+        author: &str,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_bold(&target.inner, bold, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    #[pyo3(signature = (target, kind, author, *, text=None, date=None))]
+    fn preview_tracked_paragraph(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        kind: &str,
+        author: &str,
+        text: Option<String>,
+        date: Option<&str>,
+    ) -> PyResult<PyEditPreview> {
+        let edit = match (kind, text) {
+            ("insertBefore", Some(t)) => editor::TrackedParagraph::InsertBefore(t),
+            ("delete", None) => editor::TrackedParagraph::Delete,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "expected insertBefore with text or delete without text",
+                ));
+            }
+        };
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_tracked_paragraph(&target.inner, edit, author, date)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
+    fn preview_paragraph_revision(
+        &self,
+        target: PyRef<'_, PyParagraphAnchor>,
+        action: &str,
+    ) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        Ok(PyEditPreview {
+            inner: Mutex::new(
+                doc.preview_paragraph_revision(&target.inner, review_action(action)?)
+                    .map_err(rust_error)?,
+            ),
+        })
+    }
+
     fn preview_tracked_move(
         &self,
         target: PyRef<'_, PyInlineAnchor>,
@@ -2629,11 +3334,7 @@ impl PyImportedDocument {
         action: &str,
         paired: Option<PyRef<'_, PyInlineAnchor>>,
     ) -> PyResult<PyEditPreview> {
-        let action = match action {
-            "accept" => crate::TextRevisionAction::Accept,
-            "reject" => crate::TextRevisionAction::Reject,
-            _ => return Err(PyValueError::new_err("expected accept or reject")),
-        };
+        let action = review_action(action)?;
         let doc = self
             .inner
             .lock()
@@ -2648,7 +3349,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, text_insertions=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, text_insertions=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None, wrappers=None, fields=None, paired_ranges=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -2666,6 +3367,9 @@ impl PyImportedDocument {
         style_edits: Option<Vec<PyRef<'_, PyStyleEdit>>>,
         resources: Option<Vec<PyRef<'_, PyResourceEdit>>>,
         controls: Option<Vec<PyRef<'_, PyControlEdit>>>,
+        wrappers: Option<Vec<PyRef<'_, PyWrapperEdit>>>,
+        fields: Option<Vec<PyRef<'_, PyFieldEdit>>>,
+        paired_ranges: Option<Vec<PyRef<'_, PyPairedRangeEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -2721,6 +3425,9 @@ impl PyImportedDocument {
                     styles: &inner_edits!(style_edits),
                     resources: &inner_edits!(resources),
                     controls: &inner_edits!(controls),
+                    wrappers: &inner_edits!(wrappers),
+                    fields: &inner_edits!(fields),
+                    paired_ranges: &inner_edits!(paired_ranges),
                 })
                 .map_err(rust_error)?,
             ),
@@ -2735,6 +3442,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStyleAnchor>()?;
     module.add_class::<PyStyleEdit>()?;
     module.add_class::<PyControlAnchor>()?;
+    module.add_class::<PyControlSite>()?;
+    module.add_class::<PyWrapperEdit>()?;
     module.add_class::<PyControlEdit>()?;
     module.add_class::<PyImportedControl>()?;
     module.add_class::<PyBlockEdit>()?;
@@ -2761,6 +3470,9 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedInline>()?;
     module.add_class::<PyInlineAnchor>()?;
     module.add_class::<PyImportedRun>()?;
+    module.add_class::<PyImportedPropertyRevision>()?;
+    module.add_class::<PyImportedFraction>()?;
+    module.add_class::<PyDrawingOccurrence>()?;
     module.add_class::<PyImportedHyperlink>()?;
     module.add_class::<PyImportedRevision>()?;
     module.add_class::<PyBodyTable>()?;
@@ -2778,9 +3490,41 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyTableInsertion>()?;
     module.add_class::<PyParagraphInsertion>()?;
     module.add_class::<PyInlineEdit>()?;
+    module.add_class::<PyFieldEdit>()?;
+    module.add_class::<PyPairedRangeEdit>()?;
+    module.add_class::<PyImportedField>()?;
+    module.add_class::<PyBodyRangeMarker>()?;
     module.add_class::<PyAlignmentChange>()?;
     module.add_class::<PyTableInsertionChange>()?;
     module.add_class::<PyEditPreview>()?;
     module.add_class::<PyImportedDocument>()?;
     Ok(())
+}
+
+fn control_view(py: Python<'_>, c: &editor::ImportedControl) -> PyResult<PyImportedControl> {
+    Ok(PyImportedControl {
+        owner_part: c.owner_part.clone(),
+        entry_id: c.entry_id.clone(),
+        entry_index: c.entry_index,
+        anchor: Py::new(
+            py,
+            PyControlAnchor {
+                inner: c.anchor.clone(),
+            },
+        )?,
+        context: c.context.as_str(),
+        id: c.id.clone(),
+        tag: c.tag.clone(),
+        alias: c.alias.clone(),
+        lock: c.lock.clone(),
+        bound: c.bound,
+        kind: c.kind,
+        multi_line: c.multi_line.clone(),
+        choices: c
+            .choices
+            .iter()
+            .map(|i| (i.display_text.clone(), i.value.clone()))
+            .collect(),
+        selected: c.selected.clone(),
+    })
 }

@@ -71,7 +71,10 @@ async function authored(doc) {
       ["deletion", "Catalog editor", undefined, "old wording"]], "revision metadata and child anchors");
   const field = paragraph(doc, "Field simple PAGE:");
   equal([field.hasOpaqueContent, field.inlineStructure[1].kind, field.inlineStructure[1].name],
-    [true, "opaque", "w:fldSimple"], "opaque field at structural baseline");
+    [true, "opaque", "w:fldSimple"], "opaque field in ordered sequence");
+  equal(doc.fieldAt({target: field.anchor, inlineIndex: 1}).instruction, " PAGE ", "typed field instruction");
+  const fraction = paragraph(doc, "Inline equation:").inlineStructure[1];
+  equal([fraction.kind, fraction.numerator, fraction.denominator], ["fraction", "1", "2"], "source fraction");
   const caption = one(doc.controls(), c => c.id === "5001", "locked caption");
   equal([caption.context, caption.tag, caption.lock, caption.bound],
     ["inline", "review-caption", "contentLocked", false], "control metadata");
@@ -127,11 +130,39 @@ export async function verifyTypedCatalog(files) {
   equal([reference.id, reference.level, instance.abstractId, ...instance.replacementLevels],
     [9049, 0, 9048, 0], "numbering reference and replacement level");
 
+  const objects = await take("catalog.objects");
+  const runs = objects.body().flatMap(p => p.kind === "paragraph" ? p.inlineStructure : [])
+    .filter(r => r.kind === "run" && r.drawing);
+  const picture = one(runs, r => r.drawing.kind === "image" && r.drawing.description === "Edited picture", "edited picture");
+  equal(Boolean(picture.drawing.relationshipId), true, "picture relationship identity");
+  const shape = one(runs, r => r.drawing.kind === "shape" && r.drawing.shapeText === "Edited shape", "edited shape");
+  equal(shape.drawing.geometry, "ellipse", "shape geometry");
+  const chart = one(runs, r => r.drawing.kind === "chart", "edited chart");
+  const series = objects.chartSeries(chart.anchor);
+  equal([series.categories, series.values], [["Final", "Revised"], [12, 8]], "chart data");
+  const fraction = paragraph(objects, "Inline equation:").inlineStructure[1];
+  equal([fraction.kind, fraction.numerator, fraction.denominator], ["fraction", "3", "7"], "edited fraction");
+  const images = entry(objects, "footnote", "0").blocks[0].inlineStructure.filter(r => r.drawing?.kind === "image");
+  equal(images.length, 2, "entry image count");
+  equal([Boolean(images[0].drawing.relationshipId), images[0].drawing.relationshipId],
+    [true, images[1].drawing.relationshipId], "entry shared relationship ID");
+  equal(one(objects.controls(), c => c.tag === "object-sibling", "object sibling wrapper").context, "block", "wrapper context");
+
+  const controls = await take("catalog.controls");
+  const status = one(controls.controls(), c => c.tag === "review-status", "status");
+  equal([status.kind, status.selected], ["dropDownList", "pending"], "selected choice");
+  equal(one(status.choices, c => c.value === "pending", "choice").displayText, "Pending", "choice display");
+  const plain = one(controls.controls(), c => c.alias === "Imported plain-text sample", "plain control");
+  equal([plain.context, plain.kind, plain.multiLine, plain.tag], ["block", "text", "0", undefined], "imported plain wrapper");
+  controls.previewUnwrapControl(plain.anchor);
+  reject(() => objects.previewUnwrapControl(plain.anchor), /snapshot/);
+
   const linked = await take("catalog.entry-text");
   for (const [kind, id] of [["footnote", "0"], ["endnote", "0"], ["comment", "1"]]) {
     const block = entry(linked, kind, id).blocks[0];
     const link = block.inlineStructure.at(-1);
     equal([link.kind, Boolean(linked.inlineAt(link.anchor).relationshipId)], ["hyperlink", true], `${kind} link`);
+    equal(link.children.map(r => r.format.size), [13.5], `${kind} linked run format`);
     equal(text(block.inlineItems), [`Edited ${kind} entry`, "Review link"], `${kind} edited text`);
   }
   const lifecycle = await take("catalog.entry-edits");

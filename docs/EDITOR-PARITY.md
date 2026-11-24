@@ -94,9 +94,46 @@ paragraph, row and cell containers for its context. Text edits preserve run
 formatting. Metadata edits preserve unrecognized extension properties; a text
 edit refuses unknown control properties. Content locks prohibit text edits,
 control locks prohibit metadata edits, and combined or unknown locks prohibit
-both. Bound controls, nested controls, protected ranges, ambiguous wrappers,
-and specialized controls (e.g. lists) are not editable. This does not insert
-or remove wrappers or edit controls in headers, footers or entry stories.
+both. Use the separate operations below for wrapper and choice edits.
+
+| Operation | Rust | Python | JavaScript |
+| --- | --- | --- | --- |
+| Inspect eligible wrapper sites | `doc.control_sites()` | `doc.control_sites` | `doc.controlSites()` |
+| Inspect controls by physical story part | `doc.story_controls()` | `doc.story_controls` | `doc.storyControls()` |
+| Wrap the original payload in a tagged rich-text control | `doc.preview_wrap_control(site, tag)` | `doc.preview_wrap_control(site, tag)` | `doc.previewWrapControl({target: site.anchor, tag})` |
+| Replace the complete wrapper definition | `doc.preview_replace_control(anchor, &properties)` | `doc.preview_replace_control(anchor, properties)` | `doc.previewReplaceControl({target, properties})` |
+| Select a drop-down value; optionally replace the ordered choices | `doc.preview_control_choice(anchor, value, items)` | `doc.preview_control_choice(anchor, value, choices=items)` | `doc.previewControlChoice({target, selected, choices})` |
+| Remove the wrapper, retaining its payload | `doc.preview_unwrap_control(anchor)` | `doc.preview_unwrap_control(anchor)` | `doc.previewUnwrapControl(anchor)` |
+
+`control_sites` identifies physical targets by snapshot; its `context` and
+`text` label are for inspection, not unique addresses. Each standalone operation
+returns a preview. Reopen its output before taking anchors for the next edit.
+The original control inspection also returns `kind` (e.g. `richText`, `text`,
+`dropDownList`), literal `multi_line` / `multiLine`, `selected` (the stored
+`lastValue`) and ordered `choices`. Display labels and stored values are
+separate; selection updates the cached text and preserves run formatting.
+Rust choices are `ContentControlListItem`, Python choice edits use
+`(display_text, value)` pairs, and JS uses `{displayText, value}`.
+
+Use Rust `ContentControlProperties`, Python `rocx.editor.ControlProperties`,
+or JS `ContentControlProperties` for a complete replacement, clearing omitted
+metadata. An explicit ID must be unique across the package. Rows and cells
+require rich text. Block and inline sites also support plain text and a
+drop-down whose selected label matches the existing text. Replacing a
+definition requires an unlocked control; either content or wrapper lock
+prevents replacing the choice list. A wrapper-only lock still allows selection,
+and a content-only lock permits removing an understood wrapper without
+changing its payload. Imported opaque properties, ambiguous layouts,
+protected ranges, nested controls and custom XML bindings are refused.
+Compatible siblings, including paragraphs and tables, can be wrapped together
+without re-encoding their contents. Rich block and inline controls can receive
+new supported payloads. Use `WrapperEdit` in Rust `EditBatch::wrappers`,
+Python `preview([], wrappers=[...])`, or JavaScript `preview({wrappers: [...]})`.
+Payload replacement uses `ReplaceBlocks` / `ReplaceInlines`,
+`replace_blocks` / `replace_inlines`, or `replaceBlocks` / `replaceInlines`.
+Wrapped or unwrapped blocks cannot share a target with another structural edit
+or cross a staged range. Controls in headers, footers, notes and comments are
+inspectable by physical owner but read-only.
 
 Paragraph insertion adds a resolved paragraph immediately after a direct body paragraph.
 Rust uses `ParagraphInsertion` with `preview_with_paragraphs`, Python uses
@@ -109,8 +146,13 @@ Paragraph insertion in other stories is unsupported.
 
 Whole-inline edits address a direct child of a direct body paragraph. Insert after
 or replace a single text, break or tab run, or a hyperlink containing only such
-runs. Payloads use the imported-paragraph codecs for resolved text, breaks, tabs,
-fractions and external hyperlinks. New external links allocate relationships on
+runs, or target a [supported object occurrence](#drawing-and-fraction-occurrences).
+Payloads accept resolved text, breaks, tabs, fractions, supported fields, external
+or paired-body-bookmark hyperlinks, pictures, shapes and column charts.
+See [fields and links](FIELDS.md#editing-an-imported-field-or-link) for field
+inspection, replacement, flag and instruction patches, and link metadata edits;
+see [paired ranges](RANGES.md#imported-body-ranges) for cross-paragraph bookmark
+and comment-range insertion, relocation and removal. New external links allocate relationships on
 the actual document part. Replacement refuses to discard unrecognized properties
 or markup; unused existing relationships are retained. Property-only patches also
 accept runs containing multiple ordinary text, tab, and break leaves. They preserve
@@ -160,6 +202,26 @@ existing spelling and fallback. Unsupported direct selections, including
 themed fonts and unequal or incomplete Latin font pairs, are opaque and cannot
 be patched in the affected slot.
 
+**Property-only edits across physical owners.** For an anchored run in a body
+paragraph or a direct body-table cell paragraph, use Rust
+`doc.edit_run_format(None, &[edit])`, Python `doc.edit_run_format([edit])`,
+or JavaScript `doc.editRunFormat({inlineEdits: [edit]})`. A run can be a
+direct paragraph child or a direct child of its hyperlink. For a section
+header/footer or an ordinary note/comment entry, pass the inspected physical
+part name: `Some(&part)` in Rust, `owner_part=part` in Python, `ownerPart:
+part` in JavaScript. Each call returns new DOCX bytes. Section aliases share
+the edit; reopen before targeting another part or using the new snapshot.
+Disjoint patches to one physical run coalesce, even through section aliases.
+
+This operation changes only `rPr`. Text, tabs, breaks, inline/anchored
+drawings, symbols and supported hyphens are retained, as are the hyperlink
+wrapper and the owner's relationships. It rejects field/reference runs, active
+ranges, revision or control wrappers, reviewed ancestor properties, enforced
+document protection, non-format actions, stale anchors and owner mismatches.
+Entry identities must be unique and ordinary; separator/continuation entries
+are protected. Story tables, nested body tables, textbox stories and creating
+a local fork of a shared section part remain outside this operation.
+
 `ImportedRun.bold`, `.italic`, `.strike`, and `.hidden` inspect the same direct
 properties wherever structured runs are exposed. An unset or ambiguous toggle
 is `None` in Rust/Python and absent in JavaScript. `has_opaque_formatting`
@@ -170,6 +232,68 @@ variants, or effective visual formatting.
 `inline_changes()` / `inline_changes` / `inlineChanges()` return original
 (body, inline) index pairs in document order; an already-matching direct toggle
 value is omitted. There are no character-range addresses in these operations.
+
+### Drawing and fraction occurrences
+
+Use the direct body paragraph's structured inline view. A run's optional
+`drawing` describes the occurrence: `kind` (`image`, `shape`, `chart`),
+`placement` (`inline`, `floating`), explicit extent in EMUs, accessibility
+name/title/description, and owner-local relationship ID for embedded pictures
+and charts. Simple shapes expose preset geometry and plain text. Image crop
+is `[left, top, right, bottom]` in thousandths of a percent; rotation is in
+1/60000 degree units. Flips preserve explicit false versus absence. Rust and
+Python use `width_emu`, `relationship_id`, `shape_text`, `flip_horizontal`;
+JavaScript uses `widthEmu`, `relationshipId`, `shapeText`, `flipHorizontal`.
+The legacy flat projection still reports opaque XML at these locations.
+A simple stacked fraction exposes an inline anchor, numerator and denominator
+(`ImportedInlineNode::Fraction`, `ImportedFraction`, `kind: "fraction"`).
+Other math stays opaque.
+
+| Rust `InlineAction` | Python `InlineEdit` | JavaScript `inlineEdits` element |
+| --- | --- | --- |
+| `InsertAfter(inline)` / `Replace(inline)` | `insert_after(target, inline)` / `replace(target, inline)` | `{kind: "insertAfter" \| "replace", target, inline}` |
+| `RemoveObject` | `remove_object(target)` | `{kind: "removeObject", target}` |
+| `SetDrawingDescription(Some(text))` / `None` | `set_drawing_description(target, text)` / `None` | `{kind: "setDrawingDescription", target, value: text}` / `null` |
+| `SetImageAsset(image)` | `set_image_asset(target, resolved_image_run)` | `{kind: "setImageAsset", target, image: resolvedImageRun.view.image}` |
+| `PatchDrawing(DrawingProperty::Size, inline)` | `patch_drawing(target, "size", inline)` | `{kind: "patchDrawing", target, property: "size", inline}` |
+
+`PatchDrawing` copies **one property group** from a resolved declaration of
+the same object kind. Other declaration properties, drawing IDs and source
+relationships stay in place. A missing optional property in the declaration
+clears that group. Rust enum variants / Python and JavaScript selectors:
+
+* `Size` / `size`: update the outer and modeled inner extents.
+* `Placement` / `placement`: set inline/floating placement, including wrapping,
+  for a picture or shape. `Accessibility` / `accessibility`: copy occurrence
+  name/title/description. For a literal attribute removal use the separate
+  description action.
+* `Crop` / `crop` and `Transform` / `transform`: picture crop, or rotation and
+  flips. Asset replacement redirects only one `r:embed`; neither the peer
+  occurrence nor its bytes are changed.
+* `ShapeFill` / `shapeFill`, `ShapeOutline` / `shapeOutline`, `ShapeText` /
+  `shapeText`: geometric shape fill/line or simple text and its format.
+  Shape text requires compatible geometric-shape or standalone-text-box
+  declarations. `ShapeGeometry` / `shapeGeometry` switches an unadjusted
+  rectangle or ellipse in place, retaining its extent, text and appearance.
+  Replace the shape to convert to or from a standalone text box.
+* `ChartSeries` / `chartSeries`: set categories and values in an existing
+  workbook-free, literal single column series.
+  A changed series forks the chart part and redirects this occurrence only;
+  axis settings and unrelated chart XML are retained. Read the series via
+  `doc.chart_series(&anchor)` (Rust tuple), `doc.chart_series(anchor)` (Python
+  tuple), or `doc.chartSeries(anchor)` (`{categories, values}` in JavaScript).
+  Point counts can change on the plain chart profile emitted by the column
+  chart declaration. Imported charts with indexed formatting, annotations or
+  other extensions require the same count, or explicit whole-chart replacement.
+
+One edit per original occurrence per preview. To patch another group on the
+same occurrence, reopen the preview bytes and obtain a fresh anchor. Whole
+replacements/removals refuse unrecognized markup in the occurrence being
+discarded. Patches preserve unrelated opaque drawing content and reject
+ambiguous targets or unsupported markup on a subtree they would discard.
+Unused relationships and old parts remain in the package. Complex equations,
+general charts/workbooks, rich text-box stories and VML are outside this
+interface. Entry-story pictures use the separate owner-scoped operation below.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
@@ -375,6 +499,8 @@ author. Direct body single-text runs support [explicit tracked text and move
 previews](REVISIONS.md#review-a-single-change-in-an-existing-docx), and supported
 wrapper anchors allow individual accept/reject (both anchors for a move).
 Child anchors and revisions in other locations remain inspection-only.
+Direct body runs can also carry [reviewable bold-only property changes](REVISIONS.md#propose-a-formatting-change).
+Supported direct body paragraphs can carry [paired mark and text revisions](REVISIONS.md#propose-or-review-a-whole-paragraph).
 
 Rust keeps the flat `ImportedCellBlock::Paragraph` payload and adds
 `ImportedTableCell::inline_structure(block_index)`. The index is the position in
@@ -441,12 +567,19 @@ Nested, mixed-content, reserved note and mismatched-owner targets are rejected.
 `editEntryInlines({ownerPart, inlineEdits})` (JavaScript) return bytes for an
 atomic batch of `InlineEdit` operations in one footnotes, endnotes or comments
 part. Insert after or replace an eligible direct run or hyperlink, or patch
-direct run bold. Use original inline anchors from ordinary entries with unique
+direct run formatting. Format-only batches also accept direct hyperlink child
+runs, using the same guards as `edit_run_format`. Use original inline anchors from ordinary entries with unique
 decimal IDs. Replacement uses the body editor's discard checks; note/reference
-marks, field/range interiors, nested targets and reserved notes are ineligible.
+marks, field/range interiors, nested splice targets and reserved notes are ineligible.
 External links allocate relationships in the entry part, including when its
 path is nonstandard. Existing relationships are retained. No entry or reference
 is created, deleted or renumbered. Reopen the returned package for new anchors.
+The standalone field/range operations and direct hyperlink property/removal
+operations above are scoped to the main body, not these entry batches.
+Embedded pictures in direct entry paragraphs also support occurrence insertion,
+replacement, removal, asset redirection and image property groups. The actual
+entry part owns its image relationships; shared bytes elsewhere remain intact.
+Shape, chart and fraction edits require a direct body paragraph.
 
 ### Note references and entry definitions
 
@@ -556,7 +689,7 @@ For example:
 
 The shared Rust/Python surface is inventoried at field level in [`examples/showcase/coverage.json`](../examples/showcase/coverage.json); the [visual catalog](../examples/ALL_FEATURES.md#inspection-guide-and-coverage-inventory) describes exercised values and boundaries. The table below groups those declarations by their *resolved document targets*, rather than repeating every field. It includes defaults, resources and metadata, not just visible content. The catalog covers supported fields, not every combination, story, open string or raw OOXML feature.
 
-For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding; imported field edits are currently rejected. Those limits are not expanded merely by listing editor goals here.
+For public entry points and conversion boundaries see the [Rust facade](../src/lib.rs), [Python declarations](../python/rocx/declarative/__init__.py) and [module map](MODULES.md). The [OOXML domain map](OOXML.md#wordprocessingml-domain-map) records current generation limits: for example, no nested hyperlinks or custom XML control binding. Those limits are not expanded merely by listing editor goals here.
 
 ## Operation contract
 

@@ -40,7 +40,8 @@ HEADER_LINK_RUNS = ["shared ", "link"]
 HEADER_LINK_URL = "https://example.invalid/catalog-header"
 CATALOG_SUFFIXES = (".docx", ".template.docx", ".edited.docx", ".header-source.docx",
                     ".header-shared.docx", ".header-local.docx", ".header-first-shared.docx",
-                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx", ".entry-edits.docx", ".story-blocks.docx")
+                    ".header-first-local.docx", ".run-text.docx", ".footer-even.docx", ".entry-text.docx",
+                    ".entry-edits.docx", ".story-blocks.docx", ".objects.docx", ".controls.docx")
 REGIONS = {"whole_table": None, "first_row": "firstRow", "last_row": "lastRow", "first_column": "firstCol",
     "last_column": "lastCol", "banding_1_row": "band1Horz", "banding_2_row": "band2Horz",
     "banding_1_column": "band1Vert", "banding_2_column": "band2Vert", "top_left_cell": "nwCell",
@@ -855,6 +856,7 @@ def verify_entry_text(original: bytes, changed: bytes) -> None:
             link = text.getparent().getnext()
             assert link.tag == f"{{{NS['w']}}}hyperlink"
             assert link.xpath("./w:r/w:t/text()", namespaces=NS) == ["Review link"]
+            assert link.xpath("./w:r/w:rPr/w:sz/@w:val", namespaces=NS) == ["27"]
             rid = link.get(f"{{{NS['odr']}}}id")
             rel_path = f"word/_rels/{kind}s.xml.rels"
             rels = etree.fromstring(output.read(rel_path))
@@ -932,7 +934,11 @@ def verify_javascript_catalog(rust: pathlib.Path, directory: pathlib.Path) -> No
 def verify_catalog_readback(files: dict[str, bytes]) -> None:
     """Inspect source/result payloads within a single binding's catalog."""
     final, source = files[".docx"], files[".header-source.docx"]
+    verify_objects(final, files[".objects.docx"])
     verify_entry_text(final, files[".entry-text.docx"])
+    control_doc = docx.Document(io.BytesIO(files[".controls.docx"]))
+    assert control_doc.element.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='review-status']/w:sdtContent/w:r/w:t/text()") == ["Pending"]
+    assert control_doc.element.xpath("//w:sdtPr[w:alias/@w:val='Imported plain-text sample']/w:text/@w:multiLine") == ["0"]
     changed = files[".entry-edits.docx"]
     comment, = [c for c in docx.Document(io.BytesIO(changed)).comments if c.author == "Structured reviewer"]
     assert comment.initials == "ED"
@@ -966,6 +972,50 @@ def verify_catalog_readback(files: dict[str, bytes]) -> None:
     verify_edited(final, files[".edited.docx"])
     verify_header_scopes(source, files[".header-shared.docx"], files[".header-local.docx"])
     verify_first_header_scopes(source, files[".header-first-shared.docx"], files[".header-first-local.docx"])
+
+
+def verify_objects(original: bytes, output: bytes) -> None:
+    document = docx.Document(io.BytesIO(output))
+    assert any("Inline equation:" in p.text for p in document.paragraphs)
+    with zipfile.ZipFile(io.BytesIO(original)) as src, zipfile.ZipFile(io.BytesIO(output)) as dst:
+        additions = set(dst.namelist()) - set(src.namelist())
+        note = next(part for part in document.part.related_parts.values() if str(part.partname).endswith("/footnotes.xml"))
+        note_part = str(note.partname).lstrip("/")
+        note_rels = str(note.partname.rels_uri).lstrip("/")
+        assert len(additions - {note_rels}) == 2
+        note_xml = etree.fromstring(note.blob)
+        original_note = etree.fromstring(src.read(note_part))
+        drawing_ids = "//w:footnote[@w:id='0']//wp:docPr/@id"
+        embeds = "//w:footnote[@w:id='0']//a:blip/@odr:embed"
+        previous = original_note.xpath(drawing_ids, namespaces=NS)
+        edited = note_xml.xpath(drawing_ids, namespaces=NS)
+        added, = set(edited) - set(previous)
+        assert [item for item in edited if item != added] == previous
+        new_embed, *preserved_embeds = note_xml.xpath(embeds, namespaces=NS)
+        assert edited[0] == added
+        assert preserved_embeds == original_note.xpath(embeds, namespaces=NS)
+        assert new_embed in preserved_embeds
+        assert src.read(note_rels) == dst.read(note_rels)
+        embed = new_embed
+        asset = note.related_parts[embed]
+        assert asset.blob == (ROOT / "tests/fixtures/images/sample.png").read_bytes()
+        assert str(asset.partname).lstrip("/") in src.namelist()
+        new_chart, = [part for part in additions if "rocx-chart" in part]
+        chart = etree.fromstring(dst.read(new_chart))
+        assert chart.xpath("//c:ser/c:cat/c:strLit/c:pt/c:v/text()", namespaces=NS) == ["Final", "Revised"]
+        assert chart.xpath("//c:ser/c:val/c:numLit/c:pt/c:v/text()", namespaces=NS) == ["12","8"]
+        for name in src.namelist():
+            if name not in {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml",note_part,note_rels}:
+                assert src.read(name) == dst.read(name), name
+        root = etree.fromstring(dst.read("word/document.xml"))
+        assert root.xpath("//wp:docPr[@descr='Edited picture']", namespaces=NS)
+        assert root.xpath("//a:sp[a:spPr/a:prstGeom[@prst='ellipse']]//a:t[text()='Edited shape']", namespaces=NS)
+        assert root.xpath("//w:sdt[w:sdtPr/w:tag[@w:val='object-sibling']]//w:t/text()", namespaces=NS) == [EDIT_LABEL]
+        assert root.xpath("//m:f[m:num/m:r/m:t='3' and m:den/m:r/m:t='7']", namespaces=NS)
+        ids = root.xpath("//wp:docPr/@id", namespaces=NS) + note_xml.xpath("//wp:docPr/@id", namespaces=NS)
+        assert len(ids) == len(set(ids))
+        rid, = root.xpath("//c:chart/@odr:id", namespaces=NS)
+        assert document.part.related_parts[rid].blob == dst.read(new_chart)
 
 
 def main() -> None:

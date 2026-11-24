@@ -26,6 +26,11 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ),
         ("importedEditStoryBlocks", (story_blocks, Paths::Package)),
         ("importedEditEntryInlines", (entry_inlines, Paths::Package)),
+        ("importedReplaceField", (replace_field, Paths::Package)),
+        ("importedFieldAt", (field_at, Paths::Package)),
+        ("importedPatchField", (patch_field, Paths::Package)),
+        ("importedSetPairedRange", (paired_range, Paths::Package)),
+        ("importedEditRunFormat", (format_runs, Paths::Package)),
         (
             "importedEditNoteReference",
             (note_reference, Paths::Package),
@@ -33,10 +38,32 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedEditEntry", (entry_edit, Paths::Package)),
         ("importedEditPartTables", (part_tables, Paths::Package)),
         ("importedPreviewTrackedText", (tracked_text, Paths::Package)),
+        ("importedPreviewTrackedBold", (tracked_bold, Paths::Package)),
+        (
+            "importedPreviewTrackedParagraph",
+            (tracked_paragraph, Paths::Package),
+        ),
+        (
+            "importedPreviewParagraphRevision",
+            (paragraph_revision, Paths::Package),
+        ),
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
         ("importedPreviewLayout", (preview_layout, Paths::Package)),
+        ("importedPreviewWrapControl", (wrap_control, Paths::Package)),
+        (
+            "importedPreviewReplaceControl",
+            (replace_control, Paths::Package),
+        ),
+        (
+            "importedPreviewUnwrapControl",
+            (unwrap_control, Paths::Package),
+        ),
+        (
+            "importedPreviewControlChoice",
+            (control_choice, Paths::Package),
+        ),
         (
             "importedPreviewHeaderImage",
             (preview_header, Paths::Package),
@@ -229,15 +256,27 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
         input,
         path,
         &[
-            "target", "kind", "inline", "bold", "property", "value", "format", "clear",
+            "target", "kind", "inline", "bold", "value", "image", "property", "format", "clear",
         ],
     )?;
     let kind = b::string(&record.get("kind")?, &record.path("kind"))?;
     let edit = Record::new(
         input,
         path,
-        if kind == "setBold" {
+        if kind == "removeHyperlink" {
+            &["target", "kind"]
+        } else if matches!(kind.as_str(), "hyperlinkTooltip" | "hyperlinkHistory") {
+            &["target", "kind", "value"]
+        } else if kind == "setBold" {
             &["target", "kind", "bold"]
+        } else if kind == "patchDrawing" {
+            &["target", "kind", "property", "inline"]
+        } else if kind == "setImageAsset" {
+            &["target", "kind", "image"]
+        } else if kind == "removeObject" {
+            &["target", "kind"]
+        } else if kind == "setDrawingDescription" {
+            &["target", "kind", "value"]
         } else if kind == "setToggle" {
             &["target", "kind", "property", "value"]
         } else if kind == "patchFormat" {
@@ -255,8 +294,48 @@ fn inline_edit(input: &Wire, path: &str) -> Result<rocx::editor::InlineEdit> {
     Ok(InlineEdit {
         target: crate::inspection::inline_anchor(&edit.get("target")?, &edit.path("target"))?,
         action: match kind.as_str() {
+            "removeHyperlink" => InlineAction::RemoveHyperlink,
+            "hyperlinkTooltip" => {
+                let v = edit.get("value")?;
+                InlineAction::HyperlinkTooltip(if v.js().is_undefined() {
+                    None
+                } else {
+                    Some(b::string(&v, &edit.path("value"))?)
+                })
+            }
+            "hyperlinkHistory" => {
+                let v = edit.get("value")?;
+                InlineAction::HyperlinkHistory(if v.js().is_undefined() {
+                    None
+                } else {
+                    Some(
+                        v.js().as_bool().ok_or_else(|| {
+                            Failure::invalid(&edit.path("value"), "expected boolean")
+                        })?,
+                    )
+                })
+            }
             "insertAfter" => InlineAction::InsertAfter(payload()?),
             "replace" => InlineAction::Replace(payload()?),
+            "removeObject" => InlineAction::RemoveObject,
+            "patchDrawing" => {
+                let p = edit.path("property");
+                let property =
+                    rocx::editor::DrawingProperty::parse(&b::string(&edit.get("property")?, &p)?)
+                        .ok_or_else(|| Failure::invalid(&p, "unknown drawing property"))?;
+                InlineAction::PatchDrawing(property, payload()?)
+            }
+            "setImageAsset" => InlineAction::SetImageAsset(
+                (*b::borrow::<ResolvedImage>(&edit.get("image")?, &edit.path("image"))?).clone(),
+            ),
+            "setDrawingDescription" => {
+                let value = edit.get("value")?;
+                InlineAction::SetDrawingDescription(if value.js().is_null() {
+                    None
+                } else {
+                    Some(b::string(&value, &edit.path("value"))?)
+                })
+            }
             "patchFormat" => {
                 let set = edit.get("format")?;
                 let set = if set.js().is_undefined() {
@@ -697,6 +776,245 @@ fn part_tables(input: &Wire) -> Result<JsValue> {
     .into())
 }
 
+fn field_at(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["target", "inlineIndex"],
+    )?;
+    let target = borrow_target::<ParagraphAnchor>(&batch, "batch.target")?;
+    let index = usize::try_from(b::u64_number(
+        &batch.get("inlineIndex")?,
+        "batch.inlineIndex",
+    )?)
+    .map_err(|_| Failure::invalid("batch.inlineIndex", "index too large"))?;
+    let f = source.document().field_at(&target, index)?;
+    let view = b::record(&[
+        ("complex", f.complex.into()),
+        ("instruction", f.instruction.into()),
+        ("inlineCount", (f.inline_count as u32).into()),
+    ]);
+    if let Some(v) = f.dirty_xml {
+        b::set(&view, "dirtyXml", &v.into());
+    }
+    if let Some(v) = f.locked_xml {
+        b::set(&view, "lockedXml", &v.into());
+    }
+    Ok(view)
+}
+fn patch_field(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["target", "inlineIndex", "property", "value"],
+    )?;
+    let target = borrow_target::<ParagraphAnchor>(&batch, "batch.target")?;
+    let index = usize::try_from(b::u64_number(
+        &batch.get("inlineIndex")?,
+        "batch.inlineIndex",
+    )?)
+    .map_err(|_| Failure::invalid("batch.inlineIndex", "index too large"))?;
+    let patch = decode_field_patch(&batch)?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .patch_field(&target, index, patch)?
+            .as_slice(),
+    )
+    .into())
+}
+fn decode_field_patch(batch: &Record) -> Result<rocx::editor::FieldPatch> {
+    use rocx::editor::FieldPatch;
+    let v = batch.get("value")?;
+    let flag = || {
+        if v.js().is_undefined() {
+            Ok(None)
+        } else {
+            v.js()
+                .as_bool()
+                .map(Some)
+                .ok_or_else(|| Failure::invalid(&batch.path("value"), "expected boolean"))
+        }
+    };
+    Ok(
+        match b::string(&batch.get("property")?, &batch.path("property"))?.as_str() {
+            "instruction" => FieldPatch::Instruction(b::string(&v, &batch.path("value"))?),
+            "dirty" => FieldPatch::Dirty(flag()?),
+            "locked" => FieldPatch::Locked(flag()?),
+            _ => {
+                return Err(Failure::invalid(
+                    &batch.path("property"),
+                    "unknown field property",
+                ));
+            }
+        },
+    )
+}
+fn field_edit(input: &Wire, path: &str) -> Result<rocx::editor::FieldEdit> {
+    use rocx::editor::{FieldAction, FieldEdit};
+    let r = Record::new(
+        input,
+        path,
+        &[
+            "target",
+            "inlineIndex",
+            "op",
+            "property",
+            "value",
+            "field",
+            "children",
+        ],
+    )?;
+    let op = b::string(&r.get("op")?, &r.path("op"))?;
+    let fields: &[&str] = match op.as_str() {
+        "patch" => &["target", "inlineIndex", "op", "property", "value"],
+        "replace" => &["target", "inlineIndex", "op", "field"],
+        "cache" => &["target", "inlineIndex", "op", "children"],
+        _ => return Err(Failure::invalid(&r.path("op"), "unknown field edit")),
+    };
+    let r = Record::new(input, path, fields)?;
+    let target = (*borrow_target::<ParagraphAnchor>(&r, &r.path("target"))?).clone();
+    let inline_index = usize::try_from(b::u64_number(
+        &r.get("inlineIndex")?,
+        &r.path("inlineIndex"),
+    )?)
+    .map_err(|_| Failure::invalid(&r.path("inlineIndex"), "index too large"))?;
+    let action = match op.as_str() {
+        "patch" => FieldAction::Patch(decode_field_patch(&r)?),
+        "cache" => FieldAction::Cache(
+            b::list(&r.get("children")?, &r.path("children"))?
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    Ok((*b::borrow::<rocx::ResolvedInline>(
+                        v,
+                        &format!("{}[{i}]", r.path("children")),
+                    )?)
+                    .clone())
+                })
+                .collect::<Result<_>>()?,
+        ),
+        _ => {
+            let f = r.get("field")?;
+            if f.js().is_undefined() {
+                FieldAction::Remove
+            } else {
+                FieldAction::Replace(Box::new(
+                    (*b::borrow::<rocx::ResolvedInline>(&f, &r.path("field"))?).clone(),
+                ))
+            }
+        }
+    };
+    Ok(FieldEdit {
+        target,
+        inline_index,
+        action,
+    })
+}
+fn replace_field(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["target", "inlineIndex", "field"],
+    )?;
+    let target = borrow_target::<ParagraphAnchor>(&batch, "batch.target")?;
+    let index = usize::try_from(b::u64_number(
+        &batch.get("inlineIndex")?,
+        "batch.inlineIndex",
+    )?)
+    .map_err(|_| Failure::invalid("batch.inlineIndex", "index too large"))?;
+    let field = batch.get("field")?;
+    let field = if field.js().is_undefined() {
+        None
+    } else {
+        Some(b::borrow::<rocx::ResolvedInline>(&field, "batch.field")?)
+    };
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .replace_field(&target, index, field.as_deref())?
+            .as_slice(),
+    )
+    .into())
+}
+fn paired_range(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let e = paired_edit(&argument(&call, "batch")?, "batch")?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .set_paired_range(
+                e.id,
+                e.bookmark.as_deref(),
+                e.endpoints.as_ref().map(|(a, b)| (a, b)),
+            )?
+            .as_slice(),
+    )
+    .into())
+}
+fn paired_edit(input: &Wire, path: &str) -> Result<rocx::editor::PairedRangeEdit> {
+    let batch = Record::new(input, path, &["id", "bookmark", "endpoints"])?;
+    let id = u32::try_from(b::u64_number(&batch.get("id")?, &batch.path("id"))?)
+        .map_err(|_| Failure::invalid(&batch.path("id"), "id too large"))?;
+    let name = batch.get("bookmark")?;
+    let name = if name.js().is_undefined() {
+        None
+    } else {
+        Some(b::string(&name, &batch.path("bookmark"))?)
+    };
+    let endpoints = batch.get("endpoints")?;
+    let endpoints = if endpoints.js().is_undefined() {
+        None
+    } else {
+        let items = b::list(&endpoints, &batch.path("endpoints"))?;
+        let [a, z] = items.as_slice() else {
+            return Err(Failure::invalid(
+                &batch.path("endpoints"),
+                "expected two inline anchors",
+            ));
+        };
+        Some((
+            crate::inspection::inline_anchor(a, &format!("{path}.endpoints[0]"))?,
+            crate::inspection::inline_anchor(z, &format!("{path}.endpoints[1]"))?,
+        ))
+    };
+    Ok(rocx::editor::PairedRangeEdit {
+        id,
+        bookmark: name,
+        endpoints,
+    })
+}
+fn format_runs(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let batch = Record::new(
+        &argument(&call, "batch")?,
+        "batch",
+        &["ownerPart", "inlineEdits"],
+    )?;
+    let owner = batch.get("ownerPart")?;
+    let owner = (!owner.js().is_undefined())
+        .then(|| b::string(&owner, "batch.ownerPart"))
+        .transpose()?;
+    Ok(Uint8Array::from(
+        source
+            .document()
+            .edit_run_format(
+                owner.as_deref(),
+                &edits(&batch, "inlineEdits", inline_edit)?,
+            )?
+            .as_slice(),
+    )
+    .into())
+}
+
 fn story_text(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -988,6 +1306,28 @@ fn tracked_text(input: &Wire) -> Result<JsValue> {
     )?)
 }
 
+fn tracked_bold(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "bold", "author", "date"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let date = (!edit.get("date")?.js().is_undefined())
+        .then(|| string("date"))
+        .transpose()?;
+    preview_handle(
+        source.document().preview_tracked_bold(
+            &crate::inspection::inline_anchor(&edit.get("target")?, "edit.target")?,
+            edit.get("bold")?
+                .js()
+                .as_bool()
+                .ok_or_else(|| Failure::invalid("edit.bold", "expected boolean"))?,
+            &string("author")?,
+            date.as_deref(),
+        )?,
+    )
+}
+
 fn tracked_move(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -1004,17 +1344,63 @@ fn tracked_move(input: &Wire) -> Result<JsValue> {
     )?)
 }
 
+fn tracked_paragraph(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "kind", "text", "author", "date"])?;
+    let string = |k: &str| b::string(&edit.get(k)?, &edit.path(k));
+    let date = (!edit.get("date")?.js().is_undefined())
+        .then(|| string("date"))
+        .transpose()?;
+    let target = borrow_target::<ParagraphAnchor>(&edit, "edit.target")?;
+    let change = match string("kind")?.as_str() {
+        "insertBefore" => rocx::editor::TrackedParagraph::InsertBefore(string("text")?),
+        "delete" if edit.get("text")?.js().is_undefined() => rocx::editor::TrackedParagraph::Delete,
+        _ => {
+            return Err(Failure::invalid(
+                "edit.kind",
+                "expected insertBefore with text or delete without text",
+            ));
+        }
+    };
+    preview_handle(doc.document().preview_tracked_paragraph(
+        &target,
+        change,
+        &string("author")?,
+        date.as_deref(),
+    )?)
+}
+
+fn paragraph_revision(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edit")?;
+    let edit = Record::new(&arg, "edit", &["target", "action"])?;
+    let target = borrow_target::<ParagraphAnchor>(&edit, "edit.target")?;
+    preview_handle(
+        doc.document()
+            .preview_paragraph_revision(&target, review_action(&edit)?)?,
+    )
+}
+
+fn review_action(edit: &Record) -> Result<rocx::TextRevisionAction> {
+    Ok(
+        match b::string(&edit.get("action")?, "edit.action")?.as_str() {
+            "accept" => rocx::TextRevisionAction::Accept,
+            "reject" => rocx::TextRevisionAction::Reject,
+            _ => return Err(Failure::invalid("edit.action", "expected accept or reject")),
+        },
+    )
+}
+
 fn revision(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
     let arg = argument(&call, "edit")?;
     let edit = Record::new(&arg, "edit", &["target", "action", "paired"])?;
     let anchor = |k: &str| crate::inspection::inline_anchor(&edit.get(k)?, &edit.path(k));
-    let action = match b::string(&edit.get("action")?, "edit.action")?.as_str() {
-        "accept" => rocx::TextRevisionAction::Accept,
-        "reject" => rocx::TextRevisionAction::Reject,
-        _ => return Err(Failure::invalid("edit.action", "expected accept or reject")),
-    };
+    let action = review_action(&edit)?;
     let paired = if edit.get("paired")?.js().is_undefined() {
         None
     } else {
@@ -1131,6 +1517,130 @@ fn preview_layout(input: &Wire) -> Result<JsValue> {
     preview_handle(source.document().preview_layout(&edits)?)
 }
 
+fn wrap_control(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let edit = Record::new(&argument(&call, "edit")?, "edit", &["target", "tag"])?;
+    let site = borrow_target::<rocx::editor::ControlSite>(&edit, "edit.target")?;
+    preview_handle(
+        source
+            .document()
+            .preview_wrap_control(&site, &b::string(&edit.get("tag")?, "edit.tag")?)?,
+    )
+}
+fn replace_control(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let edit = Record::new(&argument(&call, "edit")?, "edit", &["target", "properties"])?;
+    let anchor = borrow_target::<rocx::editor::ControlAnchor>(&edit, "edit.target")?;
+    let props = crate::structured::content_control_properties(
+        &edit.get("properties")?,
+        &b::Operation::new().pass(),
+        "edit.properties",
+    )?;
+    preview_handle(source.document().preview_replace_control(&anchor, &props)?)
+}
+
+fn unwrap_control(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let anchor = b::borrow::<rocx::editor::ControlAnchor>(&argument(&call, "target")?, "target")?;
+    preview_handle(source.document().preview_unwrap_control(&anchor)?)
+}
+fn control_choice(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let edit = Record::new(
+        &argument(&call, "edit")?,
+        "edit",
+        &["target", "selected", "choices"],
+    )?;
+    let anchor = borrow_target::<rocx::editor::ControlAnchor>(&edit, "edit.target")?;
+    let choices = if edit.get("choices")?.js().is_undefined() {
+        None
+    } else {
+        Some(edits(&edit, "choices", |v, path| {
+            let item = Record::new(v, path, &["displayText", "value"])?;
+            Ok(rocx::ContentControlListItem {
+                display_text: b::string(&item.get("displayText")?, &item.path("displayText"))?,
+                value: b::string(&item.get("value")?, &item.path("value"))?,
+            })
+        })?)
+    };
+    preview_handle(source.document().preview_control_choice(
+        &anchor,
+        &b::string(&edit.get("selected")?, "edit.selected")?,
+        choices.as_deref(),
+    )?)
+}
+
+fn wrapper_edit(input: &Wire, path: &str) -> Result<rocx::editor::WrapperEdit> {
+    use rocx::editor::{ControlAnchor, ControlSite, WrapperEdit as E};
+    let kind = b::string(
+        &b::member(&input.js(), "kind", path)?,
+        &b::child_path(path, "kind"),
+    )?;
+    let fields: &[&str] = match kind.as_str() {
+        "wrap" => &["kind", "target", "last", "tag"],
+        "unwrap" => &["kind", "target"],
+        "define" => &["kind", "target", "properties"],
+        "choice" => &["kind", "target", "selected", "choices"],
+        "replaceInlines" => &["kind", "target", "inlines"],
+        "replaceBlocks" => &["kind", "target", "blocks"],
+        _ => return Err(Failure::invalid(path, "unknown wrapper edit")),
+    };
+    let r = Record::new(input, path, fields)?;
+    let anchor = || borrow_target::<ControlAnchor>(&r, &r.path("target")).map(|a| (*a).clone());
+    Ok(match kind.as_str() {
+        "wrap" => E::Wrap {
+            first: (*borrow_target::<ControlSite>(&r, &r.path("target"))?).clone(),
+            last: if r.get("last")?.js().is_undefined() {
+                None
+            } else {
+                Some((*b::borrow::<ControlSite>(&r.get("last")?, &r.path("last"))?).clone())
+            },
+            tag: b::string(&r.get("tag")?, &r.path("tag"))?,
+        },
+        "unwrap" => E::Unwrap(anchor()?),
+        "define" => E::Define(
+            anchor()?,
+            crate::structured::content_control_properties(
+                &r.get("properties")?,
+                &b::Operation::new().pass(),
+                &r.path("properties"),
+            )?,
+        ),
+        "choice" => E::Choice {
+            target: anchor()?,
+            selected: b::string(&r.get("selected")?, &r.path("selected"))?,
+            items: if r.get("choices")?.js().is_undefined() {
+                None
+            } else {
+                Some(edits(&r, "choices", |v, p| {
+                    let item = Record::new(v, p, &["displayText", "value"])?;
+                    Ok(rocx::ContentControlListItem {
+                        display_text: b::string(
+                            &item.get("displayText")?,
+                            &item.path("displayText"),
+                        )?,
+                        value: b::string(&item.get("value")?, &item.path("value"))?,
+                    })
+                })?)
+            },
+        },
+        "replaceInlines" => E::ReplaceInlines(
+            anchor()?,
+            edits(&r, "inlines", |v, p| {
+                Ok((*b::borrow::<rocx::ResolvedInline>(v, p)?).clone())
+            })?,
+        ),
+        _ => E::ReplaceBlocks(
+            anchor()?,
+            edits(&r, "blocks", crate::structured::block_value)?,
+        ),
+    })
+}
+
 fn preview(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let source = borrow_target::<ImportedSource>(&call, "document")?;
@@ -1149,10 +1659,13 @@ fn preview(input: &Wire) -> Result<JsValue> {
             "cellAlignments",
             "blockEdits",
             "inlineEdits",
+            "fields",
+            "pairedRanges",
             "tableStructure",
             "styleEdits",
             "resources",
             "controls",
+            "wrappers",
         ],
     )?;
     let preview = source.document().preview_edits(rocx::editor::EditBatch {
@@ -1167,10 +1680,13 @@ fn preview(input: &Wire) -> Result<JsValue> {
         text_insertions: &edits(&batch, "textInsertions", text_insertion)?,
         blocks: &edits(&batch, "blockEdits", block_edit)?,
         inline_edits: &edits(&batch, "inlineEdits", inline_edit)?,
+        fields: &edits(&batch, "fields", field_edit)?,
+        paired_ranges: &edits(&batch, "pairedRanges", paired_edit)?,
         structural: &edits(&batch, "tableStructure", structure_edit)?,
         styles: &edits(&batch, "styleEdits", style_edit)?,
         resources: &edits(&batch, "resources", resource_edit)?,
         controls: &edits(&batch, "controls", control_edit)?,
+        wrappers: &edits(&batch, "wrappers", wrapper_edit)?,
     })?;
     preview_handle(preview)
 }

@@ -607,6 +607,7 @@ impl ImportedDocument {
             {
                 return Err(unsupported("protected or ambiguous layout owner"));
             }
+            super::revisions::guard_paragraph_mark(n)?;
             if let Some(fields) = p {
                 if n.child("w:pPr").is_none() && fields.values().any(Option::is_some) {
                     n.children.insert(0, Content::Element(Node::new("w:pPr")))

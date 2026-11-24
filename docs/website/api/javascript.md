@@ -163,6 +163,12 @@ Transitional DOCX snapshot. Its methods are synchronous:
   source relationship ID or bookmark, not a resolved URL. Inline anchors
   are snapshot-local: aliases of one physical story reuse the same inline
   addresses, but reopening identical bytes produces a distinct snapshot.
+- `previewTrackedBold` records a direct bold change on a plain or bold-only
+  body run. Inspect `propertyRevision` on the reopened run and use its anchor
+  with `previewRevision`. `previewTrackedParagraph` inserts a plain paragraph
+  before an ordinary paragraph or deletes an eligible single-run paragraph.
+  Inspect `markRevision` on the reopened paragraph, then pass its paragraph
+  anchor and `"accept"` or `"reject"` to `previewParagraphRevision`.
 
 Opaque markers report names, not editable XML. The inspection view is not a
 round-trip authoring declaration.
@@ -222,6 +228,9 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   four direct values, a `format` view and `hasOpaqueFormatting`. Use `patchFormat`
   with a `RunFormat` value under `format` and optional field names under `clear`.
   Multiple format edits can share a run when their properties are disjoint.
+  `editRunFormat({inlineEdits, ownerPart?})` returns new bytes and accepts
+  run anchors in body cells and hyperlink children. For header/footer and
+  ordinary note/comment runs, name their inspected physical `ownerPart`.
 - `blockEdits` also accepts `splitSection` (`target: section.anchor`, `offset`
   in original blocks) and `mergeSection` (`target: section.anchor` for a
   nonfinal section). Merging retains the following section's layout.

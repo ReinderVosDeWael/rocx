@@ -55,6 +55,55 @@ the new combined oracle. Strict installed TypeScript and offline Wasm/glue
 replay passed. The 12 catalogs and 26 editor outputs from
 `7d5d08b` are byte-identical to their qualified baselines.
 
+The isolated branch now merges the qualified `7d5d08b` resource and structural
+integration. The mixed CLI/installed-Python fixture uses a staged character
+style and numbering definition, a picture, a field cache referring to a
+same-batch bookmark, and a rich wrapper. It checks wrapper/numbering collisions
+and retains a pending revision when a disjoint drawing and metadata change
+are applied. A wrapper conflicts with same-block paragraph property edits;
+an ordinary property patch cannot make a pending paragraph mark unreviewable.
+Revision proposals and reviews remain separate requests. Final
+style/numbering checks reject new live or opaque references. `ProcessContent`
+guards now cover DrawingML properties and relationship-selected chart content.
+See [the CLI contract](CLI.md) for the body rich-edit transport.
+
+The combined source at `06ffc46` passed 344 Rust tests, three doctests,
+Rust 1.88, native/Wasm Clippy, and 984 schema-required installed Python tests,
+including 33 focused Python/CLI cases. Packed Node 22 and Chromium
+development/production matched all 43 editor files and 14 catalogs against
+Rust, with strict TypeScript, schema/OPC validation and offline archive
+replay. Installed Python also matched all 14 catalogs. The same tarball in
+Node 24 reproduced all 72 Node DOCX files and the editor reports.
+
+The isolated inline integration starts at `ae0cefd` and merges `ec54da1`,
+`f4c9ac6` and snapshots of the outstanding controls, fields and drawings work.
+The `richControls` oracle combines rich wrappers, three drawing insertions,
+a field flag, a paired bookmark, a run-format patch and paragraph insertion.
+It rejects a wrapper crossing a staged bookmark and tracked formatting in that
+bookmark after reopen. `fieldBatch` covers a cache spanning body paragraphs;
+`formatOwners` covers linked runs in cells and physical header/footer parts.
+Standalone gates passed: 342 Rust tests, three doctests, Rust 1.88, native/Wasm
+Clippy and 928 schema-required tests from the installed Python 3.12 wheel.
+Packed Node 22 and 24 and Chromium 159 development and production matched
+all 42 editor packages and 13 catalogs byte for byte against Rust. Installed
+Python also matched all 13 catalogs and regenerated the mixed control, field,
+revision and rich-inline oracles. Separate checks passed for strict TypeScript,
+schema/OPC, relationship ownership and untouched part payloads.
+
+The preceding `ae0cefd` integration combined fields and paired ranges with
+inlines, controls and revisions. Its `guardedWorkflow` oracle covers bookmark
+boundaries, unique revision IDs, control-site eligibility before and after
+review, and retrying a review after rejecting a colliding range. Separate guards
+exercise move names and field caches containing controls or revisions.
+
+**Qualification of `ae0cefd`:** 342 Rust all-target/all-feature tests, three
+doctests, native and Wasm Clippy, Rust 1.88 and all 915 schema-required
+installed Python tests passed. All 38 editor and 12 catalog packages
+matched complete Rust ZIPs in packed Node 26 and Chromium. All 50 passed
+schema/OPC checks; Node 22 and 24 also matched the 38 editor files. The
+installed Python catalog matched all 12 files; the
+independent Python editor checks verified the new combined workflow, revision
+and field packages, retained part payloads and python-docx readback.
 Primary integration ([#65](https://github.com/ReinderVosDeWael/rocx/pull/65)):
 the point, section, formatting, story and lifecycle work from `a30c516` is
 combined with `ea1c023` and the preservation guards from `ee4f8f5`. The merge
@@ -143,6 +192,38 @@ byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
 passed independent readback and schema/OPC checks (20 covered parts).
 See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
 
+Controls follow-up (#3), based on `b0a28b0`: the two new editor outputs cover
+standalone wrap, full definition replacement, unwrap and value-addressed
+drop-down changes. Independent python-docx/XML checks verify placement,
+retained formatting and unchanged part payloads. All twelve catalog files
+matched across Rust, installed Python and packed Node. The two editor outputs
+also matched Chromium; both and the new catalog sample passed schema/OPC checks.
+
+#3 revision follow-up: add direct bold-only `w:rPrChange` proposals, typed
+run-property metadata and accept/reject on the reopened run anchor. Check
+the three preview outputs across bindings against independent Word-package
+readback; see [revision contexts](REVISIONS.md#propose-a-formatting-change).
+The proposal and both reviewed documents matched exactly in Rust, installed
+Python 3.12 and packed Node 26; all three passed schema/OPC validation.
+The block-context follow-up marks a plain paragraph's terminator and text
+together, exposes mark metadata, and accepts/rejects the pair only next to a
+safe following paragraph. Six paragraph outputs (insert, delete, both reviews
+for each) matched complete Rust/Python/packed Node bytes and passed schema,
+OPC, python-docx and untouched-payload checks.
+The 56 Rust imported-editor tests, 15 focused Python tests, native/Wasm
+Clippy and strict installed TypeScript passed. All eleven catalog artifacts
+matched across Rust, installed Python and packed Node.
+
+Fields/links/ranges slice (#3): direct body field insertion, instruction/flag
+patches, whole-field replacement/removal, hyperlink targets/properties, and
+cross-paragraph bookmark/comment pairs are implemented on the topic branch.
+`fieldsRanges.docx` matched in Rust, installed Python and packed Node; the
+package passed schema/OPC validation and independent python-docx readback.
+That first result predated mixed field/range batches and balanced
+cross-paragraph complex-field cache edits. Non-body range endpoints and
+opaque caches remain outside the implementation.
+See [fields](FIELDS.md#editing-an-imported-field-or-link) and
+[ranges](RANGES.md#imported-body-ranges).
 Numbering follow-up (#48): add abstract levels and concrete instances, set or
 clear concrete starts/replacement levels and anchored body paragraph references,
 and guard removals against live or uninspectable references in the final package.
@@ -165,14 +246,14 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | --- | --- | --- |
 | #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs and replace supported section contents. Split or merge anchored direct sections. Inspect and patch direct paragraph styles/headings, alignment, tabs, indents, spacing/line height and flags; section geometry, margins, equal columns, grid, page/line numbering, single borders, alignment, flags and break type. | Story/nested paragraph layout; layout in mixed ordinary batches; richer imported spacing/indents, unequal columns, art/theme borders and unmodeled numbering formats. Paragraph numbering references are a separate slice. |
-| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
+| #44 Inlines | Insert/replace supported direct body inlines. Inspect and patch direct formatting on runs, including hyperlink children, in body paragraphs, physical body cells, effective header/footer parts and ordinary note/comment entries. | Nested tables, control/revision targets, themed or split Latin font selections and destructive edits over unrecognized properties. |
 | #45 Tables | Inspect and patch direct properties, insert/remove physical rows/cells and logical columns, and replace cell content in body, nested and physical story tables. Replace guarded table/row/cell nodes or remove eligible whole tables in the direct body. | Splitting protected merges, unsafe destructive changes, whole-node replacement/removal outside direct-body scope and cross-owner batches. |
 | #46 Stories | Shared/local images and guarded block splices in all six header/footer slots; create/link/remove explicit story references; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Deleting OPC story parts, custom note marks, shared or nested note reference edits, destructive rich block edits, modern comment metadata, reserved entries and local text forks. |
 | #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits and retargeting live users. |
 | #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
-| #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
-| #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
-| #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, story images/text, revision operations, point insertions, block flags, direct layout, section lifecycle, story references/splices, direct and physical table edits, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; newer rich run formatting and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |
+| #49 Revisions and #3 follow-up | Track insertion, replacement, deletion and paired moves of simple direct body runs; track direct bold and simple whole-paragraph insert/delete; review eligible changes. | Mixed ordinary/revision transactions, other property changes, block moves and rich or nested revisions. |
+| #50 Controls | Inspect physical story owners; wrap/unwrap compatible main-story siblings in block/inline/row/cell contexts; replace supported rich block or inline content; edit approved metadata, text and choice lists. | Nested and bound edits, other specialized types, and mutation outside the main story. |
+| #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, story images/text, revision operations (including paragraph marks and bold), rich inline/field/range/control/drawing edits, point insertions, block flags, direct layout, section lifecycle, story references/splices, direct and physical table edits, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; physical-owner rich formatting and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 
 **#3 table follow-up (before section/story/table recovery):** direct-body table layout can be inspected, set or
@@ -266,6 +347,12 @@ payloads. All 24 editor outputs matched Rust in Node and Chromium; all 11
 catalogs matched across Rust, Python and Node. Native/Wasm Clippy, strict
 TypeScript, 54 Rust and 58 Python editor tests passed on the standalone branch.
 
+After integrating `8c18d1b`, physical-owner run formatting passed 54 Rust and
+84 Python editor/note tests, strict TypeScript and native/Wasm Clippy. Node 26
+and Chromium 159 matched all 25 Rust editor outputs. The rich linked drawing
+fixture matched Python too, retained the original content and relationships,
+and passed schema/OPC checks. All eleven catalogs matched Rust/Python/Node,
+including the formatted hyperlink in each ordinary note/comment owner.
 **Style follow-up (#3, based on `b0a28b0`):** the seven-edit style fixture
 matches full Rust, installed Python 3.12, packed Node 26 and Chromium 159
 bytes. Independent readback checks the next-style reference, conditional cell

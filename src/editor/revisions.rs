@@ -3,6 +3,8 @@ use super::{insertion::BoundaryState, *};
 use crate::ooxml::revisions::RevisionIds;
 use crate::{BookmarkName, RevisionKind, TextRevision, TextRevisionAction};
 use std::ops::Range;
+mod paragraphs;
+pub use paragraphs::TrackedParagraph;
 
 /// Explicit revision-producing edit for one supported imported body run.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,24 +118,38 @@ fn metadata(kind: RevisionKind, author: &str, date: Option<&str>) -> Result<Text
 }
 
 impl ImportedDocument {
-    fn stage_revision(&self, stage: impl FnOnce(&mut Node) -> Result<bool>) -> Result<EditPreview> {
-        let mut package = self.package.clone();
-        let mut root = package.word(&self.main)?;
-        if stage(root.child_mut("w:body").ok_or_else(missing_body)?)? {
-            package.put_word(&self.main, root)?;
-        }
-        Ok(EditPreview {
-            output: PackagePlan::new(package)?,
-            block_changes: vec![],
-            inline_changes: vec![],
-            changes: vec![],
-            insertions: vec![],
-            paragraph_insertions: vec![],
-            header_changes: vec![],
-            run_text_changes: vec![],
-            run_removals: vec![],
-            cell_alignment_changes: vec![],
+    /// Propose a direct bold property on a plain or bold-only body text run.
+    pub fn preview_tracked_bold(
+        &self,
+        target: &InlineAnchor,
+        bold: bool,
+        author: &str,
+        date: Option<&str>,
+    ) -> Result<EditPreview> {
+        self.validate_snapshot(&target.snapshot)?;
+        let rev = metadata(RevisionKind::Insertion, author, date)?;
+        self.stage_revision(|body| {
+            let s = site(body, target)?;
+            guard_boundary(body, s)?;
+            let mut run = at(body, s).clone();
+            simple_text(&run, "w:t")?;
+            let prior = run
+                .child("w:rPr")
+                .cloned()
+                .unwrap_or_else(|| Node::new("w:rPr"));
+            if bold_value(&prior)? == Some(bold) {
+                return Ok(false);
+            }
+            let change = check_references(&self.package, None, &[])?.property_change(&rev)?;
+            super::text::patch_toggle(&mut run, RunToggle::Bold, Some(bold))?;
+            run.child_mut("w:rPr").unwrap().push(change.with(prior));
+            splice(body, s.0, s.1..s.1 + 1, vec![run]);
+            Ok(true)
         })
+    }
+
+    fn stage_revision(&self, stage: impl FnOnce(&mut Node) -> Result<bool>) -> Result<EditPreview> {
+        self.stage_body(stage)
     }
 
     /// Insert, replace or delete one direct body text run using explicit revision
@@ -272,6 +288,41 @@ impl ImportedDocument {
             } else {
                 guard_boundary(body, s)?;
                 let wrapper = at(body, s);
+                if wrapper.name == "w:r" {
+                    let mut run = wrapper.clone();
+                    let props = run
+                        .child_mut("w:rPr")
+                        .ok_or_else(|| unsupported("missing run property change"))?;
+                    let change = props
+                        .child("w:rPrChange")
+                        .cloned()
+                        .ok_or_else(|| unsupported("missing run property change"))?;
+                    if props.elements().filter(|n| n.name == "w:rPrChange").count() != 1
+                        || props.elements().last().unwrap().name != "w:rPrChange"
+                        || !allowed(&change, &["w:id", "w:author", "w:date"])
+                        || change.elements().count() != 1
+                    {
+                        return Err(unsupported("unsupported run property change"));
+                    }
+                    metadata(
+                        RevisionKind::Insertion,
+                        change.get("w:author").unwrap_or(""),
+                        change.get("w:date"),
+                    )?;
+                    check_references(&self.package, None, &[(id(&change)?, 1)])?;
+                    let prior = change
+                        .child("w:rPr")
+                        .ok_or_else(|| unsupported("missing prior run properties"))?;
+                    bold_value(prior)?;
+                    props.remove("w:rPrChange");
+                    bold_value(props)?;
+                    if !accept {
+                        *props = prior.clone();
+                    }
+                    simple_text(&run, "w:t")?;
+                    splice(body, s.0, s.1..s.1 + 1, vec![run]);
+                    return Ok(true);
+                }
                 let tag = match wrapper.name.as_str() {
                     "w:ins" => "w:t",
                     "w:del" => "w:delText",
@@ -297,10 +348,52 @@ impl ImportedDocument {
     }
 }
 
+/// Paragraph-mark review consumes a paragraph with its original property
+/// envelope. Adding ordinary properties to that paragraph would make a
+/// previously supported proposal no longer reviewable.
+pub(super) fn guard_paragraph_mark(paragraph: &Node) -> Result<()> {
+    let pending = paragraph
+        .elements()
+        .filter(|p| p.name == "w:pPr")
+        .flat_map(Node::elements)
+        .filter(|p| p.name == "w:rPr")
+        .flat_map(Node::elements)
+        .any(|p| {
+            matches!(
+                p.name.as_str(),
+                "w:ins" | "w:del" | "w:moveFrom" | "w:moveTo"
+            )
+        });
+    if pending {
+        return Err(unsupported(
+            "paragraph mark revision must be reviewed before editing its properties",
+        ));
+    }
+    Ok(())
+}
+
 fn id(n: &Node) -> Result<u32> {
     n.get("w:id")
         .and_then(|s| s.trim().parse().ok())
         .ok_or_else(|| unsupported("missing or unsupported revision ID"))
+}
+
+fn bold_value(props: &Node) -> Result<Option<bool>> {
+    let bad = || unsupported("expected empty or bold-only run properties");
+    if !allowed(props, &[]) || props.elements().count() > 1 {
+        return Err(bad());
+    }
+    let Some(b) = props.elements().next() else {
+        return Ok(None);
+    };
+    if b.name != "w:b" || !allowed(b, &["w:val"]) || b.elements().next().is_some() {
+        return Err(bad());
+    }
+    match b.get("w:val") {
+        None | Some("true" | "1" | "on") => Ok(Some(true)),
+        Some("false" | "0" | "off") => Ok(Some(false)),
+        _ => Err(bad()),
+    }
 }
 
 fn allowed(n: &Node, attrs: &[&str]) -> bool {
@@ -313,14 +406,16 @@ fn allowed(n: &Node, attrs: &[&str]) -> bool {
 }
 
 fn unwrap_run(wrapper: &Node, tag: &str) -> Result<Node> {
-    if !allowed(wrapper, &["w:id", "w:author", "w:date"])
-        || wrapper.get("w:author").is_none()
-        || wrapper.elements().count() != 1
-    {
+    if !allowed(wrapper, &["w:id", "w:author", "w:date"]) || wrapper.elements().count() != 1 {
         return Err(unsupported(
             "revision wrapper has unsupported metadata or content",
         ));
     }
+    metadata(
+        RevisionKind::Insertion,
+        wrapper.get("w:author").unwrap_or(""),
+        wrapper.get("w:date"),
+    )?;
     let run = wrapper.elements().next().unwrap();
     simple_text(run, tag)?;
     Ok(run.clone())

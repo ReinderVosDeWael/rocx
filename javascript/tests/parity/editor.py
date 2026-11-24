@@ -104,9 +104,62 @@ def generate_controls(directory):
     doc.add_paragraph("untouched")
     doc.save(directory / "control-source.docx")
 
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    for context in ("block", "inline"):
+        doc.add_paragraph().add_run(context).bold = True
+    for context in ("row", "cell"):
+        doc.add_table(rows=1, cols=1).cell(0, 0).text = context
+    props = wrap(doc.add_paragraph().add_run("First")._r)
+    props.remove(props[-1])
+    choices = elem("dropDownList", lastValue="1")
+    choices.extend([elem("listItem", displayText=label, value=value)
+                    for label, value in [("First", "1"), ("Second", "2")]])
+    props.append(choices)
+    doc.save(directory / "control-choice-source.docx")
+
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    doc.add_paragraph("ordinary")
+    p = doc.add_paragraph("range ")
+    p.add_run("start").bold = True
+    doc.add_table(rows=1, cols=1).cell(0, 0).text = "retained table"
+    doc.add_paragraph("range end")
+    p = doc.add_paragraph("one")
+    p.add_run("two").italic = True
+    p.add_run("outside")
+    wrap(doc.add_paragraph("block payload")._p, elem("lock", val="sdtLocked"))
+    wrap(doc.add_paragraph().add_run("inline payload")._r)
+    wrap(doc.add_paragraph("locked")._p, elem("lock", val="contentLocked"))
+    for name in ("header","footer"):
+        p = getattr(doc.sections[0], name).paragraphs[0]
+        wrap(p.add_run(name)._r)
+    comment = doc.add_comment(doc.add_paragraph().add_run("comment range"), "comment", author="Editor")
+    wrap(comment.paragraphs[0]._p)
+    from docx.opc.part import Part
+    from docx.opc.packuri import PackURI
+    for tag in ("footnote","endnote"):
+        root = elem(tag + "s")
+        entry = elem(tag, id="1")
+        payload = copy.deepcopy(doc.element.xpath("//w:sdt[w:sdtPr/w:lock/@w:val='contentLocked']")[0])
+        entry.append(payload)
+        root.append(entry)
+        part = Part(PackURI("/word/" + tag + "s.xml"),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml."+tag+"s+xml",
+                    etree.tostring(root), doc.part.package)
+        doc.part.relate_to(part, NS["r"]+"/"+tag+"s")
+        doc.add_paragraph().add_run()._r.append(elem(tag+"Reference",id="1"))
+    p = doc.add_paragraph("mixed-field left")
+    field = elem("fldSimple", instr=" PAGE ")
+    field.append(p.add_run("cached page")._r)
+    p._p.append(field)
+    p.add_run("mixed-field right")
+    doc.add_section()
+    doc.save(directory / "rich-control-source.docx")
+
 
 def verify_controls(directory):
-    from rocx.editor import ControlEdit, ImportedDocument
+    from rocx.editor import ControlEdit, ControlProperties, ImportedDocument
     path = directory / "control-source.docx"
     data = path.read_bytes()
     doc = ImportedDocument.open(data)
@@ -143,6 +196,138 @@ def verify_controls(directory):
     assert readback.element.xpath("//w:sdtContent/w:r/w:rPr/w:b")
     assert readback.element.xpath("//w:t[.=' block ']/@xml:space") == ["preserve"]
 
+    data = (directory / "control-choice-source.docx").read_bytes()
+    source = ImportedDocument.open(data)
+    choice, = source.controls
+    assert (choice.kind, choice.selected, choice.choices) == (
+        "dropDownList", "1", [("First", "1"), ("Second", "2")])
+    def refused(action, reason):
+        try:
+            action()
+        except ValueError as exc:
+            assert reason in str(exc), exc
+        else:
+            raise AssertionError("expected " + reason)
+    refused(lambda: source.preview_control_choice(choice.anchor, "absent"), "unknown")
+    refused(lambda: source.preview_control_choice(choice.anchor, "x", choices=[("A","x"),("B","x")]), "unique")
+    refused(lambda: doc.preview_control_choice(choice.anchor, "2"), "snapshot")
+    refused(lambda: doc.preview_unwrap_control(c[0].anchor), "locked")
+    refused(lambda: doc.preview_unwrap_control(c[4].anchor), "bound")
+    refused(lambda: doc.preview_unwrap_control(c[1].anchor), "opaque")
+    target = source.body[0].inline_structure[0].anchor
+    marked = ImportedDocument.open(source.set_paired_range(90, "Guard", (target,target)))
+    assert not any(s.text == "block" for s in marked.control_sites)
+    refused(lambda: marked.preview_tracked_bold(marked.body[0].inline_structure[1].anchor, False, "Reviewer"), "protected")
+    plain = ImportedDocument.open(marked.set_paired_range(90, "Guard"))
+    proposed = ImportedDocument.open(plain.preview_tracked_bold(plain.body[0].inline_structure[0].anchor, False, "Reviewer").to_docx())
+    revised, other = [p.inline_structure[0] for p in proposed.body[:2]]
+    assert not any(s.text == "block" for s in proposed.control_sites)
+    refused(lambda: proposed.set_paired_range(int(revised.property_revision.id), "Other", (other.anchor,other.anchor)), "collides")
+    accepted = ImportedDocument.open(proposed.preview_revision(revised.anchor, "accept").to_docx())
+    site, = (s for s in accepted.control_sites if s.context == s.text == "block")
+    workflow = accepted.preview_wrap_control(site, "reviewed").to_docx()
+    assert workflow == (directory / "guardedWorkflow.docx").read_bytes()
+    untouched(parts(directory / "control-choice-source.docx"), parts(io.BytesIO(workflow)), (MAIN,))
+    xml = Document(io.BytesIO(workflow)).element
+    assert not xml.xpath("//w:bookmarkStart | //w:bookmarkEnd | //w:rPrChange")
+    assert xml.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='reviewed']/w:sdtContent/w:p/w:r[w:t='block']/w:rPr/w:b/@w:val") == ["0"]
+    selected = ImportedDocument.open(source.preview_control_choice(choice.anchor, "2").to_docx())
+    assert selected.controls[0].selected == "2" and selected.controls[0].choices == choice.choices
+    data = selected.preview_control_choice(selected.controls[0].anchor, "R", choices=[(" Revised ", "R")]).to_docx()
+    for context in ("block", "inline", "row", "cell"):
+        target = ImportedDocument.open(data)
+        site, = (s for s in target.control_sites if s.context == s.text == context)
+        refused(lambda: source.preview_wrap_control(site, "bad"), "snapshot")
+        data = target.preview_wrap_control(site, context).to_docx()
+    target = ImportedDocument.open(data)
+    by_tag = {c.tag: c.anchor for c in target.controls}
+    definition = ControlProperties(tag="inline", text_type="plain", multi_line=False, id=42)
+    refused(lambda: target.preview_replace_control(by_tag["row"], definition), "rich text")
+    data = target.preview_replace_control(by_tag["inline"], definition).to_docx()
+    target = ImportedDocument.open(data)
+    by_tag = {c.tag: c for c in target.controls}
+    assert (by_tag["inline"].kind, by_tag["inline"].multi_line, by_tag["inline"].id) == ("text", "0", "42")
+    refused(lambda: target.preview_replace_control(by_tag["row"].anchor, ControlProperties(id=42)), "duplicate")
+    assert data == (directory / "controlWrapped.docx").read_bytes()
+    xml = Document(io.BytesIO(data)).element
+    assert xml.xpath("//w:sdtPr/w:dropDownList/@w:lastValue") == ["R"]
+    assert xml.xpath("//w:sdtContent/w:r/w:t[.=' Revised ']/@xml:space") == ["preserve"]
+    assert xml.xpath("//w:sdtContent/w:p/w:r/w:rPr/w:b") and xml.xpath("//w:sdtContent/w:r/w:rPr/w:b")
+    assert xml.xpath("//w:tbl/w:sdt/w:sdtContent/w:tr") and xml.xpath("//w:tr/w:sdt/w:sdtContent/w:tc")
+    for context in ("block", "inline", "row", "cell"):
+        target = ImportedDocument.open(data)
+        control, = (c for c in target.controls if c.tag == c.context == context)
+        data = target.preview_unwrap_control(control.anchor).to_docx()
+    assert data == (directory / "controlUnwrapped.docx").read_bytes()
+    reopened = Document(io.BytesIO(data))
+    assert [p.text for p in reopened.paragraphs[:2]] == ["block", "inline"]
+    assert [t.cell(0, 0).text for t in reopened.tables] == ["row", "cell"]
+    assert reopened.paragraphs[0].runs[0].bold and reopened.paragraphs[1].runs[0].bold
+    for name in ("controlWrapped", "controlUnwrapped"):
+        untouched(parts(directory / "control-choice-source.docx"), parts(directory / (name + ".docx")), (MAIN,))
+
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import (FieldEdit, InlineEdit, PairedRangeEdit, WrapperEdit as W,
+                             HeaderImageEdit, ParagraphAlignmentEdit, ParagraphInsertion)
+    rich_path = directory / "rich-control-source.docx"
+    rich = ImportedDocument.open(rich_path.read_bytes())
+    assert sorted(c.owner_part for c in rich.story_controls) == [
+        "word/comments.xml","word/endnotes.xml","word/footer1.xml","word/footnotes.xml","word/header1.xml"]
+    assert sorted(c.entry_id for c in rich.story_controls if c.entry_index is not None) == ["0","1","1"]
+    refused(lambda: rich.preview_unwrap_control(rich.story_controls[0].anchor), "read-only")
+    site = lambda ctx, label: next(s for s in rich.control_sites if s.context == ctx and s.text == label)
+    def wrap(ctx, first, last, tag):
+        return W.wrap(site(ctx, first), tag, last=site(ctx,last))
+    async def rich_batch():
+        a,b,adjacent = [await d.Paragraph(text=t).resolve() for t in ("A","B","adjacent")]
+        image = await d.ImageRun((directory / "image.png").read_bytes()).resolve()
+        runs = [await d.TextRun("picture:").resolve(), image]
+        c = rich.controls
+        wrappers = [wrap("block","range start","range end","group"),wrap("inline","one","two","runs"),
+                    W.replace_blocks(c[0].anchor, [a,b]), W.replace_inlines(c[1].anchor,runs)]
+        p = next(p for p in rich.body if getattr(p, "text", "").startswith("mixed-field left"))
+        left, _, right = p.inline_structure
+        field = FieldEdit.patch(p.anchor, 1, "dirty", True)
+        mixed_range = PairedRangeEdit(91, "MixedControl", (left.anchor, right.anchor))
+        crossed = PairedRangeEdit(92, "Crossed",
+                                  (rich.body[1].inline_structure[0].anchor, rich.body[3].inline_structure[0].anchor))
+        refused(lambda: rich.preview([], wrappers=[wrappers[0],W.replace_blocks(c[2].anchor,[a])]),"locked")
+        refused(lambda: rich.preview([ParagraphAlignmentEdit(rich.body[1].anchor,"center")],wrappers=wrappers),"conflicting")
+        refused(lambda: rich.preview([], wrappers=wrappers, paired_ranges=[crossed]), "conflicting")
+        return rich.preview([],wrappers=wrappers,paragraph_insertions=[ParagraphInsertion(rich.body[0].anchor,adjacent)],
+            fields=[field], paired_ranges=[mixed_range],
+            inline_edits=[InlineEdit.insert_after(rich.body[0].inline_structure[0].anchor,image),
+                          InlineEdit.patch_format(left.anchor,size=13.5)],
+            header_images=[HeaderImageEdit(rich.default_headers[0].anchor,image,mode="shared")]).to_docx()
+    mixed = asyncio.run(rich_batch())
+    assert mixed == (directory / "richControls.docx").read_bytes()
+    xml = Document(io.BytesIO(mixed)).element
+    grouped = xml.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='group']/w:sdtContent")[0]
+    assert [c.tag for c in grouped] == [qn("w:p"),qn("w:tbl"),qn("w:p")]
+    assert xp(grouped,".//w:r[w:rPr/w:b]/w:t/text()") == ["start"]
+    assert xml.xpath("//w:sdt[w:sdtPr/w:tag/@w:val='runs']/w:sdtContent/w:r[w:rPr/w:i]/w:t/text()") == ["two"]
+    assert xml.xpath("//w:sdt[w:sdtPr/w:lock/@w:val='sdtLocked']/w:sdtContent/w:p/w:r/w:t/text()") == ["A","B"]
+    readback = Document(io.BytesIO(mixed))
+    assert [p.text for p in readback.paragraphs[:2]] == ["ordinary","adjacent"]
+    assert len(readback.inline_shapes)==1  # python-docx omits drawings inside inline controls.
+    assert len(xml.xpath(".//w:sdtContent//wp:docPr")) == 1
+    header=readback.sections[0].header._element
+    ids = header.xpath(".//wp:docPr/@id") + xml.xpath(".//wp:docPr/@id")
+    assert len(ids) == len(set(ids)) == 3
+    assert xml.xpath("//w:fldSimple/@w:dirty") == ["1"]
+    assert xml.xpath("//w:bookmarkStart[@w:name='MixedControl']/following-sibling::w:r[1]/w:rPr/w:sz/@w:val") == ["27"]
+    untouched(parts(rich_path),parts(io.BytesIO(mixed)),(MAIN,MAIN_RELS,HEADER,HEADER_RELS,TYPES))
+    promoted=ImportedDocument.open(mixed)
+    protected = next(p for p in promoted.body if getattr(p, "text", "").startswith("mixed-field left"))
+    refused(lambda: promoted.preview_tracked_bold(protected.inline_structure[1].anchor, False, "Reviewer"), "protected")
+    data=promoted.preview([],wrappers=[W.unwrap(c.anchor) for c in promoted.controls if c.tag in ("group","runs")]).to_docx()
+    assert data == (directory / "richUnwrapped.docx").read_bytes()
+    restored=Document(io.BytesIO(data))
+    assert [p.text for p in restored.paragraphs[:5]] == ["ordinary","adjacent","range start","range end","onetwooutside"]
+    assert restored.tables[0].cell(0,0).text=="retained table"
+    untouched(parts(io.BytesIO(mixed)),parts(io.BytesIO(data)),(MAIN,))
+
 
 def generate(directory):
     shared = Document()
@@ -177,6 +362,56 @@ def generate(directory):
     layout._element.body.remove(layout.sections[-1]._sectPr)
     layout.save(directory / "layout-source.docx")
     generate_controls(directory)
+    paired = Document()
+    paired.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    first = paired.add_paragraph()
+    field = elem("fldSimple", instr=" PAGE ")
+    field.append(first.add_run("old cache")._r)
+    first._p.append(field)
+    paired.add_comment(paired.add_paragraph().add_run("annotated"), text="original comment", author="Reviewer")
+    p = paired.add_paragraph()
+    link = elem("hyperlink")
+    link.set(qn("r:id"), p.part.relate_to(BODY_LINK, RELATIONSHIP_TYPE.HYPERLINK, is_external=True))
+    link.append(p.add_run("link")._r)
+    p._p.append(link)
+    paired.add_paragraph("last")
+    paired.save(directory / "paired-source.docx")
+    owners = Document()
+    owners.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    cell = owners.add_table(rows=1, cols=1).cell(0, 0)
+    for label, p in [("cell",cell.paragraphs[0]), ("header",owners.sections[0].header.paragraphs[0]),
+                     ("footer",owners.sections[0].footer.paragraphs[0])]:
+        link = elem("hyperlink")
+        link.set(qn("r:id"),p.part.relate_to("https://example.invalid/"+label, RELATIONSHIP_TYPE.HYPERLINK,is_external=True))
+        run = p.add_run(label+"\tword")
+        run.add_picture(io.BytesIO(png((11,22,33))),width=Twips(100))
+        run._r.append(elem("noBreakHyphen"))
+        link.append(run._r)
+        p._p.append(link)
+    owners.add_section()
+    owners.save(directory / "format-owners-source.docx")
+    # A complex field starts in one paragraph and ends in another. Its result
+    # has multiple leaves in a formatted run; unsupported symbol neighbors
+    # and XML comments lie immediately outside the editable span.
+    p = paired.add_paragraph()
+    p.add_run()._r.append(elem("sym", font="Wingdings", char="F0FC"))
+    p._p.append(etree.Comment("before-field"))
+    p.add_run()._r.append(elem("fldChar", fldCharType="begin", fldLock="1"))
+    code = elem("instrText")
+    code.text = " PAGE "
+    p.add_run()._r.append(code)
+    p.add_run()._r.append(elem("fldChar", fldCharType="separate"))
+    run = p.add_run("old")
+    run.italic = True
+    run.add_tab()
+    run.add_text("cache")
+    q = paired.add_paragraph()
+    q.paragraph_format.keep_together = True
+    q.add_run("more old cache")
+    q.add_run()._r.append(elem("fldChar", fldCharType="end"))
+    q._p.append(etree.Comment("after-field"))
+    q.add_run()._r.append(elem("sym", font="Wingdings", char="F0FD"))
+    paired.save(directory / "field-batch-source.docx")
     catalog = Document()
     catalog.add_paragraph("Numbering target")
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
@@ -409,6 +644,127 @@ def verify_ordinary(directory):
         assert tree(old) == tree(new)
 
 
+def verify_field_batch(directory):
+    import asyncio
+    from rocx import declarative as d
+    from rocx.editor import FieldEdit, ImportedDocument, InlineEdit, PairedRangeEdit
+    source = directory / "field-batch-source.docx"
+    doc = ImportedDocument.open(source.read_bytes())
+    async def payload():
+        return [await d.Hyperlink("https://example.invalid/cache", [d.TextRun("remote")]).resolve(),
+                await d.Hyperlink(d.BookmarkTarget("BatchMark"), [d.TextRun("jump")]).resolve()]
+    at = lambda p, i: doc.body[p].inline_structure[i].anchor
+    fields = [
+        FieldEdit.cache(doc.body[4].anchor, 1, asyncio.run(payload())),
+        FieldEdit.patch(doc.body[4].anchor, 1, "dirty", False),
+        FieldEdit.patch(doc.body[0].anchor, 0, "dirty", True),
+        FieldEdit.patch(doc.body[0].anchor, 0, "instruction", " NUMPAGES "),
+    ]
+    ranges = [PairedRangeEdit(7, "BatchMark", (at(1, 1), at(2, 0))),
+              PairedRangeEdit(0, endpoints=(at(2, 0), at(3, 0)))]
+    links = [InlineEdit.hyperlink_tooltip(at(2, 0), "Batch tooltip"), InlineEdit.hyperlink_history(at(2, 0), False)]
+    batch = doc.preview([], fields=fields, paired_ranges=ranges, inline_edits=links)
+    data = batch.to_docx()
+    assert doc.preview([], fields=fields[::-1], paired_ranges=ranges[::-1], inline_edits=links[::-1]).to_docx() == data
+    assert data == (directory / "fieldBatch.docx").read_bytes()
+    before, after = parts(source), parts(io.BytesIO(data))
+    untouched(before, after, (MAIN, MAIN_RELS))
+    rels = lambda parts: {n.get("Id"): dict(n.attrib) for n in etree.fromstring(parts[MAIN_RELS])}
+    old, new = rels(before), rels(after)
+    assert old.items() <= new.items()
+    added, = new.keys() - old.keys()
+    assert new[added]["Target"] == "https://example.invalid/cache" and new[added]["TargetMode"] == "External"
+    word = Document(io.BytesIO(data))
+    p, q = word.paragraphs[4:6]
+    assert [link.text for link in p.hyperlinks] == ["remote", "jump"]
+    assert p._p.xpath("w:hyperlink/@r:id") == [added]
+    assert p._p.xpath("w:hyperlink/@w:anchor") == ["BatchMark"]
+    assert p._p.xpath("w:r/w:fldChar/@w:fldCharType") == ["begin", "separate"]
+    assert p._p.xpath("w:r/w:fldChar/@w:dirty") == ["0"] and p._p.xpath("w:r/w:fldChar/@w:fldLock") == ["1"]
+    assert q._p.xpath("w:r/w:fldChar/@w:fldCharType") == ["end"] and q.paragraph_format.keep_together
+    assert word.element.xpath("//w:sym/@w:char") == ["F0FC", "F0FD"]
+    assert [c.text for c in word.element.xpath("//comment()")] == ["before-field", "after-field"]
+    assert word.paragraphs[2].hyperlinks[0].url == BODY_LINK
+    assert word.paragraphs[2]._p.xpath("w:hyperlink/@w:tooltip") == ["Batch tooltip"]
+    assert word.paragraphs[2]._p.xpath("w:hyperlink/@w:history") == ["0"]
+    assert word.element.xpath("//w:fldSimple/@w:dirty") == ["1"]
+    assert word.element.xpath("//w:fldSimple/@w:instr") == [" NUMPAGES "]
+    assert len(word.comments) == 1
+
+
+def verify_fields_ranges(directory):
+    import asyncio
+    from rocx import declarative as decl
+    from rocx.editor import ImportedDocument, InlineEdit
+    source = directory / "paired-source.docx"
+    d = ImportedDocument.open(source.read_bytes())
+    field = asyncio.run(decl.Field(decl.FieldInstruction.page(), [decl.TextRun("new cache")], form="complex").resolve())
+    old = d.body[0].anchor
+    d = ImportedDocument.open(d.replace_field(old, 0, field))
+    try:
+        d.patch_field(old, 0, "dirty", True)
+    except ValueError as exc:
+        assert "snapshot" in str(exc)
+    else:
+        raise AssertionError("accepted stale paragraph")
+    d = ImportedDocument.open(d.patch_field(d.body[0].anchor, 0, "instruction", " NUMPAGES "))
+    info = d.field_at(d.body[0].anchor, 0)
+    assert (info.complex, info.inline_count, info.instruction, info.dirty_xml) == (True, 5, " NUMPAGES ", None)
+    at = lambda p, i: d.body[p].inline_structure[i].anchor
+    d = ImportedDocument.open(d.preview([], inline_edits=[InlineEdit.hyperlink_tooltip(at(2, 0), "hover")]).to_docx())
+    assert d.body[2].inline_structure[0].tooltip == "hover"
+    d = ImportedDocument.open(d.set_paired_range(0, endpoints=(at(2, 0), at(3, 0))))
+    assert [(m.kind, m.body_index, m.inline_index, m.id) for m in d.body_range_markers] == [
+        ("commentRangeStart", 2, 0, "0"), ("commentRangeEnd", 3, 1, "0"), ("commentReference", 3, 2, "0")]
+    removed = Document(io.BytesIO(d.set_paired_range(0)))
+    assert not removed.element.xpath("//w:commentReference | //w:commentRangeStart | //w:commentRangeEnd")
+    assert len(removed.comments) == 1
+    data = d.set_paired_range(7, "Crossing", (at(1, 0), at(2, 1)))
+    assert data == (directory / "fieldsRanges.docx").read_bytes()
+    untouched(parts(source), parts(io.BytesIO(data)), (MAIN,))
+    out = Document(io.BytesIO(data))
+    assert out.element.xpath("//w:instrText/text()") == [" NUMPAGES "]
+    assert out.element.xpath("//w:fldChar/@w:fldCharType") == ["begin", "separate", "end"]
+    assert out.paragraphs[0].text == "new cache"
+    assert out.paragraphs[2].hyperlinks[0].url == BODY_LINK
+    assert out.element.xpath("//w:hyperlink/@w:tooltip") == ["hover"]
+    assert out.paragraphs[1]._p.xpath("w:bookmarkStart/@w:name") == ["Crossing"]
+    assert out.paragraphs[2]._p.xpath("w:commentRangeStart/@w:id") == ["0"]
+    assert out.paragraphs[2]._p.xpath("w:bookmarkEnd/@w:id") == ["7"]
+    assert out.paragraphs[3]._p.xpath("w:commentRangeEnd/@w:id | w:r/w:commentReference/@w:id") == ["0", "0"]
+
+
+def verify_rich(directory):
+    verify_field_batch(directory)
+    verify_fields_ranges(directory)
+    from rocx.editor import ImportedDocument, InlineEdit
+    raw = (directory / "format-owners-source.docx").read_bytes()
+    source = parts(io.BytesIO(raw))
+    for label in ("cell","header","footer"):
+        d = ImportedDocument.open(raw)
+        if label == "cell":
+            owner, paragraph = None, d.body[0].children[0].children[0].blocks[0]
+        else:
+            story = next(s for s in d.stories if s.kind == label and s.section_index == 1 and s.variant == "default")
+            owner, paragraph = story.part_name, story.blocks[0]
+        target = paragraph.inline_structure[0].children[0].anchor
+        raw = d.edit_run_format([InlineEdit.patch_format(target,size=13.5)],owner_part=owner)
+    assert raw == (directory / "formatOwners.docx").read_bytes()
+    output = parts(io.BytesIO(raw))
+    owners = (MAIN, HEADER, "word/footer1.xml")
+    untouched(source,output,owners)
+    for part in owners:
+        old, changed = [etree.fromstring(z[part]) for z in (source,output)]
+        rpr, = xp(changed,".//w:hyperlink/w:r/w:rPr")
+        assert xp(rpr,"./w:sz/@w:val") == ["27"]
+        rpr.getparent().remove(rpr)
+        assert tree(changed) == tree(old)
+    readback = Document(io.BytesIO(raw))
+    for p in [readback.tables[0].cell(0,0).paragraphs[0],readback.sections[1].header.paragraphs[0],
+              readback.sections[1].footer.paragraphs[0]]:
+        assert p.hyperlinks[0].runs[0].font.size.pt == 13.5
+
+
 async def structural_resources(path):
     from rocx import declarative as d
     from rocx.editor import ImportedDocument, ResourceEdit as R, StyleEdit, TableStructureEdit as T
@@ -501,6 +857,7 @@ def verify(directory):
     assert doc.edit_story_blocks(original_header.anchor, "shared", 0, 1, [replacement]) == story_path.read_bytes()
     untouched(old, parts(story_path), (original_header.part_name,))
     assert all(s.header.paragraphs[0].text == "Shared story replacement" for s in Document(story_path).sections)
+    verify_rich(directory)
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d
@@ -544,8 +901,6 @@ def verify(directory):
     backlink = xp(num,f'w:abstractNum[@w:abstractNumId="{aid}"]/w:styleLink')[0]
     assert backlink.get(qn("w:val")) == "MemoList"
     backlink.getparent().remove(backlink)
-    def tree(node):
-        return (node.tag, dict(node.attrib), node.text, [tree(n) for n in node])
     assert tree(num) == tree(etree.fromstring(before["word/numbering.xml"]))
     source = parts(directory / "base.docx")
     image = (directory / "image.png").read_bytes()
@@ -616,6 +971,38 @@ def verify(directory):
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
     date = "2024-02-29T12:34:56Z"
+    current = imported
+    original_text = [p.text for p in Document(directory / "base.docx").paragraphs]
+    for label, kind, args in [("Insert","insertBefore",{"text":" proposed "}),("Delete","delete",{})]:
+        data = current.preview_tracked_paragraph(current.body[1].anchor, kind, "A & B", date=date, **args).to_docx()
+        assert data == (directory / f"para{label}.docx").read_bytes()
+        untouched(source, parts(io.BytesIO(data)), (MAIN,))
+        reopened = ImportedDocument.open(data)
+        block = reopened.body[1]
+        mark, wrapper = block.mark_revision, block.inline_structure[0]
+        assert mark.id != wrapper.id and mark.kind == wrapper.kind
+        assert (mark.author, mark.date) == (wrapper.author, wrapper.date) == ("A & B", date)
+        for action, suffix in [("accept","Accepted"),("reject","Rejected")]:
+            data = reopened.preview_paragraph_revision(block.anchor, action).to_docx()
+            assert data == (directory / f"para{label}{suffix}.docx").read_bytes()
+            untouched(source, parts(io.BytesIO(data)), (MAIN,))
+            expected = original_text.copy()
+            if (kind == "insertBefore") == (action == "accept"):
+                expected.insert(1," proposed ")
+            assert [p.text for p in Document(io.BytesIO(data)).paragraphs] == expected
+            if action == "accept":
+                current = ImportedDocument.open(data)
+    changed = imported.preview_tracked_bold(anchor, False, "A & B", date).to_docx()
+    formatted = ImportedDocument.open(changed)
+    run = formatted.body[0].inline_structure[0]
+    assert run.property_revision.id and (run.property_revision.author, run.property_revision.date) == ("A & B", date)
+    for name, data, bold in [("boldChange", changed, False),
+                             ("boldAccepted", formatted.preview_revision(run.anchor, "accept").to_docx(), False),
+                             ("boldRejected", formatted.preview_revision(run.anchor, "reject").to_docx(), True)]:
+        assert (directory / f"{name}.docx").read_bytes() == data
+        untouched(source, parts(io.BytesIO(data)), (MAIN,))
+        assert Document(io.BytesIO(data)).paragraphs[0].runs[0].bold is bold
+        assert (ImportedDocument.open(data).body[0].inline_structure[0].property_revision is not None) == (name == "boldChange")
     tracked = imported.preview_tracked_text(anchor, "replace", "A & B", text=" Revised ", date=date).to_docx()
     reopened = ImportedDocument.open(tracked)
     reviewed = reopened.preview_revision(reopened.body[0].inline_structure[1].anchor, "accept").to_docx()

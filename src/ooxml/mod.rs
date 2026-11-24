@@ -8,6 +8,7 @@ use crate::{
 use wordprocessing::sections::{section_properties, usable_width};
 pub(crate) mod defaults;
 mod drawing;
+pub(crate) use drawing::chart_space;
 mod profile;
 mod properties;
 pub(crate) mod wordprocessing;
@@ -20,8 +21,9 @@ pub(crate) use notes::{decimal_id, note_mark};
 mod ranges;
 pub(crate) mod revisions;
 pub(crate) use editor::{
-    editor_table_style, encode_editor_inlines, encode_editor_owner_blocks,
-    encode_editor_paragraphs, encode_editor_tables, encode_header_image,
+    HeaderImageResources, editor_table_style, encode_blocks, encode_editor_inlines,
+    encode_editor_owner_blocks, encode_editor_paragraphs, encode_editor_tables,
+    encode_header_image, encode_inlines, encode_owner_inlines, image_asset_links,
 };
 pub(crate) struct Compiler<'a> {
     package: Package,
@@ -278,6 +280,29 @@ pub(crate) fn root(name: &str) -> Node {
 }
 
 mod compatibility;
+/// Related Word stories whose range identities can collide with a body edit.
+pub(crate) fn related_story_parts(
+    package: &Package,
+    main: &str,
+) -> Result<std::collections::BTreeSet<String>> {
+    let mut parts = std::collections::BTreeSet::new();
+    for kind in [
+        "header",
+        "footer",
+        "comments",
+        "footnotes",
+        "endnotes",
+        "glossaryDocument",
+    ] {
+        for (rid, _) in package.relationships(main, kind)? {
+            let (_, part) = package.related(main, &format!("#{rid}"))?.ok_or_else(|| {
+                crate::Diagnostic::new(crate::Rule::UnsupportedEdit, "missing related story")
+            })?;
+            parts.insert(part);
+        }
+    }
+    Ok(parts)
+}
 pub(crate) mod schema;
 pub(crate) trait WordParts {
     fn word(&self, path: &str) -> Result<Node>;

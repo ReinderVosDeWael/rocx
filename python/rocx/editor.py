@@ -21,6 +21,10 @@ Track a direct body run with ``preview_tracked_text`` or move one with
 ``preview_tracked_move``. Reopen the preview and use ``preview_revision`` to
 accept or reject one wrapper (both wrappers for moves). Paragraph text omits
 unreviewed wrappers; ``inline_structure`` retains their text and metadata.
+Use ``preview_tracked_bold`` for a direct bold-only property change and
+inspect ``run.property_revision`` on reopen. ``preview_tracked_paragraph``
+marks a whole eligible paragraph plus its text; inspect ``mark_revision``
+and review the pair with ``preview_paragraph_revision``.
 
 Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
 accepts paragraph, character, table and numbering declarations. A numbering
@@ -42,7 +46,10 @@ exposes an image-edit anchor; ``ImportedDocument.default_headers``
 also exposes the default-header targets. Use ``edit_story_text(owner_part, edits)``
 for single-text runs in a physical header/footer or note/comment owner.
 Use ``edit_entry_inlines(owner_part, edits)`` for resolved inline insertion,
-replacement, or direct run bold in ordinary note/comment definitions.
+replacement, or direct formatting in ordinary note/comment definitions.
+``edit_run_format(edits, owner_part=part)`` patches runs and hyperlink child
+runs in one named header, footer, or entry part. Omit ``owner_part`` for direct
+body paragraphs and paragraphs of directly inspected body table cells.
 ``edit_note_reference(owner_part, target, kind, ...)`` creates, attaches,
 detaches, retargets, renumbers or deletes direct-body note references.
 ``edit_entry(owner_part, id, kind, ...)`` updates simple paragraphs, base
@@ -51,6 +58,9 @@ comment metadata or removes an unused ordinary note.
 ``edit_part_tables(owner_part, edits)`` for edits in that physical owner.
 """
 
+from dataclasses import dataclass, field
+from typing import Literal
+from .declarative.content_control import ContentControlListItem, ContentControlMetadata
 from ._native import (
     AbstractStart,
     ImportedNumberingInstance,
@@ -58,6 +68,8 @@ from ._native import (
     StyleAnchor,
     StyleEdit,
     ControlAnchor,
+    ControlSite,
+    WrapperEdit,
     ControlEdit,
     ImportedControl,
     BlockEdit,
@@ -92,7 +104,10 @@ from ._native import (
     ImportedHyperlink,
     ImportedInline,
     ImportedRevision,
+    ImportedPropertyRevision,
     ImportedRun,
+    ImportedFraction,
+    DrawingOccurrence,
     ImportedSection,
     ImportedStory,
     ImportedTableCell,
@@ -100,6 +115,9 @@ from ._native import (
     InlineAnchor,
     ParagraphAlignmentEdit,
     InlineEdit,
+    FieldEdit, PairedRangeEdit,
+    ImportedField,
+    BodyRangeMarker,
     ParagraphInsertion,
     ParagraphAnchor,
     TableInsertion,
@@ -110,6 +128,17 @@ from ._native import (
 # Both story views expose the same paragraph class.
 ImportedStoryParagraph = ImportedHeaderParagraph
 
+
+@dataclass
+class ControlProperties(ContentControlMetadata):
+    """Complete replacement definition; omitted optional properties are cleared."""
+
+    text_type: Literal["rich", "plain", "dropdown"] = "rich"
+    multi_line: bool | None = None
+    items: list[ContentControlListItem] = field(default_factory=list)
+    selected: str | None = None
+
+
 __all__ = [
     "AbstractStart",
     "ImportedNumberingInstance",
@@ -117,6 +146,9 @@ __all__ = [
     "StyleAnchor",
     "StyleEdit",
     "ControlAnchor",
+    "ControlSite",
+    "WrapperEdit",
+    "ControlProperties",
     "ControlEdit",
     "ImportedControl",
     "BlockEdit",
@@ -151,7 +183,10 @@ __all__ = [
     "ImportedHyperlink",
     "ImportedInline",
     "ImportedRevision",
+    "ImportedPropertyRevision",
     "ImportedRun",
+    "ImportedFraction",
+    "DrawingOccurrence",
     "ImportedSection",
     "ImportedStory",
     "ImportedStoryParagraph",
@@ -160,6 +195,9 @@ __all__ = [
     "InlineAnchor",
     "ParagraphAlignmentEdit",
     "InlineEdit",
+    "FieldEdit", "PairedRangeEdit",
+    "ImportedField",
+    "BodyRangeMarker",
     "ParagraphInsertion",
     "ParagraphAnchor",
     "TableInsertion",

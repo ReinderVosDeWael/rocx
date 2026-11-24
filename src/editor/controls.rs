@@ -1,13 +1,17 @@
 use super::{ImportedDocument, insertion::BoundaryState, unsupported};
-use crate::Result;
+use crate::ooxml::WordParts;
 use crate::xml::{Content, Node};
+use crate::{ContentControlListItem, Result};
 use std::{collections::BTreeSet, sync::Arc};
+mod wrappers;
+pub use wrappers::WrapperEdit;
 
 /// Physical identity within one opened document, independent of source IDs and tags.
 #[derive(Debug, Clone)]
 pub struct ControlAnchor {
     pub(super) snapshot: Arc<()>,
     index: usize,
+    story: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +36,11 @@ impl ControlContext {
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedControl {
+    /// Physical owner for read-only header/footer and entry story controls.
+    pub owner_part: Option<String>,
+    pub entry_id: Option<String>,
+    /// Physical entry ordinal; source IDs may be repeated.
+    pub entry_index: Option<usize>,
     pub anchor: ControlAnchor,
     pub context: ControlContext,
     /// Literal `w:id`; neither this value nor `tag` is an address.
@@ -40,8 +49,23 @@ pub struct ImportedControl {
     pub alias: Option<String>,
     pub lock: Option<String>,
     pub bound: bool,
+    /// OOXML local type name; absent type means rich text, unknown types are opaque.
+    pub kind: &'static str,
+    pub choices: Vec<ContentControlListItem>,
+    pub selected: Option<String>,
+    /// Literal `w:text/@w:multiLine`, absent if not explicitly present.
+    pub multi_line: Option<String>,
     path: Vec<usize>,
     safe_site: bool,
+}
+
+/// Eligible physical wrapper insertion site. `text` is a label, not an address.
+#[derive(Clone, Debug)]
+pub struct ControlSite {
+    snapshot: Arc<()>,
+    pub context: ControlContext,
+    pub text: String,
+    path: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,15 +84,197 @@ fn binding(n: &Node) -> bool {
     n.name.local() == "dataBinding"
 }
 
-pub(super) fn inspect(body: &Node, snapshot: &Arc<()>) -> Vec<ImportedControl> {
+fn at<'a>(mut n: &'a mut Node, path: &[usize]) -> Result<&'a mut Node> {
+    for &i in path {
+        let Some(Content::Element(c)) = n.children.get_mut(i) else {
+            return Err(unsupported("control site not found"));
+        };
+        n = c;
+    }
+    Ok(n)
+}
+
+fn structural_guard(c: &ImportedControl) -> Result<()> {
+    if c.bound {
+        return Err(unsupported("custom XML-bound control"));
+    }
+    if !c.safe_site {
+        return Err(unsupported("nested or protected control site"));
+    }
+    Ok(())
+}
+
+fn single_line(s: &str) -> Result<()> {
+    if crate::document::invalid_xml_character(s).is_some() || s.contains(['\t', '\r', '\n']) {
+        Err(unsupported("expected single-line XML text"))
+    } else {
+        Ok(())
+    }
+}
+
+fn leaf_text(leaf: &Node) -> String {
+    leaf.children
+        .iter()
+        .filter_map(|c| match c {
+            Content::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn validate_choices(items: &[ContentControlListItem]) -> Result<()> {
+    let mut values = BTreeSet::new();
+    for i in items {
+        single_line(&i.display_text)?;
+        single_line(&i.value)?;
+        if i.display_text.is_empty() || i.value.is_empty() || !values.insert(&i.value) {
+            return Err(unsupported(
+                "control choices require unique values and nonempty labels",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn describe(n: &Node) -> (&'static str, Vec<ContentControlListItem>, Option<String>) {
+    let mut kind = None;
+    let mut choices = Vec::new();
+    let mut selected = None;
+    if let Some(props) = n.child("w:sdtPr") {
+        for p in props.elements() {
+            let ty = match p.name.as_str() {
+                "w:tag" | "w:alias" | "w:id" | "w:lock" | "w:rPr" | "w:dataBinding" | "w:label"
+                | "w:tabIndex" | "w:placeholder" | "w:showingPlcHdr" | "w:temporary" => continue,
+                "w:text" => "text",
+                "w:richText" => "richText",
+                "w:dropDownList" | "w:comboBox" => {
+                    selected = p.get("w:lastValue").map(str::to_owned);
+                    for item in p.elements().filter(|v| v.name == "w:listItem") {
+                        if let (Some(label), Some(value)) =
+                            (item.get("w:displayText"), item.get("w:value"))
+                        {
+                            choices.push(ContentControlListItem {
+                                display_text: label.into(),
+                                value: value.into(),
+                            });
+                        }
+                    }
+                    if p.name == "w:comboBox" {
+                        "comboBox"
+                    } else {
+                        "dropDownList"
+                    }
+                }
+                "w:date" => "date",
+                "w:picture" => "picture",
+                _ => "opaque",
+            };
+            if kind.replace(ty).is_some() {
+                kind = Some("opaque");
+            }
+        }
+    }
+    (kind.unwrap_or("richText"), choices, selected)
+}
+
+// A destructive wrapper/list edit must account for everything it might drop,
+// including comments, extension attributes, and local namespace declarations.
+fn strict_props(n: &Node) -> Result<()> {
+    let fail = || unsupported("opaque or ambiguous control properties");
+    let props = n.child("w:sdtPr").ok_or_else(fail)?;
+    // The imported tree carries each element's full namespace scope; the
+    // promoted payload keeps that scope, including prefix-valued attributes.
+    let only = |n: &Node, attrs: &[&str]| {
+        n.attrs
+            .iter()
+            .all(|(a, _)| a.declaration().is_some() || attrs.contains(&a.as_str()))
+    };
+    let clean = |n: &Node| {
+        n.children.iter().all(|c| match c {
+            Content::Element(_) => true,
+            Content::Text(s) => s.trim().is_empty(),
+            _ => false,
+        })
+    };
+    if !only(n, &[])
+        || !only(props, &[])
+        || !clean(props)
+        || !only(n.child("w:sdtContent").ok_or_else(fail)?, &[])
+    {
+        return Err(fail());
+    }
+    let mut seen = BTreeSet::new();
+    let mut typed = false;
+    for p in props.elements() {
+        if !seen.insert(p.name.as_str()) {
+            return Err(fail());
+        }
+        match p.name.as_str() {
+            "w:lock" | "w:tag" | "w:alias" | "w:id"
+                if p.children.is_empty() && only(p, &["w:val"]) && p.get("w:val").is_some() => {}
+            "w:text" | "w:richText"
+                if !typed
+                    && p.children.is_empty()
+                    && only(
+                        p,
+                        if p.name == "w:text" {
+                            &["w:multiLine"]
+                        } else {
+                            &[]
+                        },
+                    ) =>
+            {
+                typed = true
+            }
+            "w:dropDownList" if !typed && only(p, &["w:lastValue"]) && clean(p) => {
+                typed = true;
+                for i in p.elements() {
+                    if i.name != "w:listItem"
+                        || !i.children.is_empty()
+                        || !only(i, &["w:displayText", "w:value"])
+                        || i.get("w:displayText").is_none()
+                        || i.get("w:value").is_none()
+                    {
+                        return Err(fail());
+                    }
+                }
+                validate_choices(&describe(n).1)?;
+            }
+            _ => return Err(fail()),
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn inspect(body: &Node, snapshot: &Arc<()>) -> (Vec<ImportedControl>, Vec<ControlSite>) {
     struct Walk<'a> {
         snapshot: &'a Arc<()>,
         items: Vec<ImportedControl>,
+        sites: Vec<ControlSite>,
         path: Vec<usize>,
         boundaries: BoundaryState,
     }
     impl Walk<'_> {
         fn visit(&mut self, n: &Node, parent: &str, safe: bool) {
+            let ctx = match (parent, n.name.as_str()) {
+                ("w:body" | "w:tc", "w:p" | "w:tbl") => Some(ControlContext::Block),
+                ("w:p", "w:r") => Some(ControlContext::Inline),
+                ("w:tbl", "w:tr") => Some(ControlContext::Row),
+                ("w:tr", "w:tc") => Some(ControlContext::Cell),
+                _ => None,
+            };
+            if safe
+                && self.boundaries.safe()
+                && let Some(context) = ctx
+                && let Some(text) = wrappers::rich_label(n, context)
+            {
+                self.sites.push(ControlSite {
+                    snapshot: self.snapshot.clone(),
+                    context,
+                    text,
+                    path: self.path.clone(),
+                });
+            }
             let child_parent = match (parent, n.name.as_str()) {
                 ("w:body" | "w:tc", "w:p" | "w:tbl") | ("w:tbl", "w:tr") | ("w:tr", "w:tc") => {
                     n.name.as_str()
@@ -82,11 +288,16 @@ pub(super) fn inspect(body: &Node, snapshot: &Arc<()>) -> Vec<ImportedControl> {
                         _ => return,
                     };
                     let p = super::read_content_control(n);
+                    let (kind, choices, selected) = describe(n);
                     self.items.push(ImportedControl {
                         anchor: ControlAnchor {
                             snapshot: self.snapshot.clone(),
                             index: self.items.len(),
+                            story: false,
                         },
+                        owner_part: None,
+                        entry_id: None,
+                        entry_index: None,
                         id: n
                             .child("w:sdtPr")
                             .and_then(|p| p.child("w:id"))
@@ -101,6 +312,14 @@ pub(super) fn inspect(body: &Node, snapshot: &Arc<()>) -> Vec<ImportedControl> {
                             .any(|n| contains(n, binding)),
                         path: self.path.clone(),
                         context,
+                        kind,
+                        multi_line: n
+                            .child("w:sdtPr")
+                            .and_then(|p| p.child("w:text"))
+                            .and_then(|t| t.get("w:multiLine"))
+                            .map(str::to_owned),
+                        choices,
+                        selected,
                         safe_site: safe && self.boundaries.safe(),
                     });
                     for (i, child) in n.children.iter().enumerate() {
@@ -108,6 +327,10 @@ pub(super) fn inspect(body: &Node, snapshot: &Arc<()>) -> Vec<ImportedControl> {
                             continue;
                         };
                         if c.name == "w:sdtContent" {
+                            if self.items.last().is_some_and(|item| item.bound) {
+                                self.boundaries.advance(c);
+                                continue;
+                            }
                             self.path.push(i);
                             self.children(c, parent, false);
                             self.path.pop();
@@ -143,11 +366,12 @@ pub(super) fn inspect(body: &Node, snapshot: &Arc<()>) -> Vec<ImportedControl> {
     let mut walk = Walk {
         snapshot,
         items: Vec::new(),
+        sites: Vec::new(),
         path: Vec::new(),
         boundaries: Default::default(),
     };
     walk.children(body, "w:body", true);
-    walk.items
+    (walk.items, walk.sites)
 }
 
 fn unsafe_property(n: &Node) -> bool {
@@ -171,9 +395,8 @@ fn unsafe_property(n: &Node) -> bool {
 
 // Require one ordinary text leaf. Never flatten a multi-run control, discard
 // table structure, or guess the meaning of a specialized control type.
-fn text_path(control: &Node, ctx: ControlContext) -> Result<Vec<&'static str>> {
-    let fail = || unsupported("unsupported content control structure");
-    let mut path = vec!["w:sdtContent"];
+fn content_path(ctx: ControlContext) -> Vec<&'static str> {
+    let mut path = Vec::new();
     match ctx {
         ControlContext::Row => path.extend(["w:tr", "w:tc", "w:p"]),
         ControlContext::Cell => path.extend(["w:tc", "w:p"]),
@@ -181,8 +404,19 @@ fn text_path(control: &Node, ctx: ControlContext) -> Result<Vec<&'static str>> {
         ControlContext::Inline => (),
     }
     path.extend(["w:r", "w:t"]);
-    let mut n = control;
-    for &next in &path {
+    path
+}
+
+fn text_path(control: &Node, ctx: ControlContext) -> Result<Vec<&'static str>> {
+    let mut path = vec!["w:sdtContent"];
+    path.extend(content_path(ctx));
+    follow(control, &path)?;
+    Ok(path)
+}
+
+fn follow<'a>(mut n: &'a Node, path: &[&str]) -> Result<&'a Node> {
+    let fail = || unsupported("unsupported content control structure");
+    for &next in path {
         let property = match n.name.as_str() {
             "w:sdt" => Some("w:sdtPr"),
             "w:tr" => Some("w:trPr"),
@@ -213,10 +447,222 @@ fn text_path(control: &Node, ctx: ControlContext) -> Result<Vec<&'static str>> {
     if n.children.iter().any(|c| !matches!(c, Content::Text(_))) {
         return Err(fail());
     }
-    Ok(path)
+    Ok(n)
 }
 
 impl ImportedDocument {
+    /// Read-only physical controls, once per effective header/footer part or
+    /// physical note/comment entry. Shared section aliases do not repeat items.
+    pub fn story_controls(&self) -> Result<Vec<ImportedControl>> {
+        let mut result = Vec::new();
+        let mut scan = |root: &Node, owner: &str, entry: Option<(&str, usize)>| {
+            let (controls, _) = inspect(root, &self.snapshot);
+            for mut c in controls {
+                c.owner_part = Some(owner.to_owned());
+                c.entry_id = entry.map(|(id, _)| id.to_owned());
+                c.entry_index = entry.map(|(_, i)| i);
+                c.anchor.story = true;
+                result.push(c);
+            }
+        };
+        let mut seen = BTreeSet::new();
+        for story in self.stories()? {
+            if seen.insert(story.part_name.clone()) {
+                scan(
+                    &self.package.word(&story.part_name)?,
+                    &story.part_name,
+                    None,
+                );
+            }
+        }
+        for group in self
+            .entry_stories()?
+            .chunk_by(|a, b| a.part_name == b.part_name)
+        {
+            let owner = &group[0].part_name;
+            let root = self.package.word(owner)?;
+            let nodes: Vec<_> = root.elements().collect();
+            for e in group {
+                scan(
+                    nodes[e.element_index],
+                    owner,
+                    Some((&e.id, e.element_index)),
+                );
+            }
+        }
+        Ok(result)
+    }
+
+    pub(super) fn validate_control(&self, a: &ControlAnchor) -> Result<()> {
+        self.validate_snapshot(&a.snapshot)?;
+        if a.story {
+            return Err(unsupported("story control is read-only"));
+        }
+        Ok(())
+    }
+
+    pub fn control_sites(&self) -> &[ControlSite] {
+        &self.control_sites
+    }
+
+    /// Wrap a single existing payload, retaining its XML and formatting.
+    pub fn preview_wrap_control(
+        &self,
+        site: &ControlSite,
+        tag: &str,
+    ) -> Result<super::EditPreview> {
+        self.preview_wrapper(WrapperEdit::Wrap {
+            first: site.clone(),
+            last: None,
+            tag: tag.into(),
+        })
+    }
+
+    /// Remove just an understood wrapper; promote its original payload.
+    pub fn preview_unwrap_control(&self, anchor: &ControlAnchor) -> Result<super::EditPreview> {
+        self.preview_wrapper(WrapperEdit::Unwrap(anchor.clone()))
+    }
+
+    /// Replace the entire property definition, including clearing omitted
+    /// metadata. The selected choice must describe the existing cached text.
+    pub fn preview_replace_control(
+        &self,
+        anchor: &ControlAnchor,
+        properties: &crate::ContentControlProperties,
+    ) -> Result<super::EditPreview> {
+        self.preview_wrapper(WrapperEdit::Define(anchor.clone(), properties.clone()))
+    }
+
+    fn define(
+        &self,
+        n: &mut Node,
+        c: &ImportedControl,
+        properties: &crate::ContentControlProperties,
+    ) -> Result<()> {
+        use crate::ContentControlText;
+        structural_guard(c)?;
+        if !matches!(c.lock.as_deref(), None | Some("unlocked")) {
+            return Err(unsupported("control is locked"));
+        }
+        if matches!(c.context, ControlContext::Row | ControlContext::Cell)
+            && properties.text != ContentControlText::Rich
+        {
+            return Err(unsupported("row and cell controls require rich text"));
+        }
+        properties.validate()?;
+        for s in [&properties.tag, &properties.alias].into_iter().flatten() {
+            single_line(s)?;
+        }
+        if let Some(id) = properties.id {
+            let mut count = 0usize;
+            self.package.visit_source_xml(|n| {
+                if n.name == "w:sdtPr" {
+                    count += n
+                        .elements()
+                        .filter(|v| {
+                            v.name == "w:id"
+                                && v.get("w:val").and_then(|s| s.trim().parse::<u32>().ok())
+                                    == Some(id)
+                        })
+                        .count();
+                }
+            })?;
+            if count > usize::from(c.id.as_ref().and_then(|s| s.trim().parse().ok()) == Some(id)) {
+                return Err(unsupported("duplicate content control ID"));
+            }
+        }
+        wrappers::validate_payload(n, c.context)?;
+        strict_props(n)?;
+        if matches!(properties.text, ContentControlText::Plain { .. }) {
+            single_line(&leaf_text(follow(n, &text_path(n, c.context)?)?))?;
+        }
+        if let ContentControlText::DropDown { items, selected } = &properties.text {
+            validate_choices(items)?;
+            let leaf = follow(n, &text_path(n, c.context)?)?;
+            let cached = leaf_text(leaf);
+            if !items
+                .iter()
+                .any(|i| i.value == *selected && i.display_text == cached)
+            {
+                return Err(unsupported("selected choice must match cached text"));
+            }
+        }
+        *n.child_mut("w:sdtPr").unwrap() = crate::ooxml::wordprocessing::control_props(properties)?;
+        Ok(())
+    }
+
+    /// Select by literal value, optionally replacing the ordered list at the same time.
+    pub fn preview_control_choice(
+        &self,
+        anchor: &ControlAnchor,
+        selected: &str,
+        items: Option<&[ContentControlListItem]>,
+    ) -> Result<super::EditPreview> {
+        self.preview_wrapper(WrapperEdit::Choice {
+            target: anchor.clone(),
+            selected: selected.into(),
+            items: items.map(<[_]>::to_vec),
+        })
+    }
+
+    fn choose(
+        n: &mut Node,
+        c: &ImportedControl,
+        selected: &str,
+        items: Option<&[ContentControlListItem]>,
+    ) -> Result<bool> {
+        structural_guard(c)?;
+        if !(matches!(c.lock.as_deref(), None | Some("unlocked"))
+            || c.lock.as_deref() == Some("sdtLocked") && items.is_none())
+        {
+            return Err(unsupported("control is locked"));
+        }
+        if c.kind != "dropDownList"
+            || !matches!(c.context, ControlContext::Block | ControlContext::Inline)
+        {
+            return Err(unsupported("expected block or inline drop-down control"));
+        }
+        let path = text_path(n, c.context)?;
+        strict_props(n)?;
+        let choices = items.unwrap_or(&c.choices);
+        validate_choices(choices)?;
+        let display = &choices
+            .iter()
+            .find(|i| i.value == selected)
+            .ok_or_else(|| unsupported("unknown control choice value"))?
+            .display_text;
+        let list = n
+            .child_mut("w:sdtPr")
+            .unwrap()
+            .child_mut("w:dropDownList")
+            .unwrap();
+        let mut changed = list.get("w:lastValue") != Some(selected);
+        list.set("w:lastValue", selected);
+        if items.is_some() && choices != c.choices {
+            list.children.clear();
+            for item in choices {
+                list.push(
+                    Node::new("w:listItem")
+                        .attr("w:displayText", &item.display_text)
+                        .attr("w:value", &item.value),
+                );
+            }
+            changed = true;
+        }
+        let mut leaf = n;
+        for name in path {
+            leaf = leaf.child_mut(name).unwrap();
+        }
+        if leaf_text(leaf) != *display {
+            leaf.children = vec![Content::Text(display.clone())];
+            if display.starts_with(' ') || display.ends_with(' ') {
+                leaf.set("xml:space", "preserve");
+            }
+            changed = true;
+        }
+        Ok(changed)
+    }
+
     /// Main-body controls in physical document order, including controls in tables.
     pub fn controls(&self) -> &[ImportedControl] {
         &self.controls
@@ -226,6 +672,7 @@ impl ImportedDocument {
         let mut seen = BTreeSet::new();
         let mut changed = false;
         for edit in edits {
+            self.validate_control(&edit.target)?;
             let control = &self.controls[edit.target.index];
             if !seen.insert(edit.target.index) {
                 return Err(unsupported("duplicate control target"));
@@ -254,7 +701,12 @@ impl ImportedDocument {
                 };
                 n = child;
             }
-            let path = text_path(n, control.context)?;
+            let path = if edit.text.is_some() {
+                text_path(n, control.context)?
+            } else {
+                wrappers::validate_payload(n, control.context)?;
+                Vec::new()
+            };
             let props = n
                 .child("w:sdtPr")
                 .ok_or_else(|| unsupported("missing control properties"))?;

@@ -168,6 +168,120 @@ fn authored(doc: &ImportedDocument) {
     let field = paragraph(doc, "Field simple PAGE:");
     assert!(field.has_opaque_content);
     assert!(matches!(&field.inline_structure[1], Opaque(n) if n == "w:fldSimple"));
+    assert_eq!(
+        doc.field_at(&field.anchor, 1).unwrap().instruction,
+        " PAGE "
+    );
+    assert!(matches!(
+        &paragraph(doc, "Inline equation:").inline_structure[1],
+        ImportedInlineNode::Fraction { numerator, denominator, .. }
+            if numerator == "1" && denominator == "2"
+    ));
+}
+
+fn rich_artifacts(path: &Path) {
+    use ImportedInlineNode::{Fraction, Run};
+    let objects = open(path, "objects.docx");
+    let runs = objects
+        .body()
+        .iter()
+        .filter_map(|b| match b {
+            BodyBlock::Paragraph(p) => Some(p.inline_structure.iter()),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|n| match n {
+            Run(r) => Some(r),
+            _ => None,
+        });
+    let mut picture = false;
+    let mut shape = false;
+    let mut charts = 0;
+    for run in runs {
+        let Some(drawing) = &run.drawing else {
+            continue;
+        };
+        match drawing.kind {
+            "image" if drawing.description.as_deref() == Some("Edited picture") => {
+                assert!(drawing.relationship_id.is_some());
+                picture = true;
+            }
+            "shape" if drawing.shape_text.as_deref() == Some("Edited shape") => {
+                assert_eq!(drawing.geometry.as_deref(), Some("ellipse"));
+                shape = true;
+            }
+            "chart" => {
+                assert_eq!(
+                    objects.chart_series(&run.anchor).unwrap(),
+                    (
+                        vec![String::from("Final"), String::from("Revised")],
+                        vec![12., 8.]
+                    )
+                );
+                charts += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(picture && shape && charts == 1);
+    assert!(matches!(
+        &paragraph(&objects, "Inline equation:").inline_structure[1],
+        Fraction { numerator, denominator, .. } if numerator == "3" && denominator == "7"
+    ));
+    let images: Vec<_> = entry(&objects, EntryKind::Footnote, "0")
+        .inline_structure(0)
+        .unwrap()
+        .iter()
+        .filter_map(|n| match n {
+            Run(r) => r.drawing.as_ref().filter(|d| d.kind == "image"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(images.len(), 2);
+    assert!(images[0].relationship_id.is_some());
+    assert_eq!(images[0].relationship_id, images[1].relationship_id);
+    assert!(
+        objects
+            .controls()
+            .iter()
+            .any(|c| c.tag.as_deref() == Some("object-sibling")
+                && c.context == ControlContext::Block)
+    );
+
+    let controls = open(path, "controls.docx");
+    let status = controls
+        .controls()
+        .iter()
+        .find(|c| c.tag.as_deref() == Some("review-status"))
+        .unwrap();
+    assert_eq!(
+        (status.kind, status.selected.as_deref()),
+        ("dropDownList", Some("pending"))
+    );
+    assert!(
+        status
+            .choices
+            .iter()
+            .any(|c| c.display_text == "Pending" && c.value == "pending")
+    );
+    let plain = controls
+        .controls()
+        .iter()
+        .find(|c| c.alias.as_deref() == Some("Imported plain-text sample"))
+        .unwrap();
+    assert_eq!(
+        (plain.context, plain.kind, plain.multi_line.as_deref()),
+        (ControlContext::Block, "text", Some("0"))
+    );
+    assert!(plain.tag.is_none());
+    assert!(controls.preview_unwrap_control(&plain.anchor).is_ok());
+    assert!(
+        objects
+            .preview_unwrap_control(&plain.anchor)
+            .unwrap_err()
+            .to_string()
+            .contains("snapshot")
+    );
 }
 
 fn rejected_batches(doc: &ImportedDocument) {
@@ -230,6 +344,7 @@ pub fn verify(path: &Path) {
     let final_doc = open(path, "docx");
     authored(&final_doc);
     rejected_batches(&final_doc);
+    rich_artifacts(path);
     let template = open(path, "template.docx");
     assert!(
         matches!(&template.body()[0], BodyBlock::Paragraph(p) if p.text == "Template {{replace}}: cross-run replacement.")
@@ -308,7 +423,8 @@ pub fn verify(path: &Path) {
         );
         assert!(matches!(entry.inline_structure(0).unwrap().last(),
             Some(ImportedInlineNode::Hyperlink(h)) if matches!(linked.inline_at(&h.anchor).unwrap(),
-                ImportedInlineNode::Hyperlink(found) if found.relationship_id.is_some())));
+                ImportedInlineNode::Hyperlink(found) if found.relationship_id.is_some()
+                    && matches!(found.children.as_slice(), [ImportedInlineNode::Run(r)] if r.format.size == Some(13.5)))));
     }
     let lifecycle = open(path, "entry-edits.docx");
     assert_eq!(

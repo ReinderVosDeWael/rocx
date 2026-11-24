@@ -63,21 +63,31 @@ export interface HeaderImageEdit {
 }
 
 export type InlineEdit = { readonly target: InlineAnchor } & (
+  | { readonly kind: "removeObject" }
+  | { readonly kind: "patchDrawing"; readonly property: "size" | "placement" | "crop" | "transform" | "accessibility" | "shapeFill" | "shapeOutline" | "shapeText" | "shapeGeometry" | "chartSeries"; readonly inline: ResolvedInline }
+  | { readonly kind: "setImageAsset"; readonly image: ResolvedImage }
+  | { readonly kind: "setDrawingDescription"; readonly value: string | null }
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }
   | { readonly kind: "setBold"; readonly bold: boolean }
   | { readonly kind: "setToggle"; readonly property: "bold" | "italic" | "strike" | "hidden"; readonly value: boolean | null }
+  | { readonly kind: "removeHyperlink" }
+  | { readonly kind: "hyperlinkTooltip"; readonly value?: string }
+  | { readonly kind: "hyperlinkHistory"; readonly value?: boolean }
   | { readonly kind: "patchFormat"; readonly format?: RunFormat; readonly clear?: readonly
       (Exclude<keyof RunFormat, "superscript" | "subscript" | "language"> |
         "verticalAlignment" | "languageLatin" | "languageEastAsia" | "languageBidi" | "hidden")[] }
 );
 
 export interface EditBatch {
+  readonly fields?: readonly FieldEdit[];
+  readonly pairedRanges?: readonly PairedRangeEdit[];
   readonly blockEdits?: readonly BlockEdit[];
   readonly inlineEdits?: readonly InlineEdit[];
   readonly tableStructure?: readonly TableStructureEdit[];
   readonly styleEdits?: readonly StyleEdit[];
   readonly resources?: readonly ResourceEdit[];
   readonly controls?: readonly ControlEdit[];
+  readonly wrappers?: readonly WrapperEdit[];
   readonly textRanges?: readonly TextRangeEdit[];
   readonly textInsertions?: readonly TextInsertion[];
   readonly runText?: readonly RunTextEdit[];
@@ -87,6 +97,18 @@ export interface EditBatch {
   readonly paragraphInsertions?: readonly ParagraphInsertion[];
   readonly headerImages?: readonly HeaderImageEdit[];
   readonly cellAlignments?: readonly CellAlignmentEdit[];
+}
+
+export type FieldEdit = {readonly target: ParagraphAnchor; readonly inlineIndex: number} & (
+  | { readonly op: "patch"; readonly property: "instruction"; readonly value: string }
+  | { readonly op: "patch"; readonly property: "dirty" | "locked"; readonly value?: boolean }
+  | { readonly op: "replace"; readonly field?: import("./structured.js").ResolvedField }
+  | { readonly op: "cache"; readonly children: readonly ResolvedInline[] }
+);
+export interface PairedRangeEdit {
+  readonly id: number;
+  readonly bookmark?: string;
+  readonly endpoints?: readonly [InlineAnchor, InlineAnchor];
 }
 
 export interface TextRangeEdit { readonly target: ParagraphAnchor; readonly start: number; readonly end: number; readonly text: string }
@@ -147,6 +169,13 @@ export interface ControlEdit {
   readonly alias?: string;
   readonly text?: string;
 }
+export type WrapperEdit =
+  | {readonly kind:"wrap"; readonly target:import("./inspection.js").ControlSiteAnchor; readonly last?:import("./inspection.js").ControlSiteAnchor; readonly tag:string}
+  | {readonly kind:"unwrap"; readonly target:ControlAnchor}
+  | {readonly kind:"define"; readonly target:ControlAnchor; readonly properties:import("./structured.js").ContentControlProperties}
+  | {readonly kind:"choice"; readonly target:ControlAnchor; readonly selected:string; readonly choices?:import("./inspection.js").ImportedControl["choices"]}
+  | {readonly kind:"replaceInlines"; readonly target:ControlAnchor; readonly inlines:readonly ResolvedInline[]}
+  | {readonly kind:"replaceBlocks"; readonly target:ControlAnchor; readonly blocks:readonly (ResolvedParagraph|ResolvedTable)[]};
 
 export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
 export interface RunRemovalChange {
@@ -212,6 +241,17 @@ declare module "./inspection.js" {
   interface ImportedDocument {
     previewLayout(edits: readonly LayoutEdit[]): EditPreview;
     styleAnchor(id: string): StyleAnchor;
+    previewWrapControl(edit: {readonly target: import("./inspection.js").ControlSiteAnchor; readonly tag: string}): EditPreview;
+    previewUnwrapControl(target: ControlAnchor): EditPreview;
+    previewReplaceControl(edit: {readonly target: ControlAnchor; readonly properties: import("./structured.js").ContentControlProperties}): EditPreview;
+    previewControlChoice(edit: {readonly target: ControlAnchor; readonly selected: string;
+      readonly choices?: import("./inspection.js").ImportedControl["choices"]}): EditPreview;
+    previewTrackedBold(edit: { readonly target: InlineAnchor; readonly bold: boolean; readonly author: string; readonly date?: string }): EditPreview;
+    previewTrackedParagraph(edit: { readonly target: ParagraphAnchor; readonly author: string; readonly date?: string } & (
+      | { readonly kind: "insertBefore"; readonly text: string }
+      | { readonly kind: "delete"; readonly text?: never }
+    )): EditPreview;
+    previewParagraphRevision(edit: { readonly target: ParagraphAnchor; readonly action: "accept" | "reject" }): EditPreview;
     /** Explicitly track a single-text direct body run edit. */
     previewTrackedText(edit: {
       readonly target: InlineAnchor; readonly author: string; readonly date?: string;
@@ -237,6 +277,12 @@ declare module "./inspection.js" {
     )): Uint8Array;
     editStoryBlocks(edit: {readonly target: HeaderAnchor; readonly mode: HeaderEditMode; readonly index: number; readonly remove: number; readonly blocks: readonly (ResolvedParagraph | ResolvedTable)[]}): Uint8Array;
     editEntryInlines(batch: { readonly ownerPart: string; readonly inlineEdits: readonly InlineEdit[] }): Uint8Array;
+    replaceField(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number; readonly field?: import("./structured.js").ResolvedField}): Uint8Array;
+    fieldAt(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number}): {readonly complex: boolean; readonly instruction: string; readonly inlineCount: number; readonly dirtyXml?: string; readonly lockedXml?: string};
+    patchField(batch: {readonly target: ParagraphAnchor; readonly inlineIndex: number} & ({readonly property: "instruction"; readonly value: string} | {readonly property: "dirty" | "locked"; readonly value?: boolean})): Uint8Array;
+    setPairedRange(batch: {readonly id: number; readonly bookmark?: string; readonly endpoints?: readonly [InlineAnchor, InlineAnchor]}): Uint8Array;
+    bodyRangeMarkers(): readonly {readonly bodyIndex: number; readonly inlineIndex: number; readonly kind: "bookmarkStart" | "bookmarkEnd" | "commentRangeStart" | "commentRangeEnd" | "commentReference"; readonly id?: string; readonly name?: string}[];
+    editRunFormat(batch: { readonly ownerPart?: string; readonly inlineEdits: readonly Extract<InlineEdit, { readonly kind: "setBold" | "setToggle" | "patchFormat" }>[] }): Uint8Array;
     editNoteReference(edit: { readonly ownerPart: string; readonly target: InlineAnchor } & (
       | { readonly kind: "create"; readonly id: number; readonly text: string }
       | { readonly kind: "delete" | "detach" }

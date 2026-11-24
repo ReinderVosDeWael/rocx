@@ -10,6 +10,22 @@ const XML: &str = "http://www.w3.org/XML/1998/namespace";
 const PROCESS: &str = "{http://schemas.openxmlformats.org/markup-compatibility/2006}ProcessContent";
 const MATH: &str = "http://schemas.openxmlformats.org/officeDocument/2006/math";
 
+// Occurrence edits inspect direct properties in these DrawingML containers.
+// Recurse through known vocabulary, but not through opaque extension payloads.
+fn inspect_process_children(namespace: Option<&str>) -> bool {
+    matches!(
+        namespace,
+        Some(
+            W | MATH
+                | "http://schemas.openxmlformats.org/drawingml/2006/main"
+                | "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                | "http://schemas.openxmlformats.org/drawingml/2006/picture"
+                | "http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas"
+                | "http://schemas.openxmlformats.org/drawingml/2006/chart"
+        )
+    )
+}
+
 pub(super) fn check(package: &Package, path: &str, node: &Node) -> Result<()> {
     if let Some(prefixes) = node.get(MUST_UNDERSTAND) {
         // Only the root may contain inferred baseline bindings. A prefix-valued
@@ -59,7 +75,7 @@ fn check_process_content<'a>(
         .at(path)
         .into());
     }
-    if node.name.namespace() == root_ns || matches!(node.name.namespace(), Some(W | MATH)) {
+    if node.name.namespace() == root_ns || inspect_process_children(node.name.namespace()) {
         for child in node.elements() {
             check_process_content(child, root_ns, &rules, path)?;
         }

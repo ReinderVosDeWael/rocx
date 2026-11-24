@@ -17,9 +17,16 @@ pub(crate) const HOOKS: Hooks = Hooks {
     operations: &[
         ("openDocx", (open, Paths::Package)),
         ("importedBody", (body, Paths::Package)),
+        (
+            "importedBodyRangeMarkers",
+            (body_range_markers, Paths::Package),
+        ),
         ("importedControls", (controls, Paths::Package)),
+        ("importedStoryControls", (story_controls, Paths::Package)),
+        ("importedControlSites", (control_sites, Paths::Package)),
         ("importedSections", (sections, Paths::Package)),
         ("importedInlineAt", (inline_at, Paths::Package)),
+        ("importedChartSeries", (chart_series, Paths::Package)),
         ("importedDefaultHeaders", (default_headers, Paths::Package)),
         ("importedStories", (stories, Paths::Package)),
         ("importedEntryStories", (entry_stories, Paths::Package)),
@@ -57,9 +64,17 @@ pub(crate) const HOOKS: Hooks = Hooks {
 
 const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("body", "importedBody"),
+    ("bodyRangeMarkers", "importedBodyRangeMarkers"),
     ("controls", "importedControls"),
+    ("storyControls", "importedStoryControls"),
+    ("controlSites", "importedControlSites"),
+    ("previewWrapControl", "importedPreviewWrapControl"),
+    ("previewReplaceControl", "importedPreviewReplaceControl"),
+    ("previewUnwrapControl", "importedPreviewUnwrapControl"),
+    ("previewControlChoice", "importedPreviewControlChoice"),
     ("sections", "importedSections"),
     ("inlineAt", "importedInlineAt"),
+    ("chartSeries", "importedChartSeries"),
     ("defaultHeaders", "importedDefaultHeaders"),
     ("stories", "importedStories"),
     ("entryStories", "importedEntryStories"),
@@ -81,9 +96,20 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("editStoryReference", "importedEditStoryReference"),
     ("editStoryBlocks", "importedEditStoryBlocks"),
     ("editEntryInlines", "importedEditEntryInlines"),
+    ("replaceField", "importedReplaceField"),
+    ("fieldAt", "importedFieldAt"),
+    ("patchField", "importedPatchField"),
+    ("setPairedRange", "importedSetPairedRange"),
+    ("editRunFormat", "importedEditRunFormat"),
     ("editNoteReference", "importedEditNoteReference"),
     ("editEntry", "importedEditEntry"),
     ("previewTrackedText", "importedPreviewTrackedText"),
+    ("previewTrackedBold", "importedPreviewTrackedBold"),
+    ("previewTrackedParagraph", "importedPreviewTrackedParagraph"),
+    (
+        "previewParagraphRevision",
+        "importedPreviewParagraphRevision",
+    ),
     ("previewTrackedMove", "importedPreviewTrackedMove"),
     ("previewRevision", "importedPreviewRevision"),
     ("preview", "importedPreview"),
@@ -96,6 +122,8 @@ struct Anchors {
     sections: RefCell<HashMap<usize, JsValue>>,
     styles: RefCell<HashMap<String, JsValue>>,
     controls: RefCell<HashMap<usize, JsValue>>,
+    story_controls: RefCell<HashMap<usize, JsValue>>,
+    control_sites: RefCell<HashMap<usize, JsValue>>,
     paragraphs: RefCell<HashMap<usize, JsValue>>,
     tables: RefCell<HashMap<usize, JsValue>>,
     physical_tables: RefCell<HashMap<(String, Vec<usize>), JsValue>>,
@@ -199,31 +227,80 @@ fn part_tables(input: &Wire) -> Result<JsValue> {
     ))
 }
 
-fn controls(input: &Wire) -> Result<JsValue> {
+fn control_sites(input: &Wire) -> Result<JsValue> {
     let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(view::array(
-        source.document.controls().iter().enumerate().map(|(i, c)| {
-            let value = b::record(&[
-                (
-                    "anchor",
-                    view::cached(&source.anchors.controls, i, "controlAnchor", &c.anchor),
-                ),
-                ("context", c.context.as_str().into()),
-                ("bound", c.bound.into()),
-            ]);
-            for (key, v) in [
-                ("id", &c.id),
-                ("tag", &c.tag),
-                ("alias", &c.alias),
-                ("lock", &c.lock),
-            ] {
-                if let Some(v) = v {
-                    b::set(&value, key, &v.as_str().into());
-                }
-            }
-            value
-        }),
+        source
+            .document
+            .control_sites()
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                b::record(&[
+                    (
+                        "anchor",
+                        view::cached(&source.anchors.control_sites, i, "controlSite", s),
+                    ),
+                    ("context", s.context.as_str().into()),
+                    ("text", s.text.as_str().into()),
+                ])
+            }),
     ))
+}
+
+fn controls(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(control_views(
+        source.document.controls(),
+        &source.anchors.controls,
+    ))
+}
+fn story_controls(input: &Wire) -> Result<JsValue> {
+    let source = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(control_views(
+        &source.document.story_controls()?,
+        &source.anchors.story_controls,
+    ))
+}
+fn control_views(
+    controls: &[rocx::editor::ImportedControl],
+    cache: &RefCell<HashMap<usize, JsValue>>,
+) -> JsValue {
+    view::array(controls.iter().enumerate().map(|(i, c)| {
+        let value = b::record(&[
+            ("anchor", view::cached(cache, i, "controlAnchor", &c.anchor)),
+            ("context", c.context.as_str().into()),
+            ("bound", c.bound.into()),
+            ("kind", c.kind.into()),
+            (
+                "choices",
+                view::array(c.choices.iter().map(|i| {
+                    b::record(&[
+                        ("displayText", i.display_text.as_str().into()),
+                        ("value", i.value.as_str().into()),
+                    ])
+                })),
+            ),
+        ]);
+        for (key, v) in [
+            ("ownerPart", &c.owner_part),
+            ("entryId", &c.entry_id),
+            ("id", &c.id),
+            ("selected", &c.selected),
+            ("multiLine", &c.multi_line),
+            ("tag", &c.tag),
+            ("alias", &c.alias),
+            ("lock", &c.lock),
+        ] {
+            if let Some(v) = v {
+                b::set(&value, key, &v.as_str().into());
+            }
+        }
+        if let Some(i) = c.entry_index {
+            b::set(&value, "entryIndex", &(i as f64).into());
+        }
+        value
+    }))
 }
 
 fn styles(input: &Wire) -> Result<JsValue> {
@@ -280,6 +357,25 @@ fn style_anchor(input: &Wire) -> Result<JsValue> {
     ))
 }
 
+fn body_range_markers(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(view::array(
+        doc.document().body_range_markers()?.into_iter().map(|m| {
+            let value = b::record(&[
+                ("bodyIndex", (m.body_index as u32).into()),
+                ("inlineIndex", (m.inline_index as u32).into()),
+                ("kind", m.kind.into()),
+            ]);
+            if let Some(s) = m.id {
+                b::set(&value, "id", &s.into());
+            }
+            if let Some(s) = m.name {
+                b::set(&value, "name", &s.into());
+            }
+            value
+        }),
+    ))
+}
 fn core_title(input: &Wire) -> Result<JsValue> {
     let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
     Ok(doc
@@ -514,6 +610,20 @@ fn inline_at(input: &Wire) -> Result<JsValue> {
     let target = b::borrow::<InlineSource>(&argument(&call, "anchor")?, "anchor")?;
     let node = source.document().inline_at(&target.anchor)?;
     view::inline_node(node, &source.anchors, target.story.as_ref())
+}
+
+fn chart_series(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let target = b::borrow::<InlineSource>(&argument(&call, "anchor")?, "anchor")?;
+    let (labels, values) = doc.document().chart_series(&target.anchor)?;
+    Ok(b::record(&[
+        (
+            "categories",
+            view::array(labels.into_iter().map(JsValue::from)),
+        ),
+        ("values", view::array(values.into_iter().map(JsValue::from))),
+    ]))
 }
 
 fn default_headers(input: &Wire) -> Result<JsValue> {

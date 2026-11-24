@@ -28,6 +28,7 @@ function link(node: ImportedHyperlink): readonly (string | undefined)[] {
 
 function structure(node: ImportedInlineNode): readonly (string | undefined)[] {
   switch (node.kind) {
+    case "fraction": return [node.numerator, node.denominator];
     case "run": return run(node);
     case "hyperlink": return link(node);
     case "revision": return [node.revisionKind, node.id, node.author, node.date, ...node.children.map(structure).flat()];

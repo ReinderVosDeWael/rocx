@@ -7,7 +7,16 @@ export type MetadataField = "title" | "subject" | "creator" | "description" | "c
   | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
 export interface ControlAnchor { readonly [anchor]: "control" }
+export interface ControlSiteAnchor { readonly [anchor]: "controlSite" }
+export interface ControlSite {
+  readonly anchor: ControlSiteAnchor;
+  readonly context: ImportedControl["context"];
+  readonly text: string;
+}
 export interface ImportedControl {
+  readonly ownerPart?: string;
+  readonly entryId?: string;
+  readonly entryIndex?: number;
   readonly anchor: ControlAnchor;
   readonly context: "block" | "inline" | "row" | "cell";
   readonly id?: string;
@@ -15,6 +24,10 @@ export interface ImportedControl {
   readonly alias?: string;
   readonly lock?: string;
   readonly bound: boolean;
+  readonly kind: string;
+  readonly choices: readonly { readonly displayText: string; readonly value: string }[];
+  readonly selected?: string;
+  readonly multiLine?: string;
 }
 
 /** Direct body paragraph target, valid only in the snapshot that issued it. */
@@ -136,6 +149,7 @@ export type ImportedInline =
   | ImportedOpaque;
 
 export interface ImportedRun {
+  readonly drawing?: DrawingOccurrence;
   readonly format: import("./text-layout.js").ResolvedRunFormat;
   /** Direct toggle properties; absent when unset or ambiguous. */
   readonly bold?: boolean;
@@ -143,6 +157,7 @@ export interface ImportedRun {
   readonly strike?: boolean;
   readonly hidden?: boolean;
   readonly hasOpaqueFormatting: boolean;
+  readonly propertyRevision?: ImportedPropertyRevision<"runProperties">;
   readonly kind: "run";
   readonly anchor: InlineAnchor;
   readonly items: readonly ImportedInline[];
@@ -154,6 +169,8 @@ export interface ImportedHyperlink {
   /** Source relationship ID local to the owning part, not a URL. */
   readonly relationshipId?: string;
   readonly bookmark?: string;
+  readonly tooltip?: string;
+  readonly historyXml?: string;
   readonly children: readonly ImportedInlineNode[];
 }
 
@@ -167,7 +184,30 @@ export interface ImportedRevision {
   readonly children: readonly ImportedInlineNode[];
 }
 
-export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque;
+export interface DrawingOccurrence {
+  readonly title?: string;
+  readonly name?: string;
+  readonly geometry?: string;
+  readonly shapeText?: string;
+  /** DrawingML units: crop in thousandths of a percent, rotation in 1/60000 degrees. */
+  readonly crop?: readonly [number, number, number, number];
+  readonly rotation?: number;
+  readonly flipHorizontal?: boolean;
+  readonly flipVertical?: boolean;
+  readonly kind: "image" | "shape" | "chart";
+  readonly placement: "inline" | "floating";
+  readonly relationshipId?: string;
+  readonly description?: string;
+  readonly widthEmu?: number;
+  readonly heightEmu?: number;
+}
+export interface ImportedFraction {
+  readonly kind: "fraction";
+  readonly anchor: InlineAnchor;
+  readonly numerator: string;
+  readonly denominator: string;
+}
+export type ImportedInlineNode = ImportedRun | ImportedHyperlink | ImportedRevision | ImportedOpaque | ImportedFraction;
 
 export interface ImportedFlatParagraph {
   readonly kind: "paragraph";
@@ -176,6 +216,7 @@ export interface ImportedFlatParagraph {
 
 export interface ImportedParagraph extends ImportedFlatParagraph {
   readonly layout: DirectParagraphLayout;
+  readonly markRevision?: ImportedPropertyRevision<"insertion" | "deletion">;
   readonly flags: Readonly<Partial<Record<ParagraphFlag, boolean>>>;
   readonly anchor: ParagraphAnchor;
   /** Projection of ordinary runs and links, not rendered text. */
@@ -184,6 +225,10 @@ export interface ImportedParagraph extends ImportedFlatParagraph {
   readonly alignmentXml?: string;
   readonly hasOpaqueContent: boolean;
   readonly inlineStructure: readonly ImportedInlineNode[];
+}
+
+export interface ImportedPropertyRevision<K extends "runProperties" | "insertion" | "deletion"> {
+  readonly kind: K; readonly id?: string; readonly author?: string; readonly date?: string;
 }
 
 /** Direct cell paragraph; only runs and hyperlinks have anchors. */
@@ -322,12 +367,15 @@ export interface ImportedStyles {
   readonly styles: readonly ImportedStyle[];
 }
 export interface ImportedDocument {
+  chartSeries(anchor: InlineAnchor): { readonly categories: readonly string[]; readonly values: readonly number[] };
   controls(): readonly ImportedControl[];
+  storyControls(): readonly ImportedControl[];
+  controlSites(): readonly ControlSite[];
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
   sections(): readonly ImportedSection[];
   /** Rejects anchors issued by any other snapshot, including reopening identical bytes. */
-  inlineAt(anchor: InlineAnchor): ImportedRun | ImportedHyperlink;
+  inlineAt(anchor: InlineAnchor): ImportedRun | ImportedHyperlink | ImportedRevision | ImportedFraction;
   /** Lazily inspect effective default headers; sections without one are omitted. */
   defaultHeaders(): readonly ImportedHeader[];
   /**
