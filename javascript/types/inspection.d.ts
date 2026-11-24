@@ -6,7 +6,7 @@ declare const anchor: unique symbol;
 export interface ParagraphAnchor { readonly [anchor]: "paragraph" }
 /** Read-only direct body table address. */
 export interface TableAnchor { readonly [anchor]: "table" }
-/** Read-only run or hyperlink address. Aliases of a physical story part share these tokens. */
+/** Snapshot-local run or hyperlink address; eligible direct body runs support text replacement. */
 export interface InlineAnchor { readonly [anchor]: "inline" }
 /** Section-scoped target for a default-header edit. */
 export interface HeaderAnchor { readonly [anchor]: "header" }
@@ -138,6 +138,19 @@ export interface ImportedStory extends ResolvedHandle<"importedStory", ImportedS
 
 declare const importedDocument: unique symbol;
 
+export interface ImportedEntry {
+  readonly kind: "footnote" | "endnote" | "comment";
+  readonly partName: string;
+  readonly id: string;
+  readonly noteType?: string;
+  readonly author?: string;
+  readonly date?: string;
+  readonly initials?: string;
+  readonly blocks: readonly (ImportedOpaque | (ImportedFlatParagraph & {
+    readonly inlineStructure: readonly ImportedInlineNode[];
+  }))[];
+}
+
 export interface ImportedDocument {
   readonly [importedDocument]: true;
   body(): readonly BodyBlock[];
@@ -152,6 +165,7 @@ export interface ImportedDocument {
    * are omitted, and page selection settings do not filter the result.
    */
   stories(): readonly ImportedStory[];
+  entryStories(): readonly ImportedEntry[];
 }
 
 export interface OpenDocxOptions {

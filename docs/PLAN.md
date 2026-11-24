@@ -23,6 +23,16 @@ passed locally. See the [dependency audit](DEPENDENCY-AUDIT.md) for alert status
 
 ## Current GitHub issue sweep
 
+### Editor checkpoint (#3, PR #31)
+
+The hosted Rust showcase test left the seventh catalog output (`run-text.docx`)
+in its temporary directory. It now reopens that output and removes it alongside
+the header outputs. The packed JavaScript checks now build the native editor
+oracle as a Cargo example instead of guessing where rustc can find its
+dependencies. Locally the showcase test passed, python-docx reopened all seven
+native oracle outputs, and the no-op preserved every ZIP part payload. Require
+the hosted Rust and packed Node/Chromium checks before integrating this slice.
+
 ### Repository evaluation follow-ups
 
 Three independent probes on `19590c9` reproduced defects despite 261 passing
@@ -193,6 +203,14 @@ Normal pushes can deploy the documentation site. Do not push a publishing tag
 until the hosted preflight succeeds and registry setup is confirmed.
 
 ## Editor goal: declarative parity
+
+Complete #3 before releasing 0.4.0. Continue the serial checkpoint with
+relationship-based inspection of footnote, endnote and comment entries.
+Re-run release preflight on the integrated candidate, not the earlier docs commit.
+The working branch also stages plain single-text run replacements in the mixed
+transaction; property, block, table, resource and revision operations remain.
+Every new editor slice must ship together in Rust, Python and JavaScript,
+including the installed JS package's Node and Chromium parity checks.
 
 An agent should be able to open an existing DOCX, inspect it as typed rocx
 content, and apply anything rocx can author declaratively at a valid target.

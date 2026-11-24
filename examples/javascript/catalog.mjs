@@ -12,6 +12,7 @@ export const catalogNames = Object.freeze({
   headerSource: "all_features-javascript.header-source.docx",
   headerShared: "all_features-javascript.header-shared.docx",
   headerLocal: "all_features-javascript.header-local.docx",
+  runText: "all_features-javascript.run-text.docx",
 });
 const EDIT_TABLE_LABEL = "Imported editor table: bold label";
 const SECOND_CELL_RUNS = ["Fixed-width ", "second column"];
@@ -123,11 +124,11 @@ function assertThrows(operation, message) {
 }
 
 /**
- * Generate all six DOCX artifacts without host I/O assumptions.
+ * Generate the catalog artifacts without host I/O assumptions.
  * `fixtures` maps fixture filenames to raw Uint8Array image bytes, or is an
  * async reader taking a fixture filename and returning the same bytes.
  * The optional `namedPng` declaration lets Node demonstrate lazy imageFile().
- * Returns the six Uint8Array values by their keys in catalogNames.
+ * Returns Uint8Array values by their keys in catalogNames.
  */
 export async function generateCatalog(fixtures, options) {
   const readFixture = typeof fixtures === "function" ? fixtures : (filename) => fixtures[filename];
@@ -143,6 +144,21 @@ export async function generateCatalog(fixtures, options) {
   const body = imported.body();
   const inline = body.find((node) => node.kind === "paragraph" && node.text === INLINE_LABEL + INLINE_LINK_RUNS.join(""));
   assert(inline, "expected labeled body inline structure");
+  const entries = imported.entryStories();
+  for (const kind of ["footnote", "endnote"]) {
+    assert(entries.some((entry) => entry.kind === kind && entry.id === "0"), `missing ${kind}`);
+  }
+  const review = entries.find((e) => e.author === "Structured reviewer");
+  assert(review?.kind === "comment" && review.initials === "SR", "missing structured review");
+  const reviewRun = review.blocks[0].inlineStructure[0];
+  assert(imported.inlineAt(reviewRun.anchor).items[0].text.startsWith("Structured comment:"), "incorrect comment run");
+  const textEdit = { target: inline.inlineStructure[0].anchor, text: "Imported editor: replaced this run by its anchor. " };
+  const textPreview = imported.preview({runText: [textEdit]});
+  const [change] = textPreview.runTextChanges();
+  assert(change.before === INLINE_LABEL && change.after === textEdit.text &&
+    change.bodyIndex === body.indexOf(inline) && change.inlineIndex === 0, "incorrect text change");
+  assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
+  const runText = textPreview.toDocx();
   const internalLink = checkLink(imported, inline.inlineStructure, INLINE_LABEL, INLINE_LINK_RUNS);
   assert(internalLink.bookmark === "CatalogBookmark" && internalLink.relationshipId === undefined, "expected bookmark hyperlink");
   const editTargets = body.filter((node) => node.kind === "paragraph" && node.text === EDIT_LABEL);
@@ -155,6 +171,9 @@ export async function generateCatalog(fixtures, options) {
   assertBytes(edited, preview.toDocx(), "retained body preview must encode identically");
   await checkEdited(edited, bodyIndex, imported);
   const otherSnapshot = await openDocx(final);
+  assertThrows(() => otherSnapshot.preview({runText: [textEdit]}), "accepted a foreign run-text edit");
+  assertThrows(() => imported.preview({runText: [{target: reviewRun.anchor, text: "Wrong story"}]}),
+    "accepted a comment run as a body text target");
   assertThrows(() => otherSnapshot.inlineAt(internalLink.anchor), "accepted a foreign inline anchor");
   assertThrows(() => otherSnapshot.preview({ alignments: [{ target: target.anchor, alignment: "center" }] }),
     "accepted a foreign edit anchor");
@@ -195,5 +214,5 @@ export async function generateCatalog(fixtures, options) {
   }
   const headerShared = await headerEdit("shared", [0, 1]);
   const headerLocal = await headerEdit("sectionLocal", [1]);
-  return { final, template, edited, headerSource, headerShared, headerLocal };
+  return { final, template, edited, headerSource, headerShared, headerLocal, runText };
 }

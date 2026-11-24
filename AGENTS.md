@@ -26,7 +26,9 @@ basic features of existing Word files and edited outputs. Use package-level
 checks for relationships, opaque markup, and exact byte preservation;
 python-docx inspection does not replace those checks or the rocx editor.
 
-When adding functionality, update both `examples/all_features.rs` (and its support
-modules) and `examples/all_features.py`, plus `examples/ALL_FEATURES.md` and the
-parity/coverage checks. Keep visible examples clearly labeled. Run exact DOCX
-byte-parity verification; normalized XML equality is not a substitute.
+Keep Rust, Python and JavaScript at feature parity. When adding functionality,
+update all three public APIs (including JavaScript declarations), the Rust,
+Python and JavaScript all-features catalogs, `examples/ALL_FEATURES.md`, and
+the parity/coverage checks. Document all three spellings together. Keep samples
+clearly labeled. Compare full DOCX bytes across bindings and test inspection
+results, errors and anchor behavior separately in installed consumers.

@@ -1,5 +1,5 @@
 import type { ResolvedImage } from "./drawings.js";
-import type { HeaderAnchor, ParagraphAnchor } from "./inspection.js";
+import type { HeaderAnchor, InlineAnchor, ParagraphAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment } from "./text-layout.js";
 
@@ -23,9 +23,18 @@ export interface HeaderImageEdit {
 }
 
 export interface EditBatch {
+  readonly runText?: readonly RunTextEdit[];
   readonly alignments?: readonly ParagraphAlignmentEdit[];
   readonly tableInsertions?: readonly TableInsertion[];
   readonly headerImages?: readonly HeaderImageEdit[];
+}
+
+export interface RunTextEdit { readonly target: InlineAnchor; readonly text: string }
+export interface RunTextChange {
+  readonly bodyIndex: number;
+  readonly inlineIndex: number;
+  readonly before: string;
+  readonly after: string;
 }
 
 export interface AlignmentChange {
@@ -54,6 +63,7 @@ export interface EditPreview {
   readonly [preview]: "edit";
   /** Changes in original body order, excluding unchanged alignments. */
   changes(): readonly AlignmentChange[];
+  runTextChanges(): readonly RunTextChange[];
   /** Insertions in original body order. */
   insertions(): readonly TableInsertionChange[];
   /** Changes in target section order. */

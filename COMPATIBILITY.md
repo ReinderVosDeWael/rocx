@@ -44,6 +44,22 @@ In Rust, use `Metadata::with_company`, `with_manager`, `with_custom_properties` 
 
 ## Resolution, editing and output
 
+| Imported DOCX operation | Rust | Python | JavaScript |
+| --- | --- | --- | --- |
+| Inspect footnotes, endnotes and comments | `doc.entry_stories()?` | `doc.entry_stories` | `doc.entryStories()` |
+| Replace text in a direct body run | `doc.preview_with_text(&[], &[], &[], &[edit])?` | `doc.preview([], run_text=[edit])` | `doc.preview({runText: [edit]})` |
+| Inspect changed runs | `preview.run_text_changes()` | `preview.run_text_changes` | `preview.runTextChanges()` |
+
+Entries include the original ID, note type or comment
+metadata, and direct paragraphs with snapshot-scoped read-only inline anchors.
+Tables and other block types are opaque in these stories.
+
+Use `RunTextEdit { target, text }` in Rust, `RunTextEdit(target, text)` in Python,
+or `{target, text}` in JavaScript. The run must
+contain a single text element outside fields and ranges. Formatting, adjacent
+runs and opaque siblings survive. Tabs, line breaks, mixed-content runs,
+duplicate targets and stale anchors reject the entire batch.
+
 - Rust consumes declarations; Python leaves them unchanged. [Resolve once](docs/DEFERRED-FIELDS.md) to render repeatedly without rerunning producers or rereading images.
 - **Compose** with an unsigned Transitional DOCX or DOTX template; output is DOCX. **Inspect and preview edits** on an unsigned DOCX: align direct body paragraphs, insert supported tables or append an image to an existing default header. A shared edit affects every section using that header; a section-local edit forks a supported header. Use targets from the same snapshot.
 - [Template replacement](https://reindervosdewael.github.io/rocx/recipes/#edit-an-existing-document) can span runs within a paragraph or hyperlink. It cannot cross structured boundaries or change fields, revisions or controls. Replacement text belongs to the first matched run; bookmark/comment markers and untouched break attributes stay in place.

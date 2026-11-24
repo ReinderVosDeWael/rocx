@@ -7,6 +7,7 @@ const suffixes = {
   headerSource: ".header-source",
   headerShared: ".header-shared",
   headerLocal: ".header-local",
+  runText: ".run-text",
 };
 
 export async function catalogFixtures(readFixture, options) {

@@ -74,6 +74,18 @@ struct PyImportedStory {
     blocks: Vec<Py<PyAny>>,
 }
 
+#[pyclass(name = "ImportedEntry", frozen, module = "rocx.editor", get_all)]
+struct PyImportedEntry {
+    kind: &'static str,
+    part_name: String,
+    id: String,
+    note_type: Option<String>,
+    author: Option<String>,
+    date: Option<String>,
+    initials: Option<String>,
+    blocks: Vec<Py<PyAny>>,
+}
+
 fn story_blocks<'a>(
     py: Python<'_>,
     blocks: &[editor::ImportedStoryBlock],
@@ -103,6 +115,32 @@ fn story_blocks<'a>(
             .into_any()),
         })
         .collect()
+}
+
+#[pyclass(name = "RunTextEdit", frozen, module = "rocx.editor")]
+struct PyRunTextEdit {
+    inner: editor::RunTextEdit,
+}
+
+#[pymethods]
+impl PyRunTextEdit {
+    #[new]
+    fn new(target: PyRef<'_, PyInlineAnchor>, text: String) -> Self {
+        Self {
+            inner: editor::RunTextEdit {
+                target: target.inner.clone(),
+                text,
+            },
+        }
+    }
+}
+
+#[pyclass(name = "RunTextChange", frozen, module = "rocx.editor", get_all)]
+struct PyRunTextChange {
+    body_index: usize,
+    inline_index: usize,
+    before: String,
+    after: String,
 }
 
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
@@ -528,6 +566,22 @@ struct PyEditPreview {
 
 #[pymethods]
 impl PyEditPreview {
+    #[getter]
+    fn run_text_changes(&self) -> PyResult<Vec<PyRunTextChange>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Preview lock poisoned"))?
+            .run_text_changes()
+            .iter()
+            .map(|c| PyRunTextChange {
+                body_index: c.body_index,
+                inline_index: c.inline_index,
+                before: c.before.clone(),
+                after: c.after.clone(),
+            })
+            .collect())
+    }
     /// Header image changes in target section order.
     #[getter]
     fn header_changes(&self) -> PyResult<Vec<PyHeaderImageChange>> {
@@ -667,6 +721,30 @@ impl PyImportedDocument {
             .collect()
     }
 
+    #[getter]
+    fn entry_stories(&self, py: Python<'_>) -> PyResult<Vec<PyImportedEntry>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        doc.entry_stories()
+            .map_err(rust_error)?
+            .iter()
+            .map(|e| {
+                Ok(PyImportedEntry {
+                    kind: e.kind.as_str(),
+                    part_name: e.part_name.clone(),
+                    id: e.id.clone(),
+                    note_type: e.note_type.clone(),
+                    author: e.author.clone(),
+                    date: e.date.clone(),
+                    initials: e.initials.clone(),
+                    blocks: story_blocks(py, e.blocks(), |i| e.inline_structure(i))?,
+                })
+            })
+            .collect()
+    }
+
     fn preview_header_image(
         &self,
         edit: PyRef<'_, PyHeaderImageEdit>,
@@ -733,12 +811,13 @@ impl PyImportedDocument {
     }
 
     /// Stage alignment edits, table insertions and header images against one snapshot.
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
         table_insertions: Option<Vec<PyRef<'_, PyTableInsertion>>>,
         header_images: Option<Vec<PyRef<'_, PyHeaderImageEdit>>>,
+        run_text: Option<Vec<PyRef<'_, PyRunTextEdit>>>,
     ) -> PyResult<PyEditPreview> {
         let edits: Vec<_> = edits
             .iter()
@@ -766,8 +845,17 @@ impl PyImportedDocument {
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
         Ok(PyEditPreview {
             inner: Mutex::new(
-                doc.preview_transaction(&edits, &insertions, &header_images)
-                    .map_err(rust_error)?,
+                doc.preview_with_text(
+                    &edits,
+                    &insertions,
+                    &header_images,
+                    &run_text
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|e| e.inner.clone())
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(rust_error)?,
             ),
         })
     }
@@ -778,6 +866,9 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedHeader>()?;
     module.add_class::<PyImportedHeaderParagraph>()?;
     module.add_class::<PyImportedStory>()?;
+    module.add_class::<PyImportedEntry>()?;
+    module.add_class::<PyRunTextEdit>()?;
+    module.add_class::<PyRunTextChange>()?;
     module.add_class::<PyImportedSection>()?;
     module.add_class::<PyHeaderImageEdit>()?;
     module.add_class::<PyHeaderImageChange>()?;

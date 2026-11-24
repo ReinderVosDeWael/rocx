@@ -80,6 +80,8 @@ const bytes = report.toDocx(); // synchronous; snapshot can be rendered again
 
 | Task | API |
 | --- | --- |
+| Inspect notes and comments | `doc.entryStories()` returns entries with source IDs, metadata, paragraph runs and links. |
+| Replace a direct body run's text | `doc.preview({ runText: [{ target: run.anchor, text: "New text" }] })`; inspect `runTextChanges()` before `toDocx()`. |
 | Render against an unsigned Transitional DOCX or DOTX | `report.toDocxWithTemplate({ bytes, edits })`; `compileTemplate` returns an inspectable package plan. |
 | Inspect an unsigned DOCX | `await openDocx(bytes)`, then `body()`, `sections()`, `stories()` or `defaultHeaders()`. Unsupported children may be opaque. |
 | Edit a copy | `imported.preview(batch)` stages body alignment, table insertion and default-header images together. Inspect `changes()`, `insertions()`, `headerChanges()`, then `toDocx()`. |

@@ -53,15 +53,15 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode uv run --no-sync python tools/check_exampl
 The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.template.docx`, `all_features-javascript.edited.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
-and `all_features-javascript.header-local.docx`. Repeat `--javascript-dir` to check
-multiple runtime outputs. The checker requires all six exact byte matches and
+`all_features-javascript.header-local.docx`, and `all_features-javascript.run-text.docx`. Repeat `--javascript-dir` to check
+multiple runtime outputs. The checker requires all seven exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
 In Chromium, import `generateCatalog` from `catalog.mjs` with the installed
 package resolved by a bundler or import map. Pass a filename-to-`Uint8Array`
 map of the six image fixtures, or an async function that reads a fixture by
 basename. The function returns `final`, `template`, `edited`, `headerSource`,
-`headerShared` and `headerLocal` byte arrays; use the exported `catalogNames`
+`headerShared`, `headerLocal` and `runText` byte arrays; use the exported `catalogNames`
 to name output files. The common module never reads DOCX fixtures or performs I/O
 except through the caller's image loader. Node uses `imageFile()` for the
 named-image sample; the browser supplies named bytes.
@@ -76,6 +76,13 @@ Future intentional feature additions will change this baseline; equality is
 checked against the other implementation, not against a permanently fixed hash.
 
 ## Inspection guide and coverage inventory
+
+The editor reads the labeled footnote, endnote and structured comment back as
+separate entries. The two ordinary notes both use ID `0` in different parts.
+
+The Rust, Python and JavaScript `.run-text.docx` examples replace only the labeled direct run before
+the bookmark hyperlink. The checker compares exact bytes, reopens the paragraph
+and verifies every untouched package payload against the source catalog.
 
 Each sample names its requested feature in ordinary text before/within it.
 Heading samples say **“This is a Heading 1”** through **“This is a Heading 9”**;

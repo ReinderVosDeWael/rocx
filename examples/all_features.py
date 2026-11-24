@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    TableInsertion,
+    TableInsertion, RunTextEdit,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -456,9 +456,19 @@ async def generate(output: pathlib.Path) -> bytes:
     assert data == await snapshot.to_bytes(template, options=options)
     await snapshot.save(output, template, options=options)
     imported = ImportedDocument.open(data)
+    entries = imported.entry_stories
+    assert {e.kind for e in entries if e.id == "0"} >= {"footnote", "endnote"}
+    review, = (e for e in entries if e.author == "Structured reviewer")
+    assert review.kind == "comment" and review.initials == "SR"
+    review_run = review.blocks[0].inline_structure[0]
+    assert imported.inline_at(review_run.anchor).items[0].value.startswith("Structured comment:")
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     label, inline_link = inline_block.inline_structure
+    replacement = "Imported editor: replaced this run by its anchor. "
+    preview = imported.preview([], run_text=[RunTextEdit(label.anchor, replacement)])
+    assert preview.run_text_changes[0].before == INLINE_LABEL
+    output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
     assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]
     assert inline_link.bookmark == "CatalogBookmark" and inline_link.relationship_id is None

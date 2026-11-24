@@ -36,19 +36,7 @@ for mode in rust node browser-dev browser; do
     cp "$fixtures/editor"/{base,relocated}.docx "$fixtures/editor/image.png" "$parity/$mode/editor/"
 done
 cargo run --quiet --locked --example javascript_parity_oracles -- "$oracles"
-# The editor owner keeps a standalone native oracle outside the Rust crate
-# package. Locate the actual Cargo artifact instead of assuming a target dir.
-rocx_rlib=$(cargo build --locked --lib --message-format=json | "$PYTHON" -c '
-import json, sys
-for line in sys.stdin:
-    event = json.loads(line)
-    if event.get("reason") == "compiler-artifact" and event["target"]["name"] == "rocx":
-        print(next(file for file in event["filenames"] if file.endswith(".rlib")))
-')
-test -f "$rocx_rlib"
-rustc --edition 2024 -L "dependency=$(dirname -- "$rocx_rlib")/deps" --extern "rocx=$rocx_rlib" \
-    javascript/src/editor/parity_native.rs -o "$output/editor-oracle"
-"$output/editor-oracle" "$oracles/editor"
+cargo run --quiet --locked --example javascript_editor_oracle -- "$oracles/editor"
 
 # JSON is an unstable Rustdoc output format, not an unstable crate feature.
 # Scope the opt-in to this documentation command on CI's stable toolchain.

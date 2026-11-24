@@ -114,18 +114,18 @@ fn width_for(section: Option<&Node>) -> Result<i64> {
 /// Known body ranges must not silently gain content. Foreign branches are not
 /// resolved in this editor; if an alternate may carry body markers, refuse.
 #[derive(Default)]
-struct BoundaryState {
+pub(super) struct BoundaryState {
     fields: usize,
     ranges: BTreeSet<(&'static str, String)>,
     uncertain: bool,
 }
 
 impl BoundaryState {
-    fn safe(&self) -> bool {
+    pub(super) fn safe(&self) -> bool {
         self.fields == 0 && self.ranges.is_empty() && !self.uncertain
     }
 
-    fn advance(&mut self, node: &Node) {
+    pub(super) fn advance(&mut self, node: &Node) {
         let name = node.name.as_str();
         if name == ALTERNATE {
             self.uncertain = true;

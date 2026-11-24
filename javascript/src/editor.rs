@@ -24,6 +24,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
             (preview_header, Paths::Package),
         ),
         ("editPreviewChanges", (changes, Paths::Package)),
+        (
+            "editPreviewRunTextChanges",
+            (run_text_changes, Paths::Package),
+        ),
         ("editPreviewInsertions", (insertions, Paths::Package)),
         ("editPreviewHeaderChanges", (header_changes, Paths::Package)),
         ("editPreviewToDocx", (edit_docx, Paths::Package)),
@@ -103,12 +107,22 @@ fn preview(input: &Wire) -> Result<JsValue> {
     let batch = Record::new(
         &argument(&call, "batch")?,
         "batch",
-        &["alignments", "tableInsertions", "headerImages"],
+        &["alignments", "tableInsertions", "headerImages", "runText"],
     )?;
-    let preview = source.document().preview_transaction(
+    let preview = source.document().preview_with_text(
         &edits(&batch, "alignments", alignment_edit)?,
         &edits(&batch, "tableInsertions", table_insertion)?,
         &edits(&batch, "headerImages", header_edit)?,
+        &edits(&batch, "runText", |input, path| {
+            let edit = Record::new(input, path, &["target", "text"])?;
+            Ok(rocx::editor::RunTextEdit {
+                target: crate::inspection::inline_anchor(
+                    &edit.get("target")?,
+                    &edit.path("target"),
+                )?,
+                text: b::string(&edit.get("text")?, &edit.path("text"))?,
+            })
+        })?,
     )?;
     Ok(b::handle_with_methods(
         "editPreview",
@@ -116,6 +130,7 @@ fn preview(input: &Wire) -> Result<JsValue> {
         JsValue::UNDEFINED,
         &[
             ("changes", "editPreviewChanges"),
+            ("runTextChanges", "editPreviewRunTextChanges"),
             ("insertions", "editPreviewInsertions"),
             ("headerChanges", "editPreviewHeaderChanges"),
             ("toDocx", "editPreviewToDocx"),
@@ -164,6 +179,18 @@ fn insertions(input: &Wire) -> Result<JsValue> {
             ("afterBodyIndex", change.after_body_index.into()),
             ("rows", change.rows.into()),
             ("columns", change.columns.into()),
+        ])
+    })))
+}
+
+fn run_text_changes(input: &Wire) -> Result<JsValue> {
+    let preview = borrow_target::<EditPreview>(&call(input)?, "preview")?;
+    Ok(array(preview.run_text_changes().iter().map(|c| {
+        b::record(&[
+            ("bodyIndex", c.body_index.into()),
+            ("inlineIndex", c.inline_index.into()),
+            ("before", (&c.before).into()),
+            ("after", (&c.after).into()),
         ])
     })))
 }
