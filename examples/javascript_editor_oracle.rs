@@ -266,6 +266,89 @@ fn main() {
             "native-controlEdits.docx",
             preview(&source, &edits).unwrap().to_docx().unwrap(),
         );
+        let bytes = fs::read(directory.join("control-choice-source.docx")).unwrap();
+        let original = ImportedDocument::open(&bytes).unwrap();
+        let choice = &original.controls()[0];
+        assert_eq!(
+            (choice.kind, choice.selected.as_deref()),
+            ("dropDownList", Some("1"))
+        );
+        assert_eq!(choice.choices.len(), 2);
+        assert!(
+            original
+                .preview_control_choice(&choice.anchor, "absent", None)
+                .is_err()
+        );
+        assert!(source.preview_unwrap_control(&c[0].anchor).is_err());
+        assert!(source.preview_unwrap_control(&c[4].anchor).is_err());
+        let selected = ImportedDocument::open(
+            &original
+                .preview_control_choice(&choice.anchor, "2", None)
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        )
+        .unwrap();
+        let second = &selected.controls()[0];
+        assert_eq!(second.choices, choice.choices);
+        let items = [rocx::ContentControlListItem {
+            display_text: " Revised ".into(),
+            value: "R".into(),
+        }];
+        let mut data = selected
+            .preview_control_choice(&second.anchor, "R", Some(&items))
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        for ctx in ["block", "inline", "row", "cell"] {
+            let doc = ImportedDocument::open(&data).unwrap();
+            let site = doc
+                .control_sites()
+                .iter()
+                .find(|s| s.context.as_str() == ctx && s.text == ctx)
+                .unwrap();
+            assert!(original.preview_wrap_control(site, ctx).is_err());
+            data = doc
+                .preview_wrap_control(site, ctx)
+                .unwrap()
+                .to_docx()
+                .unwrap();
+        }
+        let doc = ImportedDocument::open(&data).unwrap();
+        let props = rocx::ContentControlProperties::default()
+            .with_tag("inline")
+            .with_id(42)
+            .with_text(rocx::ContentControlText::Plain {
+                multi_line: Some(false),
+            });
+        let by = |tag| {
+            &doc.controls()
+                .iter()
+                .find(|c| c.tag.as_deref() == Some(tag))
+                .unwrap()
+                .anchor
+        };
+        assert!(doc.preview_replace_control(by("row"), &props).is_err());
+        data = doc
+            .preview_replace_control(by("inline"), &props)
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        write("native-controlWrapped.docx", data.clone());
+        for ctx in ["block", "inline", "row", "cell"] {
+            let doc = ImportedDocument::open(&data).unwrap();
+            let c = doc
+                .controls()
+                .iter()
+                .find(|c| c.context.as_str() == ctx && c.tag.as_deref() == Some(ctx))
+                .unwrap();
+            data = doc
+                .preview_unwrap_control(&c.anchor)
+                .unwrap()
+                .to_docx()
+                .unwrap();
+        }
+        write("native-controlUnwrapped.docx", data);
     }
     let ranged =
         ImportedDocument::open(&fs::read(directory.join("range-source.docx")).unwrap()).unwrap();

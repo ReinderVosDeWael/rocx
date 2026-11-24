@@ -24,6 +24,19 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
+        ("importedPreviewWrapControl", (wrap_control, Paths::Package)),
+        (
+            "importedPreviewReplaceControl",
+            (replace_control, Paths::Package),
+        ),
+        (
+            "importedPreviewUnwrapControl",
+            (unwrap_control, Paths::Package),
+        ),
+        (
+            "importedPreviewControlChoice",
+            (control_choice, Paths::Package),
+        ),
         (
             "importedPreviewHeaderImage",
             (preview_header, Paths::Package),
@@ -473,6 +486,63 @@ fn revision(input: &Wire) -> Result<JsValue> {
         &anchor("target")?,
         action,
         paired.as_ref(),
+    )?)
+}
+
+fn wrap_control(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let edit = Record::new(&argument(&call, "edit")?, "edit", &["target", "tag"])?;
+    let site = borrow_target::<rocx::editor::ControlSite>(&edit, "edit.target")?;
+    preview_handle(
+        source
+            .document()
+            .preview_wrap_control(&site, &b::string(&edit.get("tag")?, "edit.tag")?)?,
+    )
+}
+fn replace_control(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let edit = Record::new(&argument(&call, "edit")?, "edit", &["target", "properties"])?;
+    let anchor = borrow_target::<rocx::editor::ControlAnchor>(&edit, "edit.target")?;
+    let props = crate::structured::content_control_properties(
+        &edit.get("properties")?,
+        &b::Operation::new().pass(),
+        "edit.properties",
+    )?;
+    preview_handle(source.document().preview_replace_control(&anchor, &props)?)
+}
+
+fn unwrap_control(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let anchor = b::borrow::<rocx::editor::ControlAnchor>(&argument(&call, "target")?, "target")?;
+    preview_handle(source.document().preview_unwrap_control(&anchor)?)
+}
+fn control_choice(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let edit = Record::new(
+        &argument(&call, "edit")?,
+        "edit",
+        &["target", "selected", "choices"],
+    )?;
+    let anchor = borrow_target::<rocx::editor::ControlAnchor>(&edit, "edit.target")?;
+    let choices = if edit.get("choices")?.js().is_undefined() {
+        None
+    } else {
+        Some(edits(&edit, "choices", |v, path| {
+            let item = Record::new(v, path, &["displayText", "value"])?;
+            Ok(rocx::ContentControlListItem {
+                display_text: b::string(&item.get("displayText")?, &item.path("displayText"))?,
+                value: b::string(&item.get("value")?, &item.path("value"))?,
+            })
+        })?)
+    };
+    preview_handle(source.document().preview_control_choice(
+        &anchor,
+        &b::string(&edit.get("selected")?, "edit.selected")?,
+        choices.as_deref(),
     )?)
 }
 

@@ -331,7 +331,9 @@ pub(super) fn inline(o: &Bound<'_, PyAny>) -> PyResult<Option<ResolvedInline>> {
     };
     Ok(Some(value))
 }
-fn content_control_properties(o: &Bound<'_, PyAny>) -> PyResult<crate::ContentControlProperties> {
+pub(super) fn content_control_properties(
+    o: &Bound<'_, PyAny>,
+) -> PyResult<crate::ContentControlProperties> {
     let multi_line = field!(o, "multi_line", Option<bool>);
     let selected = field!(o, "selected", Option<String>);
     let items = list(&o.getattr("items")?, |item| {

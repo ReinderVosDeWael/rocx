@@ -28,12 +28,16 @@ also exposes the default-header targets. Use ``edit_story_text(owner_part, edits
 for single-text runs in a physical header/footer or note/comment owner.
 """
 
+from dataclasses import dataclass, field
+from typing import Literal
+from .declarative.content_control import ContentControlListItem, ContentControlMetadata
 from ._native import (
     AbstractStart,
     ResourceEdit,
     StyleAnchor,
     StyleEdit,
     ControlAnchor,
+    ControlSite,
     ControlEdit,
     ImportedControl,
     BlockEdit,
@@ -82,12 +86,25 @@ from ._native import (
 # Both story views expose the same paragraph class.
 ImportedStoryParagraph = ImportedHeaderParagraph
 
+
+@dataclass
+class ControlProperties(ContentControlMetadata):
+    """Complete replacement definition; omitted optional properties are cleared."""
+
+    text_type: Literal["rich", "plain", "dropdown"] = "rich"
+    multi_line: bool | None = None
+    items: list[ContentControlListItem] = field(default_factory=list)
+    selected: str | None = None
+
+
 __all__ = [
     "AbstractStart",
     "ResourceEdit",
     "StyleAnchor",
     "StyleEdit",
     "ControlAnchor",
+    "ControlSite",
+    "ControlProperties",
     "ControlEdit",
     "ImportedControl",
     "BlockEdit",

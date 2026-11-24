@@ -54,6 +54,30 @@ macro_rules! extended_preview {
 }
 
 impl ImportedDocument {
+    /// Stage a standalone main-story operation against a private package.
+    pub(super) fn stage_body(
+        &self,
+        stage: impl FnOnce(&mut Node) -> Result<bool>,
+    ) -> Result<EditPreview> {
+        let mut package = self.package.clone();
+        let mut root = package.word(&self.main)?;
+        if stage(root.child_mut("w:body").ok_or_else(missing_body)?)? {
+            package.put_word(&self.main, root)?;
+        }
+        Ok(EditPreview {
+            output: PackagePlan::new(package)?,
+            block_changes: vec![],
+            inline_changes: vec![],
+            changes: vec![],
+            insertions: vec![],
+            paragraph_insertions: vec![],
+            header_changes: vec![],
+            run_text_changes: vec![],
+            run_removals: vec![],
+            cell_alignment_changes: vec![],
+        })
+    }
+
     /// Preview a batch consisting only of block operations.
     pub fn preview_blocks(&self, blocks: &[BlockEdit]) -> Result<EditPreview> {
         self.preview_edits(EditBatch {

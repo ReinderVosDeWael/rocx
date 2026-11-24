@@ -8,7 +8,7 @@ import {
 
 export const editorSources = [
   "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
-  "styles-source", "styles-edge", "styles-missing", "styles-invalid",
+  "styles-source", "styles-edge", "styles-missing", "styles-invalid", "control-choice-source",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
 
@@ -412,7 +412,42 @@ async function editControls(fixtures: Fixtures) {
   rejects(() => controlled.preview({ controls: [edits[0], edits[0]] }), /duplicate/);
   const stale = await openDocx(fixtures["control-source"]);
   rejects(() => stale.preview({ controls: edits }), /snapshot/);
-  return controlled.preview({ controls: edits }).toDocx();
+  const source = await openDocx(fixtures["control-choice-source"]);
+  const [choice] = source.controls();
+  const items = [{displayText:"First",value:"1"},{displayText:"Second",value:"2"}];
+  same([choice.kind, choice.selected, choice.choices], ["dropDownList","1",items], "drop-down inspection");
+  rejects(() => source.previewControlChoice({target:choice.anchor,selected:"absent"}), /unknown/);
+  rejects(() => source.previewControlChoice({target:choice.anchor,selected:"1",choices:[items[0],items[0]]}), /unique/);
+  rejects(() => controlled.previewControlChoice({target:choice.anchor,selected:"2"}), /snapshot/);
+  rejects(() => controlled.previewUnwrapControl(block), /locked/);
+  rejects(() => controlled.previewUnwrapControl(bound), /bound/);
+  rejects(() => controlled.previewUnwrapControl(inline), /opaque/);
+  const selected = await openDocx(source.previewControlChoice({target:choice.anchor,selected:"2"}).toDocx());
+  const [second] = selected.controls();
+  same([second.selected,second.choices],["2",items],"retain choices");
+  let data = selected.previewControlChoice({target:second.anchor, selected:"R",choices:[{displayText:" Revised ",value:"R"}]}).toDocx();
+  const contexts = ["block","inline","row","cell"];
+  for (const ctx of contexts) {
+    const target = await openDocx(data);
+    const site = target.controlSites().find(s => s.context === ctx && s.text === ctx)!;
+    rejects(() => source.previewWrapControl({target:site.anchor, tag:"bad"}), /snapshot/);
+    data = target.previewWrapControl({target:site.anchor, tag:ctx}).toDocx();
+  }
+  const beforeReplace = await openDocx(data);
+  const props = {tag:"inline", text:{kind:"plain",multiLine:false}, id:42} as const;
+  rejects(() => beforeReplace.previewReplaceControl({target:beforeReplace.controls().find(c => c.tag === "row")!.anchor,properties:props}), /rich text/);
+  data = beforeReplace.previewReplaceControl({target:beforeReplace.controls().find(c => c.tag === "inline")!.anchor,properties:props}).toDocx();
+  const replaced = await openDocx(data);
+  const plain = replaced.controls().find(c => c.tag === "inline")!;
+  same([plain.kind,plain.multiLine,plain.id], ["text","0","42"], "replacement");
+  rejects(() => replaced.previewReplaceControl({target:replaced.controls().find(c => c.tag === "row")!.anchor,properties:{id:42}}), /duplicate/);
+  const controlWrapped = data;
+  for (const ctx of contexts) {
+    const target = await openDocx(data);
+    const wrap = target.controls().find(s => s.context === ctx && s.tag === ctx)!;
+    data = target.previewUnwrapControl(wrap.anchor).toDocx();
+  }
+  return {controlWrapped, controlUnwrapped:data, controlEdits:controlled.preview({ controls: edits }).toDocx()};
 }
 
 export async function run(fixtures: Fixtures) {
@@ -493,7 +528,7 @@ export async function run(fixtures: Fixtures) {
     tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
-    controlEdits: await editControls(fixtures),
+    ...await editControls(fixtures),
     ...await alignmentAndTablePreviewAndPreservation(fixtures, resolved),
     ...await headerImageScopesAndEffects(fixtures, resolved),
     ...await mixedTransactionAtomicityAndRepeatPreview(fixtures, resolved),

@@ -10,6 +10,15 @@ and snapshot anchor. The run-text catalog output also patches the caption alias
 using `ControlEdit` with `preview_with_controls`, `preview(..., controls=...)`,
 and `preview({controls: ...})`, respectively.
 
+The `.controls.docx` sample selects **Pending** in Review status, wraps the
+editor-label paragraph, then replaces that wrapper with the plain-text control
+**Imported plain-text sample**. Each catalog also previews unwrapping it.
+Rust uses `control_sites`, `preview_wrap_control`, `preview_replace_control`,
+`preview_control_choice` and `preview_unwrap_control`; Python uses the same
+spellings (`control_sites` is a property); JavaScript uses `controlSites`,
+`previewWrapControl`, `previewReplaceControl`, `previewControlChoice` and
+`previewUnwrapControl`. [Target, choice and lock rules](../docs/EDITOR-PARITY.md).
+
 Imported style metadata is available as `ImportedDocument::styles()` in Rust,
 `ImportedDocument.styles` in Python, and `ImportedDocument.styles()` in
 JavaScript. The optional result identifies the source part and lists direct
@@ -43,7 +52,7 @@ UV_PROJECT_ENVIRONMENT=.venv-opencode TMPDIR=/tmp/opencode uv run --no-sync pyth
 ```
 
 This builds/runs the Rust and Python examples, compares complete DOCX ZIP bytes for the final,
-template, batch-edited and run-text catalogs and the seven story artifacts, verifies
+template, batch-edited, controls and run-text catalogs and the seven story artifacts, verifies
 content and prints SHA-256 hashes for the main catalogs and header-scope artifacts.
 Output:
 
@@ -65,6 +74,8 @@ Output:
   insertion, a caption control alias patch, and three resource edits: core title
   “Edited resource sample”, centered paragraph-default alignment and shared
   abstract numbering level (100, 0) start 7.
+- `.controls.docx` demonstrates selection, wrapper insertion and complete
+  replacement with a plain-text definition.
 
 Generated documents are ignored by Git. Copy them elsewhere to retain a visual
 baseline before regenerating. Append `--output-dir /path/to/directory` to choose
@@ -89,15 +100,15 @@ The CLI writes `all_features-javascript.docx`,
 `all_features-javascript.header-source.docx`, `all_features-javascript.header-shared.docx`,
 `all_features-javascript.header-local.docx`, `all_features-javascript.header-first-shared.docx`,
 `all_features-javascript.header-first-local.docx`, `all_features-javascript.run-text.docx`,
-`all_features-javascript.footer-even.docx`, and `all_features-javascript.entry-text.docx`. Repeat `--javascript-dir` to check
-multiple runtime outputs. The checker requires all eleven exact byte matches and
+`all_features-javascript.footer-even.docx`, `all_features-javascript.controls.docx`, and `all_features-javascript.entry-text.docx`. Repeat `--javascript-dir` to check
+multiple runtime outputs. The checker requires all twelve exact byte matches and
 separately checks authored content, edit placement and untouched ZIP payloads.
 
 In Chromium, import `generateCatalog` from `catalog.mjs` with the installed
 package resolved by a bundler or import map. Pass a filename-to-`Uint8Array`
 map of the six image fixtures, or an async function that reads a fixture by
 basename. The function returns `final`, `template`, `edited`, `headerSource`,
-`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal`, `footerEven`, `entryText` and `runText` byte arrays; use the exported `catalogNames`
+`headerShared`, `headerLocal`, `headerFirstShared`, `headerFirstLocal`, `footerEven`, `entryText`, `controls` and `runText` byte arrays; use the exported `catalogNames`
 to name output files. The common module never reads DOCX fixtures or performs I/O
 except through the caller's image loader. Node uses `imageFile()` for the
 named-image sample; the browser supplies named bytes.

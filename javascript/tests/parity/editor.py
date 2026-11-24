@@ -104,9 +104,23 @@ def generate_controls(directory):
     doc.add_paragraph("untouched")
     doc.save(directory / "control-source.docx")
 
+    doc = Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    for context in ("block", "inline"):
+        doc.add_paragraph().add_run(context).bold = True
+    for context in ("row", "cell"):
+        doc.add_table(rows=1, cols=1).cell(0, 0).text = context
+    props = wrap(doc.add_paragraph().add_run("First")._r)
+    props.remove(props[-1])
+    choices = elem("dropDownList", lastValue="1")
+    choices.extend([elem("listItem", displayText=label, value=value)
+                    for label, value in [("First", "1"), ("Second", "2")]])
+    props.append(choices)
+    doc.save(directory / "control-choice-source.docx")
+
 
 def verify_controls(directory):
-    from rocx.editor import ControlEdit, ImportedDocument
+    from rocx.editor import ControlEdit, ControlProperties, ImportedDocument
     path = directory / "control-source.docx"
     data = path.read_bytes()
     doc = ImportedDocument.open(data)
@@ -142,6 +156,59 @@ def verify_controls(directory):
     assert readback.element.xpath("//w:sdtPr/*[local-name()='probe']/text()") == ["opaque"]
     assert readback.element.xpath("//w:sdtContent/w:r/w:rPr/w:b")
     assert readback.element.xpath("//w:t[.=' block ']/@xml:space") == ["preserve"]
+
+    data = (directory / "control-choice-source.docx").read_bytes()
+    source = ImportedDocument.open(data)
+    choice, = source.controls
+    assert (choice.kind, choice.selected, choice.choices) == (
+        "dropDownList", "1", [("First", "1"), ("Second", "2")])
+    def refused(action, reason):
+        try:
+            action()
+        except ValueError as exc:
+            assert reason in str(exc), exc
+        else:
+            raise AssertionError("expected " + reason)
+    refused(lambda: source.preview_control_choice(choice.anchor, "absent"), "unknown")
+    refused(lambda: source.preview_control_choice(choice.anchor, "x", choices=[("A","x"),("B","x")]), "unique")
+    refused(lambda: doc.preview_control_choice(choice.anchor, "2"), "snapshot")
+    refused(lambda: doc.preview_unwrap_control(c[0].anchor), "locked")
+    refused(lambda: doc.preview_unwrap_control(c[4].anchor), "bound")
+    refused(lambda: doc.preview_unwrap_control(c[1].anchor), "opaque")
+    selected = ImportedDocument.open(source.preview_control_choice(choice.anchor, "2").to_docx())
+    assert selected.controls[0].selected == "2" and selected.controls[0].choices == choice.choices
+    data = selected.preview_control_choice(selected.controls[0].anchor, "R", choices=[(" Revised ", "R")]).to_docx()
+    for context in ("block", "inline", "row", "cell"):
+        target = ImportedDocument.open(data)
+        site, = (s for s in target.control_sites if s.context == s.text == context)
+        refused(lambda: source.preview_wrap_control(site, "bad"), "snapshot")
+        data = target.preview_wrap_control(site, context).to_docx()
+    target = ImportedDocument.open(data)
+    by_tag = {c.tag: c.anchor for c in target.controls}
+    definition = ControlProperties(tag="inline", text_type="plain", multi_line=False, id=42)
+    refused(lambda: target.preview_replace_control(by_tag["row"], definition), "rich text")
+    data = target.preview_replace_control(by_tag["inline"], definition).to_docx()
+    target = ImportedDocument.open(data)
+    by_tag = {c.tag: c for c in target.controls}
+    assert (by_tag["inline"].kind, by_tag["inline"].multi_line, by_tag["inline"].id) == ("text", "0", "42")
+    refused(lambda: target.preview_replace_control(by_tag["row"].anchor, ControlProperties(id=42)), "duplicate")
+    assert data == (directory / "controlWrapped.docx").read_bytes()
+    xml = Document(io.BytesIO(data)).element
+    assert xml.xpath("//w:sdtPr/w:dropDownList/@w:lastValue") == ["R"]
+    assert xml.xpath("//w:sdtContent/w:r/w:t[.=' Revised ']/@xml:space") == ["preserve"]
+    assert xml.xpath("//w:sdtContent/w:p/w:r/w:rPr/w:b") and xml.xpath("//w:sdtContent/w:r/w:rPr/w:b")
+    assert xml.xpath("//w:tbl/w:sdt/w:sdtContent/w:tr") and xml.xpath("//w:tr/w:sdt/w:sdtContent/w:tc")
+    for context in ("block", "inline", "row", "cell"):
+        target = ImportedDocument.open(data)
+        control, = (c for c in target.controls if c.tag == c.context == context)
+        data = target.preview_unwrap_control(control.anchor).to_docx()
+    assert data == (directory / "controlUnwrapped.docx").read_bytes()
+    reopened = Document(io.BytesIO(data))
+    assert [p.text for p in reopened.paragraphs[:2]] == ["block", "inline"]
+    assert [t.cell(0, 0).text for t in reopened.tables] == ["row", "cell"]
+    assert reopened.paragraphs[0].runs[0].bold and reopened.paragraphs[1].runs[0].bold
+    for name in ("controlWrapped", "controlUnwrapped"):
+        untouched(parts(directory / "control-choice-source.docx"), parts(directory / (name + ".docx")), (MAIN,))
 
 
 def generate(directory):
