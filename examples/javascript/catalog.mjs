@@ -306,6 +306,8 @@ export async function generateCatalog(fixtures, options) {
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},
     {kind: "replaceSection", blocks: [blockParagraph]}, {kind: "keepWithNext", value: true},
+    {kind: "paragraphFlag", flag: "keepTogether", value: true},
+    {kind: "sectionFlag", flag: "rtlGutter", value: true}, {kind: "sectionType", value: "evenPage"},
   ]) {
     assert(headers.preview({blockEdits: [{target: blockTarget, ...edit}]}).blockChanges()[0] === 2,
       "incorrect block preview target");

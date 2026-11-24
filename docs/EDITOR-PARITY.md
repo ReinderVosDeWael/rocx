@@ -438,6 +438,36 @@ Use an original direct body paragraph anchor for these operations:
 | Remove one paragraph | `Remove(anchor)` | `remove(anchor)` | `{kind: "remove", target}` |
 | Replace section content | `ReplaceSection(anchor, blocks)` | `replace_section(anchor, blocks)` | `{kind: "replaceSection", target, blocks}` |
 | Set direct keep-with-next | `KeepWithNext(anchor, bool)` | `keep_with_next(anchor, value)` | `{kind: "keepWithNext", target, value}` |
+| Patch one paragraph flag | `ParagraphFlag(anchor, flag, value)` | `paragraph_flag(anchor, flag, value)` | `{kind: "paragraphFlag", target, flag, value}` |
+| Patch one section flag | `SectionFlag(anchor, flag, value)` | `section_flag(anchor, flag, value)` | `{kind: "sectionFlag", target, flag, value}` |
+| Patch section break type | `SectionType(anchor, value)` | `section_type(anchor, value)` | `{kind: "sectionType", target, value}` |
+
+For these last three operations, pass `None` / `None` / `null` to clear the
+direct property. Explicit false and an absent flag are distinct. Read direct
+flags from the paragraph or section's `flags` map. It contains recognized
+unambiguous on/off values only; it does not calculate effective formatting.
+Read the break type from `section_type` / `section_type` / `sectionType`.
+The section target is its first direct body paragraph, including when the
+properties are owned by a later break paragraph or by the terminal body.
+
+| Rust flag (`ParagraphFlag` unless indicated) | Python flag key | JavaScript flag key |
+|---|---|---|
+| `KeepWithNext` | `keep_with_next` | `keepWithNext` |
+| `KeepTogether` | `keep_together` | `keepTogether` |
+| `PageBreakBefore` | `page_break_before` | `pageBreakBefore` |
+| `WidowControl` | `widow_control` | `widowControl` |
+| `SuppressLineNumbers` | `suppress_line_numbers` | `suppressLineNumbers` |
+| `SnapToGrid` | `snap_to_grid` | `snapToGrid` |
+| `ContextualSpacing` | `contextual_spacing` | `contextualSpacing` |
+| `MirrorIndents` | `mirror_indents` | `mirrorIndents` |
+| `Bidi` (paragraph or section) | `bidi` | `bidi` |
+| `SectionFlag::TitlePage` | `title_page` | `titlePage` |
+| `SectionFlag::RtlGutter` | `rtl_gutter` | `rtlGutter` |
+
+Setting a flag preserves attributes besides its value. Clearing a flag or type
+refuses to discard extension attributes, children or comments. A duplicate
+request for the same physical property (including the keep-with-next alias),
+an ambiguous property owner or a protected target rejects the batch.
 
 Section payloads can mix resolved paragraphs and tables, subject to the same
 style, inline and geometry restrictions as insertion. Automatic table widths
@@ -457,7 +487,8 @@ Use Rust `preview_blocks` or `preview_with_blocks` for a mixed batch, Python
 Structural block operations reserve their entire original range against other body edits.
 Keep-with-next can accompany an alignment patch on the same paragraph.
 Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
-original start index per operation (unchanged direct keep-with-next omitted).
+original start index per changed operation, sorted in body order. Distinct
+property patches can therefore report the same index; no-op patches are omitted.
 
 ## Imported style edits
 

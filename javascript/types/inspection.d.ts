@@ -84,6 +84,7 @@ export interface ImportedFlatParagraph {
 }
 
 export interface ImportedParagraph extends ImportedFlatParagraph {
+  readonly flags: Readonly<Partial<Record<ParagraphFlag, boolean>>>;
   readonly anchor: ParagraphAnchor;
   /** Projection of ordinary runs and links, not rendered text. */
   readonly text: string;
@@ -138,7 +139,10 @@ export interface ImportedContentControl {
 export type BodyBlock = ImportedParagraph | ImportedTable | ImportedContentControl | ImportedOpaque;
 
 /** Half-open body range with explicit section type only. */
+export type ParagraphFlag = "keepWithNext" | "keepTogether" | "pageBreakBefore" | "widowControl" | "suppressLineNumbers" | "bidi" | "snapToGrid" | "contextualSpacing" | "mirrorIndents";
+export type SectionFlag = "titlePage" | "bidi" | "rtlGutter";
 export interface ImportedSection {
+  readonly flags: Readonly<Partial<Record<SectionFlag, boolean>>>;
   readonly bodyStart: number;
   readonly bodyEnd: number;
   readonly sectionType?: ImportedSectionType;

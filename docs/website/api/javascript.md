@@ -209,8 +209,11 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
 - `textInsertions: [{target, position, text}]` inserts nonempty text at an
   original scalar position. At a run boundary it takes the next character's
   formatting, or the last run's formatting at paragraph end.
-- `blockEdits` accepts `replace`, `remove`, `replaceSection` and `keepWithNext`
-  at eligible direct body paragraph anchors. `inlineEdits` accepts
+- `blockEdits` accepts `replace`, `remove`, `replaceSection`, `keepWithNext`,
+  `paragraphFlag`, `sectionFlag` and `sectionType` at eligible direct body
+  paragraph anchors. Section edits target the section's first body block,
+  which must be a paragraph. Read direct on/off properties from `flags`.
+  A `null` value clears a flag or break type. `inlineEdits` accepts
   `insertAfter`, `replace`, `setBold`, `setToggle` and `patchFormat` at eligible direct inline anchors.
   `setToggle` takes `property` (`bold`, `italic`, `strike`, `hidden`) and `value`
   (`true`, `false`, or `null` to clear). Structured run inspection exposes the

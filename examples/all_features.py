@@ -609,7 +609,9 @@ async def generate(output: pathlib.Path) -> bytes:
     target = header_doc.body[2].anchor
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
-                 BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True)):
+                 BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True),
+                 BlockEdit.paragraph_flag(target, "keep_together", True),
+                 BlockEdit.section_flag(target, "rtl_gutter", True), BlockEdit.section_type(target, "evenPage")):
         assert header_doc.preview([], block_edits=[edit]).block_changes == [2]
     assert [(s.body_start, s.body_end) for s in header_doc.sections] == [(0, 2), (2, 3)]
     # Tracked replacement and paired move are independent opt-in previews.

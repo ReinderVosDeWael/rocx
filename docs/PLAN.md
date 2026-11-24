@@ -20,7 +20,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | Ticket | Supported in the candidate | Still outside the implementation |
 | --- | --- | --- |
 | #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
-| #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables; patch keep-with-next. Preserve section properties. | Discarding source tables or opaque content, deleting section breaks, general section operations and other paragraph-property patches. |
+| #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables. Inspect and set/clear all nine declarative paragraph on/off flags, three section flags and section break type at anchored direct body targets. | Section insertion/removal; section geometry, borders, columns, grid, numbering and vertical alignment; paragraph style/heading, numbering, tabs, indents, spacing and line height; clearing direct alignment; nested/story and empty or non-paragraph-start section targets. |
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text edits in one physical story part. Ordinary note/comment entries also support direct inline insertion/replacement and run bold. | Entry/reference lifecycle, comment metadata changes, block editing, reserved entries and local text forks. |
@@ -28,7 +28,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
-| #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
+| #51 JSON CLI / #3 follow-up | Digest-bound transport for every `b0a28b0` ordinary batch family, all story image slots, physical story text, tracked text/moves and revision review. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; additions to the core after `b0a28b0` require corresponding transport. See [CLI contract](CLI.md). |
 | #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
 
 **#3 table follow-up:** direct-body table layout can be inspected, set or
@@ -50,6 +50,28 @@ consumers. Regressions cover crossing a bookmark inside math, live style
 aliases, protected move and bound-control template edits, proofing ranges
 across cells, and sharing a staged style catalog across operations.
 Keep #48 open for the remaining resource inventory; #52 is separate.
+
+The standalone #3 block-property slice from `b0a28b0` passed 55 Rust and 57
+installed-Python editor tests, native/Wasm Clippy, strict TypeScript, packed
+Node inspection and 23 native/Node editor byte comparisons. All eleven catalog
+files matched across Rust, Python 3.12 and Node 26. The mixed flag/break-type
+batch matched all three bindings, independent python-docx and XML/ZIP readback,
+and Transitional schema/OPC validation (11 schema-covered parts).
+
+Standalone #3 CLI follow-up on `b0a28b0`: three Rust process tests, eight
+schema-required Python process tests and native binary Clippy passed. A
+nine-operation batch matched the installed Python API byte for byte. Separate
+fixtures cover all seven structural table operations, revision review, footer
+images, physical story/entry text, declaration resolution, digest replay,
+exclusive saves and rejected batches. The transport contract is in [CLI.md](CLI.md).
+
+The structural integration extends the CLI to paragraph and section flags,
+section break types, table layout, scalar point insertions, core subject and
+package metadata in the same digest-bound batch. Named metadata readback and
+mixed-batch byte parity are covered by the CLI process tests.
+With `fe5e5df` integrated, 59 Rust editor/CLI tests and 92 schema-enabled
+Python tests passed. All 11 catalog files matched across Rust, Python and
+packed Node; 25 Node editor outputs matched Rust and passed independent readback.
 
 The #48 integration combines core subject and the package metadata work.
 Numbering and document defaults remain separate workstreams; #3 closure

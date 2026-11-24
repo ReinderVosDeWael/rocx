@@ -14,6 +14,10 @@ use std::{
 enum Request {
     Inspect {
         source: String,
+        #[serde(default)]
+        metadata_fields: Vec<String>,
+        #[serde(default)]
+        custom_properties: Vec<String>,
     },
     Preview {
         source: String,
@@ -29,32 +33,36 @@ enum Request {
 }
 
 fn execute(request: Request) -> Result<Value, String> {
-    let (source, expected, edits, output) = match request {
-        Request::Inspect { source } => (source, None, None, None),
+    let source = match &request {
+        Request::Inspect { source, .. }
+        | Request::Preview { source, .. }
+        | Request::SaveCopy { source, .. } => source,
+    };
+    let bytes = fs::read(source).map_err(|e| format!("read source: {e}"))?;
+    let snapshot = format!("{:x}", Sha256::digest(&bytes));
+    let open = || ImportedDocument::open(&bytes).map_err(|e| format!("open document: {e}"));
+    let (expected, edits, output) = match request {
+        Request::Inspect {
+            metadata_fields,
+            custom_properties,
+            ..
+        } => return rocx_protocol::inspect(&open()?, snapshot, metadata_fields, custom_properties),
         Request::Preview {
-            source,
-            snapshot,
-            edits,
-        } => (source, Some(snapshot), Some(edits), None),
+            snapshot, edits, ..
+        } => (snapshot, edits, None),
         Request::SaveCopy {
-            source,
             snapshot,
             edits,
             output,
-        } => (source, Some(snapshot), Some(edits), Some(output)),
+            ..
+        } => (snapshot, edits, Some(output)),
     };
-    let bytes = fs::read(&source).map_err(|e| format!("read source: {e}"))?;
-    let snapshot = format!("{:x}", Sha256::digest(&bytes));
-    if expected.as_ref().is_some_and(|value| value != &snapshot) {
+    if expected != snapshot {
         return Err("stale snapshot: source bytes differ from inspection".into());
     }
-    let doc = ImportedDocument::open(&bytes).map_err(|e| format!("open document: {e}"))?;
-    let Some(edits) = edits else {
-        return Ok(rocx_protocol::inspect(&doc, snapshot));
-    };
-    let preview = rocx_protocol::preview(&doc, edits)?;
+    let (result, mut report) = rocx_protocol::preview(&open()?, edits, snapshot)?;
+    report["output_snapshot"] = json!(format!("{:x}", Sha256::digest(&result)));
     if let Some(path) = output {
-        let result = preview.to_docx().map_err(|e| format!("encode: {e}"))?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -63,7 +71,7 @@ fn execute(request: Request) -> Result<Value, String> {
         file.write_all(&result)
             .map_err(|e| format!("write output (file may be incomplete): {e}"))?;
     }
-    Ok(rocx_protocol::report(&preview, snapshot))
+    Ok(report)
 }
 
 fn main() {

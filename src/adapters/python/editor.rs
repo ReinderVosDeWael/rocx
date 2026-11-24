@@ -237,6 +237,8 @@ struct PyRunRemovalChange {
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
 struct PyImportedSection {
     #[pyo3(get)]
+    flags: std::collections::BTreeMap<&'static str, bool>,
+    #[pyo3(get)]
     body_start: usize,
     #[pyo3(get)]
     body_end: usize,
@@ -349,6 +351,8 @@ impl PyHeaderImagePreview {
 
 #[pyclass(name = "BodyParagraph", frozen, module = "rocx.editor")]
 struct PyBodyParagraph {
+    #[pyo3(get)]
+    flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     anchor: Py<PyParagraphAnchor>,
     #[pyo3(get)]
@@ -1123,6 +1127,46 @@ impl PyBlockEdit {
             inner: editor::BlockEdit::KeepWithNext(target.inner.clone(), value),
         }
     }
+    #[staticmethod]
+    fn paragraph_flag(
+        target: PyRef<'_, PyParagraphAnchor>,
+        flag: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let flag = editor::ParagraphFlag::ALL
+            .iter()
+            .find(|f| f.python_name() == flag)
+            .ok_or_else(|| PyValueError::new_err("unknown paragraph flag"))?;
+        Ok(Self {
+            inner: editor::BlockEdit::ParagraphFlag(target.inner.clone(), *flag, value),
+        })
+    }
+    #[staticmethod]
+    fn section_flag(
+        target: PyRef<'_, PyParagraphAnchor>,
+        flag: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let flag = editor::SectionFlag::ALL
+            .iter()
+            .find(|f| f.python_name() == flag)
+            .ok_or_else(|| PyValueError::new_err("unknown section flag"))?;
+        Ok(Self {
+            inner: editor::BlockEdit::SectionFlag(target.inner.clone(), *flag, value),
+        })
+    }
+    #[staticmethod]
+    fn section_type(
+        target: PyRef<'_, PyParagraphAnchor>,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::BlockEdit::SectionType(
+                target.inner.clone(),
+                value.map(super::sectiontype).transpose()?,
+            ),
+        })
+    }
 }
 
 #[pymethods]
@@ -1610,6 +1654,11 @@ impl PyImportedDocument {
             .map_err(rust_error)?
             .into_iter()
             .map(|section| PyImportedSection {
+                flags: section
+                    .flags
+                    .iter()
+                    .map(|(f, v)| (f.python_name(), *v))
+                    .collect(),
                 body_start: section.body_start,
                 body_end: section.body_end,
                 section_type: section.section_type.map(crate::SectionType::xml),
@@ -1760,6 +1809,7 @@ impl PyImportedDocument {
                 BodyBlock::Paragraph(p) => Ok(Py::new(
                     py,
                     PyBodyParagraph {
+                        flags: p.flags.iter().map(|(f, v)| (f.python_name(), *v)).collect(),
                         anchor: Py::new(
                             py,
                             PyParagraphAnchor {

@@ -495,10 +495,19 @@ export async function run(fixtures: Fixtures) {
   same(ranged.preview({textRanges: [selection]}).runTextChanges().map(c => c.after), ["a 🐈 ", "", "d"], "scalar ranges retain run containers");
   const ordinary: EditBatch = {
     textRanges: [{target: paragraph(doc, 1).anchor, start: 0, end: 1, text: "X"}],
-    blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true}],
+    blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true},
+      {kind: "paragraphFlag", target: paragraph(doc, 4).anchor, flag: "pageBreakBefore", value: false},
+      {kind: "sectionFlag", target: paragraph(doc, 4).anchor, flag: "titlePage", value: true},
+      {kind: "sectionType", target: paragraph(doc, 0).anchor, value: "continuous"}],
     resources: [{kind: "coreTitle", value: "Combined editor"}],
   };
   const combined = doc.preview(ordinary).toDocx();
+  const changedProperties = await openDocx(combined);
+  check(paragraph(changedProperties, 4).flags.pageBreakBefore === false && changedProperties.sections()[1].flags.titlePage &&
+    changedProperties.sections()[0].sectionType === "continuous", "direct paragraph and section properties");
+  rejects(() => changedProperties.preview({blockEdits: ordinary.blockEdits}), /different document snapshot/);
+  rejects(() => doc.preview({blockEdits: [{kind: "sectionType", target: paragraph(doc, 1).anchor, value: null}]}),
+    /first paragraph/);
   rejects(() => doc.preview({...ordinary, textRanges: [selection]}),
     /different document snapshot/);
   bytesEqual(doc.preview(ordinary).toDocx(), combined, "mixed retry after stale anchor");

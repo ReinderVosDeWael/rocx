@@ -71,7 +71,8 @@ indices, byte arrays and target objects must have their indicated JSON types.
 Insertions do not shift other targets. Invalid addresses, conflicting edits,
 unsupported declarations and unsafe edits reject the whole transaction.
 
-The result includes the source `snapshot` and seven arrays of actual changes:
+The result includes the source `snapshot` and `output_snapshot` (SHA-256 of the
+complete encoded output, including for preview). Ordinary batches return:
 
 - `changes`: legacy paragraph alignment records (`target`, `before`, `after`;
   `after` retains Rust spelling, e.g. `Center`).
@@ -82,6 +83,10 @@ The result includes the source `snapshot` and seven arrays of actual changes:
 - `cell_alignments`: `target`, `row_index`, `cell_index`, `before`, `after`.
 - `header_images`: `mode`, `source_part`, `output_part`, `affected_sections`,
   `restored_section` (nullable).
+- `block_changes`, `inline_changes`: original block indices and `[target,
+  inline_index]` pairs. Scalar ranges report per-run changes in `run_text`.
+  Core operations without individual change records are covered by
+  `output_snapshot`; inspect the saved copy to read their new values.
 
 Each list follows the core's original document/section order; unchanged values
 are omitted. `before` on an alignment is the original direct XML value or `null`.
@@ -94,17 +99,64 @@ that same byte buffer in a newly opened core snapshot. Identical bytes at anothe
 path are interchangeable. Any byte change, even a ZIP metadata change, invalidates
 the digest. This is change detection, not authentication or a lock on a path.
 
-The CLI is a transport for `ImportedDocument::preview_mixed`. Paragraph, table
-and image shorthand constructs ordinary declarations and uses `Component::resolve`;
-it does not serialize `Resolved*` objects or accept arbitrary OOXML. Richer
-declaration forms can get explicit, strictly decoded fields or new tagged
-variants. For a future core edit kind, expose any new address in `inspect`, bind
-it against the same open document, and map the core's change record into the
-report. Preserve the existing spellings and test the new form alongside mixed
-batches, stale digests and byte-equivalent binding output.
+## Extended ordinary batch
 
-This is the seven-kind JSON CLI (#51). Later library operations such as
-scalar ranges, structural table edits, style edits and tracked revisions
-have no CLI request variant here. Each CLI request opens its own snapshot.
-The proposed stdio MCP server with discovery and persistent handles is
-tracked separately in [#52](https://github.com/ReinderVosDeWael/rocx/issues/52).
+The following `kind` values can be combined with the seven above in one
+`ImportedDocument::preview_edits` call. All coordinates refer to `inspect`.
+
+| `kind` | Fields besides `kind` |
+| --- | --- |
+| `text-range` | Paragraph `target`, `start`, `end`, `text`. Replace `[start,end)` Unicode scalar values; `""` deletes. |
+| `text-insertion` | Paragraph `target`, original Unicode scalar `position`, nonempty `text`. At a run boundary, formatting comes from the following run; at the end it comes from the last run. |
+| `replace-paragraph`, `remove-paragraph`, `keep-with-next` | Paragraph `target`; additionally `text` for replacement, boolean `value` for keep-with-next. |
+| `replace-section` | `target` (first direct paragraph), `blocks`. |
+| `paragraph-flag`, `section-flag` | Paragraph `target` (section start for section flags), `flag` (Python snake_case name), `value` (`true`, `false`, or explicit `null` to clear). |
+| `section-type` | Section-start paragraph `target`, `value` (`continuous`, `nextPage`, `nextColumn`, `evenPage`, `oddPage`, or explicit `null`). |
+| `insert-inline`, `replace-inline`, `run-bold` | Paragraph `target`, `inline_index` from `inlines`; `inline` for insert-after/replace, boolean `value` for direct run bold. |
+| `table-structure` | Table `target`, `operation`. For example `{"kind":"insert-column","index":1}`. |
+| `story-image` | `target` copied from `stories` (`section_index`, `kind`: `header`/`footer`, `variant`: `default`/`first`/`even`), `mode`, `bytes` as for `header-image`. |
+| `style-add`, `style-replace`, `style-patch`, `style-remove` | Add/replace require `definition`. All except add require exact `id` from `styles.definitions`. Patch supports optional boolean `bold`, `italic`. |
+| `core-title`, `default-alignment`, `abstract-start` | Required `value`: string, alignment name, or unsigned integer respectively. Explicit JSON `null` clears. Numbering also requires `abstract_id` and `level` from `abstract_starts`. |
+| `core-subject`, `metadata`, `custom-property` | Required `value`: string or `null` (clear); custom properties also accept booleans. `metadata` takes a [field key](EDITOR-RESOURCES.md#package-metadata), and `custom-property` takes the exact `name`. |
+| `control` | `target` from `controls`, optional strings `tag`, `alias`, `text`. Physical control numbers are independent of body indices, tags and XML IDs. |
+
+`operation.kind` is `insert-row`, `remove-row`, `insert-column`, `remove-column`
+(each takes `index`), `insert-cell`, `remove-cell` (each takes `row`, `cell`),
+or `replace-cell` (`row`, `cell`, `blocks`). Insert before the original index
+or append at the count; columns are logical, cells physical.
+The `layout` operation takes a required `value`: `fixed`, `autofit`, or `null`
+to clear the direct layout. Inspection includes `layout` and `grid_widths`
+on tables, `flags` on paragraphs, and `sections` with original `body_start`,
+exclusive `body_end`, direct `flags`, and `section_type_xml`.
+
+`blocks` is an array of `{"kind":"paragraph","text":"..."}` or
+`{"kind":"table","rows":[["..."]]}`. An `inline` is a `text` declaration
+(`text`, optional boolean `bold`, `italic`), `hyperlink` (`url`, `text`), or
+`image` (`bytes`). A style `definition` takes `kind` (`paragraph`, `character`
+or `table`), `name`, optional `base_style` and, except for tables, optional
+boolean `bold` and `italic`. These are declaration shorthands; the editor still
+validates the resolved content.
+
+`inspect` also returns `core_title`, `default_alignment`, `abstract_starts`,
+`controls`, `styles`, `stories`, and `entries`. Independent failed inventory
+reads return `<field>_error`. `inlines` identifies direct runs, hyperlinks and
+revision wrappers with their original indices. Story and entry `blocks` list
+direct paragraphs with original `block_index` and `inlines`.
+
+`inspect` includes `core_subject`. To read specific scalar and custom fields,
+pass e.g. `"metadata_fields":["manager"],"custom_properties":["Reviewed"]`
+in the request. The result maps those names under `metadata` and
+`custom_properties`; absent values are `null`, distinct from `""` and `false`.
+
+## Scoped operations
+
+Use exactly one edit per request for these operations. A physical story can
+update several runs in that edit. As with ordinary batches, a rejection
+creates no destination; inspect the saved copy before issuing more edits.
+
+| `kind` | Fields besides `kind` |
+| --- | --- |
+| `story-text` | `part` (exact physical part from `stories` or `entries`), `runs` (array of `{block_index,inline_index,text}`; also include `entry_index` for a note/comment). Aliased slots share the edit. Returns `story_part` and the two digests. |
+| `tracked-text` | `target` (`{target,inline_index}` for a run), `author`, optional `date`, `action` (`{"kind":"delete"}`, or `{"kind":"replace","text":"..."}` / `{"kind":"insert-after","text":"..."}`). |
+| `tracked-move` | Run address objects `target`, `after`; strings `name`, `author`, `date`. |
+| `review-revision` | `target` (address object for a direct revision wrapper), `action` (`accept`/`reject`), optional `paired` wrapper address for moves. |

@@ -341,13 +341,16 @@ def verify_ordinary(directory):
     assert doc.preview(
         [],
         text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
-        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
+        block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True),
+                     BlockEdit.paragraph_flag(doc.body[4].anchor, "page_break_before", False),
+                     BlockEdit.section_flag(doc.body[4].anchor, "title_page", True),
+                     BlockEdit.section_type(doc.body[0].anchor, "continuous")],
         resources=[ResourceEdit.core_title("Combined editor")],
     ).to_docx() == output.read_bytes()
     original, result = parts(source), parts(output)
     assert original.keys() == result.keys()
     untouched(original, result, (MAIN, "docProps/core.xml"))
-    for query in (".//w:fldSimple", ".//w:drawing", ".//w:sectPr"):
+    for query in (".//w:fldSimple", ".//w:drawing"):
         assert [tree(n) for n in xp(etree.fromstring(original[MAIN]), query)] == [
             tree(n) for n in xp(etree.fromstring(result[MAIN]), query)]
     readback = Document(output)
@@ -355,6 +358,19 @@ def verify_ordinary(directory):
     p = readback.paragraphs
     assert p[1].text == "Xnset alignment"
     assert p[4].paragraph_format.keep_with_next is True and p[4].text == "next section"
+    assert p[4].paragraph_format.page_break_before is False
+    before_sections = xp(etree.fromstring(original[MAIN]), ".//w:sectPr")
+    after_sections = xp(etree.fromstring(result[MAIN]), ".//w:sectPr")
+    assert len(before_sections) == len(after_sections)
+    for i, (old, new) in enumerate(zip(before_sections, after_sections)):
+        if i < 2:
+            name, expected = [("type", "continuous"), ("titlePg", "1")][i]
+            assert new.find(qn("w:" + name)).get(qn("w:val")) == expected
+            for node in (old, new):
+                prop = node.find(qn("w:" + name))
+                if prop is not None:
+                    node.remove(prop)
+        assert tree(old) == tree(new)
 
 
 def verify(directory):

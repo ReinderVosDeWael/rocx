@@ -120,14 +120,27 @@ fn main() {
                 end: 1,
                 text: "X".into(),
             }],
-            blocks: &[rocx::editor::BlockEdit::KeepWithNext(anchor(&doc, 4), true)],
+            blocks: &[
+                BlockEdit::KeepWithNext(anchor(&doc, 4), true),
+                BlockEdit::ParagraphFlag(
+                    anchor(&doc, 4),
+                    rocx::editor::ParagraphFlag::PageBreakBefore,
+                    Some(false),
+                ),
+                BlockEdit::SectionFlag(
+                    anchor(&doc, 4),
+                    rocx::editor::SectionFlag::TitlePage,
+                    Some(true),
+                ),
+                BlockEdit::SectionType(anchor(&doc, 0), Some(rocx::SectionType::Continuous)),
+            ],
             resources: &[rocx::editor::ResourceEdit::CoreTitle(Some(
                 "Combined editor".into(),
             ))],
             ..Default::default()
         })
         .unwrap();
-    assert_eq!(combined.block_changes(), &[4]);
+    assert_eq!(combined.block_changes(), &[0, 4, 4, 4]);
     write("native-combined.docx", combined.to_docx().unwrap());
     use rocx::editor::BlockEdit;
     let paragraph = immediate(Component::resolve(Paragraph::new("inserted paragraph")))

@@ -1122,6 +1122,13 @@ pub async fn generate(output: &Path) -> Result<()> {
         BlockEdit::Remove(target.clone()),
         BlockEdit::ReplaceSection(target.clone(), vec![ResolvedBlock::Paragraph(payload)]),
         BlockEdit::KeepWithNext(target.clone(), true),
+        BlockEdit::ParagraphFlag(
+            target.clone(),
+            editor::ParagraphFlag::KeepTogether,
+            Some(true),
+        ),
+        BlockEdit::SectionFlag(target.clone(), editor::SectionFlag::RtlGutter, Some(true)),
+        BlockEdit::SectionType(target.clone(), Some(SectionType::EvenPage)),
     ] {
         assert_eq!(imported.preview_blocks(&[edit])?.block_changes(), &[2]);
     }

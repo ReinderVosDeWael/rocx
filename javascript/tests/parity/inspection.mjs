@@ -267,9 +267,9 @@ async function importedBodySectionsAndPhysicalCells() {
   assert.notEqual(table.anchor, reopened.body()[2].anchor);
   assert.throws(() => reopened.inlineAt(right.anchor), /different document snapshot/);
   assert.deepEqual((await openDocx(bytes("implicit"))).sections(), [
-    { bodyStart: 0, bodyEnd: 1, sectionType: "continuous", sectionTypeXml: "continuous" },
-    { bodyStart: 1, bodyEnd: 2, sectionTypeXml: "unknown" },
-    { bodyStart: 2, bodyEnd: 3 },
+    { bodyStart: 0, bodyEnd: 1, flags: {}, sectionType: "continuous", sectionTypeXml: "continuous" },
+    { bodyStart: 1, bodyEnd: 2, flags: {}, sectionTypeXml: "unknown" },
+    { bodyStart: 2, bodyEnd: 3, flags: {} },
   ]);
   const ambiguous = await openDocx(bytes("ambiguous"));
   assert.throws(() => ambiguous.sections(), { rule: "unsupported_edit" });
