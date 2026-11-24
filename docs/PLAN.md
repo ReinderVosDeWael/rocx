@@ -22,6 +22,14 @@ the Rust oracle in the packed consumers. Installed Python independently matched
 layout, split/merge, shared story and table output bytes, with separate
 anchor, error, schema/OPC and untouched-payload checks.
 
+**#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
+`ProcessContent` wrappers before treating a property as absent or a bookmark
+as closed. Regression fixtures cover body and entry stories, table layout,
+numbering, decimal bookmark identity, XML integer lexical forms, mixed-case
+resource media types, and byte preservation for no-op layout edits. Thirteen
+cases failed on `fe5e5df`; all 16 pass with the fixes, including controls for
+unrelated opaque nodes and string-valued permission IDs.
+
 #48 metadata worktree: core scalars and timestamps, company/manager, and named
 string/boolean custom-property edits passed standalone qualification: 55 Rust
 editor/showcase tests, nine installed-wheel resource tests, native Clippy and

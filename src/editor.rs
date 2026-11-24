@@ -967,7 +967,7 @@ impl ImportedDocument {
                 blocks::Plan::build(self, &mut root, blocks, &occupied, &inserted_after)?;
             let body = root.child_mut("w:body").ok_or_else(missing_body)?;
             let (staged, actions) = text::prepare(package, &self.main, inline_edits)?;
-            package = tables::structure(
+            let (staged, structural_changed) = tables::structure(
                 body,
                 staged,
                 &self.main,
@@ -975,6 +975,7 @@ impl ImportedDocument {
                 cells,
                 &mut block_plan.deletes,
             )?;
+            package = staged;
             (run_text_changes, removed_runs) =
                 text::apply(body, &expanded, run_removals, actions, &mut inline_changes)?;
             cell_alignment_changes = tables::apply(body, cells)?;
@@ -1045,7 +1046,7 @@ impl ImportedDocument {
                 || !inline_changes.is_empty()
                 || !removed_runs.is_empty()
                 || !cell_alignment_changes.is_empty()
-                || !structural.is_empty()
+                || structural_changed
                 || !insertions.is_empty()
                 || !paragraph_insertions.is_empty()
                 || header_changes
