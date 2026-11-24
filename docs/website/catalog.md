@@ -1,10 +1,9 @@
-# Visual inspection catalog
+# Visual catalog
 
-The Rust and Python catalogs are sample documents with visible labels. Open either
-file in Word or another document viewer to inspect the features.
+[Download the sample DOCX](downloads/all_features-rust.docx) and [find a feature by its numbered label](catalog-guide.md).
 
-- [Download the Rust catalog](downloads/all_features-rust.docx)
-- [Download the Python catalog](downloads/all_features-python.docx)
-- [Read the catalog and maintenance guide](catalog-guide.md)
+All three examples generate the same file, byte for byte. Choose your language to see how each feature is authored:
 
-Both files contain the same DOCX bytes, but viewers may render them differently.
+- [Rust catalog source](https://github.com/ReinderVosDeWael/rocx/tree/main/examples/showcase) · [entry point](https://github.com/ReinderVosDeWael/rocx/blob/main/examples/all_features.rs)
+- [Python catalog source](https://github.com/ReinderVosDeWael/rocx/blob/main/examples/all_features.py)
+- [JavaScript catalog source](https://github.com/ReinderVosDeWael/rocx/tree/main/examples/javascript/catalog) · [entry point](https://github.com/ReinderVosDeWael/rocx/blob/main/examples/javascript/catalog.mjs)

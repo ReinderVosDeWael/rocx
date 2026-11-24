@@ -5,9 +5,12 @@
 Fields store instructions and cached placeholders. A compatible viewer may update
 page numbers, references and tables of contents; rocx does not calculate them.
 
-The tabs below are extracted from the runnable field examples. In the checkout,
-run `cargo run --locked --example fields -- fields.docx` or
-`uv run --no-sync python examples/fields.py fields.docx`.
+From the checkout:
+
+```sh
+cargo run --locked --example fields -- fields.docx
+uv run python examples/fields.py fields.docx
+```
 
 === "Rust"
 
@@ -28,11 +31,7 @@ cover [ranges](contracts/RANGES.md), [notes](contracts/NOTES.md), and
 
 ## Edit an existing document
 
-Start with an unsigned `template.docx` containing `{{name}}` in a body paragraph.
-The placeholder may be split across adjacent runs, for example `{{na` and
-`me}}`. These programs save the result to a new `filled.docx` without appending
-new document content. Use the installation and runtime setup from
-[getting started](getting-started.md).
+Using the [quickstart setup](getting-started.md), replace `{{name}}` in an unsigned `template.docx` and save a new `filled.docx`. The placeholder may span adjacent runs.
 
 === "Rust"
 
@@ -67,16 +66,4 @@ new document content. Use the installation and runtime setup from
     asyncio.run(main())
     ```
 
-This recipe explicitly edits the body. Other scopes include headers and
-footers, or supported stories including related comments, footnotes and
-endnotes; unknown parts remain opaque. Replacement can span runs and work
-inside hyperlinks, but not cross structured inline boundaries or alter field,
-revision or content-control contents. Inserted text takes the first matched
-run's position; comment and bookmark markers remain in place. See the separate
-[revision](contracts/REVISIONS.md) and
-[content-control](contracts/CONTENT_CONTROLS.md) contracts for their editing APIs.
-
-Untouched part payloads retain their bytes, but edited XML and the ZIP container
-are reserialized. Templates declaring an OPC digital-signature origin are
-rejected, even without edits; use an unsigned copy. See
-[compatibility](compatibility.md) for namespace and other preservation limits.
+Choose the body scope for body paragraphs only. Broader scopes include headers and footers, or related comments, footnotes and endnotes. Ordinary replacement can span runs inside a hyperlink but cannot cross structured boundaries. For protected content, use the [revision](contracts/REVISIONS.md) or [tagged control](contracts/CONTENT_CONTROLS.md#editing-template-controls-by-tag) APIs. See [what survives an edit](compatibility.md#resolution-editing-and-output).

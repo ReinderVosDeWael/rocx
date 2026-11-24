@@ -1,5 +1,7 @@
 # Active plan — editing existing DOCX files
 
+Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
+
 The initial editor checkpoint shipped in 0.3.0. The inline inspection slice
 below is unreleased; the unrelated backlog remains deferred.
 

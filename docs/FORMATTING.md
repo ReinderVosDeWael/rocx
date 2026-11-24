@@ -1,208 +1,59 @@
-# Formatting coverage
+# Formatting and drawings
 
-## Topic index
-
-- Text: [line height](#paragraph-line-height), [tab stops](#custom-tab-stops),
-  [language and complex scripts](#language-and-complex-script-formatting),
-  [paragraph direction](#paragraph-text-direction), [line numbering](#section-line-numbering).
-- Page layout: [section direction](#section-page-direction),
-  [gutter](#right-side-gutter-placement), [page borders](#page-borders),
-  [document grid](#section-document-grids), [page-layout requests](#document-page-layout-requests).
-- Drawings: [picture geometry and placement](#picture-geometry-and-floating-placement),
-  [shapes](#inline-geometric-shapes), [text boxes](#standalone-inline-text-boxes),
-  [floating shapes](#floating-shapes-and-text-boxes).
-- Other inline content: [charts](#inline-column-charts), [equations](#inline-fractions).
-- Rust convenience API: [chainable setters](#rust-chainable-authoring-setters).
+The examples use `from rocx import declarative as d`. Optional flags have three states: omit to leave a setting unspecified, or explicitly set true or false. The viewer applies styles, lays out pages and chooses fonts.
 
 ## Rust chainable authoring setters
 
-Public authoring property records support consuming `with_<field>` setters next
-to their definitions. These are an additive alternative to struct literals:
-
 ```rust
 use rocx::{ParagraphFormat, RunFormat, TextRun};
-
-let run = TextRun::new("Participant (REDCap ID): ")
-    .with_format(RunFormat::default().with_bold(true));
-let paragraph_format = ParagraphFormat::default()
-    .with_spacing_after(6.)
-    .with_keep_with_next(false);
+let title = TextRun::new("Participant").with_format(RunFormat::default().with_bold(true));
+let format = ParagraphFormat::default().with_spacing_after(6.).with_keep_with_next(false);
 ```
 
-- Optional properties accept the plain value and store `Some(value)`. No call
-  leaves the original value unchanged, including `None`; `with_bold(false)` is
-  explicitly false, not unspecified. Repeating a setter replaces the prior value.
-- Strings accept `impl Into<String>` (borrowed or owned). Other value properties
-  accept their existing field type. Collection setters replace the whole
-  collection, rather than appending or merging.
-- Nested records compose normally, for example
-  `TableCellProperties::default().with_margins(CellMargins::default().with_top(3.))`.
-- Existing public fields, struct literals and defaults remain available. Clear
-  optional properties with field assignment (`format.bold = None`). Setters do
-  not clear conflicting properties or validate early: existing validation still
-  runs at its existing boundary. For example, setting both `line_spacing` and
-  `line_height` remains an error.
-
-Coverage includes `RunFormat`, `RunLanguage`, `ParagraphFormat`, `TabStop`,
-`DocumentDefaults`, page size/margins/numbering, columns and section properties;
-paragraph/character/table style definitions and conditional table formatting;
-table/row/cell properties, cell margins, table-look flags and border records;
-numbering definitions/levels/start overrides/references; image transformations
-and alt text; document/comment metadata, note targets, hyperlink and field
-properties. `with_type` sets fields named `r#type`.
-
-Authoring components also expose setters for their configurable fields alongside
-their existing constructors, `with_format`, `with_properties`, `with_children`
-and `when` methods. Deferred fields accept `impl Into<Value<T>>`, preserving
-ready values, property references and owned futures. When `T` is optional, use
-`Some(value)` or an existing `Value<Option<T>>`, for example
-`Section::default().with_properties(Some(SectionProperties::default().with_bidi(false)))`.
-Conditions continue to use `when`; paragraph content continues to use `with_text`
-or `with_children`, preserving its exclusive representation.
-
-Immutable resolved snapshots, checked identifiers/measurements and infrastructure
-records are not mutable authoring configuration and gain no setters. Python keeps
-its existing keyword arguments; no Python builder API or wire format is added.
-Tests compare setters to literals, cover all value fields and deferred component
-inputs, and require exact DOCX bytes for equivalent RunFormat authoring. Topic 02
-of both visual catalogs labels omitted, enabled and explicitly disabled bold.
+`with_<field>` consumes an authoring record and replaces the field (including whole collections). Strings accept `Into<String>`; optional record properties take the plain value. Clear an option by assigning `None`. Component setters for deferred fields take `Into<Value<T>>`; for an optional `T`, pass `Some(value)`. Use `when` for conditions, `with_text` **or** `with_children` for paragraph content, and `with_type` for `r#type`. Setters and struct literals use the same validation. Python uses keyword arguments.
 
 ## Paragraph line height
 
-Paragraphs and paragraph styles share `LineHeight` and the same spacing codec.
-This authors direct properties; it does not calculate effective style values,
-font metrics, pagination or rendered line boxes.
-
-| Input | Rust | Python | Wire value / rule |
-| --- | --- | --- | --- |
-| Multiple | `LineHeight::Multiple(1.5)` | `LineHeight.multiple(1.5)` | `360` / `auto` |
-| Exact points | `LineHeight::Exact(14.25)` | `LineHeight.exact(14.25)` | `285` / `exact` |
-| Minimum points | `LineHeight::AtLeast(18.)` | `LineHeight.at_least(18)` | `360` / `atLeast` |
-| Legacy multiplier | `line_spacing: Some(1.5)` | `line_spacing=1.5` | `360` / `auto` (unchanged) |
-| Absent | `line_height: None` | `line_height=None` | No line attributes authored; inheritance remains consumer-side |
-
-Rust example:
-
 ```rust
 use rocx::{LineHeight, Paragraph, ParagraphFormat};
-let paragraph = Paragraph::new("Measured lines").with_format(ParagraphFormat {
-    line_height: Some(LineHeight::Exact(14.25)),
-    spacing_after: Some(6.),
-    ..Default::default()
-});
+let p = Paragraph::new("Measured lines")
+    .with_format(ParagraphFormat::default().with_line_height(LineHeight::Exact(14.25)));
 ```
 
-Python example:
-
 ```python
-from rocx import declarative as d
-paragraph = d.Paragraph(text="Measured lines", line_height=d.LineHeight.exact(14.25))
+p = d.Paragraph(text="Measured lines", line_height=d.LineHeight.exact(14.25))
 style = d.ParagraphStyleDefinition(name="Minimum", line_height=d.LineHeight.at_least(18))
 ```
 
-The property is named `line_height` on `ParagraphFormat` and
-`ParagraphStyleDefinition` in Rust, and on `Paragraph` and
-`ParagraphStyleDefinition` in Python. Rust defers the format or styles aggregate
-through `Value`/`PropertyRef`; Python uses its existing generic deferred-field
-interpreter, including `paragraph.deferred("line_height")`. Conditions skip
-producers normally. `LineHeight` is a value, not a new component or resolver.
+| Line height | Rust / Python | Unit |
+| --- | --- | --- |
+| Multiple | `Multiple` / `.multiple` | Lines, rounded to 1/240 line |
+| Exact | `Exact` / `.exact` | Points, rounded to 1/20 pt; may clip |
+| Minimum | `AtLeast` / `.at_least` | Points, rounded to 1/20 pt; may expand |
 
 ### Validation and preservation
 
-- Setting both `line_spacing` and `line_height` is `invalid_content`, including
-  on styles. No precedence rule silently discards either input.
-- All values must be finite, nonnegative and fit the existing checked signed
-  64-bit wire conversion after rounding. Negative rejection is library policy,
-  not a claim that the schema's signed measure forbids negative numbers. Zero is
-  accepted, including values rounding to zero; positive visual height is not
-  guaranteed. Exact heights can clip content and minimum heights may expand.
-- Multiple values round to the nearest 1/240 line; exact/minimum points round to
-  the nearest twip (1/20 point), using the existing checked measurement helper.
-- Space before/after the paragraph remains independent and shares `w:spacing`.
-  Direct properties do not materialize inherited line-height values. When a style
-  is updated, only supplied spacing attributes are merged; omitted attributes are
-  retained. There is no new typed import or template text-edit operation here.
-- Rust exhaustive struct literals need the new `line_height` member, usually
-  avoided with `..Default::default()`. Python's new optional argument is appended
-  so existing positional arguments keep their meanings.
-
-Verification covers Rust/Python serialization, independent consumer-object
-readback and official-schema validation. This is not manual Word rendering or
-visual-equivalence evidence.
-
-Normative source: ECMA-376 P1 (2016) §17.3.1.33 (`spacing`, `line`, `lineRule`)
-and Annex A.1.
+Use either `line_height` or the `line_spacing` multiplier, never both. Values must be finite, nonnegative and fit signed 64-bit units after rounding; zero is valid. Before/after paragraph spacing is independent. Style updates preserve omitted spacing attributes.
 
 ## Custom tab stops
 
-`ParagraphFormat.tab_stops` and `ParagraphStyleDefinition.tab_stops` take
-`Vec<TabStop>` in Rust. Python's `Paragraph` and `ParagraphStyleDefinition` append
-an optional `tab_stops` list, defaulting to empty. The format/styles aggregate in
-Rust and per-field references in Python defer these values through existing
-resolution, without a tab-specific interpreter.
-
 ```rust
 use rocx::{ParagraphFormat, TabAlignment, TabLeader, TabStop};
-let format = ParagraphFormat {
-    tab_stops: vec![TabStop {
-        position: 108., alignment: TabAlignment::Right, leader: Some(TabLeader::Dot),
-    }],
-    ..Default::default()
-};
+let format = ParagraphFormat::default().with_tab_stops(vec![TabStop {
+    position: 108., alignment: TabAlignment::Right, leader: Some(TabLeader::Dot),
+}]);
 ```
 
 ```python
-paragraph = d.Paragraph(text="Label\tValue", tab_stops=[d.TabStop(108, "right", "dot")])
-style = d.ParagraphStyleDefinition(name="Tabbed", tab_stops=[d.TabStop(72)])
+p = d.Paragraph(text="Label\tValue", tab_stops=[d.TabStop(108, "right", "dot")])
 ```
 
-| Property | Supported values / meaning |
-| --- | --- |
-| Position | Signed points, rounded to nearest twip, relative to the paragraph text margin; negative values can extend into the margin |
-| Alignment | Rust `TabAlignment::{Left,Center,Right,Decimal,Bar,Clear,Start,End}`; Python `left/center/right/decimal/bar/clear/start/end` |
-| Leader | Absent or Rust `TabLeader::{None,Dot,Hyphen,Underscore,Heavy,MiddleDot}`; Python `none/dot/hyphen/underscore/heavy/middle_dot` |
-| Empty list | No local overrides authored; **not** a request to clear inherited/default stops |
-| Explicit clear | `TabAlignment::Clear` / `"clear"` at a known position requests removal of that inherited stop |
-
-The writer emits `w:pPr/w:tabs/w:tab` in ascending position order. Positions must
-be finite and fit the existing signed 64-bit checked twip conversion. Duplicate
-positions after rounding fail with `invalid_content`, including clear/set pairs
-in one local list. This is a conservative library policy, not an XSD uniqueness
-constraint. Absent and explicit `none` leaders remain distinct in XML. Leaders
-on clear/bar entries are retained but do not create leader-filled tab spacing.
-`start`/`end` are direction-relative; `left`/`right` use the Transitional vocabulary.
-The backwards-compatible `num` tab type is not exposed.
-
-Tab definitions do not insert text. Use an existing inline `Tab` component or a
-tab character in text to advance to a stop. Bar tabs request a vertical bar,
-not an advance. Effective tab sets remain additive across the style hierarchy;
-the library does not compute their resolution, default tab intervals, decimal
-separator behavior, bidi layout or leader rendering. A nonempty style update
-replaces the **local** tab collection, while an empty list retains an imported
-collection. Other style properties remain unchanged. Removing every inherited
-or default stop is not represented by an empty list or a new global setting.
-
-Verification covers Rust/Python serialization, independent readback and
-official-schema checks, including invalid alignment/leader/position controls.
-No manual rendering or complete typed tab import is claimed. Source: P1 (2016)
-§§17.3.1.37–38, §§17.18.84–85 and the Transitional schema's left/right values.
+- Positions are signed points from the text margin, rounded to signed 64-bit twips and sorted. Nonfinite values or duplicate rounded positions (even clear/set pairs) fail.
+- Alignments: `left`, `center`, `right`, `decimal`, `bar`, `clear`, `start`, `end`; start/end are direction-relative. `clear` removes an inherited stop at that position. `bar` draws a bar rather than advancing text.
+- Leaders: omitted, `none`, `dot`, `hyphen`, `underscore`, `heavy`, `middle_dot`. Explicit `none` differs from omission. Clear/bar stops do not fill space with leaders.
+- Insert a literal tab or `Tab` to advance. A nonempty style update replaces local stops; an empty list preserves them and does not clear inherited/default stops.
 
 ## Language and complex-script formatting
-
-Direct `RunFormat` and paragraph style definitions support independent script
-properties; Python exposes the same fields on `TextRun`/`ParagraphStyleDefinition`.
-Rust defers the run format or styles aggregate, and Python uses generic per-field
-references. Neither computes effective values or transforms the stored text.
-
-| Property | Encoding / meaning |
-| --- | --- |
-| `language: RunLanguage` | Optional `latin`, `east_asia`, `bidi` strings map to `lang` attributes `val`, `eastAsia`, `bidi` |
-| `bold_complex_script`, `italic_complex_script` | Optional `bCs`/`iCs`, independent from Latin `b`/`i` |
-| `size_complex_script` | Nonnegative finite points to checked half-points in `szCs`, independent from `sz` |
-| `rtl` | Optional run `rtl` flag, not a text-reversal operation |
-| `complex_script` | Optional `cs` flag requesting complex-script formatting |
-| `font_east_asia`, `font_complex_script` | Literal `rFonts/eastAsia` and `rFonts/cs` names |
-| Existing `font` | Still sets only `ascii` and `hAnsi`; it does not overwrite the other slots |
 
 ```python
 run = d.TextRun("العربية 日本語", language=d.RunLanguage(east_asia="ja-JP", bidi="ar-SA"),
@@ -210,232 +61,85 @@ run = d.TextRun("العربية 日本語", language=d.RunLanguage(east_asia="ja
                 size_complex_script=14.5, bold_complex_script=True, rtl=True)
 ```
 
-Flag absence/false/true remains distinct. At style level, bold/italic (including
-complex-script variants) are **toggle properties** under P1 §17.7.3: false does
-not mean a computed disabling override across the whole style hierarchy. The
-library serializes these values, not effective toggle inheritance. Direct false
-values remain explicit direct-formatting overrides. Size values round to nearest
-half-point with the existing signed conversion bound; zero is accepted.
+| Run or style property | Meaning |
+| --- | --- |
+| `language` | `RunLanguage(latin=..., east_asia=..., bidi=...)`: XML strings, not validated language tags. An empty record emits nothing; omitted slots survive style updates. |
+| `bold_complex_script`, `italic_complex_script` | Independent of Latin bold/italic. Direct false disables; style bold/italic are toggles, so false does not cancel an inherited style toggle. |
+| `size_complex_script` | Nonnegative finite points, rounded to checked half-points; independent of `size`. |
+| `rtl`, `complex_script` | Request right-to-left run direction or complex-script formatting. Neither reverses stored text. |
+| `font`, `font_east_asia`, `font_complex_script` | Literal font names. `font` sets ASCII and high ANSI only. Updating a slot clears its matching theme-font attribute. No font embedding or theme-font authoring. |
 
-Language slots follow the schema's unconstrained string type, not a BCP 47
-registry parser. Strings (including empty/custom ones) are preserved and XML
-escaped; invalid XML characters still fail serialization. They are hints for a
-consumer's language/proofing behavior, not library-side proofing or shaping.
-An all-absent record emits no `lang`. Partial style updates retain omitted slots.
-Fonts are names only: no availability check, embedding, download, fallback,
-script classification, font metrics or bidi rendering is performed. Style font
-updates remove only the corresponding theme-font attributes, retaining other
-literal/theme slots. Theme-font authoring is not supported.
-Conditional table-style script properties and document defaults use the same
-codec; see [STYLES.md](STYLES.md) for their scopes and merge contracts.
-
-Sources: P1 (2016) §§17.3.2.2, 17.3.2.7,
-17.3.2.17, 17.3.2.20, 17.3.2.26, 17.3.2.30, 17.3.2.39 and 17.7.3.
+See also [conditional styles and document defaults](STYLES.md).
 
 ## Paragraph text direction
 
-`ParagraphFormat.bidi` and paragraph style `bidi` are optional booleans in Rust;
-Python appends `bidi` to `Paragraph` and `ParagraphStyleDefinition`. The shared
-paragraph codec emits `pPr/bidi` with explicit `val=1/0`; omission emits no request.
-Generic deferred format/style aggregates and Python field references work as
-for existing properties. Style and direct values remain distinct; no effective
-inheritance is materialized.
-
-Paragraph bidi is not run `rtl`, cell text flow, a string reversal, or automatic
-alignment/indent conversion. The writer retains stored text and explicitly
-supplied left/right alignment/indent values; the consumer interprets layout.
-Source: P1 (2016) §17.3.1.6 (`bidi`) and Annex A.1.
+Set `bidi` on a paragraph format or style for right-to-left paragraph layout. This does not change run `rtl`, cell flow, text order or explicit physical indents/alignment.
 
 ## Section page direction
 
-`SectionProperties.bidi` is an optional boolean in both APIs. It emits a
-section-level `sectPr/bidi` request with explicit `val=1/0`, separate from
-paragraph `pPr/bidi`, run `rtl` and cell text flow. Omission retains the previous
-or template section property under the existing section inheritance contract;
-on a fresh document it authors no bidi element. False explicitly overrides an
-inherited true value. Python appends the field, preserving positional arguments.
-Rust uses the existing deferred section-properties aggregate; Python supports
-generic nested deferred fields and section property references.
-
-This requests right-to-left **page** direction (for example, column population
-order in a consumer), not text direction. The library does not reverse stored
-text, mirror physical margins, change column counts, or calculate page layout.
-Paragraph and run direction remain independently authored. See P1 (2016)
-§17.6.1 and Annex A.1.
+`SectionProperties.bidi` requests right-to-left **page** direction (e.g. column order). It does not mirror margins or change paragraph direction. Omitted section settings retain preceding-section or template values; false explicitly disables a flag.
 
 ## Right-side gutter placement
 
-`SectionProperties.rtl_gutter` is an optional boolean in both APIs. It writes
-`sectPr/rtlGutter` with explicit `val=1/0`. Omission preserves previous/template
-section settings and authors no override in a fresh document; false explicitly
-disables a previous right-side request. It uses the existing deferred aggregate
-in Rust and generic nested fields/references in Python.
+`SectionProperties.rtl_gutter` requests a right-side gutter without changing its width. Document-level `gutter_at_top` can select a top gutter instead.
 
-This requests right-side gutter placement when a consumer uses a side gutter;
-the document-level `gutterAtTop` setting can instead select a top gutter. The
-library does not change that setting, author a gutter measurement, mirror physical
-margins, adjust width-allocation metrics or calculate binding/page layout. Section
-`bidi`, paragraph `bidi`, run `rtl` and cell text flow remain independent. Existing
-template gutter amounts are retained. Python appends the field; Rust exhaustive
-literals need it or `..Default::default()`.
+## Section line numbering
 
-Source: P1 (2016) §17.6.16.
-
-### Section line numbering
-
-Set `SectionProperties.line_numbering` to `LineNumbering`. The record supports
-`count_by` (1–100), `start` (0–32767), `distance` (unsigned twips), and
-`restart` (`newPage`, `newSection`, or `continuous` in Python). The starting
-value is stored as supplied. Word interprets it as the number of lines to skip
-before starting or restarting. Rust uses `LineNumberRestart` for the restart
-mode. Python resolves deferred records and nested fields.
-
-Explicit settings merge into `sectPr/lnNumType` with the same preceding-section
-and template behavior as other section settings. An omitted record preserves
-the existing node, and omitted fields preserve existing attributes. The
-consumer lays out and displays line numbers. Source: P1 (2016) §17.6.8 and
-Annex A.1 CT_LineNumber. The count and start bounds follow
-[MS-OI29500 §2.1.215](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c4252e13-48d2-4ac9-9fb5-3b276d02be30).
-
-Set `suppress_line_numbers` on a paragraph format, paragraph style, or
-paragraph defaults to request `pPr/suppressLineNumbers` (P1 2016 Annex A.1
-CT_PPrBase). True suppresses line numbering, and explicit false requests
-that the section's line numbering apply. Omission leaves the local setting
-unspecified. The numbering level paragraph codec also accepts this property.
-
-Use `LineNumbering(clear=True)` in Python or
-`LineNumbering::default().with_clear(true)` in Rust to remove inherited or
-template section line numbering. The clear request must omit other line
-numbering fields. A later section can configure line numbering again.
-
-### Header and footer edge distances
-
-Set `PageMargins.header` and `PageMargins.footer` in Rust or use the
-`header` and `footer` keys in Python's `SectionProperties.page_margins`.
-Each accepts a nonnegative EMU value, including zero. The codec converts each
-distance to twips and writes it to the corresponding `sectPr/pgMar` attribute.
-Omitted values retain the template or preceding section's distances. Editing
-these fields leaves body margins and story references intact. Source: P1
-(2016) §17.6.11 and Annex A.1 CT_PageMar.
-
-### Page borders
-
-Set `SectionProperties.page_borders` to a `PageBorders` record with optional
-`top`, `left`, `bottom`, and `right` borders. Each physical edge accepts a
-`PageBorder` with line style `single` or `dashed`, optional RGB color,
-width (2–96 eighth-points), and offset (0–31 points). These are the supported
-line-border authoring bounds. The codec writes supplied edges in schema order.
-Replacing one edge preserves other edges and the parent options. Omitted
-records preserve template or previous-section borders. Source: P1 (2016)
-§17.6.10 and Annex A.1 CT_PageBorders.
-
-The `PageBorders` record also accepts `offset_from` (`page` or `text`),
-`display` (`allPages`, `firstPage`, or `notFirstPage`), and `z_order`
-(`front` or `back`). Rust exposes these as `PageBorderOffset`,
-`PageBorderDisplay`, and `PageBorderZOrder`. An omitted option preserves the
-existing setting. The consumer positions and displays the borders.
-
-### Section document grids
-
-`SectionProperties.document_grid` accepts a `DocumentGrid` record. Modes are
-`default`, `lines`, `linesAndChars`, and `snapToChars` in Python and the
-corresponding `DocumentGridMode` variants in Rust. The line pitch is positive
-and uses twips. The signed character-pitch delta uses units of 1/4096 point
-relative to the Normal-font pitch. The compiler writes `sectPr/docGrid`.
-Supplied attributes merge with the existing template or preceding section
-settings. The consumer determines effective text layout. Source: P1 (2016)
-§17.6.5 and Annex A.1 CT_DocGrid.
-
-`snap_to_grid` requests line-grid snapping on paragraph formats and
-character-grid snapping on run formats, including styles and defaults.
-True and false emit explicit requests. Omission leaves the current level of
-formatting unspecified. The compiler writes `snapToGrid` in the paragraph
-or run properties. See P1 (2016) Annex A.1 CT_PPrBase and CT_RPr.
-
-### Contextual spacing and mirrored paragraph indents
-
-`contextual_spacing` requests that the consumer suppress spacing between
-paragraphs using the same paragraph style. `mirror_indents` requests that
-paragraph left and right indent values act as inside and outside indents.
-They are independent optional flags on paragraph formats, paragraph styles
-and paragraph defaults. Omitted flags keep the current property level
-unspecified. Explicit false emits `0`. The codec retains the original indent
-values and writes `contextualSpacing` and `mirrorIndents` (P1 2016 Annex A.1
-CT_PPrBase).
-
-### Document page-layout requests
-
-`DocumentDefaults.mirror_margins` and `gutter_at_top` write
-`settings/mirrorMargins` and `settings/gutterAtTop`. These flags let the
-consumer interpret mirrored margins and top gutter placement. Omitted
-values retain settings from the template. False writes an explicit off
-value. These requests leave section geometry and unrelated settings intact.
-Source: P1 (2016) §§17.15.1.50 and 17.15.1.57.
-
-### Picture geometry and floating placement
-
-Set `ImageTransformation.crop` to an `ImageCrop` with physical-edge insets
-in percent, and set `rotation` in clockwise degrees. Python uses the
-corresponding `transformation` dictionary keys. Crop insets must leave a
-positive source rectangle after rounding. Both requests preserve the target
-extents and stored image bytes.
-
-An optional `ImageAnchor` requests floating placement from the page or
-margins independently on each axis. Signed offsets use points and must fit
-a signed DrawingML coordinate after conversion to EMUs. The anchor supports
-none, square, or top-and-bottom wrapping, a relative stacking height, and
-placement behind text. Square wrapping defaults to both sides and accepts
-left, right, or the largest side. Square wrap distances use nonnegative
-points on each edge. Top-and-bottom wrapping accepts top and bottom distances.
-Optional anchor locking, in-cell placement, and overlap flags default to
-unlocked, layout in cell, and overlap allowed. The consumer performs page layout.
-
-Each axis accepts an offset or alignment. Common reference frames include
-the page, margins, inside margin and outside margin. Horizontal positioning
-also accepts column, character, left margin and right margin. Vertical
-positioning also accepts paragraph, line, top margin and bottom margin.
-
-Tight and through wrapping take at least three ordered polygon vertices in
-DrawingML wrap-path coordinates and require nonzero signed area. The codec
-writes the first vertex as the start and the rest as line segments. The
-consumer closes the polygon if needed. Both modes support left and right
-wrap distances and the same side choices as square wrapping. Source:
-[P1 wrapping polygon contract](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.wordprocessing.wrappolygon?view=openxml-3.0.1).
-
-Picture transformations also accept optional `flip_horizontal` and
-`flip_vertical` flags. Explicit false is preserved and the image bytes
-and target extents remain the same.
-
-### Inline geometric shapes
-
-`ShapeRun` creates a rectangle or ellipse, inline by default, with positive dimensions
-in points and an optional RGB fill. Rust takes a `ShapeProperties` record
-and Python takes keyword arguments. Shapes are supported in body paragraphs.
-The codec emits a standard DrawingML locked canvas and creates no image
-media part. Geometry is serialized independently of the consuming app's
-drawing behavior. Source: ECMA-376 P1 (2016), §§20.1 and 20.3.
-
-An optional shape `text` value is stored in a separate DrawingML text
-body. Line separators create DrawingML paragraphs, including empty lines.
-The text stays inside the shape and uses its geometry as the text rectangle.
-
-An optional `ShapeOutline` supplies a line width in points and an RGB
-color. The width is checked against DrawingML's 0–20,116,800 EMU range.
-Shape and canvas identifiers are reserved alongside existing drawing IDs.
-
-### Shape text styling
-
-Optional `ShapeTextFormat` applies uniform styling to the shape's plain text:
-
-```rust
-use rocx::{ShapeProperties, ShapeRun, ShapeTextAlignment, ShapeTextFormat,
-    ShapeTextVerticalAlignment};
-let shape = ShapeRun::new(ShapeProperties::default().with_text("Label\n\nValue")
-    .with_text_format(ShapeTextFormat::default().with_font_size(14.25)
-        .with_bold(false).with_italic(true).with_font("Arial").with_color([255, 255, 255])
-        .with_alignment(ShapeTextAlignment::Center)
-        .with_vertical_alignment(ShapeTextVerticalAlignment::Bottom)));
+```python
+numbering = d.LineNumbering(count_by=5, start=0, restart="newPage")
+section = d.SectionProperties(line_numbering=numbering)
 ```
+
+`count_by`: 1–100; `start`: 0–32767 lines to skip; `distance`: unsigned twips. `restart` accepts `newPage`, `newSection`, `continuous` (Rust `LineNumberRestart`). Omitted fields preserve existing settings. Remove numbering with `LineNumbering(clear=True)` or `LineNumbering::default().with_clear(true)`, with no other fields. Later sections may enable it again.
+
+Set `suppress_line_numbers` on paragraph formats, styles, defaults or numbering-level paragraph formats. False explicitly lets section numbering apply.
+
+## Header and footer edge distances
+
+Rust `PageMargins.header` / `.footer` and Python `SectionProperties.page_margins` keys `header` / `footer` take nonnegative EMUs, including zero. They change edge distances, not body margins or story references.
+
+## Page borders
+
+`SectionProperties.page_borders` accepts `PageBorders`. Set any of `top`, `left`, `bottom`, `right` to a `PageBorder`: `single` or `dashed`, optional RGB, width 2–96 eighth-points, offset 0–31 points. Replacing an edge preserves other edges. Omitted options preserve their values:
+
+| Option | Values |
+| --- | --- |
+| `offset_from` | `page`, `text` |
+| `display` | `allPages`, `firstPage`, `notFirstPage` |
+| `z_order` | `front`, `back` |
+
+## Section document grids
+
+`SectionProperties.document_grid` takes `DocumentGrid`: mode `default`, `lines`, `linesAndChars` or `snapToChars`; positive line pitch in twips; signed character-pitch delta in 1/4096 pt relative to the Normal font. Only supplied attributes change. Set `snap_to_grid` on paragraphs for line snapping or on runs for character snapping, including styles and defaults.
+
+## Contextual spacing and mirrored paragraph indents
+
+On paragraph formats, styles and defaults, `contextual_spacing` suppresses spacing between paragraphs of the same style; `mirror_indents` interprets left/right as inside/outside without changing their values.
+
+## Document page-layout requests
+
+`DocumentDefaults.mirror_margins` and `.gutter_at_top` request mirrored margins and a top gutter. Omission retains template settings. Neither changes section geometry.
+
+## Picture geometry and floating placement
+
+`ImageTransformation` (Python: `transformation` dictionary) supports crop insets as percentages on physical edges, clockwise `rotation` in degrees, and `flip_horizontal` / `flip_vertical`. Cropping must leave a positive rectangle after rounding. These settings preserve image bytes and target dimensions.
+
+Add an `ImageAnchor` for floating placement. Each axis accepts alignment **or** a signed point offset fitting the DrawingML coordinate range after EMU conversion. Both axes support page, margins, inside margin and outside margin. Horizontal also supports column, character and left/right margins; vertical also supports paragraph, line and top/bottom margins.
+
+| Wrap | Options |
+| --- | --- |
+| None | No wrapping |
+| Square | Both sides (default), left, right or largest side; nonnegative point distances on each edge |
+| Top and bottom | Top and bottom distances |
+| Tight / through | Same side choices as square, left/right distances; supply at least three ordered wrap-path vertices with nonzero signed area. The viewer closes the polygon. |
+
+Anchors also support relative stacking height, behind-text placement, locking (default off), in-cell layout (on) and overlap (on).
+
+## Inline geometric shapes
+
+`ShapeRun` creates a rectangle or ellipse in a body paragraph. Supply positive point dimensions, optional RGB fill and `ShapeOutline` with RGB color and point width (0–20,116,800 EMUs after conversion). Shapes use DrawingML, not image media. Plain text uses one paragraph per line, including blank lines. Absent text omits the text body; `""` produces an empty paragraph.
+
+## Shape text styling
 
 ```python
 shape = d.ShapeRun(text="Label\n\nValue", text_format=d.ShapeTextFormat(
@@ -443,152 +147,44 @@ shape = d.ShapeRun(text="Label\n\nValue", text_format=d.ShapeTextFormat(
     alignment="center", vertical_alignment="bottom"))
 ```
 
-The supported horizontal subset is left/center/right; vertical alignment is
-top/center/bottom. Rust uses dedicated DrawingML enums, not WordprocessingML
-paragraph alignment. Python uses the lowercase tokens above and supports nested
-deferred property values. Unsupported tokens are rejected.
+`ShapeTextFormat` styles all lines, including empty ones, independently of surrounding runs. Horizontal alignment: left/center/right; vertical: top/center/bottom. Font size: finite 1–4000 pt **before** rounding to 0.01 pt, even if text is absent. `font` selects the Latin typeface only (any XML string, including empty); color applies to text, not fill. Omit a property to leave it unspecified.
 
-Font size is in points and must be finite and within **1–4000 inclusive before
-rounding**. It rounds to the nearest hundredth of a point for `ST_TextFontSize`
-(100–400000). RGB color applies to text, independently of shape fill/outline.
-`bold=None` omits the request; `False` explicitly disables bold.
-
-The codec emits `bodyPr/@anchor`, per-line `pPr/@algn`, and run `rPr` with `sz`,
-`b` and `solidFill/srgbClr`. Character requests also go on `endParaRPr`, so empty
-lines retain the requested styling. Paragraph and run properties stay in schema
-order. Missing individual values are not materialized; an omitted or empty
-format preserves prior output bytes. If text is absent, no text body is emitted,
-but invalid numeric format values are still rejected during validation. Empty text is
-distinct from absent text and produces one empty DrawingML paragraph.
-
-This does not change surrounding WordprocessingML text, calculate line layout,
-select fonts, fit text, paginate or position the shape. No manual Office rendering
-was verified. Sources: P1 (2016) §20.1 text-body, paragraph and character
-properties; Annex A.4 `CT_TextBodyProperties`, `CT_TextParagraph`,
-`CT_TextCharacterProperties`, `ST_TextFontSize`, `ST_TextAlignType` and
-`ST_TextAnchoringType`.
-
-The format also accepts optional `italic` and `font` fields. Italic follows
-bold's three-state contract: omitted, enabled, or explicitly disabled. `font`
-authors the requested Latin typeface as `a:latin/@typeface`, after solid fill in
-both run and end-paragraph properties. It does not set East Asian or complex-script
-typefaces or alter surrounding WordprocessingML runs. Typeface values follow
-`ST_TextTypeface` (an XML string): Unicode, special characters and an empty string
-are preserved, not checked against installed fonts. Invalid XML characters in an
-emitted typeface are rejected. Missing font/italic values do not materialize any
-attributes or elements. Python supports deferred values for these fields too.
-No installed-font lookup, embedding, fallback selection or measurement is added.
-
-### Standalone inline text boxes
-
-Use the same authoring APIs with Rust `ShapeGeometry::TextBox` or Python
-`geometry="text_box"`:
+## Standalone inline text boxes
 
 ```rust
-use rocx::{ShapeGeometry, ShapeProperties, ShapeRun, ShapeTextFormat};
-let text_box = ShapeRun::new(ShapeProperties::default()
-    .with_geometry(ShapeGeometry::TextBox).with_width(144.).with_height(48.)
-    .with_text("Standalone\nText box")
-    .with_text_format(ShapeTextFormat::default().with_font("Arial").with_font_size(12.)));
+use rocx::{ShapeGeometry, ShapeProperties, ShapeRun};
+let label = ShapeRun::new(ShapeProperties::default().with_geometry(ShapeGeometry::TextBox)
+    .with_width(144.).with_height(48.).with_text("Standalone\nText box"));
 ```
 
 ```python
-text_box = d.ShapeRun(144, 48, geometry="text_box", text="Standalone\nText box",
-    text_format=d.ShapeTextFormat(font="Arial", font_size=12))
+label = d.ShapeRun(144, 48, geometry="text_box", text="Standalone\nText box")
 ```
 
-This mode emits a direct `lockedCanvas/a:txSp`, with `a:txBody` followed by its
-own `a:xfrm` offset/extent. It does not emit geometric `a:sp`, `a:spPr`,
-`a:prstGeom` or `a:useSpRect`. The existing point dimensions and DrawingML text
-codec are reused. An omitted text value creates one empty DrawingML paragraph;
-multiline text and uniform formatting retain the same contracts as shape text.
-`fill` and `outline` are rejected, not ignored: this text shape has no geometric
-properties container in which to serialize them. Other shape-mode defaults and
-output are unchanged.
+A text box uses plain DrawingML text, not rich blocks. Omitted text produces one empty paragraph. Fill and outline are invalid. Shapes and text boxes are body-paragraph content, not header/footer, note, hyperlink or field-result content. No text-flow linking, padding or autofit.
 
-Text boxes are inline by default and restricted to body paragraphs. The existing
-shape story and container restrictions still apply; headers/footers, notes,
-hyperlink children and cached field results are not supported. Shape/canvas
-drawing IDs remain unique across mixed drawings and imported canvases. This is
-plain DrawingML text, not a rich WordprocessingML `txbxContent` story. Rich child
-blocks, text-flow links, padding/autofit and manual Office rendering remain unimplemented
-or unverified. Source: P1 (2016) §20.3; Annex A.4 `CT_GvmlGroupShape` and
-`CT_GvmlTextShape`.
+## Floating shapes and text boxes
 
-### Floating shapes and text boxes
-
-Set `ShapeProperties::with_anchor(ImageAnchor)` in Rust or `ShapeRun(anchor=...)`
-in Python to float a rectangle, ellipse or plain text box. `ImageAnchor` is
-shared with pictures despite its name. Signed offsets, alignment, wrap modes
-and distances, explicit wrap polygons, stacking and placement flags use the
-same units and validation as [picture anchors](#picture-geometry-and-floating-placement).
-An alignment and nonzero offset cannot both be requested on the same axis.
-Tight and through wrapping require
-authored polygons; the writer does not derive them from the geometry or text.
-
-Omitting the anchor keeps the existing inline output. A floating shape uses
-`wp:anchor` around the same locked canvas; it creates no media part or
-relationship. The existing story and container restrictions still apply. This
-is a placement request, not a layout calculation or a claim of Office rendering.
-Source: P1 (2016) §20.4 and Annex A.4 `CT_Anchor`. See the floating text box in
-the [paired catalogs](../examples/ALL_FEATURES.md).
+Pass `ShapeProperties::with_anchor(ImageAnchor)` or `ShapeRun(anchor=...)` to float a rectangle, ellipse or text box. The same [placement and wrapping rules](#picture-geometry-and-floating-placement) apply; supply your own polygon for tight/through wrapping. Omit the anchor for inline placement.
 
 ## Inline column charts
 
-Add a `ColumnChartRun` to a body paragraph, including a paragraph in a body
-table cell. The chart takes up space in the line like an inline image. Supply
-width and height in points, a nonempty ordered list of text labels, and one
-finite value per label. Zero and negative values are supported.
-
-```rust
-use rocx::{ColumnChartProperties, ColumnChartRun, Paragraph};
-let chart = ColumnChartRun::new(ColumnChartProperties {
-    width: 288.,
-    height: 180.,
-    categories: vec!["North".into(), "South".into(), "West".into()],
-    values: vec![8., 13.5, 5.],
-});
-let paragraph = Paragraph::from_children(vec![chart.into()]);
-```
-
 ```python
-from rocx import declarative as d
 chart = d.ColumnChartRun(288, 180, ["North", "South", "West"], [8, 13.5, 5])
-paragraph = d.Paragraph(children=[chart])
+p = d.Paragraph(children=[chart])
 ```
 
-The writer stores the data directly in the chart, not in an embedded workbook.
-The document app lays out the chart and chooses its visual defaults. This API
-does not support additional series, styles, floating placement, chart editing,
-or putting the chart inside a hyperlink, cached field result, or inline
-content control. Appending a chart to a template does not rewrite imported
-chart data.
+Use `ColumnChartRun` in a body paragraph, including body table cells. Dimensions are in points. Supply at least one category and one finite value per category (zero and negatives allowed). Data is stored in the chart; no embedded workbook. Only one inline series; no chart styles, floating placement, imported chart edits, or charts in hyperlinks, field results or inline controls.
 
 ## Inline fractions
 
-`InlineFraction` inserts a stacked Office Math fraction as a direct child of a
-body paragraph, including a paragraph in a body table cell. Both operands are
-nonempty, single-line literal XML text. They can be deferred independently;
-spaces are preserved and text is not interpreted as formula syntax.
-
 ```rust
-use rocx::{InlineFraction, Paragraph, TextRun};
-let paragraph = Paragraph::from_children(vec![
-    TextRun::new("Half is ").into(),
-    InlineFraction::new("1", "2").into(),
-    TextRun::new(".").into(),
-]);
+use rocx::{InlineFraction, Paragraph};
+let p = Paragraph::from_children(vec![InlineFraction::new("1", "2").into()]);
 ```
 
 ```python
-from rocx import declarative as d
-paragraph = d.Paragraph(children=[
-    d.TextRun("Half is "), d.InlineFraction("1", "2"), d.TextRun("."),
-])
+p = d.Paragraph(children=[d.InlineFraction("1", "2")])
 ```
 
-The writer emits a single inline OMML object and adds no package part or
-relationship. Fractions are not supported in headers, footers, notes, comments,
-hyperlinks, cached field results, or inline content controls. Appending a
-fraction does not edit imported equations. Display equations, nested expressions,
-and equation styling are not supported.
+Both operands are nonempty, single-line XML text; spaces are preserved and operands can be deferred independently. Use a fraction directly in a body paragraph or body table-cell paragraph. No display equations, nested expressions, equation styling or imported equation edits.

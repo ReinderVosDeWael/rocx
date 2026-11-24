@@ -13,13 +13,8 @@
 //! # }).unwrap();
 //! ```
 //! Resolution consumes producers once. Resolved documents can be rendered repeatedly.
-//! No runtime is required by this crate; poll resolution with your chosen executor.
-//!
-//! OOXML vocabulary and packaging are specified in
-//! [ECMA-376](https://ecma-international.org/publications-and-standards/standards/ecma-376/).
-//! The repository's `docs/OOXML.md` maps implemented features to edition-specific
-//! clauses; `docs/MODULES.md` records the implemented domain-driven boundaries.
-//! Implemented features and tests do not establish full OOXML conformance.
+//! Await `resolve()` on your application's async runtime. To run it from a
+//! synchronous `main`, use an executor such as `futures_executor::block_on`.
 
 mod adapters;
 pub mod application;

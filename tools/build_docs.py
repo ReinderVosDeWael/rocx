@@ -19,14 +19,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SITE = ROOT / "target/docs-website"
 REPOSITORY = "https://github.com/ReinderVosDeWael/rocx"
 CONTRACTS = (
-    "ARCHITECTURE", "CONTENT_CONTROLS", "DEFERRED-FIELDS", "FIELDS", "FORMATTING",
-    "MIGRATION", "MODULES", "NOTES", "NUMBERING", "OOXML", "RANGES", "RELEASING", "DOCUMENTATION",
+    "CONTENT_CONTROLS", "DEFERRED-FIELDS", "FIELDS", "FORMATTING",
+    "MIGRATION", "NOTES", "NUMBERING", "RANGES",
     "REVISIONS", "STYLES", "TABLES",
 )
 PUBLIC_PAGES = {
     "COMPATIBILITY.md": "compatibility.md",
     "docs/VIEWER-COMPATIBILITY-CHECKLIST.md": "viewer-compatibility.md",
-    "examples/ALL_FEATURES.md": "catalog-guide.md",
     "javascript/README.md": "javascript.md",
 }
 

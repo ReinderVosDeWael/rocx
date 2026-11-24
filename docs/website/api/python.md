@@ -1,8 +1,6 @@
 # Python API
 
-This reference is generated from the repository's Python package. Type hints
-describe ordinary inputs; deferred values and property references are documented
-in the [deferred-value guide](../contracts/DEFERRED-FIELDS.md).
+Type hints show ordinary inputs. For factories, awaitables and property references, see [deferred values](../contracts/DEFERRED-FIELDS.md).
 
 ::: rocx.declarative
 

@@ -1,9 +1,6 @@
 # JavaScript API reference
 
-This reference describes APIs implemented in this worktree and available
-in its unreleased development tarball. See
-[installation and supported environments](../javascript.md). For full input
-and result types, use the [declarations shipped in the package](../javascript.md#typescript-declarations).
+[Install the development tarball](../javascript.md#build-and-install-the-tarball). For exact input and result types, see the [shipped declarations](../javascript.md#typescript-declarations).
 
 ## Generate and resolve
 
@@ -31,13 +28,6 @@ Other named factories cover `Tab`, `Break`, `Hyperlink`, `Field`, `ImageRun`,
 `CharacterStyleDefinition`, `TableStyleDefinition` and
 `NumberingStyleDefinition`. See the installed `declarative` declarations
 for exact signatures.
-
-The [runnable Node quickstart](../javascript.md#quickstart) uses the same
-two-paragraph document as the Rust and Python examples:
-
-```javascript
-{{snippet:examples/javascript/plain.mjs:quickstart}}
-```
 
 ```typescript
 generateDocx(declaration: DocumentDeclaration, options?: GenerateOptions): Promise<Uint8Array<ArrayBuffer>>
@@ -213,14 +203,7 @@ const report = await resolveDocument(d.Document([d.Section([
 await saveDocx(report, "report.docx", { template: templateFile("layout.dotx") });
 ```
 
-`imageFile` returns a single-use `Value<NamedImageData>`. Resolution reads
-the file and passes `{ bytes, sourceName }` (the local basename, not the full
-path) into Rust as `ImageData::NamedBytes { bytes, source_name }`.
-`ResolvedImage.view.name` preserves that name; format detection still uses
-the bytes. Use `Uint8Array` for an unnamed source. The new Rust enum variant
-is additive for constructors, but downstream exhaustive matches on the
-public `ImageData` enum must add an arm or a wildcard. Resolved images do
-not reopen the source when rendered.
+`imageFile` reads the file once at resolution. `ResolvedImage.view.name` keeps the basename; the bytes determine the format. Pass a `Uint8Array` for an unnamed image.
 
 `saveDocx` encodes fully before writing and renaming a sibling temporary
 file onto the destination. In the browser, pass bytes from the caller and

@@ -52,9 +52,3 @@ nav:
   - Compatibility: compatibility.md
   - Viewer compatibility: viewer-compatibility.md
   - Migration: contracts/MIGRATION.md
-  - Contributor references:
-      - Documentation builds: contracts/DOCUMENTATION.md
-      - OOXML contracts: contracts/OOXML.md
-      - Architecture: contracts/ARCHITECTURE.md
-      - Module map: contracts/MODULES.md
-      - Release guide: contracts/RELEASING.md

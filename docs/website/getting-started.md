@@ -2,33 +2,30 @@
 
 ## Install and write a document
 
-Use these install commands once rocx is available on your registry. Otherwise,
-[run the repository examples](#run-the-repository-examples).
+Choose a language to write `report.docx`.
 
 === "Rust"
 
-    In an existing Cargo project with Rust 1.88 or newer, add rocx and a
-    futures executor:
+    In a Cargo project with Rust 1.88 or newer:
 
     ```sh
     cargo add rocx
-    cargo add futures-executor
     ```
 
-    Put this in `src/main.rs` and run `cargo run`:
+    `resolve()` is async. If your app already uses Tokio or another async runtime, call `write_report().await` there. For a standalone executable with a synchronous `main`, run `cargo add futures-executor` for the `block_on` call below.
+
+    Save as `src/main.rs` and run `cargo run`:
 
     ```rust
-    use rocx::{Document, Error, Paragraph, Section, TextRun};
+    use rocx::{Document, Error, Paragraph, Section};
+
+    async fn write_report() -> Result<(), Error> {
+        let section = Section::new(vec![Paragraph::new("Hello, world!").into()]);
+        Document::new(vec![section.into()]).resolve().await?.save("report.docx")
+    }
 
     fn main() -> Result<(), Error> {
-        futures_executor::block_on(async {
-            let document = Document::new(vec![
-                Section::new(vec![
-                    Paragraph::from_children(vec![TextRun::new("Hello, world!").into()]).into(),
-                ]).into(),
-            ]);
-            document.resolve().await?.save("report.docx")
-        })
+        futures_executor::block_on(write_report())
     }
     ```
 
@@ -46,12 +43,10 @@ Use these install commands once rocx is available on your registry. Otherwise,
 
     ```python
     import asyncio
-    from rocx.declarative import Document, Paragraph, Section, TextRun
+    from rocx import declarative as d
 
     async def main():
-        document = Document([Section(children=[Paragraph(children=[
-            TextRun(text="Hello, world!"),
-        ])])])
+        document = d.Document([d.Section(children=[d.Paragraph(text="Hello, world!")])])
         await document.save("report.docx")
 
     asyncio.run(main())
@@ -67,47 +62,9 @@ Use these install commands once rocx is available on your registry. Otherwise,
     import { declarative as d, generateDocx } from "rocx-docx";
 
     const document = d.Document([d.Section([
-      d.Paragraph([d.TextRun("Hello, world!")]),
+      d.Paragraph("Hello, world!"),
     ])]);
     await writeFile("report.docx", await generateDocx(document));
     ```
 
-    In all three languages, a paragraph containing just text can also be
-    written directly: `Paragraph::new("Hello, world!")` in Rust,
-    `Paragraph(text="Hello, world!")` in Python, or `d.Paragraph("Hello, world!")`
-    in JavaScript.
-
-Rust resolution consumes its declaration. Python resolution leaves the
-declaration unchanged and returns an immutable snapshot. See the
-[deferred values guide](contracts/DEFERRED-FIELDS.md) for details.
-
-## Run the repository examples
-
-Clone the repository and change into it:
-
-```sh
-git clone https://github.com/ReinderVosDeWael/rocx.git
-cd rocx
-```
-
-=== "Rust"
-
-    Install Rust 1.88 or newer, then run:
-
-    ```sh
-    cargo run --locked --example plain -- report.docx
-    ```
-
-=== "Python"
-
-    Install Python 3.12 or newer, Rust 1.88 or newer, and
-    [uv](https://docs.astral.sh/uv/). Rust builds the Python extension from
-    this checkout. Then run:
-
-    ```sh
-    uv sync --locked
-    uv run --no-sync python examples/plain.py report.docx
-    ```
-
-The checkout examples accept an optional output filename; without one, they
-write `examples/plain.docx`.
+Open `report.docx` in your document viewer. Next, try [filling a template](recipes.md#edit-an-existing-document) or browse the [visual catalog](catalog.md).

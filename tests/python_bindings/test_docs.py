@@ -43,7 +43,8 @@ def test_paired_contract_examples_form_tabs_without_swallowing_intervening_guida
 def test_published_docs_are_an_allowlist_without_internal_handoffs() -> None:
     pages = docs.published_pages()
     assert all((ROOT / f"docs/{name}.md") not in pages
-               for name in ("PLAN", "DEPENDENCY-AUDIT", "REORGANIZATION"))
+               for name in ("PLAN", "DEPENDENCY-AUDIT", "REORGANIZATION", "DOCUMENTATION",
+                            "OOXML", "ARCHITECTURE", "MODULES", "RELEASING"))
     assert pages[ROOT / "docs/FORMATTING.md"] == pathlib.Path("contracts/FORMATTING.md")
     assert all(path.is_file() for path in pages)
 

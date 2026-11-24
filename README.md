@@ -4,14 +4,12 @@ Create Word `.docx` files in **Rust**, **Python**, or **JavaScript**. Describe t
 code; `rocx` writes the DOCX package. It does not render pages, paginate
 documents, or calculate fields such as page numbers.
 
-Start here:
+[Install and write your first DOCX](https://reindervosdewael.github.io/rocx/getting-started/) ·
+[Feature guides](https://reindervosdewael.github.io/rocx/) · [Compatibility](COMPATIBILITY.md)
 
-- [Getting started](https://reindervosdewael.github.io/rocx/getting-started/)
-- [Feature guides](https://reindervosdewael.github.io/rocx/)
-- [Rust API reference](https://reindervosdewael.github.io/rocx/api/rust/rocx/)
-- [Python API reference](https://reindervosdewael.github.io/rocx/api/python/)
-- [JavaScript authoring for Node and browsers](https://reindervosdewael.github.io/rocx/javascript/) (Wasm tarball; not on the npm registry)
-- [Compatibility and limitations](COMPATIBILITY.md)
+API: [Rust](https://reindervosdewael.github.io/rocx/api/rust/rocx/) ·
+[Python](https://reindervosdewael.github.io/rocx/api/python/) ·
+[JavaScript](https://reindervosdewael.github.io/rocx/javascript/) (Node/browser tarball, not on npm).
 
 ## Example
 
@@ -57,10 +55,6 @@ const document = d.Document([d.Section([
 await writeFile("report.docx", await generateDocx(document));
 ```
 
-The APIs support text, formatting, tables, images, links, templates, and more.
-Their constructors and async behavior differ; the guides describe those
-differences and the limits of each feature.
-
 ## Project information
 
 - [Migration guide](docs/MIGRATION.md)
@@ -69,16 +63,4 @@ differences and the limits of each feature.
 - [Runnable branded-report example](https://reindervosdewael.github.io/rocx/branded-report/)
 - [License](LICENSE)
 
-## Contributing
-
-Install [prek](https://prek.j178.dev/) and enable its Git hook once per clone:
-
-```sh
-uv tool install prek
-prek install
-```
-
-With Cargo and `rustfmt` installed, prek runs `cargo fmt --check` before each
-commit, temporarily setting aside unstaged edits to tracked files. If it
-fails, run `cargo fmt` and stage the intended formatting changes before
-retrying. GitHub Actions checks formatting even if prek is not installed.
+- [Contributing](CONTRIBUTING.md)
