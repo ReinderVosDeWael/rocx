@@ -13,6 +13,19 @@ the owner. The CLI uses the same readback and accepts rich level declarations.
 The authoring audit found no remaining declarative default fields; the
 metadata Comments key now explicitly aliases the stored description.
 
+Combined qualification includes `0ba9350` and its structural CLI merge
+`c3ea09d`. The 345 Rust all-feature/all-target tests, three doctests, 991
+schema-required installed Python 3.12 tests, native and Wasm Clippy, Rust 1.88,
+strict installed TypeScript, offline Wasm/glue
+replay and 667-page strict docs build passed. All 13 catalogs matched across
+Rust, installed Python, packed Node 22/24/26 and Chromium 159 development and
+production. All 38 editor oracles matched native Rust in the packed consumers
+and passed schema/OPC and independent readback. For the same python-docx
+linked-numbering fixture, the native oracle, CLI, installed Python and packed
+Node and both browser modes emitted identical DOCX bytes. Tests separately
+checked no-op preservation, stale anchors, conflicts, live references and
+opaque or broken style links.
+
 Closure criterion: require the combined fix and its cross-binding,
 schema/OPC, and preservation qualification on `main`. Do not count
 effective numbering, ownership migration, unsafe/dangling references,
@@ -95,10 +108,11 @@ consumers and passed schema/OPC checks. An independent footer/cell fixture
 matched Rust CLI, installed Python and packed Node byte for byte, including
 no-op, stale-anchor, duplicate, live-reference and opaque-markup probes.
 
-At this recovery checkpoint, the direct readers did not reconstruct full abstract/override
-level bodies or expose their abstract style links; edits cannot change levels
-of style-linked abstracts, relink across them, or drop a level address of a
-surviving instance. Nested or protected paragraph targets aren't supported.
+At that recovery checkpoint the direct readers did not reconstruct full
+abstract/override level bodies or expose their abstract style links. Edits
+were not yet able to change levels of style-linked abstracts or safely relink
+across them. Dropping level addresses of surviving instances and editing
+nested or protected paragraph targets remained unsupported.
 Unmodeled defaults, extended metadata and non-string/non-boolean custom
 variants are retained but not editable; the CLI still uses declaration
 shorthands. Style retargeting is restricted to provable, same-kind stored IDs;
