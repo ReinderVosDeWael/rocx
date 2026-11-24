@@ -332,6 +332,7 @@ impl Eq for InlineAnchor {}
 /// One node in a paragraph's structured inline view.
 #[derive(Debug)]
 #[non_exhaustive]
+#[allow(clippy::large_enum_variant)] // Keep the public Run variant and avoid allocating each ordinary run.
 pub enum ImportedInlineNode {
     Run(ImportedRun),
     Fraction {
