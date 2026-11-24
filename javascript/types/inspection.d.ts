@@ -28,6 +28,28 @@ export type ImportedAlignment =
 export type ImportedBreakType = "line" | "page" | "column" | "textWrapping";
 export type ImportedSectionType = "nextPage" | "nextColumn" | "continuous" | "evenPage" | "oddPage";
 
+export interface DefaultTab {
+  readonly positionTwips: number;
+  readonly alignment: "left" | "right" | "center" | "decimal" | "bar" | "clear" | "start" | "end" | "num";
+  readonly leader?: "none" | "dot" | "hyphen" | "underscore" | "heavy" | "middleDot";
+}
+type DefaultToggle = "bold" | "italic" | "boldCs" | "italicCs" | "runRtl" | "complexScript"
+  | "caps" | "smallCaps" | "strike" | "runSnapToGrid" | "paragraphBidi" | "keepTogether"
+  | "keepWithNext" | "pageBreakBefore" | "widowControl" | "suppressLineNumbers" | "contextualSpacing"
+  | "mirrorIndents" | "paragraphSnapToGrid" | "mirrorMargins" | "gutterAtTop" | "trackRevisions"
+  | "beforeAutoSpacing" | "afterAutoSpacing";
+type DefaultInteger = "sizeHalfPoints" | "sizeCsHalfPoints" | "beforeTwips" | "afterTwips" | "line"
+  | "leftTwips" | "rightTwips" | "firstLineTwips" | "hangingTwips" | "leftChars" | "rightChars"
+  | "firstLineChars" | "hangingChars" | "footnoteStart" | "endnoteStart" | "startTwips" | "endTwips"
+  | "startChars" | "endChars" | "beforeLines" | "afterLines";
+type DefaultText = "fontAscii" | "fontHAnsi" | "fontEastAsia" | "fontCs" | "fontAsciiTheme"
+  | "fontHAnsiTheme" | "fontEastAsiaTheme" | "fontCsTheme" | "language" | "languageEastAsia"
+  | "languageBidi" | "underline" | "verticalAlign" | "runColor" | "colorTheme" | "colorTint"
+  | "colorShade" | "lineRule" | "footnotePosition" | "endnotePosition" | "footnoteFormat"
+  | "endnoteFormat" | "footnoteRestart" | "endnoteRestart" | "justification";
+export type DefaultValues = Readonly<Record<DefaultToggle, boolean> & Record<DefaultInteger, number>
+  & Record<DefaultText, string> & {tabStops: readonly DefaultTab[]}>;
+
 export interface ImportedOpaque {
   readonly kind: "opaque";
   /** Expanded XML name (usual OOXML names use their canonical prefix). */
@@ -215,6 +237,7 @@ export interface ImportedDocument {
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
+  documentDefaults(): Partial<DefaultValues>;
   abstractStarts(): readonly AbstractStart[];
 }
 

@@ -155,7 +155,8 @@ def python_combined(source: Path) -> bytes:
     preview = doc.preview(
         [], text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
         block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
-        resources=[ResourceEdit.core_title("Combined editor")],
+        resources=[ResourceEdit.document_default("tabStops", [(720, "right", "dot")]),
+                   ResourceEdit.core_title("Combined editor")],
     )
     assert preview.block_changes == [4]
     assert [(c.body_index, c.before, c.after) for c in preview.run_text_changes] == [
@@ -169,7 +170,7 @@ def python_combined(source: Path) -> bytes:
     with zipfile.ZipFile(io.BytesIO(original)) as before, zipfile.ZipFile(io.BytesIO(data)) as after:
         assert set(before.namelist()) == set(after.namelist())
         assert {p for p in before.namelist() if before.read(p) != after.read(p)} == {
-            "word/document.xml", "docProps/core.xml"}
+            "word/document.xml", "docProps/core.xml", "word/styles.xml"}
     return data
 
 

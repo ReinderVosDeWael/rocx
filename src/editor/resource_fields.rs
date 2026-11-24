@@ -5,6 +5,8 @@ use crate::opc::Package;
 use crate::xml::{Content, Node};
 use crate::{Alignment, Result};
 use std::collections::{BTreeMap, BTreeSet};
+mod defaults;
+pub use defaults::{DefaultField, DefaultTab, DefaultValue};
 
 /// A physical abstract numbering level (shared by all referencing instances).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,12 +22,14 @@ pub struct AbstractStart {
 pub enum ResourceEdit {
     CoreTitle(Option<String>),
     DefaultAlignment(Option<Alignment>),
+    Default(DefaultField, Option<DefaultValue>),
     AbstractStart(AbstractStart),
 }
 
 enum Part {
     Core,
     Defaults,
+    Settings,
     Numbers,
 }
 impl Part {
@@ -48,6 +52,12 @@ impl Part {
                 "numbering",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",
                 "w:numbering",
+            ),
+            Self::Settings => (
+                main,
+                "settings",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
+                "w:settings",
             ),
         };
         if pkg.relationships(owner, rel)?.len() > 1 {
@@ -220,9 +230,11 @@ impl ImportedDocument {
 }
 
 pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Result<()> {
+    defaults::apply(pkg, main, edits)?;
     let (mut title, mut alignment, mut starts) = (None, None, BTreeMap::new());
     for edit in edits {
         let duplicate = match edit {
+            ResourceEdit::Default(_, _) => continue,
             ResourceEdit::CoreTitle(v) => title.replace(v).is_some(),
             ResourceEdit::DefaultAlignment(v) => alignment.replace(v).is_some(),
             ResourceEdit::AbstractStart(v) => {

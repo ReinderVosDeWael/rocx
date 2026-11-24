@@ -27,6 +27,10 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedStyleAnchor", (style_anchor, Paths::Package)),
         ("importedCoreTitle", (core_title, Paths::Package)),
         (
+            "importedDocumentDefaults",
+            (document_defaults, Paths::Package),
+        ),
+        (
             "importedDefaultAlignment",
             (default_alignment, Paths::Package),
         ),
@@ -50,6 +54,7 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("styles", "importedStyles"),
     ("styleAnchor", "importedStyleAnchor"),
     ("coreTitle", "importedCoreTitle"),
+    ("documentDefaults", "importedDocumentDefaults"),
     ("defaultAlignment", "importedDefaultAlignment"),
     ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
@@ -194,6 +199,33 @@ fn default_alignment(input: &Wire) -> Result<JsValue> {
         .default_alignment()?
         .as_ref()
         .map_or(JsValue::UNDEFINED, crate::text_layout::alignment_view))
+}
+fn document_defaults(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::DefaultValue as V;
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    let record = b::record(&[]);
+    for (field, v) in doc.document().document_defaults()? {
+        b::set(
+            &record,
+            field.key(),
+            &match v {
+                V::Bool(b) => b.into(),
+                V::Integer(i) => (i as f64).into(),
+                V::Text(s) => s.into(),
+                V::Tabs(tabs) => view::array(tabs.into_iter().map(|t| {
+                    let tab = b::record(&[
+                        ("positionTwips", t.position_twips.into()),
+                        ("alignment", t.alignment.into()),
+                    ]);
+                    if let Some(s) = t.leader {
+                        b::set(&tab, "leader", &s.into());
+                    }
+                    tab
+                })),
+            },
+        );
+    }
+    Ok(record)
 }
 fn abstract_starts(input: &Wire) -> Result<JsValue> {
     let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;

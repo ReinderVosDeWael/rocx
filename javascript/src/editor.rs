@@ -365,9 +365,17 @@ fn control_edit(input: &Wire, path: &str) -> Result<rocx::editor::ControlEdit> {
 
 fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit> {
     use rocx::editor::{AbstractStart, ResourceEdit};
-    let edit = Record::new(input, path, &["kind", "value", "abstractId", "level"])?;
+    let edit = Record::new(
+        input,
+        path,
+        &["kind", "value", "abstractId", "level", "field"],
+    )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
-    if kind != "abstractStart" {
+    if kind == "documentDefault" {
+        Record::new(input, path, &["kind", "field", "value"])?;
+    } else if kind == "abstractStart" {
+        Record::new(input, path, &["kind", "abstractId", "level", "value"])?;
+    } else {
         Record::new(input, path, &["kind", "value"])?;
     }
     let v = edit.get("value")?;
@@ -379,6 +387,47 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
             .map_err(|_| Failure::invalid(p, "expected u32"))
     };
     Ok(match kind.as_str() {
+        "documentDefault" => {
+            use rocx::editor::{DefaultField, DefaultTab, DefaultValue as V};
+            let key = b::string(&edit.get("field")?, &edit.path("field"))?;
+            let f = DefaultField::from_key(&key)
+                .ok_or_else(|| Failure::invalid(&edit.path("field"), "unknown document default"))?;
+            let value = if clear {
+                None
+            } else if let Some(b) = v.js().as_bool() {
+                Some(V::Bool(b))
+            } else if v.js().as_f64().is_some() {
+                Some(V::Integer(b::i64_number(&v, &vp)?))
+            } else if v.js().is_string() {
+                Some(V::Text(b::string(&v, &vp)?))
+            } else {
+                let mut tabs = Vec::new();
+                for (i, item) in b::list(&v, &vp)?.iter().enumerate() {
+                    let tab = Record::new(
+                        item,
+                        &format!("{vp}[{i}]"),
+                        &["positionTwips", "alignment", "leader"],
+                    )?;
+                    let leader = tab.get("leader")?;
+                    tabs.push(DefaultTab {
+                        position_twips: b::i64_number(
+                            &tab.get("positionTwips")?,
+                            &tab.path("positionTwips"),
+                        )?
+                        .try_into()
+                        .map_err(|_| Failure::invalid(&vp, "expected i32 tab position"))?,
+                        alignment: b::string(&tab.get("alignment")?, &tab.path("alignment"))?,
+                        leader: if leader.js().is_undefined() {
+                            None
+                        } else {
+                            Some(b::string(&leader, &tab.path("leader"))?)
+                        },
+                    });
+                }
+                Some(V::Tabs(tabs))
+            };
+            ResourceEdit::Default(f, value)
+        }
         "coreTitle" => ResourceEdit::CoreTitle(if clear {
             None
         } else {

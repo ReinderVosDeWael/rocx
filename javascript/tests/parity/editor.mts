@@ -103,7 +103,13 @@ export async function alignmentAndTablePreviewAndPreservation(input: Fixtures, {
   const edge = (await openDocx(input["styles-edge"])).styles();
   same(edge?.styles, [{ id: "X", kind: "unsupported", kindXml: "future" },
     { kind: "missing" }], "unknown and missing style kinds");
-  check((await openDocx(input["styles-missing"])).styles() === undefined, "missing styles relationship");
+  const missingStyles = await openDocx(input["styles-missing"]);
+  check(missingStyles.styles() === undefined, "missing styles relationship");
+  const newDefaults = await openDocx(missingStyles.preview({
+    resources: [{kind: "documentDefault", field: "bold", value: false}],
+  }).toDocx());
+  check(newDefaults.documentDefaults().bold === false && missingStyles.styles() === undefined,
+    "creating a direct run default must allocate a styles part only in the preview");
   const invalidStyles = await openDocx(input["styles-invalid"]);
   rejects(() => invalidStyles.styles(), /invalid styles root/);
   const start = paragraph(doc, 0).anchor;
@@ -449,9 +455,12 @@ export async function run(fixtures: Fixtures) {
   const ordinary: EditBatch = {
     textRanges: [{target: paragraph(doc, 1).anchor, start: 0, end: 1, text: "X"}],
     blockEdits: [{kind: "keepWithNext", target: paragraph(doc, 4).anchor, value: true}],
-    resources: [{kind: "coreTitle", value: "Combined editor"}],
+    resources: [{kind: "documentDefault", field: "tabStops", value:[{positionTwips:720, alignment:"right", leader:"dot"}]},
+      {kind: "coreTitle", value: "Combined editor"}],
   };
   const combined = doc.preview(ordinary).toDocx();
+  same((await openDocx(combined)).documentDefaults().tabStops,
+    [{positionTwips:720, alignment:"right", leader:"dot"}], "direct tab stop readback");
   rejects(() => doc.preview({...ordinary, textRanges: [selection]}),
     /different document snapshot/);
   bytesEqual(doc.preview(ordinary).toDocx(), combined, "mixed retry after stale anchor");
@@ -502,6 +511,10 @@ export async function run(fixtures: Fixtures) {
 
 // Compile only. Check public inputs and output types without letting invalid calls execute.
 export function rejectedTypes(doc: ImportedDocument, p: ImportedParagraph, header: HeaderImageEdit, table: ResolvedTable) {
+  const keep: boolean | undefined = doc.documentDefaults().keepWithNext;
+  doc.preview({resources: [{kind: "documentDefault", field: "keepWithNext", value: keep ?? null}]});
+  // @ts-expect-error numeric settings require a number
+  doc.preview({resources: [{kind: "documentDefault", field: "footnoteStart", value: "3"}]});
   // @ts-expect-error source tags and IDs are not physical control anchors
   doc.preview({ controls: [{ target: "repeat", tag: "new" }] });
   for (const {abstractId, level} of doc.abstractStarts()) {

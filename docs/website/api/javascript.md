@@ -218,6 +218,11 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   with `value` (`null` clears). Abstract starts also require `abstractId` and
   `level`. Inspect direct values with `coreTitle()`, `defaultAlignment()` and
   `abstractStarts()`.
+- Inspect direct run, paragraph and document-wide settings with
+  `doc.documentDefaults()`. For example,
+  `doc.preview({resources: [{kind: "documentDefault", field: "bold", value: false}]})`
+  turns default bold off. `null` clears the field, restoring absence. `DefaultValues`
+  lists keys and their types; tab positions and indent lengths use twips.
 
 ```javascript
 import { openDocx } from "rocx-docx";

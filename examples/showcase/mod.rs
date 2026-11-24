@@ -707,6 +707,10 @@ pub async fn generate(output: &Path) -> Result<()> {
         Some("All features visual inspection")
     );
     assert_eq!(imported.default_alignment()?, None);
+    assert_eq!(
+        imported.document_defaults()?[&editor::DefaultField::SizeHalfPoints],
+        editor::DefaultValue::Integer(22)
+    );
     assert!(
         imported
             .abstract_starts()?
@@ -748,6 +752,15 @@ pub async fn generate(output: &Path) -> Result<()> {
         resources: &[
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::Bold,
+                Some(editor::DefaultValue::Bool(false)),
+            ),
+            editor::ResourceEdit::Default(
+                editor::DefaultField::FootnoteStart,
+                Some(editor::DefaultValue::Integer(5)),
+            ),
+            editor::ResourceEdit::Default(editor::DefaultField::AfterTwips, None),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {
                 abstract_id: 100,
                 level: 0,

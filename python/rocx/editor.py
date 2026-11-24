@@ -21,6 +21,12 @@ Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
 accepts paragraph, character and table declarations. ``StyleEdit.patch`` sets
 direct bold/italic flags; ``replace`` and ``remove`` require unused, simple custom styles.
 
+``ImportedDocument.document_defaults`` returns the directly present run,
+paragraph and settings defaults. ``ResourceEdit.document_default(field, value)``
+sets one field, or clears it when ``value`` is ``None``. For example, ``False``
+on ``"bold"`` is distinct from clearing it. Tab stops are triples of signed
+twip position, alignment, and optional leader.
+
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Every effective slot
 exposes an image-edit anchor; ``ImportedDocument.default_headers``

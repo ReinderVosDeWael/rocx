@@ -209,6 +209,12 @@ ResourceEdit.abstract_start(...)]`, or JavaScript `resources` entries of kind
 `coreTitle`, `defaultAlignment`, and `abstractStart`. See [resource editing](../docs/EDITOR-RESOURCES.md)
 for clearing, absence, and shared-numbering semantics.
 
+The same batch reads the 11-point run default, sets default bold to explicit
+false, clears paragraph space-after, and changes the document footnote start
+to 5. Rust uses `document_defaults()` and `ResourceEdit::Default`; Python uses
+`document_defaults` and `ResourceEdit.document_default(field, value)`; JavaScript
+uses `documentDefaults()` and `{kind: "documentDefault", field, value}`.
+
 Separately, all three catalogs preview removal of the labeled single-text body
 run in memory: Rust `preview_with_run_removals`, Python
 `preview([], run_removals=[anchor])`, JavaScript `preview({runRemovals: [anchor]})`.

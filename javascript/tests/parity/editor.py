@@ -333,11 +333,14 @@ def verify_ordinary(directory):
         [],
         text_ranges=[TextRangeEdit(doc.body[1].anchor, 0, 1, "X")],
         block_edits=[BlockEdit.keep_with_next(doc.body[4].anchor, True)],
-        resources=[ResourceEdit.core_title("Combined editor")],
+        resources=[ResourceEdit.document_default("tabStops", [(720, "right", "dot")]),
+                   ResourceEdit.core_title("Combined editor")],
     ).to_docx() == output.read_bytes()
     original, result = parts(source), parts(output)
     assert original.keys() == result.keys()
-    untouched(original, result, (MAIN, "docProps/core.xml"))
+    untouched(original, result, (MAIN, "docProps/core.xml", "word/styles.xml"))
+    tab, = xp(etree.fromstring(result["word/styles.xml"]), "w:docDefaults/w:pPrDefault/w:pPr/w:tabs/w:tab")
+    assert [tab.get(qn("w:" + attr)) for attr in ("val", "pos", "leader")] == ["right", "720", "dot"]
     for query in (".//w:fldSimple", ".//w:drawing", ".//w:sectPr"):
         assert [tree(n) for n in xp(etree.fromstring(original[MAIN]), query)] == [
             tree(n) for n in xp(etree.fromstring(result[MAIN]), query)]

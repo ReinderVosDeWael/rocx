@@ -186,6 +186,8 @@ export async function generateCatalog(fixtures, options) {
   assert(editTargets.length === 1 && editTargets[0].alignment === "left", "expected unique left-aligned target");
   const [target] = editTargets;
   checkText(target.inlineItems, [EDIT_LABEL]);
+  assert(imported.documentDefaults().sizeHalfPoints === 22, "expected direct 11-point default");
+  assertThrows(() => imported.preview({resources: [{kind:"documentDefault", field:"bold", value:1}]}), "accepted numeric default toggle");
   assert(imported.coreTitle() === "All features visual inspection" && imported.defaultAlignment() === undefined,
     "unexpected direct catalog defaults");
   assert(imported.abstractStarts().some(s => s.abstractId === 100 && s.level === 0 && s.start === 1),
@@ -194,6 +196,8 @@ export async function generateCatalog(fixtures, options) {
     controls: [{ target: imported.controls().find((c) => c.context === "inline" && c.id === "5001").anchor,
       alias: "Imported editor caption" }],
     resources: [{kind: "coreTitle", value: "Edited resource sample"},
+      {kind:"documentDefault", field:"bold", value:false}, {kind:"documentDefault", field:"footnoteStart", value:5},
+      {kind:"documentDefault", field:"afterTwips", value:null},
       {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
@@ -213,6 +217,8 @@ export async function generateCatalog(fixtures, options) {
   assertThrows(() => imported.preview({runText: [textEdit, textEdit]}), "accepted duplicate text target");
   const runText = textPreview.toDocx();
   const editedResources = await openDocx(runText);
+  const defaults = editedResources.documentDefaults();
+  assert(defaults.bold === false && defaults.footnoteStart === 5 && defaults.afterTwips === undefined, "incorrect direct defaults");
   assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample",
     "missing resource edits");
   const cleared = await openDocx(editedResources.preview({resources: [

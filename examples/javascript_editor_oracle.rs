@@ -121,9 +121,19 @@ fn main() {
                 text: "X".into(),
             }],
             blocks: &[rocx::editor::BlockEdit::KeepWithNext(anchor(&doc, 4), true)],
-            resources: &[rocx::editor::ResourceEdit::CoreTitle(Some(
-                "Combined editor".into(),
-            ))],
+            resources: &[
+                rocx::editor::ResourceEdit::Default(
+                    rocx::editor::DefaultField::TabStops,
+                    Some(rocx::editor::DefaultValue::Tabs(vec![
+                        rocx::editor::DefaultTab {
+                            position_twips: 720,
+                            alignment: "right".into(),
+                            leader: Some("dot".into()),
+                        },
+                    ])),
+                ),
+                rocx::editor::ResourceEdit::CoreTitle(Some("Combined editor".into())),
+            ],
             ..Default::default()
         })
         .unwrap();

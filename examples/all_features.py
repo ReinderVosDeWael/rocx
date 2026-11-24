@@ -499,6 +499,7 @@ async def generate(output: pathlib.Path) -> bytes:
         ("text", EDIT_LABEL),
     ]
     assert imported.core_title == "All features visual inspection" and imported.default_alignment is None
+    assert imported.document_defaults["sizeHalfPoints"] == 22
     assert any((s.abstract_id, s.level, s.start) == (100, 0, 1) for s in imported.abstract_starts)
     assert {(c.context, c.id) for c in imported.controls} >= {
         ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
@@ -506,6 +507,9 @@ async def generate(output: pathlib.Path) -> bytes:
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
                                           ResourceEdit.default_alignment("center"),
+                                          ResourceEdit.document_default("bold", False),
+                                          ResourceEdit.document_default("footnoteStart", 5),
+                                          ResourceEdit.document_default("afterTwips", None),
                                           ResourceEdit.abstract_start(100, 0, 7)],
                                controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
                                run_text=[RunTextEdit(label.anchor, replacement)],

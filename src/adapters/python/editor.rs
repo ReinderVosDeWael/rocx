@@ -1189,6 +1189,38 @@ struct PyResourceEdit {
 #[pymethods]
 impl PyResourceEdit {
     #[staticmethod]
+    #[pyo3(signature=(field,value))]
+    fn document_default(field: &str, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        use editor::{DefaultField, DefaultValue as V};
+        let field = DefaultField::from_key(field)
+            .ok_or_else(|| PyValueError::new_err("unknown document default"))?;
+        let value = value
+            .map(|v| -> PyResult<_> {
+                if let Ok(b) = v.extract::<bool>() {
+                    Ok(V::Bool(b))
+                } else if let Ok(n) = v.extract::<i64>() {
+                    Ok(V::Integer(n))
+                } else if let Ok(s) = v.extract::<String>() {
+                    Ok(V::Text(s))
+                } else {
+                    Ok(V::Tabs(
+                        v.extract::<Vec<(i32, String, Option<String>)>>()?
+                            .into_iter()
+                            .map(|(position_twips, alignment, leader)| editor::DefaultTab {
+                                position_twips,
+                                alignment,
+                                leader,
+                            })
+                            .collect(),
+                    ))
+                }
+            })
+            .transpose()?;
+        Ok(Self {
+            inner: editor::ResourceEdit::Default(field, value),
+        })
+    }
+    #[staticmethod]
     #[pyo3(signature=(value))]
     fn core_title(value: Option<String>) -> Self {
         Self {
@@ -1243,6 +1275,31 @@ impl PyImportedDocument {
             .default_alignment()
             .map_err(rust_error)?
             .map(alignment_name))
+    }
+    #[getter]
+    fn document_defaults<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        use editor::DefaultValue as V;
+        let values = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .document_defaults()
+            .map_err(rust_error)?;
+        let dict = pyo3::types::PyDict::new(py);
+        for (f, v) in values {
+            match v {
+                V::Bool(b) => dict.set_item(f.key(), b)?,
+                V::Integer(i) => dict.set_item(f.key(), i)?,
+                V::Text(s) => dict.set_item(f.key(), s)?,
+                V::Tabs(t) => dict.set_item(
+                    f.key(),
+                    t.into_iter()
+                        .map(|t| (t.position_twips, t.alignment, t.leader))
+                        .collect::<Vec<_>>(),
+                )?,
+            }
+        }
+        Ok(dict)
     }
     #[getter]
     fn abstract_starts(&self) -> PyResult<Vec<PyAbstractStart>> {

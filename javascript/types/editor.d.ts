@@ -1,6 +1,6 @@
 import type { ResolvedImage } from "./drawings.js";
 import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
-import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
+import type { ControlAnchor, DefaultValues, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor } from "./inspection.js";
 import type { ResolvedTable } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph } from "./text-layout.js";
 
@@ -88,6 +88,7 @@ export type StyleEdit =
   | { readonly op: "remove"; readonly target: StyleAnchor };
 
 export type ResourceEdit =
+  | { [K in keyof DefaultValues]: {readonly kind: "documentDefault"; readonly field: K; readonly value: DefaultValues[K] | null} }[keyof DefaultValues]
   | { readonly kind: "coreTitle"; readonly value: string | null }
   | { readonly kind: "defaultAlignment"; readonly value: Alignment | null }
   | { readonly kind: "abstractStart"; readonly abstractId: number; readonly level: number; readonly value: number | null };
