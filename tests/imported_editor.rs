@@ -34,6 +34,131 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn layout_edits_guard_ranges_alternatives_opaque_values_and_foreign_section_owners() {
+    use rocx::editor::{
+        LayoutBorder, LayoutEdit as E, LayoutField as F, LayoutTab, LayoutValue as V,
+    };
+    let make = |body: &str| {
+        ImportedDocument::open(&fixture_with_body(&format!(r#"<w:document xmlns:w="{W}" xmlns:x="urn:example"><w:body>{body}</w:body></w:document>"#))).unwrap()
+    };
+    let make_p = |props: &str| make(&format!("<w:p><w:pPr>{props}</w:pPr></w:p>"));
+    for (props, field, val) in [
+        (
+            "<w:jc x:note=\"retain\" w:val=\"left\"/>",
+            F::Alignment,
+            None,
+        ),
+        (
+            "<w:spacing w:beforeLines=\"1\"/>",
+            F::SpaceBefore,
+            Some(V::Integer(42)),
+        ),
+        (
+            "<w:ind w:hanging=\"240\" w:firstLine=\"80\"/>",
+            F::FirstLineIndent,
+            Some(V::Integer(-120)),
+        ),
+        (
+            "<w:tabs><w:tab w:pos=\"100\" w:val=\"left\" x:tag=\"retain\"/></w:tabs>",
+            F::TabStops,
+            None,
+        ),
+        ("<w:pPrChange/>", F::LeftIndent, Some(V::Integer(42))),
+        ("<w:spacing/><w:spacing/>", F::LineRule, None),
+        (
+            "",
+            F::TabStops,
+            Some(V::Tabs(vec![LayoutTab {
+                position: 10,
+                alignment: "future".into(),
+                leader: None,
+            }])),
+        ),
+        ("", F::StyleId, Some(V::Token("missing style".into()))),
+    ] {
+        let d = make_p(props);
+        assert!(
+            d.preview_layout(&[E::Paragraph(paragraph(&d, 0).anchor.clone(), field, val)])
+                .is_err(),
+            "{props}"
+        );
+    }
+    for (source, field, v) in [
+        (
+            "<w:p><w:bookmarkStart w:id=\"1\"/></w:p><w:sectPr/>",
+            F::PageWidth,
+            Some(V::Integer(5000)),
+        ),
+        (
+            "<w:sectPr><w:cols w:equalWidth=\"0\"><w:col/></w:cols></w:sectPr>",
+            F::ColumnCount,
+            Some(V::Integer(2)),
+        ),
+        (
+            "<w:sectPr><w:pgBorders><w:top w:val=\"single\" x:opaque=\"yes\"/></w:pgBorders></w:sectPr>",
+            F::BorderTop,
+            None,
+        ),
+        (
+            "<w:sectPr><w:lnNumType x:opaque=\"yes\"/></w:sectPr>",
+            F::LineNumbering,
+            None,
+        ),
+        (
+            "<w:sectPr/>",
+            F::BorderLeft,
+            Some(V::Border(LayoutBorder {
+                size: Some(100),
+                space: None,
+                color: None,
+            })),
+        ),
+    ] {
+        let d = make(source);
+        assert!(
+            d.preview_layout(&[E::Section(
+                d.sections().unwrap()[0].anchor.clone(),
+                field,
+                v
+            )])
+            .is_err(),
+            "{source}"
+        );
+    }
+    let d = make("<w:p/><w:p><w:pPr><w:sectPr/></w:pPr></w:p>");
+    let sections = d.sections().unwrap();
+    assert_eq!((sections[1].body_start, sections[1].body_end), (2, 2));
+    let a = sections[1].anchor.clone();
+    let e = |f, v| E::Section(a.clone(), f, v);
+    let data = d
+        .preview_layout(&[
+            e(F::MarginLeft, Some(V::Integer(600))),
+            e(F::LineCountBy, Some(V::Integer(3))),
+            e(F::PageFormat, Some(V::Token("lowerRoman".into()))),
+            e(F::ColumnSeparator, Some(V::Boolean(false))),
+            e(F::GridCharSpace, Some(V::Integer(-40))),
+        ])
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let result = ImportedDocument::open(&data).unwrap();
+    assert!(result.preview_layout(&[e(F::PageFormat, None)]).is_err());
+    let s = result.sections().unwrap();
+    assert!(s[0].layout.is_empty());
+    assert_eq!(s[1].layout[&F::MarginRight], V::Integer(1800));
+    assert_eq!(s[1].layout[&F::GridCharSpace], V::Integer(-40));
+    let noop = E::Section(
+        s[1].anchor.clone(),
+        F::PageFormat,
+        Some(V::Token("lowerRoman".into())),
+    );
+    assert_eq!(
+        parts(&result.preview_layout(&[noop]).unwrap().to_docx().unwrap()),
+        parts(&data)
+    );
+}
+
+#[test]
 fn direct_property_edits_set_clear_and_refuse_ambiguous_or_protected_targets() {
     use rocx::editor::{BlockEdit as E, ParagraphFlag as P, SectionFlag as S};
     let make = |body: &str| {

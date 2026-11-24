@@ -3,6 +3,7 @@ import type { StyleDefinition, NumberingStyleDefinition } from "./styles.js";
 import type { ControlAnchor, HeaderAnchor, InlineAnchor, ParagraphAnchor, TableAnchor, ParagraphFlag, SectionFlag, ImportedSectionType } from "./inspection.js";
 import type { ResolvedTable, TableLayout } from "./tables.js";
 import type { Alignment, ResolvedInline, ResolvedParagraph, RunFormat } from "./text-layout.js";
+import type { SectionAnchor, DirectParagraphLayout, DirectSectionLayout } from "./inspection.js";
 
 export interface ParagraphAlignmentEdit {
   readonly target: ParagraphAnchor;
@@ -37,6 +38,12 @@ export interface ParagraphInsertion {
 }
 
 export type HeaderEditMode = "shared" | "sectionLocal";
+type LayoutChange<A, T> = { [K in keyof T]-?: {
+  readonly target: A; readonly field: K; readonly value: NonNullable<T[K]> | null
+} }[keyof T];
+export type LayoutEdit = LayoutChange<ParagraphAnchor, DirectParagraphLayout>
+  | LayoutChange<SectionAnchor, Omit<DirectSectionLayout, "margins" | "lineNumbering">>
+  | { readonly target: SectionAnchor; readonly field: "margins" | "lineNumbering"; readonly value: null };
 
 export type BlockEdit =
   | { readonly kind: "paragraphFlag"; readonly target: ParagraphAnchor; readonly flag: ParagraphFlag; readonly value: boolean | null }
@@ -188,6 +195,7 @@ export interface HeaderImagePreview {
 
 declare module "./inspection.js" {
   interface ImportedDocument {
+    previewLayout(edits: readonly LayoutEdit[]): EditPreview;
     styleAnchor(id: string): StyleAnchor;
     /** Explicitly track a single-text direct body run edit. */
     previewTrackedText(edit: {

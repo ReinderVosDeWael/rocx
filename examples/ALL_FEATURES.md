@@ -256,6 +256,13 @@ the first paragraph of the inherited section. Rust uses `preview_blocks` and
 with `kind` equal to `replace`, `remove`, `replaceSection`, `keepWithNext`, `paragraphFlag`, `sectionFlag` or `sectionType`.
 See [the editor inventory](../docs/EDITOR-PARITY.md#body-block-edits) for target rules.
 
+The same labeled header-source sample independently patches paragraph space
+after to 180 twips and the second section's grid pitch to 360 twips. Rust uses
+`preview_layout` with `LayoutEdit::Paragraph` / `Section`; Python uses
+`preview_layout` with `LayoutEdit.paragraph` / `.section`; JavaScript passes
+`{target, field, value}` records to `previewLayout`. All three reopen the
+output and inspect the section's `layout` map.
+
 Alternative aliases/builders, failed-input diagnostics, cancellation, cycle
 rejection, hostile ZIP budgets, relocated namespaces and arbitrary opaque
 extensions have dedicated tests; invalid structures do not belong in a visual

@@ -12,6 +12,11 @@ also be used for text replacement or whole-run removal.
 ``resources=``, and ``controls=`` in one transaction.
 All targets refer to the original snapshot.
 
+``doc.preview_layout([LayoutEdit.section(doc.sections[0].anchor, "page_width",
+15840)])`` previews direct layout fields in a separate atomic batch. Read the
+``layout`` dictionary on direct body paragraphs and sections; use ``None`` to
+clear a field. Section layout anchors work on table-first and empty sections.
+
 Track a direct body run with ``preview_tracked_text`` or move one with
 ``preview_tracked_move``. Reopen the preview and use ``preview_revision`` to
 accept or reject one wrapper (both wrappers for moves). Paragraph text omits
@@ -43,6 +48,8 @@ from ._native import (
     ControlEdit,
     ImportedControl,
     BlockEdit,
+    LayoutEdit,
+    SectionAnchor,
     AlignmentChange,
     BodyOpaque,
     BodyContentControl,
@@ -98,6 +105,8 @@ __all__ = [
     "ControlEdit",
     "ImportedControl",
     "BlockEdit",
+    "LayoutEdit",
+    "SectionAnchor",
     "AlignmentChange",
     "BodyOpaque",
     "BodyContentControl",

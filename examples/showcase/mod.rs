@@ -1170,6 +1170,20 @@ pub async fn generate(output: &Path) -> Result<()> {
         unreachable!()
     };
     let target = &last.anchor;
+    // Labeled header-source sample: inspect direct layout in an independent preview.
+    {
+        use editor::{LayoutEdit as E, LayoutField as F, LayoutValue as V};
+        let layout = imported.preview_layout(&[
+            E::Paragraph(target.clone(), F::SpaceAfter, Some(V::Integer(180))),
+            E::Section(
+                imported.sections()?[1].anchor.clone(),
+                F::GridPitch,
+                Some(V::Integer(360)),
+            ),
+        ])?;
+        let edited = editor::ImportedDocument::open(&layout.to_docx()?)?;
+        assert_eq!(edited.sections()?[1].layout[&F::GridPitch], V::Integer(360));
+    }
     let payload = Component::resolve(Paragraph::new("Block editor: replacement paragraph."))
         .await?
         .unwrap();

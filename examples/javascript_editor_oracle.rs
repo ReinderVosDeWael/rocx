@@ -207,6 +207,49 @@ fn main() {
         "native-tableNodes.docx",
         table_nodes(&directory, &insertions[1].table),
     );
+    {
+        use rocx::editor::{
+            LayoutBorder, LayoutEdit as E, LayoutField as F, LayoutTab, LayoutValue as V,
+        };
+        let d = ImportedDocument::open(&fs::read(directory.join("layout-source.docx")).unwrap())
+            .unwrap();
+        let sections = d.sections().unwrap();
+        let p = |f, v| E::Paragraph(anchor(&d, 1), f, v);
+        let s = |i: usize, f, v| E::Section(sections[i].anchor.clone(), f, Some(v));
+        let edits = [
+            p(F::SpaceAfter, Some(V::Integer(180))),
+            p(F::Heading, Some(V::Integer(2))),
+            p(F::WidowControl, Some(V::Boolean(false))),
+            p(F::Alignment, None),
+            p(F::FirstLineIndent, Some(V::Integer(-240))),
+            p(
+                F::TabStops,
+                Some(V::Tabs(vec![LayoutTab {
+                    position: 720,
+                    alignment: "right".into(),
+                    leader: Some("dot".into()),
+                }])),
+            ),
+            s(0, F::PageWidth, V::Integer(16000)),
+            s(0, F::MarginTop, V::Integer(-220)),
+            s(0, F::ColumnCount, V::Integer(2)),
+            s(
+                0,
+                F::BorderTop,
+                V::Border(LayoutBorder {
+                    color: Some("223344".into()),
+                    size: Some(8),
+                    space: None,
+                }),
+            ),
+            s(1, F::GridPitch, V::Integer(360)),
+            s(1, F::TitlePage, V::Boolean(false)),
+        ];
+        write(
+            "native-layout.docx",
+            d.preview_layout(&edits).unwrap().to_docx().unwrap(),
+        );
+    }
     let combined = doc
         .preview_edits(rocx::editor::EditBatch {
             ranges: &[rocx::editor::TextRangeEdit {

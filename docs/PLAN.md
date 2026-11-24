@@ -12,6 +12,10 @@ byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
 passed independent readback and schema/OPC checks (20 covered parts).
 See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
 
+The direct layout API addresses each inspected section independently of its
+first block, including empty implicit finals. The [layout contract](EDITOR-PARITY.md#direct-paragraph-and-section-layout)
+lists fields, units, clear semantics and unsupported imported forms.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -20,7 +24,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | Ticket | Supported in the candidate | Still outside the implementation |
 | --- | --- | --- |
 | #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
-| #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables. Inspect and set/clear all nine declarative paragraph on/off flags, three section flags and section break type at anchored direct body targets. | Section insertion/removal; section geometry, borders, columns, grid, numbering and vertical alignment; paragraph style/heading, numbering, tabs, indents, spacing and line height; clearing direct alignment; nested/story and empty or non-paragraph-start section targets. |
+| #43 Blocks | Replace/remove direct body paragraphs and replace supported section contents. Inspect and patch direct paragraph styles/headings, alignment, tabs, indents, spacing/line height and flags; section geometry, margins, equal columns, grid, page/line numbering, single borders, alignment, flags and break type. | Section insertion/removal; story/nested paragraph layout; layout in mixed ordinary batches; richer imported spacing/indents, unequal columns, art/theme borders and unmodeled numbering formats. Paragraph numbering references are a separate slice. |
 | #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear modeled direct run formatting, including multiple disjoint patches on one ordinary multi-leaf run. | Other-story and nested edit targets, themed or split Latin font selections, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six header/footer slots; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Custom note marks, shared or nested reference edits, destructive rich block edits, modern comment metadata, reserved entries and local text forks. |
@@ -115,6 +119,13 @@ complete DOCX bytes in Rust, installed Python 3.12, packed Node 26 and Chromium
 payloads. All 24 editor outputs matched Rust in Node and Chromium; all 11
 catalogs matched across Rust, Python and Node. Native/Wasm Clippy, strict
 TypeScript, 54 Rust and 58 Python editor tests passed on the standalone branch.
+
+The follow-on layout slice from `7f19e30` passed 56 Rust and 59
+installed-Python editor tests, native and Wasm Clippy, and strict TypeScript.
+Packed Node 26 and Chromium 159 matched all 24 Rust editor outputs; the
+12-field layout batch also matched installed Python. Its independent table-first
+and empty-final fixture and output passed schema/OPC validation (10 covered
+parts each). All eleven catalogs matched across the three language bindings.
 
 ## Selected standalone topic results (before ten-way integration)
 

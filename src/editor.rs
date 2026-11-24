@@ -27,7 +27,9 @@ mod entry_edits;
 pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
+mod layout;
 pub(crate) use insertion::BoundaryState;
+pub use layout::{LayoutBorder, LayoutEdit, LayoutField, LayoutTab, LayoutValue};
 mod ranges;
 pub use ranges::{TextInsertion, TextRangeEdit};
 mod resource_fields;
@@ -59,6 +61,13 @@ pub use run_format::RunFormatField;
 pub struct ParagraphAnchor {
     snapshot: Arc<()>,
     body_index: usize,
+}
+
+/// A physical section owner in the issuing document snapshot.
+#[derive(Clone, Debug)]
+pub struct SectionAnchor {
+    snapshot: Arc<()>,
+    index: usize,
 }
 
 /// Direct body children in document order, excluding the final section properties.
@@ -260,6 +269,7 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedParagraph {
+    pub layout: BTreeMap<LayoutField, LayoutValue>,
     /// Recognized unambiguous direct flags; no inheritance is applied.
     pub flags: BTreeMap<ParagraphFlag, bool>,
     pub anchor: ParagraphAnchor,
@@ -391,10 +401,12 @@ pub struct ImportedHyperlink {
 }
 
 /// A direct body section identified by its half-open range in `body()`.
-/// This is an inspection value, not an edit target.
+/// Its snapshot-bound anchor targets the physical owner, even for an empty range.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedSection {
+    pub anchor: SectionAnchor,
+    pub layout: BTreeMap<LayoutField, LayoutValue>,
     /// Recognized unambiguous direct flags; no defaults are inferred.
     pub flags: BTreeMap<SectionFlag, bool>,
     pub body_start: usize,
@@ -556,11 +568,13 @@ impl ImportedDocument {
                         .child("w:pPr")
                         .and_then(|props| props.child("w:jc"))
                         .and_then(|jc| jc.get("w:val"));
+                    let props = node.child("w:pPr").filter(|_| {
+                        node.elements().filter(|c| c.name == "w:pPr").count() == 1
+                            && node.child(ALTERNATE).is_none()
+                    });
                     BodyBlock::Paragraph(ImportedParagraph {
-                        flags: ParagraphFlag::read(node.child("w:pPr").filter(|_| {
-                            node.elements().filter(|c| c.name == "w:pPr").count() == 1
-                                && node.child(ALTERNATE).is_none()
-                        })),
+                        layout: layout::inspect(props, false),
+                        flags: ParagraphFlag::read(props),
                         anchor,
                         text,
                         alignment: alignment_xml.and_then(read_alignment),

@@ -610,6 +610,57 @@ Preview `block_changes()` / `.block_changes` / `.blockChanges()` reports the
 original start index per changed operation, sorted in body order. Distinct
 property patches can therefore report the same index; no-op patches are omitted.
 
+## Direct paragraph and section layout
+
+Read `paragraph.layout` or `section.layout` for explicit, recognized direct
+values. Use a paragraph's anchor for paragraph layout, or **the section's own
+anchor** for section layout. Section anchors address the original physical
+section in `sections()` / `.sections` / `.sections()`, including a table-first
+section or an empty implicit final section. An edit to the latter materializes
+terminal properties if needed. Reopening even identical bytes invalidates old
+anchors. This addressing does not change the older `ReplaceSection` rules.
+
+| Rust | Python (`rocx.editor`) | JavaScript |
+|---|---|---|
+| `doc.preview_layout(&[LayoutEdit::Paragraph(p.anchor.clone(), LayoutField::FirstLineIndent, Some(LayoutValue::Integer(-240)))])?` | `doc.preview_layout([LayoutEdit.paragraph(p.anchor, "first_line_indent", -240)])` | `doc.previewLayout([{target: p.anchor, field: "firstLineIndent", value: -240}])` |
+| `LayoutEdit::Section(s.anchor.clone(), LayoutField::Margins, None)` | `LayoutEdit.section(s.anchor, "margins", None)` | `{target: s.anchor, field: "margins", value: null}` |
+
+The layout preview is a separate atomic batch of paragraph and section field
+changes. It exposes normal `to_docx` / `toDocx` output; read back `layout` in
+the reopened snapshot for the result. Existing mixed-batch reports such as
+`block_changes` are not layout change reports. Duplicate fields, overlapping
+whole-group and member edits, wrong or stale anchors, competing representations
+and protected or ambiguous owners fail without publishing partial edits.
+
+The table uses the Rust `LayoutField` spellings. Python uses snake case and
+JavaScript lower camel case for **both** editing and readback: e.g.
+`GridCharSpace` / `grid_char_space` / `gridCharSpace`. Values are integers,
+tokens, booleans, tab lists or single border records (`LayoutValue` in Rust).
+An omitted operation leaves the field alone; `None` / `None` / `null` clears it.
+
+| Target | Fields | Values and units |
+|---|---|---|
+| Paragraph style and alignment | `StyleId`, `Heading`, `OutlineLevel`, `Alignment` | Exact existing paragraph style ID, heading 1–9 mapped to an existing `Heading1`–`Heading9` style, independent outline level 0–9, or direct Word alignment token (e.g. `both` for justified). Heading and style ID address the same property. Clearing `Heading` leaves a non-heading style alone. |
+| Paragraph spacing | `SpaceBefore`, `SpaceAfter`, `LineHeight`, `LineRule` | Before/after in twips; positive line height in 240ths of a line for `auto`, or twips for `exact`/`atLeast`. Set or clear height and rule together when both must change. |
+| Paragraph indents | `LeftIndent`, `RightIndent`, `FirstLineIndent` | Signed twips. A negative first-line value is a hanging indent; setting it switches the underlying attribute. |
+| Paragraph tabs | `TabStops` | Replace the direct list with `LayoutTab {position, alignment, leader}` or records with the same names. Position is signed twips, alignment is required, leader optional. Clear the list to remove overrides. |
+| Section page | `PageWidth`, `PageHeight`, `Orientation`, `VerticalAlign`, `SectionType` | Positive dimensions in twips. Orientation (`portrait`/`landscape`) does **not** swap dimensions: change both dimensions explicitly when desired. |
+| Section margins | `MarginTop`, `MarginBottom`, `MarginLeft`, `MarginRight`, `MarginHeader`, `MarginFooter`, `MarginGutter`, `Margins` | Twips; only top/bottom may be negative. All seven attributes are schema-required. Setting one when no record exists fills template defaults (top/bottom 1440, left/right 1800, header/footer 720, gutter 0). Clear `Margins` to remove the whole record. |
+| Section columns/grid | `ColumnCount`, `ColumnSpace`, `ColumnSeparator`, `GridMode`, `GridPitch`, `GridCharSpace` | Equal-width columns: 1–45, twip spacing, boolean separator. Grid mode, positive twip pitch and signed character pitch delta (1/4096 point). |
+| Section numbering | `PageStart`, `PageFormat`, `LineStart`, `LineCountBy`, `LineDistance`, `LineRestart`, `LineNumbering` | Page start and recognized page-format token; line start 0–32767, count interval 1–100, distance in twips, restart `newPage`/`newSection`/`continuous`. Clear `LineNumbering` to remove the whole record. |
+| Section borders | `BorderOffset`, `BorderDisplay`, `BorderZOrder`, `BorderTop`, `BorderLeft`, `BorderBottom`, `BorderRight` | Each edge is independently replaced/cleared. A `LayoutBorder` or `{size, space, color}` record describes a single line: optional width 2–96 eighth-points, space 0–31 points, color six hex digits or `auto`. |
+| Flags | `TitlePage`, `Bidi`, `RtlGutter` on sections; `KeepWithNext`, `KeepTogether`, `PageBreakBefore`, `WidowControl`, `SuppressLineNumbers`, `ParagraphBidi`, `SnapToGrid`, `ContextualSpacing`, `MirrorIndents` on paragraphs | Explicit on/off or clear. |
+
+Readback omits unsupported values; it is not a computed layout or an OOXML
+round-trip template. Setting an ordinary attribute preserves other attributes
+and markup. Removing a whole node, group, tab list or border edge rejects
+destructive edits over opaque annotations. The supported page-format tokens
+are `decimal`, `upperRoman`, `lowerRoman`, `upperLetter`, `lowerLetter`,
+`ordinal`, `cardinalText`, `ordinalText`, `decimalZero`, and `none`.
+Character-unit or automatic spacing/indent variants, unequal or individually
+sized columns, art/theme borders, nested/story paragraphs, paragraph numbering
+references and structural section insertion/removal are outside this layout API.
+
 ## Imported style edits
 
 | Operation | Rust | Python (`rocx.editor`) | JavaScript |

@@ -5,7 +5,7 @@ use pyo3::{
     IntoPyObjectExt,
     exceptions::{PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyBytes, PyDict, PyModule},
+    types::{PyBool, PyBytes, PyDict, PyList, PyModule},
 };
 
 use super::rust_error;
@@ -28,6 +28,162 @@ fn alignment_name(value: crate::Alignment) -> &'static str {
 #[pyclass(name = "ParagraphAnchor", frozen, module = "rocx.editor")]
 struct PyParagraphAnchor {
     inner: editor::ParagraphAnchor,
+}
+
+#[pyclass(name = "SectionAnchor", frozen, module = "rocx.editor")]
+struct PySectionAnchor {
+    inner: editor::SectionAnchor,
+}
+
+#[pyclass(name = "LayoutEdit", frozen, module = "rocx.editor")]
+struct PyLayoutEdit {
+    inner: editor::LayoutEdit,
+}
+
+fn layout_value(o: &Bound<'_, PyAny>) -> PyResult<editor::LayoutValue> {
+    use editor::LayoutValue::*;
+    if o.is_instance_of::<PyBool>() {
+        return Ok(Boolean(o.extract()?));
+    }
+    if let Ok(s) = o.extract::<String>() {
+        return Ok(Token(s));
+    }
+    if let Ok(d) = o.cast::<PyDict>() {
+        if d.keys().iter().any(|k| {
+            !matches!(
+                k.extract::<String>().as_deref(),
+                Ok("size" | "space" | "color")
+            )
+        }) {
+            return Err(PyValueError::new_err("unknown page border field"));
+        }
+        let num = |k: &str| {
+            d.get_item(k)?
+                .map(|v| {
+                    if v.is_instance_of::<PyBool>() {
+                        Err(PyValueError::new_err("expected integer"))
+                    } else {
+                        v.extract::<i32>()
+                    }
+                })
+                .transpose()
+        };
+        return Ok(Border(editor::LayoutBorder {
+            size: num("size")?,
+            space: num("space")?,
+            color: d.get_item("color")?.map(|v| v.extract()).transpose()?,
+        }));
+    }
+    if let Ok(tabs) = o.cast::<PyList>() {
+        return Ok(Tabs(
+            tabs.iter()
+                .map(|item| {
+                    let d = item.cast::<PyDict>()?;
+                    if d.keys().iter().any(|k| {
+                        !matches!(
+                            k.extract::<String>().as_deref(),
+                            Ok("position" | "alignment" | "leader")
+                        )
+                    }) {
+                        return Err(PyValueError::new_err("unknown tab stop field"));
+                    }
+                    let pos = d
+                        .get_item("position")?
+                        .ok_or_else(|| PyValueError::new_err("missing tab position"))?;
+                    if pos.is_instance_of::<PyBool>() {
+                        return Err(PyValueError::new_err("expected integer tab position"));
+                    }
+                    Ok(editor::LayoutTab {
+                        position: pos.extract()?,
+                        alignment: d
+                            .get_item("alignment")?
+                            .ok_or_else(|| PyValueError::new_err("missing tab alignment"))?
+                            .extract()?,
+                        leader: d.get_item("leader")?.map(|k| k.extract()).transpose()?,
+                    })
+                })
+                .collect::<PyResult<_>>()?,
+        ));
+    }
+    Ok(Integer(o.extract()?))
+}
+fn layout_field(s: &str) -> PyResult<editor::LayoutField> {
+    editor::LayoutField::ALL
+        .iter()
+        .copied()
+        .find(|f| f.python_name() == s)
+        .ok_or_else(|| PyValueError::new_err("unknown layout field"))
+}
+#[pymethods]
+impl PyLayoutEdit {
+    #[staticmethod]
+    fn paragraph(
+        target: PyRef<'_, PyParagraphAnchor>,
+        field: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::LayoutEdit::Paragraph(
+                target.inner.clone(),
+                layout_field(field)?,
+                value.map(layout_value).transpose()?,
+            ),
+        })
+    }
+    #[staticmethod]
+    fn section(
+        target: PyRef<'_, PySectionAnchor>,
+        field: &str,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::LayoutEdit::Section(
+                target.inner.clone(),
+                layout_field(field)?,
+                value.map(layout_value).transpose()?,
+            ),
+        })
+    }
+}
+type LayoutMap = std::collections::BTreeMap<editor::LayoutField, editor::LayoutValue>;
+fn layout_view<'py>(py: Python<'py>, values: &LayoutMap) -> PyResult<Bound<'py, PyDict>> {
+    use editor::LayoutValue::*;
+    let d = PyDict::new(py);
+    for (f, v) in values {
+        let k = f.python_name();
+        match v {
+            Token(s) => d.set_item(k, s)?,
+            Boolean(b) => d.set_item(k, b)?,
+            Integer(i) => d.set_item(k, i)?,
+            Border(b) => {
+                let edge = PyDict::new(py);
+                if let Some(v) = b.size {
+                    edge.set_item("size", v)?
+                }
+                if let Some(v) = b.space {
+                    edge.set_item("space", v)?
+                }
+                if let Some(v) = &b.color {
+                    edge.set_item("color", v)?
+                }
+                d.set_item(k, edge)?;
+            }
+            Tabs(stops) => {
+                let list = PyList::empty(py);
+                for t in stops {
+                    let tab = PyDict::new(py);
+                    tab.set_item("position", t.position)?;
+                    tab.set_item("alignment", &t.alignment)?;
+                    if let Some(l) = &t.leader {
+                        tab.set_item("leader", l)?
+                    }
+                    list.append(tab)?;
+                }
+                d.set_item(k, list)?;
+            }
+        }
+    }
+    Ok(d)
 }
 
 #[pyclass(name = "HeaderAnchor", frozen, module = "rocx.editor")]
@@ -237,6 +393,9 @@ struct PyRunRemovalChange {
 #[pyclass(name = "ImportedSection", frozen, module = "rocx.editor")]
 struct PyImportedSection {
     #[pyo3(get)]
+    anchor: Py<PySectionAnchor>,
+    layout: LayoutMap,
+    #[pyo3(get)]
     flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
     body_start: usize,
@@ -351,6 +510,7 @@ impl PyHeaderImagePreview {
 
 #[pyclass(name = "BodyParagraph", frozen, module = "rocx.editor")]
 struct PyBodyParagraph {
+    layout: LayoutMap,
     #[pyo3(get)]
     flags: std::collections::BTreeMap<&'static str, bool>,
     #[pyo3(get)]
@@ -373,6 +533,21 @@ struct PyBodyParagraph {
 #[derive(PartialEq)]
 struct PyInlineAnchor {
     inner: editor::InlineAnchor,
+}
+
+#[pymethods]
+impl PyBodyParagraph {
+    #[getter]
+    fn layout<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        layout_view(py, &self.layout)
+    }
+}
+#[pymethods]
+impl PyImportedSection {
+    #[getter]
+    fn layout<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        layout_view(py, &self.layout)
+    }
 }
 
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
@@ -1728,27 +1903,35 @@ impl PyImportedDocument {
     }
 
     #[getter]
-    fn sections(&self) -> PyResult<Vec<PyImportedSection>> {
+    fn sections(&self, py: Python<'_>) -> PyResult<Vec<PyImportedSection>> {
         let doc = self
             .inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
-        Ok(doc
-            .sections()
+        doc.sections()
             .map_err(rust_error)?
             .into_iter()
-            .map(|section| PyImportedSection {
-                flags: section
-                    .flags
-                    .iter()
-                    .map(|(f, v)| (f.python_name(), *v))
-                    .collect(),
-                body_start: section.body_start,
-                body_end: section.body_end,
-                section_type: section.section_type.map(crate::SectionType::xml),
-                section_type_xml: section.section_type_xml,
+            .map(|section| {
+                Ok(PyImportedSection {
+                    layout: section.layout,
+                    anchor: Py::new(
+                        py,
+                        PySectionAnchor {
+                            inner: section.anchor,
+                        },
+                    )?,
+                    flags: section
+                        .flags
+                        .iter()
+                        .map(|(f, v)| (f.python_name(), *v))
+                        .collect(),
+                    body_start: section.body_start,
+                    body_end: section.body_end,
+                    section_type: section.section_type.map(crate::SectionType::xml),
+                    section_type_xml: section.section_type_xml,
+                })
             })
-            .collect())
+            .collect()
     }
 
     #[getter]
@@ -1961,6 +2144,7 @@ impl PyImportedDocument {
                 BodyBlock::Paragraph(p) => Ok(Py::new(
                     py,
                     PyBodyParagraph {
+                        layout: p.layout.clone(),
                         flags: p.flags.iter().map(|(f, v)| (f.python_name(), *v)).collect(),
                         anchor: Py::new(
                             py,
@@ -2041,6 +2225,17 @@ impl PyImportedDocument {
                 doc.preview_tracked_text(&target.inner, edit, author, date)
                     .map_err(rust_error)?,
             ),
+        })
+    }
+
+    fn preview_layout(&self, edits: Vec<PyRef<'_, PyLayoutEdit>>) -> PyResult<PyEditPreview> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyEditPreview {
+            inner: Mutex::new(doc.preview_layout(&edits).map_err(rust_error)?),
         })
     }
 
@@ -2196,6 +2391,8 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyHeaderImageChange>()?;
     module.add_class::<PyHeaderImagePreview>()?;
     module.add_class::<PyParagraphAnchor>()?;
+    module.add_class::<PySectionAnchor>()?;
+    module.add_class::<PyLayoutEdit>()?;
     module.add_class::<PyBodyParagraph>()?;
     module.add_class::<PyImportedInline>()?;
     module.add_class::<PyInlineAnchor>()?;

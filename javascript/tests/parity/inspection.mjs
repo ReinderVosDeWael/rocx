@@ -271,7 +271,7 @@ async function importedBodySectionsAndPhysicalCells() {
   const reopened = await openDocx(input);
   assert.notEqual(table.anchor, reopened.body()[2].anchor);
   assert.throws(() => reopened.inlineAt(right.anchor), /different document snapshot/);
-  assert.deepEqual((await openDocx(bytes("implicit"))).sections(), [
+  assert.deepEqual((await openDocx(bytes("implicit"))).sections().map(({anchor, layout, ...rest}) => rest), [
     { bodyStart: 0, bodyEnd: 1, flags: {}, sectionType: "continuous", sectionTypeXml: "continuous" },
     { bodyStart: 1, bodyEnd: 2, flags: {}, sectionTypeXml: "unknown" },
     { bodyStart: 2, bodyEnd: 3, flags: {} },

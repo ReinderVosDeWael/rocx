@@ -7,7 +7,7 @@ import {
 } from "rocx-docx";
 
 export const editorSources = [
-  "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source",
+  "base", "unsafe", "ambiguous", "drawing", "relocated", "range-source", "control-source", "layout-source",
   "styles-source", "styles-edge", "styles-missing", "styles-invalid", "table-layout",
 ] as const;
 export type Fixtures = Record<typeof editorSources[number] | "image", Uint8Array>;
@@ -433,6 +433,26 @@ export async function run(fixtures: Fixtures) {
     same([wide.gridSpan, wide.verticalMerge], [2, index ? "continue" : "restart"], "merged interval");
     check(plain.gridSpan === undefined && plain.verticalMerge === undefined, "unset direct properties");
   }
+  const geometry = await openDocx(fixtures["layout-source"]);
+  const [a, b] = geometry.sections();
+  check(geometry.body()[a.bodyStart].kind === "table" && b.bodyStart === b.bodyEnd, "section anchor coverage");
+  const par = paragraph(geometry, 1);
+  const layoutChanges: import("rocx-docx").LayoutEdit[] = [
+    {target:par.anchor,field:"spaceAfter",value:180},{target:par.anchor,field:"alignment",value:null},
+    {target:par.anchor,field:"heading",value:2},{target:par.anchor,field:"widowControl",value:false},
+    {target:par.anchor,field:"firstLineIndent",value:-240},
+    {target:par.anchor,field:"tabStops",value:[{position:720,alignment:"right",leader:"dot"}]},
+    {target:a.anchor,field:"pageWidth",value:16000},{target:a.anchor,field:"marginTop",value:-220},
+    {target:a.anchor,field:"columnCount",value:2},{target:a.anchor,field:"borderTop",value:{color:"223344",size:8}},
+    {target:b.anchor,field:"gridPitch",value:360},{target:b.anchor,field:"titlePage",value:false},
+  ];
+  rejects(() => geometry.previewLayout([...layoutChanges,layoutChanges[0]]), /duplicate/);
+  const layout = geometry.previewLayout(layoutChanges).toDocx();
+  const layouts = await openDocx(layout);
+  rejects(() => layouts.previewLayout([{target: a.anchor, field: "pageWidth", value: 16000}]), /snapshot/);
+  check(layouts.sections()[0].layout.columnCount === 2 && layouts.sections()[1].layout.titlePage === false &&
+    paragraph(layouts,1).layout.firstLineIndent === -240 && paragraph(layouts,1).layout.heading === 2 &&
+    par.layout.firstLineIndent === 72, "layout readback");
   const catalog = await openDocx(fixtures["styles-source"]);
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
@@ -583,7 +603,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, tableNodes, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, runFormatting, tableNodes, layout, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     points: points.toDocx(),
     removal: removal.toDocx(),

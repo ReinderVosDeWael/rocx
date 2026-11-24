@@ -330,6 +330,9 @@ export async function generateCatalog(fixtures, options) {
     paired: pair.body()[2].inlineStructure[2].anchor, action: "reject"});
   assert((await openDocx(restored.toDocx())).body()[0].text === HEADER_BATCH_LABEL, "rejected move");
   const blockTarget = headers.body()[2].anchor;
+  const layout = headers.previewLayout([{target: blockTarget, field: "spaceAfter", value: 180},
+    {target: headers.sections()[1].anchor, field: "gridPitch", value: 360}]);
+  assert((await openDocx(layout.toDocx())).sections()[1].layout.gridPitch === 360, "section grid pitch");
   const blockParagraph = await resolveComponent({kind: "paragraph", text: "Block editor: replacement paragraph."});
   for (const edit of [
     {kind: "replace", paragraph: blockParagraph}, {kind: "remove"},

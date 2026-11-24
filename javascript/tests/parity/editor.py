@@ -153,6 +153,19 @@ def generate(directory):
     merged.add_table(rows=1, cols=1).cell(0, 0).text = "remove me"
     merged.add_paragraph("after both tables")
     merged.save(directory / "table-layout.docx")
+    layout = Document()
+    layout.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    layout.add_table(rows=1, cols=1).cell(0, 0).text = "table-first section"
+    p = layout.add_paragraph("direct layout")
+    p.paragraph_format.space_before = Twips(123)
+    p.paragraph_format.first_line_indent = Twips(72)
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p._p.pPr.spacing.set(qn("w14:probe"), "retained")
+    layout.sections[0].header.paragraphs[0].text = "retained header"
+    layout.add_section()
+    # Empty implicit final section; neither section starts with a paragraph.
+    layout._element.body.remove(layout.sections[-1]._sectPr)
+    layout.save(directory / "layout-source.docx")
     generate_controls(directory)
     catalog = Document()
     catalog.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
@@ -376,6 +389,33 @@ def verify_ordinary(directory):
 
 
 def verify(directory):
+    from rocx.editor import LayoutEdit as L, ImportedDocument
+    path = directory / "layout-source.docx"
+    doc = ImportedDocument.open(path.read_bytes())
+    a, b = (s.anchor for s in doc.sections)
+    p = doc.body[1].anchor
+    edits = [L.paragraph(p, "space_after", 180), L.paragraph(p, "alignment", None),
+             L.paragraph(p, "heading", 2), L.paragraph(p, "widow_control", False),
+             L.paragraph(p, "first_line_indent", -240),
+             L.paragraph(p, "tab_stops", [{"position": 720, "alignment": "right", "leader": "dot"}]),
+             L.section(a, "page_width", 16000), L.section(a, "margin_top", -220),
+             L.section(a, "column_count", 2), L.section(a, "border_top", {"color": "223344", "size": 8}),
+             L.section(b, "grid_pitch", 360), L.section(b, "title_page", False)]
+    out = directory / "layout.docx"
+    assert doc.preview_layout(edits).to_docx() == out.read_bytes()
+    old, new = parts(path), parts(out)
+    untouched(old, new, (MAIN,))
+    assert old.keys() == new.keys()
+    read = Document(out)
+    p = read.paragraphs[0]
+    assert p.style.style_id == "Heading2" and p.paragraph_format.widow_control is False
+    assert p.paragraph_format.space_before.twips == 123 and p.paragraph_format.space_after.twips == 180
+    assert p._p.pPr.spacing.get(qn("w14:probe")) == "retained" and p.alignment is None
+    assert p.paragraph_format.first_line_indent.twips == -240
+    assert p.paragraph_format.tab_stops[0].position.twips == 720
+    assert read.sections[0].page_width.twips == 16000 and read.sections[0].top_margin.twips == -220
+    assert read.sections[0].header.paragraphs[0].text == "retained header"
+    assert read.sections[1]._sectPr.find(qn("w:docGrid")).get(qn("w:linePitch")) == "360"
     verify_controls(directory)
     verify_ordinary(directory)
     from rocx import declarative as d

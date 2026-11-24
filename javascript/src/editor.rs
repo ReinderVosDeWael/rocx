@@ -30,6 +30,7 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedPreviewTrackedMove", (tracked_move, Paths::Package)),
         ("importedPreviewRevision", (revision, Paths::Package)),
         ("importedPreview", (preview, Paths::Package)),
+        ("importedPreviewLayout", (preview_layout, Paths::Package)),
         (
             "importedPreviewHeaderImage",
             (preview_header, Paths::Package),
@@ -775,6 +776,110 @@ fn revision(input: &Wire) -> Result<JsValue> {
         action,
         paired.as_ref(),
     )?)
+}
+
+fn preview_layout(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::{LayoutEdit, LayoutField, LayoutTab, LayoutValue, SectionAnchor};
+    let call = call(input)?;
+    let source = borrow_target::<ImportedSource>(&call, "document")?;
+    let arg = argument(&call, "edits")?;
+    let integer = |v: &Wire, p: &str| -> Result<i32> {
+        b::i64_number(v, p)?
+            .try_into()
+            .map_err(|_| Failure::invalid(p, "expected signed 32-bit integer"))
+    };
+    let edits = b::list(&arg, "edits")?
+        .iter()
+        .enumerate()
+        .map(|(i, wire)| {
+            let path = format!("edits[{i}]");
+            let edit = Record::new(wire, &path, &["target", "field", "value"])?;
+            let name = b::string(&edit.get("field")?, &edit.path("field"))?;
+            let f = LayoutField::ALL
+                .iter()
+                .copied()
+                .find(|f| f.name() == name)
+                .ok_or_else(|| Failure::invalid(&edit.path("field"), "unknown layout field"))?;
+            let wire = edit.get("value")?;
+            let v = wire.js();
+            let vp = edit.path("value");
+            let val = if v.is_null() {
+                None
+            } else {
+                Some(if f == LayoutField::TabStops {
+                    LayoutValue::Tabs(
+                        b::list(&wire, &vp)?
+                            .iter()
+                            .enumerate()
+                            .map(|(j, t)| {
+                                let p = format!("{vp}[{j}]");
+                                let d = Record::new(t, &p, &["position", "alignment", "leader"])?;
+                                let l = d.get("leader")?;
+                                Ok(LayoutTab {
+                                    position: integer(&d.get("position")?, &d.path("position"))?,
+                                    alignment: b::string(
+                                        &d.get("alignment")?,
+                                        &d.path("alignment"),
+                                    )?,
+                                    leader: if l.js().is_undefined() {
+                                        None
+                                    } else {
+                                        Some(b::string(&l, &d.path("leader"))?)
+                                    },
+                                })
+                            })
+                            .collect::<Result<_>>()?,
+                    )
+                } else if matches!(
+                    f,
+                    LayoutField::BorderTop
+                        | LayoutField::BorderLeft
+                        | LayoutField::BorderBottom
+                        | LayoutField::BorderRight
+                ) {
+                    let d = Record::new(&wire, &vp, &["size", "space", "color"])?;
+                    let num = |k: &str| -> Result<Option<i32>> {
+                        let w = d.get(k)?;
+                        if w.js().is_undefined() {
+                            Ok(None)
+                        } else {
+                            integer(&w, &d.path(k)).map(Some)
+                        }
+                    };
+                    let rgb = d.get("color")?;
+                    LayoutValue::Border(rocx::editor::LayoutBorder {
+                        size: num("size")?,
+                        space: num("space")?,
+                        color: if rgb.js().is_undefined() {
+                            None
+                        } else {
+                            Some(b::string(&rgb, &d.path("color"))?)
+                        },
+                    })
+                } else if let Some(b) = v.as_bool() {
+                    LayoutValue::Boolean(b)
+                } else if v.is_string() {
+                    LayoutValue::Token(b::string(&wire, &vp)?)
+                } else {
+                    LayoutValue::Integer(integer(&wire, &vp)?)
+                })
+            };
+            Ok(if f.is_section() {
+                LayoutEdit::Section(
+                    (*borrow_target::<SectionAnchor>(&edit, &edit.path("target"))?).clone(),
+                    f,
+                    val,
+                )
+            } else {
+                LayoutEdit::Paragraph(
+                    (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+                    f,
+                    val,
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    preview_handle(source.document().preview_layout(&edits)?)
 }
 
 fn preview(input: &Wire) -> Result<JsValue> {

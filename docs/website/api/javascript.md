@@ -222,6 +222,12 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   four direct values, a `format` view and `hasOpaqueFormatting`. Use `patchFormat`
   with a `RunFormat` value under `format` and optional field names under `clear`.
   Multiple format edits can share a run when their properties are disjoint.
+- `previewLayout([{target, field, value}])` patches direct paragraph or section
+  layout. For example, `{target: doc.sections()[0].anchor, field: "marginLeft",
+  value: 1440}` sets a one-inch margin even if that section starts with a table.
+  Use `null` to clear a field (clear `"margins"` as a group). Reopen the preview
+  and inspect `paragraph.layout` or `section.layout`. See `DirectParagraphLayout`,
+  `DirectSectionLayout` and `LayoutEdit` in the package declarations.
 - `tableStructure` accepts `insertRow`, `removeRow`, `insertCell`, `removeCell`,
   `insertColumn`, `removeColumn`, `replaceCell` and `layout`. Row/cell positions
   are physical; column positions count logical grid columns. Pass `{target,

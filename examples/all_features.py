@@ -13,7 +13,7 @@ import rocx
 from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit,
+    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit, LayoutEdit,
     TableInsertion, TextRangeEdit, TextInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
@@ -617,6 +617,9 @@ async def generate(output: pathlib.Path) -> bytes:
     output.with_suffix(".header-source.docx").write_bytes(source_bytes)
     header_doc = ImportedDocument.open(source_bytes)
     target = header_doc.body[2].anchor
+    layout = header_doc.preview_layout([LayoutEdit.paragraph(target, "space_after", 180),
+                                        LayoutEdit.section(header_doc.sections[1].anchor, "grid_pitch", 360)])
+    assert ImportedDocument.open(layout.to_docx()).sections[1].layout["grid_pitch"] == 360
     payload = await p("Block editor: replacement paragraph.").resolve()
     for edit in (BlockEdit.replace(target, payload), BlockEdit.remove(target),
                  BlockEdit.replace_section(target, [payload]), BlockEdit.keep_with_next(target, True),

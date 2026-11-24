@@ -91,6 +91,7 @@ pub(super) fn body_block(block: &BodyBlock, index: usize, anchors: &Anchors) -> 
             );
             optional(&result, "alignment", p.alignment.map(alignment));
             optional(&result, "alignmentXml", p.alignment_xml.as_deref());
+            b::set(&result, "layout", &layout(&p.layout));
             b::set(
                 &result,
                 "flags",
@@ -360,9 +361,49 @@ fn alignment(value: Alignment) -> &'static str {
     }
 }
 
-pub(super) fn section(section: &ImportedSection) -> JsValue {
+fn layout(
+    fields: &std::collections::BTreeMap<rocx::editor::LayoutField, rocx::editor::LayoutValue>,
+) -> JsValue {
+    use rocx::editor::LayoutValue::*;
+    let out = b::record(&[]);
+    for (f, v) in fields {
+        let value = match v {
+            Integer(i) => (*i).into(),
+            Token(s) => s.as_str().into(),
+            Boolean(b) => (*b).into(),
+            Border(b) => {
+                let edge = b::record(&[]);
+                if let Some(i) = b.size {
+                    b::set(&edge, "size", &i.into())
+                }
+                if let Some(i) = b.space {
+                    b::set(&edge, "space", &i.into())
+                }
+                optional(&edge, "color", b.color.as_deref());
+                edge
+            }
+            Tabs(tabs) => array(tabs.iter().map(|t| {
+                let n = b::record(&[
+                    ("position", t.position.into()),
+                    ("alignment", t.alignment.as_str().into()),
+                ]);
+                optional(&n, "leader", t.leader.as_deref());
+                n
+            })),
+        };
+        b::set(&out, &f.name(), &value)
+    }
+    out
+}
+
+pub(super) fn section(section: &ImportedSection, index: usize, anchors: &Anchors) -> JsValue {
     let result = b::record(&[
         ("bodyStart", section.body_start.into()),
+        (
+            "anchor",
+            cached(&anchors.sections, index, "sectionAnchor", &section.anchor),
+        ),
+        ("layout", layout(&section.layout)),
         (
             "flags",
             b::record(
