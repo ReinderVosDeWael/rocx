@@ -43,8 +43,8 @@ and annotated or nested property leaves are rejected. Titles accept at most
 Numbering inspection lists direct physical levels (0–8) and optional unsigned
 32-bit starts, in source order. An abstract ID and level identify a shared
 definition; setting its start affects consumers without an overriding start.
-Instances, overrides, paragraph references and IDs are retained. This API
-does not evaluate counters, renumber lists, change links, or delete definitions.
+The abstract start edit retains instances, overrides, paragraph references and IDs.
+
 ### Editing document defaults
 
 The defaults view is keyed by `DefaultField` in Rust, or by the strings below
@@ -116,3 +116,50 @@ property ID, including across a type change. Clear with `None`/`null`;
 `""` and `false` remain present. Duplicate targets and ambiguous or annotated
 leaves fail the whole batch. Other extended properties, linked custom values
 and other variant types are retained when a supported sibling changes.
+
+## Numbering definitions, instances and paragraph references
+
+Use Rust `ResourceEdit::Numbering(NumberingEdit::…)`, Python `ResourceEdit`
+factories, or JavaScript `resources` records. IDs are explicit unsigned physical
+IDs in the selected numbering part; 0 is reserved for concrete instances.
+No edit computes displayed labels or allocates a missing part.
+
+| Operation | Rust variant | Python factory | JavaScript `kind` and fields |
+| --- | --- | --- | --- |
+| Add abstract levels | `AddAbstract { abstract_id, levels }` | `add_abstract(abstract_id, levels)` | `addAbstract`: `abstractId`, `levels` |
+| Remove unused abstract | `RemoveAbstract { abstract_id }` | `remove_abstract(abstract_id)` | `removeAbstract`: `abstractId` |
+| Add concrete instance of an abstract | `AddInstance { num_id, abstract_id }` | `add_instance(num_id, abstract_id)` | `addInstance`: `numId`, `abstractId` |
+| Remove unused instance | `RemoveInstance { num_id }` | `remove_instance(num_id)` | `removeInstance`: `numId` |
+| Set/clear concrete start | `InstanceStart { num_id, level, start }` | `instance_start(num_id, level, start)` | `instanceStart`: `numId`, `level`, `value` |
+| Set/clear concrete level replacement | `InstanceLevel { num_id, level, value }` | `instance_level(num_id, level, value)` | `instanceLevel`: `numId`, `level`, `value` |
+| Assign/clear a direct body paragraph's list | `Paragraph { target, value }` | `paragraph_numbering(target, value)` | `paragraphNumbering`: `target`, `value` |
+
+Add a nonempty list of distinct `NumberingLevel` declarations (indices 0–8).
+Supported `format` tokens are `decimal`, `decimalZero`, `upperRoman`, `lowerRoman`,
+`upperLetter`, `lowerLetter`, `bullet` and `none`. A concrete replacement's index
+must match its target. Level declarations cannot link paragraph styles. A
+replacement and a start override may coexist; clearing either retains the other.
+Pass `None`/`null` to clear. Omit an edit to retain that property.
+
+Rust `numbering_instances()`, Python `numbering_instances`, and JavaScript
+`numberingInstances()` list the physical instance ID, abstract ID, direct
+start overrides and replacement-level indices. Python starts are `(level, start)`
+pairs. Rust/Python `paragraph_numbering(anchor)` and JavaScript
+`paragraphNumbering(anchor)` inspect the direct reference or return absence.
+The value is Rust `NumberingReference`, Python `(num_id, level)` or JavaScript
+`{id, level}`. A partial, annotated or revision-bearing `numPr` is unsupported;
+inherited numbering is not returned. Paragraph anchors expire on reopen.
+
+Adds, overrides and paragraph assignments can share a batch, including forward
+references. A reference or override must point to a direct level of a surviving
+instance's abstract. Removal never retargets other users. Clear the paragraph
+reference and remove the instance and abstract together if they have no remaining
+users. Destructive edits reject definitions with formatting/opaque markup they
+cannot safely discard. Removal checks the staged numbering part and other Word
+parts, including styles, note stories and headers; fields, opaque extensions or
+uninspectable parts can prevent removal even without a known direct reference.
+Duplicate edits and dangling targets fail the entire preview.
+
+There is no general whole-definition replacement, instance relinking, in-place
+abstract level insertion/removal, numbering-style linking, or direct reference
+editing in other stories.

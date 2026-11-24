@@ -423,6 +423,22 @@ async function editControls(fixtures: Fixtures) {
 
 export async function run(fixtures: Fixtures) {
   const catalog = await openDocx(fixtures["styles-source"]);
+  const listTarget = paragraph(catalog, 0).anchor;
+  const numberingEdits = catalog.preview({resources: [
+    {kind: "addAbstract", abstractId: 90, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}]},
+    {kind: "addInstance", numId: 91, abstractId: 90},
+    {kind: "paragraphNumbering", target: listTarget, value: {id: 91, level: 0}},
+  ]}).toDocx();
+  const numbers = await openDocx(numberingEdits);
+  const numbered = paragraph(numbers, 0).anchor;
+  rejects(() => numbers.paragraphNumbering(listTarget), /snapshot/);
+  rejects(() => numbers.preview({resources: [{kind: "removeInstance", numId: 91}]}), /references/);
+  same(numbers.paragraphNumbering(numbered), {id: 91, level: 0}, "direct reference");
+  const removed = await openDocx(numbers.preview({resources: [
+    {kind: "removeAbstract", abstractId: 90}, {kind: "removeInstance", numId: 91},
+    {kind: "paragraphNumbering", target: numbered, value: null},
+  ]}).toDocx());
+  check(!removed.numberingInstances().some(n => n.numId === 91), "removed unused numbering instance");
   const active = catalog.styleAnchor("MemoActive");
   const batch: EditBatch = { styleEdits: [
     { op: "add", definition: { kind: "paragraph", name: "Memo Added", baseStyle: "Memo Active" } },
@@ -499,7 +515,7 @@ export async function run(fixtures: Fixtures) {
   rejects(() => pair.previewRevision({target:source.anchor,action:"accept"}), /range|both move wrappers/);
   const moveAccepted = pair.previewRevision({target:source.anchor,paired:dest.anchor,action:"accept"}).toDocx();
   return {
-    tracked, reviewed, moved, moveAccepted, combined, styleEdits, inline: inline.toDocx(),
+    tracked, reviewed, moved, moveAccepted, combined, styleEdits, numberingEdits, inline: inline.toDocx(),
     range: ranged.preview({textRanges: [selection]}).toDocx(),
     removal: removal.toDocx(),
     controlEdits: await editControls(fixtures),

@@ -368,16 +368,35 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
     let edit = Record::new(
         input,
         path,
-        &["kind", "value", "abstractId", "level", "field", "name"],
+        &[
+            "kind",
+            "value",
+            "abstractId",
+            "numId",
+            "level",
+            "levels",
+            "target",
+            "field",
+            "name",
+        ],
     )?;
     let kind = b::string(&edit.get("kind")?, &edit.path("kind"))?;
-    let keys: &[&str] = match kind.as_str() {
-        "metadata" | "documentDefault" => &["kind", "field", "value"],
-        "customProperty" => &["kind", "name", "value"],
-        "abstractStart" => &["kind", "abstractId", "level", "value"],
-        _ => &["kind", "value"],
-    };
-    Record::new(input, path, keys)?;
+    Record::new(
+        input,
+        path,
+        match kind.as_str() {
+            "metadata" | "documentDefault" => &["kind", "field", "value"],
+            "customProperty" => &["kind", "name", "value"],
+            "abstractStart" => &["kind", "abstractId", "level", "value"],
+            "addAbstract" => &["kind", "abstractId", "levels"],
+            "removeAbstract" => &["kind", "abstractId"],
+            "addInstance" => &["kind", "abstractId", "numId"],
+            "removeInstance" => &["kind", "numId"],
+            "instanceStart" | "instanceLevel" => &["kind", "numId", "level", "value"],
+            "paragraphNumbering" => &["kind", "target", "value"],
+            _ => &["kind", "value"],
+        },
+    )?;
     let v = edit.get("value")?;
     let clear = v.js().is_null();
     let vp = edit.path("value");
@@ -385,6 +404,11 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
         b::u64_number(wire, p)?
             .try_into()
             .map_err(|_| Failure::invalid(p, "expected u32"))
+    };
+    use rocx::editor::NumberingEdit as N;
+    let id = |field| uint(&edit.get(field)?, &edit.path(field));
+    let level = |n: u32| {
+        u8::try_from(n).map_err(|_| Failure::invalid(&edit.path("level"), "invalid level"))
     };
     Ok(match kind.as_str() {
         "documentDefault" => {
@@ -446,6 +470,60 @@ fn resource_edit(input: &Wire, path: &str) -> Result<rocx::editor::ResourceEdit>
                 Some(rocx::editor::CustomValue::Text(b::string(&v, &vp)?))
             },
         ),
+        "addAbstract" => ResourceEdit::Numbering(N::AddAbstract {
+            abstract_id: id("abstractId")?,
+            levels: b::list(&edit.get("levels")?, &edit.path("levels"))?
+                .iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    crate::styles::numbering_level(
+                        l,
+                        &b::Operation::new().pass(),
+                        &format!("{path}.levels[{i}]"),
+                    )
+                })
+                .collect::<Result<_>>()?,
+        }),
+        "instanceLevel" => ResourceEdit::Numbering(N::InstanceLevel {
+            num_id: id("numId")?,
+            level: level(id("level")?)?,
+            value: if clear {
+                None
+            } else {
+                Some(Box::new(crate::styles::numbering_level(
+                    &v,
+                    &b::Operation::new().pass(),
+                    &vp,
+                )?))
+            },
+        }),
+        "removeAbstract" => ResourceEdit::Numbering(N::RemoveAbstract {
+            abstract_id: id("abstractId")?,
+        }),
+        "addInstance" => ResourceEdit::Numbering(N::AddInstance {
+            num_id: id("numId")?,
+            abstract_id: id("abstractId")?,
+        }),
+        "removeInstance" => ResourceEdit::Numbering(N::RemoveInstance {
+            num_id: id("numId")?,
+        }),
+        "instanceStart" => ResourceEdit::Numbering(N::InstanceStart {
+            num_id: id("numId")?,
+            level: level(id("level")?)?,
+            start: if clear { None } else { Some(uint(&v, &vp)?) },
+        }),
+        "paragraphNumbering" => ResourceEdit::Numbering(N::Paragraph {
+            target: (*borrow_target::<ParagraphAnchor>(&edit, &edit.path("target"))?).clone(),
+            value: if clear {
+                None
+            } else {
+                let r = Record::new(&v, &vp, &["id", "level"])?;
+                Some(rocx::NumberingReference {
+                    id: uint(&r.get("id")?, &r.path("id"))?,
+                    level: level(uint(&r.get("level")?, &r.path("level"))?)?,
+                })
+            },
+        }),
         "coreTitle" => ResourceEdit::CoreTitle(if clear {
             None
         } else {

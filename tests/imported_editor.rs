@@ -198,6 +198,60 @@ fn resource_numbering_starts_reject_duplicate_identities_and_preserve_lexical_no
 }
 
 #[test]
+fn concrete_numbering_uses_numeric_identity_and_keeps_cleanup_last() {
+    use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit};
+    let mut entries = parts(include_bytes!("fixtures/imported-editor.docx"));
+    let name = "word/numbering.xml";
+    entries.insert(name.into(), format!(r#"<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="07"><w:lvl w:ilvl="0"/></w:abstractNum><w:num w:numId="001"><w:abstractNumId w:val="007"/></w:num><w:numIdMacAtCleanup w:val="1"/></w:numbering>"#).into_bytes());
+    let doc = ImportedDocument::open(&package_bytes(entries.clone())).unwrap();
+    let anchor = paragraph(&doc, 0).anchor.clone();
+    let render = |edits: Vec<N>| {
+        let resources = edits
+            .into_iter()
+            .map(ResourceEdit::Numbering)
+            .collect::<Vec<_>>();
+        doc.preview_edits(EditBatch {
+            resources: &resources,
+            ..Default::default()
+        })
+    };
+    assert!(
+        render(vec![N::AddInstance {
+            num_id: 1,
+            abstract_id: 7
+        }])
+        .is_err()
+    );
+    let insert = || N::AddInstance {
+        num_id: 2,
+        abstract_id: 7,
+    };
+    let patch = || N::Paragraph {
+        target: anchor.clone(),
+        value: Some(rocx::NumberingReference { id: 2, level: 0 }),
+    };
+    let data = render(vec![patch(), insert()]).unwrap().to_docx().unwrap();
+    let result = parts(&data);
+    let xml = std::str::from_utf8(&result[name]).unwrap();
+    assert!(xml.find("w:numId=\"2\"").unwrap() < xml.find("<w:numIdMacAtCleanup").unwrap());
+    let edited = ImportedDocument::open(&data).unwrap();
+    assert!(edited.paragraph_numbering(&anchor).is_err());
+    assert_eq!(
+        edited
+            .paragraph_numbering(&paragraph(&edited, 0).anchor)
+            .unwrap()
+            .unwrap()
+            .id,
+        2
+    );
+    assert_eq!(edited.numbering_instances().unwrap()[0].abstract_id, 7);
+    assert_eq!(
+        entries,
+        parts(&doc.preview(&[]).unwrap().to_docx().unwrap())
+    );
+}
+
+#[test]
 fn cell_alignment_patch_validates_grid_and_preserves_other_content() {
     use rocx::{VerticalAlignment, editor::CellAlignmentEdit};
     let xml = format!(

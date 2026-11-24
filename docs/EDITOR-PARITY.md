@@ -233,6 +233,8 @@ part identity and direct style ID, kind, name, and base reference in all three
 bindings. See [imported style edits](#imported-style-edits) for definition
 and property edits. The resource guide also covers direct [core title, default alignment
 and abstract level start](EDITOR-RESOURCES.md#direct-editable-properties).
+For definition and instance creation/removal, concrete overrides and body
+paragraph list assignments, see [numbering operations](EDITOR-RESOURCES.md#numbering-definitions-instances-and-paragraph-references).
 Effective formatting and arbitrary resource editing remain outstanding.
 The [defaults field inventory](EDITOR-RESOURCES.md#editing-document-defaults)
 covers direct run/paragraph properties, tabs, footnote/endnote settings, page

@@ -194,6 +194,33 @@ fn main() {
         let catalog =
             ImportedDocument::open(&fs::read(directory.join("styles-source.docx")).unwrap())
                 .unwrap();
+        use rocx::editor::{EditBatch, NumberingEdit as N, ResourceEdit::Numbering};
+        let numbers = catalog
+            .preview_edits(EditBatch {
+                resources: &[
+                    Numbering(N::AddAbstract {
+                        abstract_id: 90,
+                        levels: vec![rocx::NumberingLevel {
+                            level: 0,
+                            start: 1,
+                            format: "decimal".into(),
+                            text: "%1.".into(),
+                            ..Default::default()
+                        }],
+                    }),
+                    Numbering(N::AddInstance {
+                        num_id: 91,
+                        abstract_id: 90,
+                    }),
+                    Numbering(N::Paragraph {
+                        target: anchor(&catalog, 0),
+                        value: Some(rocx::NumberingReference { id: 91, level: 0 }),
+                    }),
+                ],
+                ..Default::default()
+            })
+            .unwrap();
+        write("native-numberingEdits.docx", numbers.to_docx().unwrap());
         let style = |name: &str| ParagraphStyleDefinition::default().with_name(name);
         let changes = [
             StyleEdit::Add(style("Memo Added").with_base_style("Memo Active").into()),

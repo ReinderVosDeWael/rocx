@@ -244,12 +244,21 @@ export interface ImportedDocument {
   defaultAlignment(): ImportedAlignment | undefined;
   documentDefaults(): Partial<DefaultValues>;
   abstractStarts(): readonly AbstractStart[];
+  numberingInstances(): readonly ImportedNumberingInstance[];
+  paragraphNumbering(target: ParagraphAnchor): { readonly id: number; readonly level: number } | undefined;
 }
 
 export interface AbstractStart {
   readonly abstractId: number;
   readonly level: number;
   readonly start?: number;
+}
+
+export interface ImportedNumberingInstance {
+  readonly replacementLevels: readonly number[];
+  readonly numId: number;
+  readonly abstractId: number;
+  readonly startOverrides: readonly { readonly level: number; readonly start: number }[];
 }
 
 export interface OpenDocxOptions {

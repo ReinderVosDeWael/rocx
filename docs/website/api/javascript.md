@@ -229,6 +229,13 @@ text: "New text"}]`. `runTextChanges()` reports original `bodyIndex`, `inlineInd
   return `undefined`. Pass `{kind: "metadata", field, value}` or
   `{kind: "customProperty", name, value}` in `resources`; `null` removes the property.
 
+- Numbering resource edits include `addAbstract`, `removeAbstract`, `addInstance`,
+  `removeInstance`, `instanceStart`, `instanceLevel` and `paragraphNumbering`.
+  `numberingInstances()` lists concrete IDs, abstract links, start overrides and
+  replacement-level indices. `paragraphNumbering(anchor)` returns a direct
+  `{id, level}` or `undefined`. Clear an override or direct reference with
+  `value: null`. Live references and opaque content can block removal.
+
 ```javascript
 import { openDocx } from "rocx-docx";
 

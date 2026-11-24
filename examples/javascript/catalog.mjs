@@ -201,7 +201,12 @@ export async function generateCatalog(fixtures, options) {
       {kind: "metadata", field: "creator", value: "Review team"},
       {kind: "metadata", field: "manager", value: "Review lead"},
       {kind: "customProperty", name: "Reviewed", value: false},
-      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7}],
+      {kind: "defaultAlignment", value: "center"}, {kind: "abstractStart", abstractId: 100, level: 0, value: 7},
+      {kind: "addAbstract", abstractId: 9048, levels: [{level: 0, start: 2, format: "decimal", text: "%1."}]},
+      {kind: "instanceLevel", numId: 9049, level: 0, value: {level: 0, start: 1, format: "lowerRoman", text: "(%1)"}},
+      {kind: "addInstance", numId: 9049, abstractId: 9048},
+      {kind: "instanceStart", numId: 9049, level: 0, value: 6},
+      {kind: "paragraphNumbering", target: target.anchor, value: {id: 9049, level: 0}}],
     runText: [textEdit],
     textRanges: [{target: target.anchor, start: 0, end: 8, text: "Ranged 📝"}],
     paragraphInsertions: [{ target: inline.anchor, paragraph: insertedParagraph }],
@@ -228,6 +233,12 @@ export async function generateCatalog(fixtures, options) {
     "accepted missing custom value");
   assertThrows(() => imported.preview({resources: [{kind: "metadata", field: "created", value: "yesterday"}]}),
     "accepted invalid core date");
+  assert(editedResources.numberingInstances().some(n => n.numId === 9049 && n.abstractId === 9048 &&
+    n.replacementLevels.includes(0) && n.startOverrides.some(o => o.level === 0 && o.start === 6)), "missing instance override");
+  const listTarget = editedResources.body().find(p => p.kind === "paragraph" && p.text.startsWith("Ranged 📝"));
+  assert(editedResources.paragraphNumbering(listTarget.anchor)?.id === 9049, "missing direct numbering reference");
+  assertThrows(() => editedResources.paragraphNumbering(target.anchor), "accepted stale paragraph anchor");
+  assertThrows(() => editedResources.preview({resources: [{kind: "removeInstance", numId: 9049}]}), "deleted a live instance");
   assert(editedResources.defaultAlignment() === "center" && editedResources.coreTitle() === "Edited resource sample",
     "missing resource edits");
   const cleared = await openDocx(editedResources.preview({resources: [

@@ -513,7 +513,12 @@ async def generate(output: pathlib.Path) -> bytes:
                                           ResourceEdit.document_default("bold", False),
                                           ResourceEdit.document_default("footnoteStart", 5),
                                           ResourceEdit.document_default("afterTwips", None),
-                                          ResourceEdit.abstract_start(100, 0, 7)],
+                                          ResourceEdit.abstract_start(100, 0, 7),
+                                          ResourceEdit.add_abstract(9048, [d.NumberingLevel(start=2)]),
+                                          ResourceEdit.instance_level(9049, 0, d.NumberingLevel(format="lowerRoman", text="(%1)")),
+                                          ResourceEdit.add_instance(9049, 9048),
+                                          ResourceEdit.instance_start(9049, 0, 6),
+                                          ResourceEdit.paragraph_numbering(targets[0].anchor, (9049, 0))],
                                controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
                                run_text=[RunTextEdit(label.anchor, replacement)],
                                paragraph_insertions=[ParagraphInsertion(inline_block.anchor, inserted_paragraph)])

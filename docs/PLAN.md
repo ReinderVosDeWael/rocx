@@ -19,6 +19,15 @@ byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
 passed independent readback and schema/OPC checks (20 covered parts).
 See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
 
+Numbering follow-up (#48): add abstract levels and concrete instances, set or
+clear concrete starts/replacement levels and anchored body paragraph references,
+and guard removals against live or uninspectable references in the final package.
+Standalone verification: 55 Rust editor tests, 74 installed Python tests, strict
+TypeScript and packed Node 26 passed. The independent numbering fixture matched
+in Rust, Python and Node; all 24 editor outputs matched Rust/Node, and all 11
+catalog outputs matched across the three bindings. The mixed catalog passed
+schema/OPC checks and independent numbering readback.
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -32,7 +41,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
 | #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
-| #48 Resources | Direct run/paragraph defaults, document settings, core/extended scalars, custom strings and booleans, shared abstract numbering starts. | Instance/override and paragraph numbering edits; unmodeled metadata and defaults. |
+| #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
 | #51 JSON CLI | All seven edit kinds from `fad29a9`, digest-bound addresses, mixed preview and exclusive save-copy. | Richer declarations, footer/even image selectors and transport for the newer core operations. |
