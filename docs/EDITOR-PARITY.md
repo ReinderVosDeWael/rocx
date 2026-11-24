@@ -211,14 +211,18 @@ clears that group. Rust enum variants / Python and JavaScript selectors:
 * `ShapeFill` / `shapeFill`, `ShapeOutline` / `shapeOutline`, `ShapeText` /
   `shapeText`: geometric shape fill/line or simple text and its format.
   Shape text requires compatible geometric-shape or standalone-text-box
-  declarations. Replace the whole shape to switch geometry.
+  declarations. `ShapeGeometry` / `shapeGeometry` switches an unadjusted
+  rectangle or ellipse in place, retaining its extent, text and appearance.
+  Replace the shape to convert to or from a standalone text box.
 * `ChartSeries` / `chartSeries`: set categories and values in an existing
-  workbook-free, literal single column series with the same point count.
+  workbook-free, literal single column series.
   A changed series forks the chart part and redirects this occurrence only;
   axis settings and unrelated chart XML are retained. Read the series via
   `doc.chart_series(&anchor)` (Rust tuple), `doc.chart_series(anchor)` (Python
   tuple), or `doc.chartSeries(anchor)` (`{categories, values}` in JavaScript).
-  Replace the occurrence with a new chart to change the number of points.
+  Point counts can change on the plain chart profile emitted by the column
+  chart declaration. Imported charts with indexed formatting, annotations or
+  other extensions require the same count, or explicit whole-chart replacement.
 
 One edit per original occurrence per preview. To patch another group on the
 same occurrence, reopen the preview bytes and obtain a fresh anchor. Whole
@@ -226,8 +230,8 @@ replacements/removals refuse unrecognized markup in the occurrence being
 discarded. Patches preserve unrelated opaque drawing content and reject
 ambiguous targets or unsupported markup on a subtree they would discard.
 Unused relationships and old parts remain in the package. Complex equations,
-general charts/workbooks, rich text-box stories, VML, and nested or non-body
-object edits are outside this interface.
+general charts/workbooks, rich text-box stories and VML are outside this
+interface. Entry-story pictures use the separate owner-scoped operation below.
 
 Direct body tables expose a snapshot-scoped table identity and ordered physical
 rows, cells, and cell paragraphs with flat and structured inline projections in
@@ -399,6 +403,10 @@ marks, field/range interiors, nested targets and reserved notes are ineligible.
 External links allocate relationships in the entry part, including when its
 path is nonstandard. Existing relationships are retained. No entry or reference
 is created, deleted or renumbered. Reopen the returned package for new anchors.
+Embedded pictures in direct entry paragraphs also support occurrence insertion,
+replacement, removal, asset redirection and image property groups. The actual
+entry part owns its image relationships; shared bytes elsewhere remain intact.
+Shape, chart and fraction edits require a direct body paragraph.
 
 ### Combine ordinary edits
 

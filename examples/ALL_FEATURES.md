@@ -77,7 +77,8 @@ Output:
   abstract numbering level (100, 0) start 7.
 - `.objects.docx` edits a picture description, redirects another picture's
   asset, resizes a text box, removes an ellipse, replaces a shape/chart and
-  fraction, inserts a column chart, then forks its literal series. See the
+  fraction, patches rectangle geometry, grows a forked literal chart series,
+  wraps a sibling paragraph, and inserts a shared picture in a footnote. See the
   [Rust, Python and JavaScript operation spellings](../docs/EDITOR-PARITY.md#drawing-and-fraction-occurrences).
 - `.controls.docx` demonstrates selection, wrapper insertion and complete
   replacement with a plain-text definition.

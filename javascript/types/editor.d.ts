@@ -52,7 +52,7 @@ export interface HeaderImageEdit {
 
 export type InlineEdit = { readonly target: InlineAnchor } & (
   | { readonly kind: "removeObject" }
-  | { readonly kind: "patchDrawing"; readonly property: "size" | "placement" | "crop" | "transform" | "accessibility" | "shapeFill" | "shapeOutline" | "shapeText" | "chartSeries"; readonly inline: ResolvedInline }
+  | { readonly kind: "patchDrawing"; readonly property: "size" | "placement" | "crop" | "transform" | "accessibility" | "shapeFill" | "shapeOutline" | "shapeText" | "shapeGeometry" | "chartSeries"; readonly inline: ResolvedInline }
   | { readonly kind: "setImageAsset"; readonly image: ResolvedImage }
   | { readonly kind: "setDrawingDescription"; readonly value: string | null }
   | { readonly kind: "insertAfter" | "replace"; readonly inline: ResolvedInline }

@@ -841,20 +841,86 @@ pub async fn generate(output: &Path) -> Result<()> {
         let final_chart = ColumnChartRun::new(ColumnChartProperties {
             width: 120.,
             height: 80.,
-            categories: vec!["Final".into()],
-            values: vec![12.],
+            categories: vec!["Final".into(), "Revised".into()],
+            values: vec![12., 8.],
         })
         .await?
         .unwrap();
-        let edit = [InlineEdit {
-            target: anchor,
-            action: A::PatchDrawing(editor::DrawingProperty::ChartSeries, final_chart),
-        }];
+        let shape_anchor = next
+            .body()
+            .iter()
+            .find_map(|b| match b {
+                editor::BodyBlock::Paragraph(p) => {
+                    p.inline_structure.iter().find_map(|n| match n {
+                        N::Run(r)
+                            if r.drawing.as_ref().and_then(|d| d.shape_text.as_deref())
+                                == Some("Edited shape") =>
+                        {
+                            Some(r.anchor.clone())
+                        }
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .unwrap();
+        let ellipse = ShapeRun::new(
+            ShapeProperties::default()
+                .with_width(10.)
+                .with_height(10.)
+                .with_geometry(ShapeGeometry::Ellipse),
+        )
+        .await?
+        .unwrap();
+        let edit = [
+            InlineEdit {
+                target: anchor,
+                action: A::PatchDrawing(editor::DrawingProperty::ChartSeries, final_chart),
+            },
+            InlineEdit {
+                target: shape_anchor,
+                action: A::PatchDrawing(editor::DrawingProperty::ShapeGeometry, ellipse),
+            },
+        ];
         let fork = next.preview_edits(editor::EditBatch {
             inline_edits: &edit,
             ..Default::default()
         })?;
-        std::fs::write(output.with_extension("objects.docx"), fork.to_docx()?)?;
+        let after = editor::ImportedDocument::open(&fork.to_docx()?)?;
+        let site = after
+            .control_sites()
+            .iter()
+            .find(|s| s.context == editor::ControlContext::Block && s.text == EDIT_LABEL)
+            .unwrap();
+        let wrapped = editor::ImportedDocument::open(
+            &after
+                .preview_wrap_control(site, "object-sibling")?
+                .to_docx()?,
+        )?;
+        let note = wrapped
+            .entry_stories()?
+            .iter()
+            .find(|e| e.kind == editor::EntryKind::Footnote && e.id == "0")
+            .unwrap();
+        let run = note
+            .inline_structure(0)
+            .unwrap()
+            .iter()
+            .find_map(|n| match n {
+                N::Run(r) if matches!(r.items.as_slice(), [editor::ImportedInline::Text(_)]) => {
+                    Some(r)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let bytes = wrapped.edit_entry_inlines(
+            &note.part_name,
+            &[InlineEdit {
+                target: run.anchor.clone(),
+                action: A::InsertAfter(image("png", None).await?.unwrap()),
+            }],
+        )?;
+        std::fs::write(output.with_extension("objects.docx"), bytes)?;
     }
     assert_eq!(
         targets[0].inline_items,

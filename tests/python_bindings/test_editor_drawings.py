@@ -143,17 +143,67 @@ async def test_chart_data_forks_a_shared_literal_series():
     old = ImportedDocument.open(buf.getvalue())
     first, second = old.body[0].inline_structure[-2:]
     assert first.drawing.relationship_id == second.drawing.relationship_id
-    bad = await d.ColumnChartRun(12, 10, ["X"], [0]).resolve()
-    with pytest.raises(ValueError, match="point count"):
-        old.preview([], inline_edits=[InlineEdit.patch_drawing(first.anchor, "chartSeries", bad)])
-    new = await d.ColumnChartRun(12, 10, ["X", "Y"], [1, 3]).resolve()
+    new = await d.ColumnChartRun(12, 10, ["X"], [0]).resolve()
     out = old.preview([], inline_edits=[InlineEdit.patch_drawing(first.anchor, "chartSeries", new)]).to_docx()
     reopened = ImportedDocument.open(out)
     a, b = reopened.body[0].inline_structure[-2:]
     assert a.drawing.relationship_id != b.drawing.relationship_id
     assert a.drawing.width_emu == first.drawing.width_emu
-    assert reopened.chart_series(a.anchor) == (["X", "Y"], [1., 3.])
+    assert reopened.chart_series(a.anchor) == (["X"], [0.])
     assert reopened.chart_series(b.anchor) == (["A", "B"], [1., 2.])
     with ZipFile(io.BytesIO(buf.getvalue())) as src, ZipFile(io.BytesIO(out)) as dst:
         assert all(dst.read(name) == src.read(name) for name in src.namelist()
                    if name not in {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml"})
+    # Indexed formatting on a point would acquire a different meaning on resize.
+    protected = io.BytesIO()
+    with ZipFile(io.BytesIO(buf.getvalue())) as src, ZipFile(protected, "w") as dst:
+        for name in src.namelist():
+            content = src.read(name)
+            if name.endswith("/chart1.xml"):
+                root = etree.fromstring(content)
+                ns = "{http://schemas.openxmlformats.org/drawingml/2006/chart}"
+                point = etree.Element(ns + "dPt")
+                etree.SubElement(point, ns + "idx").set("val", "1")
+                root.find(".//" + ns + "cat").addprevious(point)
+                content = etree.tostring(root)
+            dst.writestr(name, content)
+    guarded = ImportedDocument.open(protected.getvalue())
+    anchor = guarded.body[0].inline_structure[-2].anchor
+    with pytest.raises(ValueError, match="point count"):
+        guarded.preview([], inline_edits=[InlineEdit.patch_drawing(anchor, "chartSeries", new)])
+
+
+async def test_entry_redirect_after_sibling_wrap_keeps_body_asset_and_control():
+    original = docx.Document(io.BytesIO(package()))
+    original.add_paragraph("Control sibling")
+    original.add_comment(original.add_paragraph("Review").runs[0], "Entry text", "Reviewer")
+    buf = io.BytesIO()
+    original.save(buf)
+    doc = ImportedDocument.open(buf.getvalue())
+    site = next(s for s in doc.control_sites if s.context == "block" and s.text == "Control sibling")
+    wrapped = doc.preview_wrap_control(site, "integration").to_docx()
+    def comment(data):
+        document = ImportedDocument.open(data)
+        entry = next(e for e in document.entry_stories if e.kind == "comment")
+        return document, entry, entry.blocks[0].inline_structure
+    doc, entry, nodes = comment(wrapped)
+    anchor = next(r.anchor for r in nodes if any(i.kind == "text" for i in r.items))
+    png = await d.ImageRun((IMAGES / "sample.png").read_bytes()).resolve()
+    jpeg = await d.ImageRun((IMAGES / "sample.jpg").read_bytes()).resolve()
+    inserted = doc.edit_entry_inlines(entry.part_name, [InlineEdit.insert_after(anchor, png)])
+    doc, entry, nodes = comment(inserted)
+    pic = next(r for r in nodes if r.drawing)
+    with pytest.raises(ValueError, match="chart series"):
+        doc.edit_entry_inlines(entry.part_name, [InlineEdit.patch_drawing(pic.anchor, "chartSeries", png)])
+    changed = doc.edit_entry_inlines(entry.part_name, [InlineEdit.set_image_asset(pic.anchor, jpeg)])
+    saved = docx.Document(io.BytesIO(changed))
+    main_embed = saved.paragraphs[0]._p.xpath(".//a:blip/@r:embed")[0]
+    assert saved.part.related_parts[main_embed].blob == (IMAGES / "sample.png").read_bytes()
+    note_part = saved.comments._comments_part
+    entry_embed, = note_part.element.xpath(".//a:blip/@r:embed")
+    assert note_part.related_parts[entry_embed].blob == (IMAGES / "sample.jpg").read_bytes()
+    assert saved.element.xpath("//w:sdt[w:sdtPr/w:tag[@w:val='integration']]//w:t/text()") == ["Control sibling"]
+    with ZipFile(io.BytesIO(inserted)) as old, ZipFile(io.BytesIO(changed)) as new:
+        for part in old.namelist():
+            if part not in {"word/comments.xml","word/_rels/comments.xml.rels","[Content_Types].xml"}:
+                assert old.read(part) == new.read(part), part

@@ -8,6 +8,7 @@ use crate::{
 use wordprocessing::sections::{section_properties, usable_width};
 pub(crate) mod defaults;
 mod drawing;
+pub(crate) use drawing::chart_space;
 mod profile;
 mod properties;
 pub(crate) mod wordprocessing;
