@@ -4,6 +4,14 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+#48 metadata worktree: core scalars and timestamps, company/manager, and named
+string/boolean custom-property edits passed standalone qualification: 55 Rust
+editor/showcase tests, nine installed-wheel resource tests, native Clippy and
+strict TypeScript declarations. All eleven catalog outputs matched byte for
+byte across Rust, Python 3.12 and packed Node 26. The mixed resource output
+passed independent readback and schema/OPC checks (20 covered parts).
+See [the package metadata contract](EDITOR-RESOURCES.md#package-metadata).
+
 The ten topic branches start from `fad29a9` and are combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). #3 remains
 open. The [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -11,13 +19,13 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 
 | Ticket | Supported in the candidate | Still outside the implementation |
 | --- | --- | --- |
-| #42 Text ranges | Replace or delete nonempty scalar ranges across simple, singly textual runs of a direct body paragraph, retaining formatting outside the selection. | Cross-paragraph offsets, mixed/opaque paragraphs, zero-length insertion and other stories. |
+| #42 Text ranges | Replace/delete nonempty scalar ranges or insert text at an original scalar position in a plain direct body paragraph. | Cross-paragraph offsets, mixed/opaque paragraphs and other stories. |
 | #43 Blocks | Replace/remove direct body paragraphs; replace a section's supported contents with resolved paragraphs/tables. Inspect and set/clear all nine declarative paragraph on/off flags, three section flags and section break type at anchored direct body targets. | Section insertion/removal; section geometry, borders, columns, grid, numbering and vertical alignment; paragraph style/heading, numbering, tabs, indents, spacing and line height; clearing direct alignment; nested/story and empty or non-paragraph-start section targets. |
-| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; patch direct run bold. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
+| #44 Inlines | Insert after or replace a supported direct body run/hyperlink with a resolved inline; inspect and set/clear direct bold, italic, strike, and hidden toggles, including multi-leaf ordinary runs. | Arbitrary rich or nested targets, other run-property patches, destructive edits over unrecognized properties. |
 | #45 Tables | Insert/remove physical rows/cells and logical columns; replace cell content with resolved paragraphs/tables. | Splitting protected merges, unsafe destructive changes and general editing inside imported nested tables. |
-| #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text run edits in one named physical story part, including ordinary notes/comments. | Rich story editing, entry creation/deletion, reserved entries and local text forks. |
+| #46 Stories | Shared/local images in all six effective header/footer slots; direct single-text edits in one physical story part. Ordinary note/comment entries also support direct inline insertion/replacement and run bold. | Entry/reference lifecycle, comment metadata changes, block editing, reserved entries and local text forks. |
 | #47 Styles | Add paragraph/character/table styles; patch direct bold/italic; replace/remove guarded unused custom definitions. | Numbering-style creation, broader property editing, automatic reference retargeting and synthesizing a styles part. |
-| #48 Resources | Inspect and set/clear core title, paragraph-default alignment and shared abstract numbering level start. | Creating missing parts, editing instances/overrides or paragraph numbering references, other defaults and metadata. |
+| #48 Resources | Inspect and set/clear core title, subject and other scalars, company/manager, named string/boolean properties, paragraph-default alignment and shared abstract numbering level start. | Creating missing core, numbering or style parts; editing instances/overrides or paragraph numbering references, other defaults and opaque metadata. |
 | #49 Revisions | Track insertion, replacement, deletion and paired moves of simple direct body runs; accept/reject eligible wrappers and move pairs. | Mixed ordinary/revision transactions, tracked property changes and rich or nested revisions. |
 | #50 Controls | Inspect physical block/inline/row/cell controls in the main story; patch tag, alias or single-text content subject to locks. | Wrapper insertion/removal, nested/specialized/bound control edits, choice lists and other stories. |
 | #51 JSON CLI / #3 follow-up | Digest-bound transport for every `b0a28b0` ordinary batch family, all story image slots, physical story text, tracked text/moves and revision review. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; additions to the core after `b0a28b0` require corresponding transport. See [CLI contract](CLI.md). |
@@ -58,9 +66,38 @@ images, physical story/entry text, declaration resolution, digest replay,
 exclusive saves and rejected batches. The transport contract is in [CLI.md](CLI.md).
 
 The structural integration extends the CLI to paragraph and section flags,
-section break types and table layout in the same digest-bound batch.
+section break types, table layout, scalar point insertions, core subject and
+package metadata in the same digest-bound batch. Named metadata readback and
+mixed-batch byte parity are covered by the CLI process tests.
+With `fe5e5df` integrated, 59 Rust editor/CLI tests and 92 schema-enabled
+Python tests passed. All 11 catalog files matched across Rust, Python and
+packed Node; 25 Node editor outputs matched Rust and passed independent readback.
+
+The #48 integration combines core subject and the package metadata work.
+Numbering and document defaults remain separate workstreams; #3 closure
+requires reconciling the individual slices against the editor inventory and
+qualifying their combined behavior.
+
+The #42 follow-up adds `TextInsertion` alongside nonempty `TextRangeEdit`.
+The python-docx fixture exercises run-boundary formatting, paragraph end and a
+runless paragraph; its complete output matched Rust, installed Python, packed
+Node and Chromium and passed schema/OPC checks. All eleven catalog outputs
+matched across Rust, Python and Node.
+
+The direct run-toggle follow-up to #3 adds four imported formatting values and
+an opaque-formatting indicator. On its standalone branch, 54 Rust and 57
+installed Python editor tests passed. The four-toggle DOCX matched across Rust,
+Python 3.12, and packed Node 26, with schema/OPC, python-docx, and unchanged-part
+checks. All eleven catalogs also matched across these consumers. Browser and
+combined-branch qualification remain separate.
 
 ## Selected standalone topic results (before ten-way integration)
+
+**#3 entry inline follow-up (from `b0a28b0`):** the eleven catalog files
+matched byte-for-byte across Rust, installed Python 3.12 and packed Node 26.
+The edited footnote, endnote and comment each own their added hyperlink;
+schema/OPC validation passed for 20 covered parts. Independent python-docx
+comment readback and package comparison verify preserved body references.
 
 For the individual verification records, read `docs/PLAN.md` at the topic
 tips: ranges `6baa54d`, blocks `f4d5a58`, inlines `069f5c6`, tables `ae725f9`,

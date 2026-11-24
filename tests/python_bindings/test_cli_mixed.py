@@ -205,12 +205,13 @@ def independent_document():
 
 
 def test_structural_property_transport(cli, tmp_path):
-    from rocx.editor import BlockEdit, TableStructureEdit
+    from rocx.editor import BlockEdit, ResourceEdit, TableStructureEdit, TextInsertion
 
     source, output = tmp_path / "source.docx", tmp_path / "edited.docx"
     doc = independent_document()
     doc.add_paragraph("body").paragraph_format.widow_control = False
     doc.add_table(rows=1, cols=2).autofit = True
+    doc.add_paragraph("a😀b")
     doc.save(source)
     seen = call(cli, "inspect", source)
     start = seen["sections"][0]["body_start"]
@@ -218,25 +219,40 @@ def test_structural_property_transport(cli, tmp_path):
     edits = [dict(kind="paragraph-flag", target=start, flag="widow_control", value=None),
              dict(kind="section-flag", target=start, flag="rtl_gutter", value=False),
              dict(kind="section-type", target=start, value="evenPage"),
-             dict(kind="table-structure", target=1, operation=dict(kind="layout", value="fixed"))]
+             dict(kind="table-structure", target=1, operation=dict(kind="layout", value="fixed")),
+             dict(kind="text-insertion", target=2, position=2, text="!"),
+             dict(kind="core-subject", value=""),
+             dict(kind="metadata", field="manager", value="Editor"),
+             dict(kind="custom-property", name="Reviewed", value=False)]
     for invalid in [dict(kind="section-type", target=start),
-                    dict(kind="table-structure", target=1, operation=dict(kind="layout"))]:
+                    dict(kind="table-structure", target=1, operation=dict(kind="layout")),
+                    dict(kind="metadata", field="manager"),
+                    dict(kind="custom-property", name="Reviewed", value=1),
+                    dict(kind="text-insertion", target=2, position=4, text="!")]:
         call(cli, "save-copy", source, success=False, snapshot=seen["snapshot"],
              output=str(output), edits=[edits[0], invalid])
         assert not output.exists()
     result = checked_copy(cli, source, output, edits)
+    details = call(cli, "inspect", output, metadata_fields=["manager"], custom_properties=["Reviewed", "Missing"])
+    assert details["core_subject"] == ""
+    assert details["metadata"] == {"manager": "Editor"}
+    assert details["custom_properties"] == {"Reviewed": False, "Missing": None}
+    assert result["body"][2]["text"] == "a😀!b"
     assert result["body"][start]["flags"] == {}
     assert result["sections"][0]["flags"]["rtl_gutter"] is False
     assert result["sections"][0]["section_type_xml"] == "evenPage"
     assert result["body"][1]["layout"] == "fixed"
     assert result["body"][1]["grid_widths"] == seen["body"][1]["grid_widths"]
     imported = ImportedDocument.open(source.read_bytes())
-    p, t = imported.body
+    p, t, text = imported.body
     assert output.read_bytes() == imported.preview([], block_edits=[
         BlockEdit.paragraph_flag(p.anchor, "widow_control", None),
         BlockEdit.section_flag(p.anchor, "rtl_gutter", False),
         BlockEdit.section_type(p.anchor, "evenPage")],
-        table_structure=[TableStructureEdit.layout(t.anchor, "fixed")]).to_docx()
+        table_structure=[TableStructureEdit.layout(t.anchor, "fixed")],
+        text_insertions=[TextInsertion(text.anchor, 2, "!")],
+        resources=[ResourceEdit.core_subject(""), ResourceEdit.metadata("manager", "Editor"),
+                   ResourceEdit.custom_property("Reviewed", False)]).to_docx()
 
 
 def test_extended_mixed_binding_and_atomic_rejection(cli, tmp_path):

@@ -26,6 +26,9 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ("importedStyles", (styles, Paths::Package)),
         ("importedStyleAnchor", (style_anchor, Paths::Package)),
         ("importedCoreTitle", (core_title, Paths::Package)),
+        ("importedCoreSubject", (core_subject, Paths::Package)),
+        ("importedMetadataField", (metadata_field, Paths::Package)),
+        ("importedCustomProperty", (custom_property, Paths::Package)),
         (
             "importedDefaultAlignment",
             (default_alignment, Paths::Package),
@@ -50,10 +53,14 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("styles", "importedStyles"),
     ("styleAnchor", "importedStyleAnchor"),
     ("coreTitle", "importedCoreTitle"),
+    ("coreSubject", "importedCoreSubject"),
+    ("metadataField", "importedMetadataField"),
+    ("customProperty", "importedCustomProperty"),
     ("defaultAlignment", "importedDefaultAlignment"),
     ("abstractStarts", "importedAbstractStarts"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
+    ("editEntryInlines", "importedEditEntryInlines"),
     ("previewTrackedText", "importedPreviewTrackedText"),
     ("previewTrackedMove", "importedPreviewTrackedMove"),
     ("previewRevision", "importedPreviewRevision"),
@@ -186,6 +193,33 @@ fn core_title(input: &Wire) -> Result<JsValue> {
         .document()
         .core_title()?
         .map_or(JsValue::UNDEFINED, Into::into))
+}
+fn core_subject(input: &Wire) -> Result<JsValue> {
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    Ok(doc
+        .document()
+        .core_subject()?
+        .map_or(JsValue::UNDEFINED, Into::into))
+}
+fn metadata_field(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let field = b::string(&argument(&call, "field")?, "field")?.parse()?;
+    Ok(doc
+        .document()
+        .metadata_field(field)?
+        .map_or(JsValue::UNDEFINED, Into::into))
+}
+fn custom_property(input: &Wire) -> Result<JsValue> {
+    use rocx::editor::CustomValue;
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let name = b::string(&argument(&call, "name")?, "name")?;
+    Ok(match doc.document().custom_property(&name)? {
+        Some(CustomValue::Boolean(v)) => v.into(),
+        Some(CustomValue::Text(v)) => v.into(),
+        None => JsValue::UNDEFINED,
+    })
 }
 fn default_alignment(input: &Wire) -> Result<JsValue> {
     let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;

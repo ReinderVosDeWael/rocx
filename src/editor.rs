@@ -27,7 +27,7 @@ mod header;
 mod insertion;
 pub(crate) use insertion::BoundaryState;
 mod ranges;
-pub use ranges::TextRangeEdit;
+pub use ranges::{TextInsertion, TextRangeEdit};
 mod resource_fields;
 mod resources;
 mod revisions;
@@ -41,11 +41,11 @@ pub use header::{
     HeaderAnchor, HeaderEditMode, HeaderImageChange, HeaderImageEdit, HeaderImagePreview,
     ImportedHeader, ImportedHeaderBlock, ImportedStory, ImportedStoryBlock, SectionStoryKind,
 };
-pub use resource_fields::{AbstractStart, ResourceEdit};
+pub use resource_fields::{AbstractStart, CustomValue, MetadataField, ResourceEdit};
 pub use resources::{ImportedStyle, ImportedStyles, StyleKind};
 pub use style_edits::{StyleAnchor, StyleEdit};
 pub use tables::{CellAlignmentChange, CellAlignmentEdit, TableOperation, TableStructureEdit};
-pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit};
+pub use text::{InlineAction, InlineEdit, RunRemovalChange, RunTextChange, RunTextEdit, RunToggle};
 
 /// A target valid only for the snapshot that issued it.
 #[derive(Clone, Debug)]
@@ -348,6 +348,12 @@ pub struct ImportedRevision {
 #[non_exhaustive]
 pub struct ImportedRun {
     pub anchor: InlineAnchor,
+    /// Direct toggles only. Absent or ambiguous properties are None.
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub strike: Option<bool>,
+    pub hidden: Option<bool>,
+    pub has_opaque_formatting: bool,
     /// The run's text, tabs, breaks, and opaque children; excludes run properties.
     pub items: Vec<ImportedInline>,
 }
@@ -769,6 +775,7 @@ impl ImportedDocument {
             run_removals,
             ranges,
             blocks,
+            text_insertions,
             inline_edits,
             structural,
             styles,
@@ -784,6 +791,7 @@ impl ImportedDocument {
             .chain(paragraphs.iter().map(|edit| &edit.target.snapshot))
             .chain(cells.iter().map(|edit| &edit.target._snapshot))
             .chain(ranges.iter().map(|r| &r.target.snapshot))
+            .chain(text_insertions.iter().map(|e| &e.target.snapshot))
             .chain(inline_edits.iter().map(|edit| &edit.target.snapshot))
             .chain(controls.iter().map(|edit| &edit.target.snapshot))
             .chain(run_removals.iter().map(|target| &target.snapshot))
@@ -845,6 +853,7 @@ impl ImportedDocument {
             || !table_targets.is_empty()
             || !header_images.is_empty()
             || !ranges.is_empty()
+            || !text_insertions.is_empty()
             || !run_text.is_empty()
             || !inline_edits.is_empty()
             || !run_removals.is_empty()
@@ -864,6 +873,7 @@ impl ImportedDocument {
                 .chain(cells.iter().map(|e| e.target._body_index))
                 .chain(structural.iter().map(|e| e.target._body_index))
                 .chain(ranges.iter().map(|e| e.target.body_index))
+                .chain(text_insertions.iter().map(|e| e.target.body_index))
                 .chain(
                     run_text
                         .iter()
@@ -895,7 +905,7 @@ impl ImportedDocument {
                     &paragraph_targets.keys().copied().collect::<BTreeSet<_>>(),
                 )?
             };
-            let mut expanded = ranges::expand(body, ranges)?;
+            let mut expanded = ranges::expand(body, ranges, text_insertions)?;
             expanded.extend_from_slice(run_text);
             // Plan destructive cross-family overlaps before rendering payloads.
             let mut addressed = BTreeSet::new();
@@ -1101,6 +1111,11 @@ fn read_inline_nodes<'a>(
                     flat.extend(items.iter().cloned());
                     ImportedInlineNode::Run(ImportedRun {
                         anchor: address.clone(),
+                        bold: text::direct_toggle(node, RunToggle::Bold).ok().flatten(),
+                        italic: text::direct_toggle(node, RunToggle::Italic).ok().flatten(),
+                        strike: text::direct_toggle(node, RunToggle::Strike).ok().flatten(),
+                        hidden: text::direct_toggle(node, RunToggle::Hidden).ok().flatten(),
+                        has_opaque_formatting: text::has_opaque_formatting(node),
                         items,
                     })
                 }

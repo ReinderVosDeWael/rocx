@@ -108,6 +108,7 @@ pub(super) fn extend(doc: &ImportedDocument, result: &mut Value) {
         }),
     );
     add(result, "core_title", doc.core_title().map(|v| json!(v)));
+    add(result, "core_subject", doc.core_subject().map(|v| json!(v)));
     add(
         result,
         "default_alignment",

@@ -203,6 +203,7 @@ def generate(directory):
     p.add_run("a😀b").bold = True
     p.add_run("e\u0301").underline = True
     p.add_run("cd").italic = True
+    ranged.add_paragraph(style="Caption")
     ranged.save(directory / "range-source.docx")
     base = parts(directory / "base.docx")
     assert base["word/media/image1.png"] == original_image
@@ -405,7 +406,7 @@ def verify(directory):
     assert Document(directory / "removal.docx").paragraphs[0].text == ""
     root = etree.fromstring(removal[MAIN])
     assert root.find(".//" + qn("w:fldSimple")) is not None
-    from rocx.editor import ImportedDocument, TextRangeEdit
+    from rocx.editor import ImportedDocument, TextInsertion, TextRangeEdit
     range_source = parts(directory / "range-source.docx")
     result = parts(directory / "range.docx")
     assert result.keys() == range_source.keys()
@@ -416,8 +417,35 @@ def verify(directory):
     assert [r.text for r in runs] == ["a 🐈 ", "", "d"]
     assert runs[0].bold and runs[1].underline and runs[2].italic
     ranged = ImportedDocument.open((directory / "range-source.docx").read_bytes())
+    from rocx.editor import InlineEdit
+    runs = ranged.body[1].inline_structure
+    formatted = ranged.preview([], inline_edits=[
+        InlineEdit.set_toggle(ranged.body[0].inline_structure[0].anchor, "bold", False),
+        InlineEdit.set_toggle(runs[0].anchor, "hidden", True),
+        InlineEdit.set_toggle(runs[1].anchor, "strike", True),
+        InlineEdit.set_toggle(runs[2].anchor, "italic", None)])
+    formatted_path = directory / "runFormatting.docx"
+    assert formatted.to_docx() == formatted_path.read_bytes()
+    untouched(range_source, parts(formatted_path), (MAIN,))
+    heading, content = Document(formatted_path).paragraphs[:2]
+    a, b, c = content.runs
+    assert heading.runs[0].bold is False and a.bold and a.font.hidden
+    assert b.underline and b.font.strike and c.italic is None
     selection = TextRangeEdit(ranged.body[1].anchor, 1, 6, " 🐈 ")
     assert ranged.preview([], text_ranges=[selection]).to_docx() == (directory / "range.docx").read_bytes()
+    point_bytes = (directory / "points.docx").read_bytes()
+    preview = ranged.preview([], text_insertions=[
+        TextInsertion(ranged.body[1].anchor, 3, "➡"),
+        TextInsertion(ranged.body[1].anchor, 7, "!"),
+        TextInsertion(ranged.body[-1].anchor, 0, " Empty paragraph ")])
+    assert preview.to_docx() == point_bytes
+    point_parts = parts(directory / "points.docx")
+    assert point_parts.keys() == range_source.keys()
+    untouched(range_source, point_parts, (MAIN,))
+    paragraphs = Document(directory / "points.docx").paragraphs
+    assert [(r.text, r.underline, r.italic) for r in paragraphs[1].runs] == [
+        ("a😀b", None, None), ("➡e\u0301", True, None), ("cd!", None, True)]
+    assert paragraphs[-1].text == " Empty paragraph " and paragraphs[-1].style.name == "Caption"
     imported = ImportedDocument.open((directory / "base.docx").read_bytes())
     anchor = imported.body[0].inline_structure[0].anchor
     date = "2024-02-29T12:34:56Z"
@@ -448,14 +476,16 @@ def verify(directory):
         target = lambda i: imported.body[i].inline_structure[0].anchor
         link = await d.Hyperlink("https://example.invalid/inline", [d.TextRun("editable link")]).resolve()
         return imported.preview([], inline_edits=[InlineEdit.insert_after(target(4), await d.Break().resolve()),
-            InlineEdit.set_bold(target(0), False), InlineEdit.replace(target(1), link)])
+            InlineEdit.set_toggle(target(0), "bold", None), InlineEdit.replace(target(1), link)])
 
     inline = asyncio.run(inline_batch())
     assert inline.inline_changes == [(0, 0), (1, 0), (4, 0)]
     assert inline.to_docx() == (directory / "inline.docx").read_bytes()
     untouched(source, parts(directory / "inline.docx"), (MAIN, MAIN_RELS))
     edited = Document(directory / "inline.docx").paragraphs
-    assert edited[0].runs[0].bold is False
+    assert edited[0].runs[0].bold is None
+    assert imported.body[0].inline_structure[0].bold is True
+    assert ImportedDocument.open(inline.to_docx()).body[0].inline_structure[0].bold is None
     assert edited[1].hyperlinks[0].url == "https://example.invalid/inline"
     assert edited[1].text == "editable link" and edited[4].text == "next section\n"
 

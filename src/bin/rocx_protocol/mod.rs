@@ -68,6 +68,11 @@ pub(super) enum Edit {
         end: usize,
         text: String,
     },
+    TextInsertion {
+        target: usize,
+        position: usize,
+        text: String,
+    },
     ReplaceParagraph {
         target: usize,
         text: String,
@@ -122,6 +127,20 @@ pub(super) enum Edit {
     CoreTitle {
         #[serde(deserialize_with = "Deserialize::deserialize")]
         value: Option<String>,
+    },
+    CoreSubject {
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    Metadata {
+        field: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<String>,
+    },
+    CustomProperty {
+        name: String,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        value: Option<CustomScalar>,
     },
     DefaultAlignment {
         #[serde(deserialize_with = "Deserialize::deserialize")]
@@ -183,6 +202,13 @@ pub(super) enum Edit {
     },
     #[serde(untagged)]
     LegacyAlignment(AlignmentPayload),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum CustomScalar {
+    Text(String),
+    Boolean(bool),
 }
 
 fn section_type(value: &str) -> Result<rocx::SectionType, String> {
@@ -255,11 +281,28 @@ fn inspect_block((index, block): (usize, &BodyBlock)) -> Value {
     }
 }
 
-pub(super) fn inspect(doc: &ImportedDocument, snapshot: String) -> Value {
+pub(super) fn inspect(
+    doc: &ImportedDocument,
+    snapshot: String,
+    fields: Vec<String>,
+    names: Vec<String>,
+) -> Result<Value, String> {
     let body: Vec<_> = doc.body().iter().enumerate().map(inspect_block).collect();
     let mut result = json!({"snapshot":snapshot,"body":body});
     discovery::extend(doc, &mut result);
-    result
+    for field in fields {
+        let key = field.parse().map_err(|e: rocx::Error| e.to_string())?;
+        result["metadata"][field] = json!(doc.metadata_field(key).map_err(|e| e.to_string())?);
+    }
+    for name in names {
+        let value = doc.custom_property(&name).map_err(|e| e.to_string())?;
+        result["custom_properties"][name] = match value {
+            Some(CustomValue::Text(s)) => json!(s),
+            Some(CustomValue::Boolean(b)) => json!(b),
+            None => Value::Null,
+        };
+    }
+    Ok(result)
 }
 
 fn paragraph(doc: &ImportedDocument, index: usize) -> Result<&ImportedParagraph, String> {
@@ -290,6 +333,7 @@ pub(super) fn preview(
     let (mut align, mut tables, mut headers, mut texts, mut paragraphs, mut cells, mut removals) =
         (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
     let mut stories = std::cell::OnceCell::new();
+    let mut points = Vec::new();
     let (
         mut ranges,
         mut blocks,
@@ -320,6 +364,15 @@ pub(super) fn preview(
                 target: paragraph(doc, target)?.anchor.clone(),
                 start,
                 end,
+                text,
+            }),
+            Edit::TextInsertion {
+                target,
+                position,
+                text,
+            } => points.push(TextInsertion {
+                target: paragraph(doc, target)?.anchor.clone(),
+                position,
                 text,
             }),
             Edit::ReplaceParagraph { target, text } => blocks.push(BlockEdit::Replace(
@@ -402,6 +455,18 @@ pub(super) fn preview(
                 });
             }
             Edit::CoreTitle { value } => resources.push(ResourceEdit::CoreTitle(value)),
+            Edit::CoreSubject { value } => resources.push(ResourceEdit::CoreSubject(value)),
+            Edit::Metadata { field, value } => resources.push(ResourceEdit::Metadata(
+                field.parse().map_err(|e: rocx::Error| e.to_string())?,
+                value,
+            )),
+            Edit::CustomProperty { name, value } => resources.push(ResourceEdit::CustomProperty(
+                name,
+                value.map(|v| match v {
+                    CustomScalar::Text(s) => CustomValue::Text(s),
+                    CustomScalar::Boolean(b) => CustomValue::Boolean(b),
+                }),
+            )),
             Edit::DefaultAlignment { value } => resources.push(ResourceEdit::DefaultAlignment(
                 value.as_deref().map(alignment).transpose()?,
             )),
@@ -514,6 +579,7 @@ pub(super) fn preview(
             cells: &cells,
             run_removals: &removals,
             ranges: &ranges,
+            text_insertions: &points,
             blocks: &blocks,
             inline_edits: &inline_edits,
             structural: &structural,

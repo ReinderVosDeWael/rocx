@@ -2,6 +2,7 @@
 use std::sync::Mutex;
 
 use pyo3::{
+    IntoPyObjectExt,
     exceptions::{PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
     types::{PyBytes, PyModule},
@@ -133,6 +134,25 @@ impl PyTextRangeEdit {
                 target: target.inner.clone(),
                 start,
                 end,
+                text,
+            },
+        }
+    }
+}
+
+#[pyclass(name = "TextInsertion", frozen, module = "rocx.editor")]
+struct PyTextInsertion {
+    inner: editor::TextInsertion,
+}
+
+#[pymethods]
+impl PyTextInsertion {
+    #[new]
+    fn new(target: PyRef<'_, PyParagraphAnchor>, position: usize, text: String) -> Self {
+        Self {
+            inner: editor::TextInsertion {
+                target: target.inner.clone(),
+                position,
                 text,
             },
         }
@@ -358,6 +378,16 @@ struct PyInlineAnchor {
 #[pyclass(name = "ImportedRun", frozen, module = "rocx.editor")]
 struct PyImportedRun {
     #[pyo3(get)]
+    has_opaque_formatting: bool,
+    #[pyo3(get)]
+    bold: Option<bool>,
+    #[pyo3(get)]
+    italic: Option<bool>,
+    #[pyo3(get)]
+    strike: Option<bool>,
+    #[pyo3(get)]
+    hidden: Option<bool>,
+    #[pyo3(get)]
     anchor: Py<PyInlineAnchor>,
     #[pyo3(get)]
     items: Vec<Py<PyImportedInline>>,
@@ -405,6 +435,11 @@ fn inline_object(py: Python<'_>, node: &editor::ImportedInlineNode) -> PyResult<
         ImportedInlineNode::Run(run) => Py::new(
             py,
             PyImportedRun {
+                has_opaque_formatting: run.has_opaque_formatting,
+                bold: run.bold,
+                italic: run.italic,
+                strike: run.strike,
+                hidden: run.hidden,
                 anchor: anchor(&run.anchor)?,
                 items: run
                     .items
@@ -853,6 +888,23 @@ impl PyInlineEdit {
             },
         }
     }
+
+    #[staticmethod]
+    #[pyo3(signature = (target, property, value))]
+    fn set_toggle(
+        target: PyRef<'_, PyInlineAnchor>,
+        property: &str,
+        value: Option<bool>,
+    ) -> PyResult<Self> {
+        let prop = editor::RunToggle::parse(property)
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("unknown run toggle"))?;
+        Ok(Self {
+            inner: editor::InlineEdit {
+                target: target.inner.clone(),
+                action: editor::InlineAction::SetToggle(prop, value),
+            },
+        })
+    }
 }
 
 #[pyclass(name = "ParagraphInsertion", frozen, module = "rocx.editor")]
@@ -1266,10 +1318,42 @@ struct PyResourceEdit {
 #[pymethods]
 impl PyResourceEdit {
     #[staticmethod]
+    #[pyo3(signature=(field, value))]
+    fn metadata(field: &str, value: Option<String>) -> PyResult<Self> {
+        Ok(Self {
+            inner: editor::ResourceEdit::Metadata(field.parse().map_err(rust_error)?, value),
+        })
+    }
+    #[staticmethod]
+    #[pyo3(signature=(name, value))]
+    fn custom_property(name: String, value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let value = value
+            .map(|v| {
+                if v.is_instance_of::<pyo3::types::PyBool>() {
+                    Ok(editor::CustomValue::Boolean(v.extract()?))
+                } else if v.is_instance_of::<pyo3::types::PyString>() {
+                    Ok(editor::CustomValue::Text(v.extract()?))
+                } else {
+                    Err(PyTypeError::new_err("expected a string, boolean or None"))
+                }
+            })
+            .transpose()?;
+        Ok(Self {
+            inner: editor::ResourceEdit::CustomProperty(name, value),
+        })
+    }
+    #[staticmethod]
     #[pyo3(signature=(value))]
     fn core_title(value: Option<String>) -> Self {
         Self {
             inner: editor::ResourceEdit::CoreTitle(value),
+        }
+    }
+    #[staticmethod]
+    #[pyo3(signature=(value))]
+    fn core_subject(value: Option<String>) -> Self {
+        Self {
+            inner: editor::ResourceEdit::CoreSubject(value),
         }
     }
     #[staticmethod]
@@ -1303,12 +1387,40 @@ impl PyImportedDocument {
             inner: doc.style_anchor(id).map_err(rust_error)?,
         })
     }
+    fn metadata_field(&self, field: &str) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .metadata_field(field.parse().map_err(rust_error)?)
+            .map_err(rust_error)
+    }
+    fn custom_property(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+        match self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .custom_property(name)
+            .map_err(rust_error)?
+        {
+            Some(editor::CustomValue::Text(s)) => s.into_py_any(py),
+            Some(editor::CustomValue::Boolean(v)) => v.into_py_any(py),
+            None => Ok(py.None()),
+        }
+    }
     #[getter]
     fn core_title(&self) -> PyResult<Option<String>> {
         self.inner
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
             .core_title()
+            .map_err(rust_error)
+    }
+    #[getter]
+    fn core_subject(&self) -> PyResult<Option<String>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?
+            .core_subject()
             .map_err(rust_error)
     }
     #[getter]
@@ -1512,6 +1624,24 @@ impl PyImportedDocument {
             .collect()
     }
 
+    fn edit_entry_inlines<'py>(
+        &self,
+        py: Python<'py>,
+        owner_part: &str,
+        edits: Vec<PyRef<'_, PyInlineEdit>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let doc = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Document lock poisoned"))?;
+        let edits = edits.iter().map(|e| e.inner.clone()).collect::<Vec<_>>();
+        Ok(PyBytes::new(
+            py,
+            &doc.edit_entry_inlines(owner_part, &edits)
+                .map_err(rust_error)?,
+        ))
+    }
+
     fn edit_story_text<'py>(
         &self,
         py: Python<'py>,
@@ -1684,7 +1814,7 @@ impl PyImportedDocument {
 
     /// Stage all supplied edits in one transaction against the original snapshot.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
+    #[pyo3(signature = (edits, *, table_insertions=None, header_images=None, run_text=None, run_removals=None, paragraph_insertions=None, cell_alignments=None, text_ranges=None, text_insertions=None, block_edits=None, inline_edits=None, table_structure=None, style_edits=None, resources=None, controls=None))]
     fn preview(
         &self,
         edits: Vec<PyRef<'_, PyParagraphAlignmentEdit>>,
@@ -1695,6 +1825,7 @@ impl PyImportedDocument {
         paragraph_insertions: Option<Vec<PyRef<'_, PyParagraphInsertion>>>,
         cell_alignments: Option<Vec<PyRef<'_, PyCellAlignmentEdit>>>,
         text_ranges: Option<Vec<PyRef<'_, PyTextRangeEdit>>>,
+        text_insertions: Option<Vec<PyRef<'_, PyTextInsertion>>>,
         block_edits: Option<Vec<PyRef<'_, PyBlockEdit>>>,
         inline_edits: Option<Vec<PyRef<'_, PyInlineEdit>>>,
         table_structure: Option<Vec<PyRef<'_, PyTableStructureEdit>>>,
@@ -1749,6 +1880,7 @@ impl PyImportedDocument {
                     cells: &inner_edits!(cell_alignments),
                     run_removals: &inner_edits!(run_removals),
                     ranges: &inner_edits!(text_ranges),
+                    text_insertions: &inner_edits!(text_insertions),
                     blocks: &inner_edits!(block_edits),
                     inline_edits: &inner_edits!(inline_edits),
                     structural: &inner_edits!(table_structure),
@@ -1779,6 +1911,7 @@ pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyImportedStyle>()?;
     module.add_class::<PyImportedStyles>()?;
     module.add_class::<PyTextRangeEdit>()?;
+    module.add_class::<PyTextInsertion>()?;
     module.add_class::<PyRunTextEdit>()?;
     module.add_class::<PyRunTextChange>()?;
     module.add_class::<PyRunRemovalChange>()?;

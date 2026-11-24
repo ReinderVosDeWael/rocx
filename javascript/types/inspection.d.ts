@@ -2,6 +2,9 @@ import type { ReadLimits, ResolvedHandle } from "./boundary.js";
 import type { TableLayout } from "./tables.js";
 
 declare const anchor: unique symbol;
+export type MetadataField = "creator" | "description" | "category" | "keywords" | "version"
+  | "created" | "modified" | "lastPrinted" | "lastModifiedBy" | "revision"
+  | "identifier" | "language" | "contentStatus" | "company" | "manager";
 
 export interface ControlAnchor { readonly [anchor]: "control" }
 export interface ImportedControl {
@@ -42,6 +45,12 @@ export type ImportedInline =
   | ImportedOpaque;
 
 export interface ImportedRun {
+  /** Direct toggle properties; absent when unset or ambiguous. */
+  readonly bold?: boolean;
+  readonly italic?: boolean;
+  readonly strike?: boolean;
+  readonly hidden?: boolean;
+  readonly hasOpaqueFormatting: boolean;
   readonly kind: "run";
   readonly anchor: InlineAnchor;
   readonly items: readonly ImportedInline[];
@@ -223,6 +232,9 @@ export interface ImportedDocument {
   /** Undefined when the document has no styles relationship. */
   styles(): ImportedStyles | undefined;
   coreTitle(): string | undefined;
+  coreSubject(): string | undefined;
+  metadataField(field: MetadataField): string | undefined;
+  customProperty(name: string): string | boolean | undefined;
   defaultAlignment(): ImportedAlignment | undefined;
   abstractStarts(): readonly AbstractStart[];
 }

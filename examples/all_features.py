@@ -14,7 +14,7 @@ from rocx import declarative as d
 from rocx.editor import (
     HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
     ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit,
-    TableInsertion, TextRangeEdit, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
+    TableInsertion, TextRangeEdit, TextInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
 from javascript_workflow import blocks as javascript_blocks
@@ -486,7 +486,13 @@ async def generate(output: pathlib.Path) -> bytes:
                      (e.author == "Structured reviewer" if kind == "comment" else e.id == "0"))
         entry_run = next(n for n in entry.blocks[0].inline_structure if isinstance(n, ImportedRun) and
                    len(n.items) == 1 and n.items[0].kind == "text")
-        entries_output = source.edit_story_text(entry.part_name, [RunTextEdit(entry_run.anchor, f"Edited {kind} entry")])
+        label = f"Edited {kind} entry"
+        source = ImportedDocument.open(source.edit_story_text(entry.part_name, [RunTextEdit(entry_run.anchor, label)]))
+        entry = next(e for e in source.entry_stories if e.kind == kind and e.id == entry.id)
+        entry_run = next(n for n in entry.blocks[0].inline_structure if isinstance(n, ImportedRun) and
+                         n.items and n.items[0].kind == "text" and n.items[0].value == label)
+        review_link = await d.Hyperlink("https://example.com/entry-review", [d.TextRun("Review link")]).resolve()
+        entries_output = source.edit_entry_inlines(entry.part_name, [InlineEdit.insert_after(entry_run.anchor, review_link)])
     output.with_suffix(".entry-text.docx").write_bytes(entries_output)
     inline_block, = (block for block in imported.body
                      if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
@@ -504,7 +510,12 @@ async def generate(output: pathlib.Path) -> bytes:
         ("inline", "5001"), ("block", "5002"), ("row", "5003"), ("cell", "5004")}
     caption, = (c for c in imported.controls if c.id == "5001")
     preview = imported.preview([], text_ranges=[TextRangeEdit(targets[0].anchor, 0, 8, "Ranged 📝")],
+                               text_insertions=[TextInsertion(targets[0].anchor, 8, " + point")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
+                                          ResourceEdit.core_subject("Imported resource edits"),
+                                          ResourceEdit.metadata("creator", "Review team"),
+                                          ResourceEdit.metadata("manager", "Review lead"),
+                                          ResourceEdit.custom_property("Reviewed", False),
                                           ResourceEdit.default_alignment("center"),
                                           ResourceEdit.abstract_start(100, 0, 7)],
                                controls=[ControlEdit(caption.anchor, alias="Imported editor caption")],
@@ -515,12 +526,16 @@ async def generate(output: pathlib.Path) -> bytes:
              if getattr(block, "text", None) == INLINE_LABEL + "".join(INLINE_LINK_RUNS))
     ]
     assert any(c.before == INLINE_LABEL for c in preview.run_text_changes)
-    whole = imported.preview([], inline_edits=[InlineEdit.set_bold(label.anchor, False),
+    assert label.italic is None
+    whole = imported.preview([], inline_edits=[InlineEdit.set_toggle(label.anchor, "italic", True),
         InlineEdit.insert_after(inline_link.anchor, await d.TextRun("Imported editor: inserted paragraph.").resolve())])
     assert whole.inline_changes[-1][1] == 1
     removal = imported.preview([], run_removals=[label.anchor])
     assert removal.run_removals[0].before == INLINE_LABEL
-    output.with_suffix(".run-text.docx").write_bytes(preview.to_docx())
+    edited_bytes = preview.to_docx()
+    resource_result = ImportedDocument.open(edited_bytes)
+    assert resource_result.metadata_field("manager") == "Review lead" and resource_result.custom_property("Reviewed") is False
+    output.with_suffix(".run-text.docx").write_bytes(edited_bytes)
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)
     assert [(item.kind, item.value) for item in label.items] == [("text", INLINE_LABEL)]
     assert inline_link.bookmark == "CatalogBookmark" and inline_link.relationship_id is None

@@ -107,6 +107,7 @@ The following `kind` values can be combined with the seven above in one
 | `kind` | Fields besides `kind` |
 | --- | --- |
 | `text-range` | Paragraph `target`, `start`, `end`, `text`. Replace `[start,end)` Unicode scalar values; `""` deletes. |
+| `text-insertion` | Paragraph `target`, original Unicode scalar `position`, nonempty `text`. At a run boundary, formatting comes from the following run; at the end it comes from the last run. |
 | `replace-paragraph`, `remove-paragraph`, `keep-with-next` | Paragraph `target`; additionally `text` for replacement, boolean `value` for keep-with-next. |
 | `replace-section` | `target` (first direct paragraph), `blocks`. |
 | `paragraph-flag`, `section-flag` | Paragraph `target` (section start for section flags), `flag` (Python snake_case name), `value` (`true`, `false`, or explicit `null` to clear). |
@@ -116,6 +117,7 @@ The following `kind` values can be combined with the seven above in one
 | `story-image` | `target` copied from `stories` (`section_index`, `kind`: `header`/`footer`, `variant`: `default`/`first`/`even`), `mode`, `bytes` as for `header-image`. |
 | `style-add`, `style-replace`, `style-patch`, `style-remove` | Add/replace require `definition`. All except add require exact `id` from `styles.definitions`. Patch supports optional boolean `bold`, `italic`. |
 | `core-title`, `default-alignment`, `abstract-start` | Required `value`: string, alignment name, or unsigned integer respectively. Explicit JSON `null` clears. Numbering also requires `abstract_id` and `level` from `abstract_starts`. |
+| `core-subject`, `metadata`, `custom-property` | Required `value`: string or `null` (clear); custom properties also accept booleans. `metadata` takes a [field key](EDITOR-RESOURCES.md#package-metadata), and `custom-property` takes the exact `name`. |
 | `control` | `target` from `controls`, optional strings `tag`, `alias`, `text`. Physical control numbers are independent of body indices, tags and XML IDs. |
 
 `operation.kind` is `insert-row`, `remove-row`, `insert-column`, `remove-column`
@@ -140,6 +142,11 @@ validates the resolved content.
 reads return `<field>_error`. `inlines` identifies direct runs, hyperlinks and
 revision wrappers with their original indices. Story and entry `blocks` list
 direct paragraphs with original `block_index` and `inlines`.
+
+`inspect` includes `core_subject`. To read specific scalar and custom fields,
+pass e.g. `"metadata_fields":["manager"],"custom_properties":["Reviewed"]`
+in the request. The result maps those names under `metadata` and
+`custom_properties`; absent values are `null`, distinct from `""` and `false`.
 
 ## Scoped operations
 

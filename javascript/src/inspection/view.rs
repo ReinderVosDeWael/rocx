@@ -267,13 +267,27 @@ pub(super) fn inline_node(
             .clone()
     };
     Ok(match node {
-        ImportedInlineNode::Run(run) => record(
-            "run",
-            &[
-                ("anchor", token(&run.anchor)),
-                ("items", items(&run.items)?),
-            ],
-        ),
+        ImportedInlineNode::Run(run) => {
+            let result = record(
+                "run",
+                &[
+                    ("anchor", token(&run.anchor)),
+                    ("hasOpaqueFormatting", run.has_opaque_formatting.into()),
+                    ("items", items(&run.items)?),
+                ],
+            );
+            for (key, value) in [
+                ("bold", run.bold),
+                ("italic", run.italic),
+                ("strike", run.strike),
+                ("hidden", run.hidden),
+            ] {
+                if let Some(value) = value {
+                    b::set(&result, key, &value.into());
+                }
+            }
+            result
+        }
         ImportedInlineNode::Hyperlink(link) => {
             let result = record(
                 "hyperlink",

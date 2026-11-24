@@ -643,11 +643,41 @@ pub async fn generate(output: &Path) -> Result<()> {
                 _ => None,
             })
             .unwrap();
-        entries_output = source.edit_story_text(
+        let label = format!("Edited {} entry", kind.as_str());
+        let text_bytes = source.edit_story_text(
             &e.part_name,
             &[editor::RunTextEdit {
                 target: run.anchor.clone(),
-                text: format!("Edited {} entry", kind.as_str()),
+                text: label.clone(),
+            }],
+        )?;
+        let source = editor::ImportedDocument::open(&text_bytes)?;
+        let e = source
+            .entry_stories()?
+            .iter()
+            .find(|other| other.kind == kind && other.id == e.id)
+            .unwrap();
+        let run = e.inline_structure(0).unwrap().iter().find_map(|node| match node {
+            Run(r) if matches!(r.items.as_slice(), [editor::ImportedInline::Text(text)] if text == &label) => Some(r),
+            _ => None,
+        }).unwrap();
+        let link = Hyperlink::new(
+            HyperlinkTarget::external("https://example.com/entry-review")?,
+            vec![TextRun::new("Review link").into()],
+        );
+        let payload = Document::new(vec![
+            Section::new(vec![Paragraph::from_children(vec![link.into()]).into()]).into(),
+        ])
+        .resolve()
+        .await?;
+        let ResolvedBlock::Paragraph(p) = &payload.sections()[0].blocks()[0] else {
+            unreachable!()
+        };
+        entries_output = source.edit_entry_inlines(
+            &e.part_name,
+            &[editor::InlineEdit {
+                target: run.anchor.clone(),
+                action: editor::InlineAction::InsertAfter(p.runs()[0].clone()),
             }],
         )?;
     }
@@ -745,8 +775,26 @@ pub async fn generate(output: &Path) -> Result<()> {
             end: 8,
             text: "Ranged 📝".into(),
         }],
+        text_insertions: &[editor::TextInsertion {
+            target: targets[0].anchor.clone(),
+            position: 8,
+            text: " + point".into(),
+        }],
         resources: &[
             editor::ResourceEdit::CoreTitle(Some("Edited resource sample".into())),
+            editor::ResourceEdit::CoreSubject(Some("Imported resource edits".into())),
+            editor::ResourceEdit::Metadata(
+                editor::MetadataField::Creator,
+                Some("Review team".into()),
+            ),
+            editor::ResourceEdit::Metadata(
+                editor::MetadataField::Manager,
+                Some("Review lead".into()),
+            ),
+            editor::ResourceEdit::CustomProperty(
+                "Reviewed".into(),
+                Some(editor::CustomValue::Boolean(false)),
+            ),
             editor::ResourceEdit::DefaultAlignment(Some(Alignment::Center)),
             editor::ResourceEdit::AbstractStart(editor::AbstractStart {
                 abstract_id: 100,
@@ -780,7 +828,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         &[
             editor::InlineEdit {
                 target: label.anchor.clone(),
-                action: editor::InlineAction::SetBold(false),
+                action: editor::InlineAction::SetToggle(editor::RunToggle::Italic, Some(true)),
             },
             editor::InlineEdit {
                 target: link.anchor.clone(),
@@ -789,6 +837,7 @@ pub async fn generate(output: &Path) -> Result<()> {
         ],
     )?;
     assert_eq!(whole.inline_changes().last(), Some(&(paragraph_index, 1)));
+    assert_eq!(label.italic, None);
     let removal = imported.preview_with_run_removals(
         &[],
         &[],
@@ -797,7 +846,19 @@ pub async fn generate(output: &Path) -> Result<()> {
         std::slice::from_ref(&label.anchor),
     )?;
     assert_eq!(removal.run_removals()[0].before, INLINE_LABEL);
-    std::fs::write(output.with_extension("run-text.docx"), preview.to_docx()?)?;
+    let edited_bytes = preview.to_docx()?;
+    let resource_result = editor::ImportedDocument::open(&edited_bytes)?;
+    assert_eq!(
+        resource_result
+            .metadata_field(editor::MetadataField::Manager)?
+            .as_deref(),
+        Some("Review lead")
+    );
+    assert_eq!(
+        resource_result.custom_property("Reviewed")?,
+        Some(editor::CustomValue::Boolean(false))
+    );
+    std::fs::write(output.with_extension("run-text.docx"), edited_bytes)?;
     assert_eq!(
         label.items,
         [editor::ImportedInline::Text(INLINE_LABEL.into())]
