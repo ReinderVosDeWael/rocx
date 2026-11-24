@@ -6,6 +6,7 @@ use crate::xml::{Content, Node};
 use crate::{Alignment, Result};
 use std::collections::{BTreeMap, BTreeSet};
 mod defaults;
+pub(super) use defaults::is_numbering_format;
 pub use defaults::{DefaultField, DefaultTab, DefaultValue};
 mod metadata;
 pub use metadata::{CustomValue, MetadataField};
@@ -80,6 +81,37 @@ impl Part {
 }
 
 /// Allocate a relationship-selected Word part without claiming orphan parts.
+fn free_resource_path(pkg: &Package, stem: &str, unnumbered: bool) -> Result<String> {
+    let manifest = pkg.xml("[Content_Types].xml")?;
+    let reserved: BTreeSet<_> = pkg
+        .parts
+        .keys()
+        .map(|p| p.to_ascii_lowercase())
+        .chain(
+            manifest
+                .elements()
+                .filter_map(|n| n.get("PartName"))
+                .map(|p| p.trim_start_matches('/').to_ascii_lowercase()),
+        )
+        .collect();
+    for i in usize::from(!unnumbered).. {
+        let path = if i == 0 {
+            format!("{stem}.xml")
+        } else {
+            format!("{stem}{i}.xml")
+        };
+        let (dir, name) = path
+            .rsplit_once('/')
+            .map_or(("", path.as_str()), |(d, n)| (&path[..d.len() + 1], n));
+        if !reserved.contains(&path.to_ascii_lowercase())
+            && !reserved.contains(&format!("{dir}_rels/{name}.rels").to_ascii_lowercase())
+        {
+            return Ok(path);
+        }
+    }
+    unreachable!()
+}
+
 pub(super) fn create_word_part(
     pkg: &mut Package,
     main: &str,
@@ -89,7 +121,7 @@ pub(super) fn create_word_part(
         || format!("rocx-{kind}"),
         |(dir, _)| format!("{dir}/rocx-{kind}"),
     );
-    let path = pkg.unique(&prefix, "xml");
+    let path = free_resource_path(pkg, &prefix, false)?;
     pkg.content_type(
         &path,
         &format!("application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"),
@@ -292,6 +324,7 @@ pub(super) fn apply(pkg: &mut Package, main: &str, edits: &[ResourceEdit]) -> Re
         let (path, mut root) = Part::Numbers
             .load(pkg, main)?
             .ok_or_else(|| unsupported("missing numbering part"))?;
+        super::numbering::validate_start_links(pkg, main, &root, starts.keys().map(|(id, _)| *id))?;
         let mut changed = false;
         visit_levels(&mut root, |a, l, n| {
             if let Some(start) = starts.remove(&(a, l)) {

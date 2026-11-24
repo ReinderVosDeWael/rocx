@@ -47,6 +47,22 @@ pub(crate) const HOOKS: Hooks = Hooks {
         ),
         ("importedAbstractStarts", (abstract_starts, Paths::Package)),
         (
+            "importedNumberingCatalog",
+            (numbering_catalog, Paths::Package),
+        ),
+        (
+            "importedCellParagraphAnchor",
+            (cell_paragraph_anchor, Paths::Package),
+        ),
+        (
+            "importedStoryParagraphAnchor",
+            (story_paragraph_anchor, Paths::Package),
+        ),
+        (
+            "importedStoryParagraphNumbering",
+            (story_paragraph_numbering, Paths::Package),
+        ),
+        (
             "importedNumberingInstances",
             (numbering_instances, Paths::Package),
         ),
@@ -90,7 +106,11 @@ const DOCUMENT_METHODS: &[(&str, &str)] = &[
     ("defaultAlignment", "importedDefaultAlignment"),
     ("abstractStarts", "importedAbstractStarts"),
     ("numberingInstances", "importedNumberingInstances"),
+    ("numberingCatalog", "importedNumberingCatalog"),
     ("paragraphNumbering", "importedParagraphNumbering"),
+    ("cellParagraphAnchor", "importedCellParagraphAnchor"),
+    ("storyParagraphAnchor", "importedStoryParagraphAnchor"),
+    ("storyParagraphNumbering", "importedStoryParagraphNumbering"),
     // Editor operations borrow the same ImportedSource and original Rust anchors.
     ("editStoryText", "importedEditStoryText"),
     ("editStoryReference", "importedEditStoryReference"),
@@ -483,6 +503,47 @@ fn numbering_instances(input: &Wire) -> Result<JsValue> {
     ))
 }
 
+fn numbering_catalog(input: &Wire) -> Result<JsValue> {
+    use crate::styles::{imported_numbering_level as level, start_override_view};
+    let doc = b::borrow::<ImportedSource>(&call(input)?.get("target")?, "document")?;
+    let catalog = doc.document().numbering_catalog()?;
+    let abstracts = view::array(catalog.abstracts.iter().map(|a| {
+        let record = b::record(&[
+            ("abstractId", a.abstract_id.into()),
+            ("levels", view::array(a.levels.iter().map(level))),
+        ]);
+        if let Some(value) = &a.style_link {
+            b::set(&record, "styleLink", &value.as_str().into());
+        }
+        if let Some(value) = &a.num_style_link {
+            b::set(&record, "numStyleLink", &value.as_str().into());
+        }
+        record
+    }));
+    let instances = view::array(catalog.instances.iter().map(|n| {
+        b::record(&[
+            ("numId", n.num_id.into()),
+            ("abstractId", n.abstract_id.into()),
+            (
+                "styleIds",
+                view::array(n.style_ids.iter().map(|s| s.as_str().into())),
+            ),
+            (
+                "startOverrides",
+                view::array(n.start_overrides.iter().map(start_override_view)),
+            ),
+            (
+                "levelOverrides",
+                view::array(n.level_overrides.iter().map(level)),
+            ),
+        ])
+    }));
+    Ok(b::record(&[
+        ("abstracts", abstracts),
+        ("instances", instances),
+    ]))
+}
+
 fn paragraph_numbering(input: &Wire) -> Result<JsValue> {
     let call = call(input)?;
     let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
@@ -491,6 +552,70 @@ fn paragraph_numbering(input: &Wire) -> Result<JsValue> {
     Ok(doc
         .document()
         .paragraph_numbering(&p)?
+        .map_or(JsValue::UNDEFINED, |r| {
+            b::record(&[("id", r.id.into()), ("level", r.level.into())])
+        }))
+}
+
+fn story_paragraph_anchor(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let args = argument(&call, "site")?;
+    let site = Record::new(&args, "site", &["ownerPart", "entryId", "blockIndex"])?;
+    let owner = b::string(&site.get("ownerPart")?, "site.ownerPart")?;
+    let id = site.get("entryId")?;
+    let entry = if id.js().is_undefined() {
+        None
+    } else {
+        Some(b::string(&id, "site.entryId")?)
+    };
+    let index = b::u64_number(&site.get("blockIndex")?, "site.blockIndex")?
+        .try_into()
+        .map_err(|_| Failure::invalid("site.blockIndex", "invalid index"))?;
+    Ok(b::handle(
+        "storyParagraphAnchor",
+        doc.document()
+            .story_paragraph_anchor(&owner, index, entry.as_deref())?,
+        JsValue::UNDEFINED,
+    ))
+}
+
+fn cell_paragraph_anchor(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let args = argument(&call, "site")?;
+    let site = Record::new(
+        &args,
+        "site",
+        &["target", "rowIndex", "cellIndex", "blockIndex"],
+    )?;
+    let target = b::borrow::<rocx::editor::TableAnchor>(&site.get("target")?, "site.target")?;
+    let index = |k| {
+        b::u64_number(&site.get(k)?, &site.path(k))?
+            .try_into()
+            .map_err(|_| Failure::invalid(&site.path(k), "invalid index"))
+    };
+    Ok(b::handle(
+        "storyParagraphAnchor",
+        doc.document().cell_paragraph_anchor(
+            &target,
+            index("rowIndex")?,
+            index("cellIndex")?,
+            index("blockIndex")?,
+        )?,
+        JsValue::UNDEFINED,
+    ))
+}
+fn story_paragraph_numbering(input: &Wire) -> Result<JsValue> {
+    let call = call(input)?;
+    let doc = b::borrow::<ImportedSource>(&call.get("target")?, "document")?;
+    let target = b::borrow::<rocx::editor::StoryParagraphAnchor>(
+        &argument(&call, "paragraph")?,
+        "paragraph",
+    )?;
+    Ok(doc
+        .document()
+        .story_paragraph_numbering(&target)?
         .map_or(JsValue::UNDEFINED, |r| {
             b::record(&[("id", r.id.into()), ("level", r.level.into())])
         }))

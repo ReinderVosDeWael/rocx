@@ -247,6 +247,38 @@ dto!(start_override, start_override_view, NumberingStartOverride {
     "level" => level: required(uint, uint_view),
     "start" => start: required(uint, uint_view),
 });
+
+pub(crate) fn imported_numbering_level(l: &rocx::editor::ImportedNumberingLevel) -> JsValue {
+    let result = b::record(&[
+        ("level", l.level.into()),
+        ("hasOpaqueContent", l.has_opaque_content.into()),
+    ]);
+    macro_rules! optional { ($(($key:literal, $value:expr)),+ $(,)?) => {$(
+        if let Some(value) = $value { b::set(&result, $key, &value); }
+    )+}; }
+    optional!(
+        ("start", l.start.map(Into::into)),
+        ("format", l.format.as_deref().map(Into::into)),
+        ("text", l.text.as_deref().map(Into::into)),
+        ("isLegal", l.is_legal.map(Into::into)),
+        ("restart", l.restart.map(Into::into)),
+        ("suffix", l.suffix.as_ref().map(numbering_suffix_view)),
+        (
+            "alignment",
+            l.alignment.as_ref().map(numbering_alignment_view)
+        ),
+        (
+            "paragraphStyle",
+            l.paragraph_style.as_deref().map(Into::into)
+        ),
+        ("labelFormat", l.label_format.as_ref().map(run_format_view)),
+        (
+            "paragraphFormat",
+            l.paragraph_format.as_ref().map(paragraph_format_view)
+        ),
+    );
+    result
+}
 dto!(paragraph_style, paragraph_style_view, ParagraphStyleDefinition, "kind" {
     "name" => name: required(text, text_view),
     "baseStyle" => base_style: optional(text, text_view),

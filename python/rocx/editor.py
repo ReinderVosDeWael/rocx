@@ -30,7 +30,10 @@ Use ``doc.style_anchor(id)`` to address a style by exact ID. ``StyleEdit.add``
 accepts paragraph, character, table and numbering declarations. A numbering
 style binds an existing concrete list. ``StyleEdit.field`` sets or clears a
 direct scalar field; ``StyleEdit.region`` sets or clears a conditional table
-region. ``replace`` and ``remove`` require unused, recognized custom definitions.
+region. Dotted fields such as ``spacing.after`` and ``lang.eastAsia`` patch
+one stored attribute. Adding styles can create a missing styles part.
+``replace`` and ``remove`` require unused, recognized custom definitions;
+``retarget(source, replacement)`` migrates provable same-kind uses first.
 Each ``ImportedStyle.property_xml`` entry contains one direct property group
 or table region, with its namespace declarations.
 
@@ -39,6 +42,12 @@ paragraph and settings defaults. ``ResourceEdit.document_default(field, value)``
 sets one field, or clears it when ``value`` is ``None``. For example, ``False``
 on ``"bold"`` is distinct from clearing it. Tab stops are triples of signed
 twip position, alignment, and optional leader.
+
+``ImportedDocument.numbering_catalog`` returns direct abstract/concrete entries
+with complete modeled levels, nested label/paragraph formats, and stored style
+IDs. The dictionary uses the same snake-case keys as CLI inspection. Missing
+properties are omitted, opaque level content is flagged, and inherited levels
+are not expanded.
 
 ``ImportedDocument.stories`` inspects effective default, first, and even header
 and footer references without simulating page selection. Every effective slot
@@ -66,6 +75,7 @@ from ._native import (
     ImportedNumberingInstance,
     ResourceEdit,
     StyleAnchor,
+    StoryParagraphAnchor,
     StyleEdit,
     ControlAnchor,
     ControlSite,
@@ -125,6 +135,13 @@ from ._native import (
     TableInsertionChange,
 )
 
+from ._numbering_view import (
+    ImportedConcreteNumbering,
+    ImportedNumberingAbstract,
+    ImportedNumberingCatalog,
+    ImportedNumberingLevel,
+)
+
 # Both story views expose the same paragraph class.
 ImportedStoryParagraph = ImportedHeaderParagraph
 
@@ -142,8 +159,13 @@ class ControlProperties(ContentControlMetadata):
 __all__ = [
     "AbstractStart",
     "ImportedNumberingInstance",
+    "ImportedConcreteNumbering",
+    "ImportedNumberingAbstract",
+    "ImportedNumberingCatalog",
+    "ImportedNumberingLevel",
     "ResourceEdit",
     "StyleAnchor",
+    "StoryParagraphAnchor",
     "StyleEdit",
     "ControlAnchor",
     "ControlSite",

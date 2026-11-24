@@ -757,6 +757,24 @@ pub fn numbering() -> Vec<NumberingDefinition> {
             .with_id(63)
             .with_abstract_id(101)
             .with_inherit_style("Catalog Bullets"),
+        NumberingDefinition::default()
+            .with_id(64)
+            .with_abstract_id(102)
+            .with_levels(vec![
+                NumberingLevel::default()
+                    .with_start(1)
+                    .with_format("decimal")
+                    .with_text("%1."),
+            ]),
+        NumberingDefinition::default()
+            .with_id(65)
+            .with_abstract_id(103)
+            .with_levels(vec![
+                NumberingLevel::default()
+                    .with_start(1)
+                    .with_format("decimal")
+                    .with_text("%1."),
+            ]),
     ]
 }
 pub fn notes() -> Vec<Value<Note>> {

@@ -110,7 +110,9 @@ The shared field keys are `title`, `subject`, `creator`, `description`, `keyword
 `version`, `created`, `modified`, `lastPrinted`, `lastModifiedBy`, `revision`,
 `identifier`, `language`, `contentStatus`, `company` and `manager`. Rust enum
 variants capitalize the first letter. All are string-valued. Word's core
-“Comments” field is `description` (`dc:description`); comment-entry authors are
+“Comments” is the same `dc:description` as `description`. Use
+`MetadataField::Comments` in Rust or the `comments` key in Python and JavaScript;
+edits using both spellings in one batch conflict. Comment-entry authors are
 story data. Dates are read as source text; set them with a valid UTC timestamp
 in `YYYY-MM-DDTHH:MM:SSZ` form. Timestamp edits never update another date.
 
@@ -137,19 +139,36 @@ compute displayed labels.
 | Operation | Rust variant | Python factory | JavaScript `kind` and fields |
 | --- | --- | --- | --- |
 | Add abstract levels | `AddAbstract { abstract_id, levels }` | `add_abstract(abstract_id, levels)` | `addAbstract`: `abstractId`, `levels` |
+| Replace the levels of an existing abstract | `ReplaceAbstract { abstract_id, levels }` | `replace_abstract(abstract_id, levels)` | `replaceAbstract`: `abstractId`, `levels` |
+| Set/clear one physical abstract level | `AbstractLevel { abstract_id, level, value }` | `abstract_level(abstract_id, level, value)` | `abstractLevel`: `abstractId`, `level`, `value` |
 | Remove unused abstract | `RemoveAbstract { abstract_id }` | `remove_abstract(abstract_id)` | `removeAbstract`: `abstractId` |
 | Add concrete instance of an abstract | `AddInstance { num_id, abstract_id }` | `add_instance(num_id, abstract_id)` | `addInstance`: `numId`, `abstractId` |
+| Relink an existing concrete instance | `RelinkInstance { num_id, abstract_id }` | `relink_instance(num_id, abstract_id)` | `relinkInstance`: `numId`, `abstractId` |
+| Replace a concrete link and all its overrides | `ReplaceInstance(Box<NumberingDefinition>)` | `replace_instance(definition)` | `replaceInstance`: `definition` |
 | Remove unused instance | `RemoveInstance { num_id }` | `remove_instance(num_id)` | `removeInstance`: `numId` |
 | Set/clear concrete start | `InstanceStart { num_id, level, start }` | `instance_start(num_id, level, start)` | `instanceStart`: `numId`, `level`, `value` |
 | Set/clear concrete level replacement | `InstanceLevel { num_id, level, value }` | `instance_level(num_id, level, value)` | `instanceLevel`: `numId`, `level`, `value` |
 | Assign/clear a direct body paragraph's list | `Paragraph { target, value }` | `paragraph_numbering(target, value)` | `paragraphNumbering`: `target`, `value` |
+| Assign/clear a direct cell or story paragraph's list | `StoryParagraph { target, value }` | `story_paragraph_numbering(target, value)` | `storyParagraphNumbering`: `target`, `value` |
 
 Add a nonempty list of distinct `NumberingLevel` declarations (indices 0–8).
-Supported `format` tokens are `decimal`, `decimalZero`, `upperRoman`, `lowerRoman`,
-`upperLetter`, `lowerLetter`, `bullet` and `none`. A concrete replacement's index
-must match its target. Level declarations cannot link paragraph styles. A
+Use a standard `numFmt` token, e.g. `decimal`, `ordinal`, `lowerRoman` or `bullet`.
+A concrete replacement's index must match its target. A level can identify
+an existing, unambiguous paragraph style using its ID or name. A
 replacement and a start override may coexist; clearing either retains the other.
 Pass `None`/`null` to clear. Omit an edit to retain that property.
+Replace or clear only modeled level content. Whole abstract replacement
+retains the abstract ID, metadata and unrelated siblings; reapplying the same
+modeled level payload is a no-op. A surviving instance must keep its old level
+addresses. An owned abstract may change its local levels if its `styleLink`
+and the owning style's `numId` are reciprocal. A level-free `numStyleLink`
+alias has no direct editable levels; paragraph assignments through the alias
+validate against the proven owner. An owning instance cannot move to another
+abstract and strand the link. Non-owner instances can relink when old level
+addresses and overrides remain valid. Dangling, cyclic, ambiguous or malformed
+links block edits to the affected graph. Concrete replacement takes an explicit abstract ID and may
+specify start and level overrides, but cannot declare abstract levels or
+inherited styles. It conflicts with separate instance changes at the same ID.
 
 Rust `numbering_instances()`, Python `numbering_instances`, and JavaScript
 `numberingInstances()` list the physical instance ID, abstract ID, direct
@@ -160,9 +179,18 @@ The value is Rust `NumberingReference`, Python `(num_id, level)` or JavaScript
 `{id, level}`. A partial, annotated or revision-bearing `numPr` is unsupported;
 inherited numbering is not returned. Paragraph anchors expire on reopen.
 
+`story_paragraph_anchor` / `storyParagraphAnchor` selects a direct physical
+header/footer paragraph or an ordinary note/comment paragraph by owner, original
+block index and, for an entry, its decimal ID. Two slots sharing a part target
+the same paragraph. `cell_paragraph_anchor` / `cellParagraphAnchor` selects a
+direct paragraph in a direct body table by table anchor and physical row, cell
+and block indices. `story_paragraph_numbering` / `storyParagraphNumbering`
+reads either anchor. Nested, protected, opaque and merge-continuation targets
+are not supported.
+
 Adds, overrides and paragraph assignments can share a batch, including forward
-references. A reference or override must point to a direct level of a surviving
-instance's abstract. Removal never retargets other users. Clear the paragraph
+references. A reference or override must point to a level of a surviving
+instance's local or proven inherited abstract. Removal never retargets other users. Clear the paragraph
 reference and remove the instance and abstract together if they have no remaining
 users. Destructive edits reject definitions with formatting/opaque markup they
 cannot safely discard. Removal checks the staged numbering part and other Word
@@ -170,12 +198,40 @@ parts, including styles, note stories and headers; fields, opaque extensions or
 uninspectable parts can prevent removal even without a known direct reference.
 Duplicate edits and dangling targets fail the entire preview.
 
-There is no general whole-definition replacement, instance relinking, in-place
-abstract level insertion/removal, relinking an existing numbering style, or direct reference
-editing in other stories.
+`numbering_catalog()` (Rust), `numbering_catalog` (Python) and
+`numberingCatalog()` (JavaScript) expose physical abstract and concrete entries
+in source order. Abstracts include `style_link` / `styleLink` and
+`num_style_link` / `numStyleLink`. Concrete entries include direct `style_ids`
+/ `styleIds`, start overrides and complete replacement-level readback. Each
+level reports the directly stored start, format, text, restart, legal flag,
+suffix, alignment and paragraph style ID, plus modeled label and paragraph
+formatting in authoring units. Rust uses `ImportedNumberingLevel` with typed
+`RunFormat` and `ParagraphFormat`; Python returns a dictionary with snake-case
+keys (the same as CLI `numbering_catalog`), and JavaScript uses typed camel-case
+records. Missing values are not synthesized, and aliases do not flatten their
+provider's levels. Legacy and typed line spacing use the same stored XML and
+read back as typed line height.
+
+`has_opaque_content` / `hasOpaqueContent` marks fields that cannot be fully
+represented. Destructive updates refuse such content, including legacy
+numbering tabs, independent theme-color fallback, malformed values and
+foreign markup. The editor does not compute effective numbering or rewrite
+ownership.
 
 A new numbering style may bind a concrete instance created in the same
 preview. The style stores its `numId`, and the abstract gets a reciprocal
 `styleLink`. A simultaneous defaults patch uses the same styles part, including
 when it must be created. Removals check the final staged references; clearing a
 paragraph reference never permits removing an instance still used by a style.
+
+### Modeled acceptance boundary
+
+Editing covers the declarative `DocumentDefaults` run and paragraph fields
+and document-wide note numbering/placement, margin/gutter switches and
+revision tracking. Metadata covers every stored `Metadata` field (including
+the description/Comments alias, Company and Manager), both declarative custom
+types, and independent core timestamps. These are physical values, not a
+reconstruction of authoring precedence or render options. Other Word
+settings, extended properties, linked or other custom-property types and
+unmodeled numbering markup are preserved when changing supported siblings,
+not treated as writable declarations.

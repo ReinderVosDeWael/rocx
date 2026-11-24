@@ -321,6 +321,28 @@ def test_numbering_and_style_paths_share_lexical_ids_and_media_types():
     assert any(style.name == "Lexical List" for style in ImportedDocument.open(edited).styles.styles)
 
 
+def test_defaults_and_metadata_preserve_compatible_scalar_lexemes():
+    def pad_defaults(root):
+        size = root.find(f"{qn('w:docDefaults')}/{qn('w:rPrDefault')}/{qn('w:rPr')}/{qn('w:sz')}")
+        size.set(qn("w:val"), " +022 ")
+
+    def pad_date_type(root):
+        created = root.find("{http://purl.org/dc/terms/}created")
+        created.set("{http://www.w3.org/2001/XMLSchema-instance}type", " dcterms:W3CDTF ")
+
+    original = rewrite(save(docx.Document()), "word/styles.xml", pad_defaults)
+    original = rewrite(original, "docProps/core.xml", pad_date_type)
+    doc = ImportedDocument.open(original)
+    assert doc.document_defaults["sizeHalfPoints"] == 22
+    created = doc.metadata_field("created")
+    assert created is not None
+    noop = doc.preview([], resources=[
+        ResourceEdit.document_default("sizeHalfPoints", 22),
+        ResourceEdit.metadata("created", created),
+    ]).to_docx()
+    assert parts(noop) == parts(original)
+
+
 @pytest.mark.parametrize("value", [None, "fixed"])
 def test_layout_noop_preserves_every_part(value):
     source = docx.Document()

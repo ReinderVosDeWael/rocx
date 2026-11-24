@@ -42,7 +42,7 @@ fn unique<'a>(node: &'a Node, name: &str) -> Result<Option<&'a Node>> {
     Ok(first)
 }
 
-fn validate(table: &Node, structural: bool) -> Result<()> {
+pub(super) fn validate(table: &Node, structural: bool) -> Result<()> {
     let bad = || unsupported("unsupported or malformed table grid or merge");
     if table.name != "w:tbl" || table.child(ALTERNATE).is_some() {
         return Err(bad());

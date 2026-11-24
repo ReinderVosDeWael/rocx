@@ -12,8 +12,9 @@ import sys
 import rocx
 from rocx import declarative as d
 from rocx.editor import (
-    HeaderImageEdit, ImportedDocument, ImportedHyperlink, ImportedRun, ParagraphAlignmentEdit,
-    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit, LayoutEdit, ImportedFraction,
+    HeaderImageEdit, ImportedDocument, ImportedFraction, ImportedHyperlink, ImportedNumberingCatalog,
+    ImportedRun, ParagraphAlignmentEdit,
+    ResourceEdit, ControlEdit, TableStructureEdit, InlineEdit, BlockEdit, StyleEdit, LayoutEdit,
     TableInsertion, TextRangeEdit, TextInsertion, RunTextEdit, CellAlignmentEdit, ParagraphInsertion,
 )
 
@@ -434,7 +435,9 @@ async def generate(output: pathlib.Path) -> bytes:
         level_overrides=[d.NumberingLevel(1, 4, "upperRoman", "(%2)", is_legal=True, suffix="nothing", restart=1, alignment="start"), d.NumberingLevel(0, 3, "lowerLetter", "%1)", is_legal=False, suffix="space", restart=0, alignment="end", label_format=d.RunDefaults(bold=False, italic=True), paragraph_format=d.ParagraphDefaults(left_indent=36), paragraph_style="Heading 2")]),
         d.NumberingDefinition(61, bullet_levels, abstract_id=100),
         d.NumberingDefinition(62, bullet_levels, start_overrides=[d.NumberingStartOverride(0, 4)], abstract_id=100),
-        d.NumberingDefinition(63, abstract_id=101, inherit_style="Catalog Bullets")]
+        d.NumberingDefinition(63, abstract_id=101, inherit_style="Catalog Bullets"),
+        d.NumberingDefinition(64, [d.NumberingLevel()], abstract_id=102),
+        d.NumberingDefinition(65, [d.NumberingLevel()], abstract_id=103)]
     document = d.Document(sections, timestamp=STAMP, creator="DOCX inspection catalog", title="All features visual inspection",
         subject="Rust/Python/JavaScript byte parity", description="Labeled functionality samples; not a rendering guarantee", keywords="docx,visual,parity",
         category="Examples", comments="Core metadata comments", version="1.0", comment_author="Catalog reviewer",
@@ -461,6 +464,7 @@ async def generate(output: pathlib.Path) -> bytes:
         StyleEdit.add(d.ParagraphStyleDefinition(name="Catalog Imported Child", base_style="Catalog Base")),
         StyleEdit.patch(imported.style_anchor("CatalogBase"), italic=True),
         StyleEdit.field(imported.style_anchor("Regionfirst_row"), "b", None, region="firstRow"),
+        StyleEdit.field(imported.style_anchor("Regionfirst_row"), "lang.eastAsia", "ko-KR", region="firstRow"),
         StyleEdit.region(imported.style_anchor("Regionlast_row"), "lastRow", d.TableSectionFormat(italic=True)),
         StyleEdit.add(d.NumberingStyleDefinition(name="Catalog Imported List", numbering_id=60)),
     ])
@@ -573,9 +577,16 @@ async def generate(output: pathlib.Path) -> bytes:
                                text_insertions=[TextInsertion(targets[0].anchor, 8, " + point")],
                                resources=[ResourceEdit.core_title("Edited resource sample"),
                                           ResourceEdit.core_subject("Imported resource edits"),
+                                          ResourceEdit.metadata("comments", "Reviewed numbering"),
                                           ResourceEdit.metadata("creator", "Review team"),
                                           ResourceEdit.metadata("manager", "Review lead"),
                                           ResourceEdit.custom_property("Reviewed", False),
+                                          ResourceEdit.replace_abstract(102, [d.NumberingLevel(start=3, format="upperLetter", text="%1)")]),
+                                          ResourceEdit.abstract_level(103, 0, d.NumberingLevel(start=4, format="upperRoman")),
+                                          ResourceEdit.relink_instance(64, 100),
+                                          ResourceEdit.replace_instance(d.NumberingDefinition(65, abstract_id=103, start_overrides=[d.NumberingStartOverride(0, 12)])),
+                                          ResourceEdit.abstract_level(100, 1, d.NumberingLevel(level=1, text="%2.", paragraph_style="Heading 2")),
+                                          ResourceEdit.story_paragraph_numbering(imported.story_paragraph_anchor(review.part_name, 0, review.id), (9049, 0)),
                                           ResourceEdit.default_alignment("center"),
                                           ResourceEdit.document_default("bold", False),
                                           ResourceEdit.document_default("footnoteStart", 5),
@@ -615,6 +626,12 @@ async def generate(output: pathlib.Path) -> bytes:
     assert removal.run_removals[0].before == INLINE_LABEL
     edited_bytes = preview.to_docx()
     resource_result = ImportedDocument.open(edited_bytes)
+    numbering: ImportedNumberingCatalog = resource_result.numbering_catalog
+    owner, = (a for a in numbering["abstracts"] if a["abstract_id"] == 100)
+    assert owner["style_link"] == "CatalogBullets" and owner["levels"][1]["paragraph_style"] == "Heading2"
+    assert any(a["abstract_id"] == 101 and a.get("num_style_link") == "CatalogBullets" and not a["levels"]
+               for a in numbering["abstracts"])
+    assert next(i for i in numbering["instances"] if i["num_id"] == 61)["style_ids"] == ["CatalogBullets"]
     assert resource_result.metadata_field("manager") == "Review lead" and resource_result.custom_property("Reviewed") is False
     output.with_suffix(".run-text.docx").write_bytes(edited_bytes)
     assert isinstance(label, ImportedRun) and isinstance(inline_link, ImportedHyperlink)

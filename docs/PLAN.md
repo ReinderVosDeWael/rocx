@@ -4,6 +4,40 @@ Documentation pass: publish user guides and API references only. Keep build, arc
 
 ## Current milestone: implement the remaining editor capabilities
 
+**#48 follow-up:** merge `26eb84e` into `b89afbc` without changing either
+baseline's qualification record. The merged candidate carries the union of
+both oracle inventories and `linkedMixed`: a reciprocal
+style-owned level edit, inline formatting, removal of an earlier table, and
+assignment to a cell addressed in the original snapshot. Keep #48 open
+until this follow-up reaches `main` and hosted checks pass; #65 proceeds
+independently and #3 stays closed.
+
+**Merged candidate evidence:** 312 default-feature and 349 all-feature
+all-target Rust tests, three doctests, Rust 1.88 and stable native/Wasm
+Clippy, warning-free Rustdoc and the 698-page strict docs build passed. All
+1,019 schema-required tests passed against the installed Python 3.12 wheel.
+The full packed gates passed independently on Node 22.23.5 and 24.22.3,
+each with Chromium 159 development and production. All 56 editor outputs
+and 15 catalog packages matched native Rust byte for byte in each mode;
+the installed Python catalog also matched all 15. Strict TypeScript,
+offline Wasm/glue replay, schema/OPC, typed readback and installed-package
+provenance passed.
+
+`linkedMixed` matched native Rust, CLI, installed Python and all packed
+consumers (36,700 bytes, SHA-256
+`e77f8cb1512ecc4341c253982504194462b8c085d47c4a7639f1eeb5a41d70bc`).
+Independent package checks retain the untouched payloads, including the opaque
+header, preserve the numbering alias and concrete overrides, and verify the
+new numbering/inline values. Tests separately reject a cell/table overlap,
+deletion of the owning concrete instance, and stale anchors; a failed preview
+does not affect retry and a failed CLI save does not create a destination.
+The original `linkedNumbering` bytes are unchanged. The two historical
+inventories are still represented; regenerated comment timestamps and the
+extended style fixture account for editor byte differences against the
+saved parents. Catalog comparisons use the merged declarations rather than
+requiring expanded examples to reproduce an older catalog.
+
+**Historical qualification of `b89afbc`:**
 The owner closed #3 manually; [PR #65](https://github.com/ReinderVosDeWael/rocx/pull/65)
 remains draft. The primary branch now merges `1fda978` onto `5be07b3`.
 The [acceptance map](EDITOR-ACCEPTANCE.md) records the combined operation
@@ -21,6 +55,52 @@ matched Rust byte for byte, and installed Python also matched the catalog.
 The 14 catalogs inherited from `1fda978` retained their exact bytes. Strict
 TypeScript, offline source replay, schema/OPC and untouched-payload checks
 passed separately from typed readback.
+
+**Historical qualification of `26eb84e`:**
+**#48 modeled acceptance on the combined editor:** the direct numbering
+catalog reads full modeled levels and replacement levels, including nested
+label/paragraph formatting and stored style links. Local levels can be edited
+when the `styleLink` / style `numId` relationship is reciprocal; level-free
+aliases are kept intact and their paragraph assignments are checked against
+the owner. The CLI uses the same readback and accepts rich level declarations.
+The authoring audit found no remaining declarative default fields; the
+metadata Comments key now explicitly aliases the stored description.
+
+Combined qualification includes `0ba9350` and its structural CLI merge
+`c3ea09d`. The 345 Rust all-feature/all-target tests, three doctests, 991
+schema-required installed Python 3.12 tests, native and Wasm Clippy, Rust 1.88,
+strict installed TypeScript, offline Wasm/glue
+replay and 667-page strict docs build passed. All 13 catalogs matched across
+Rust, installed Python, packed Node 22/24/26 and Chromium 159 development and
+production. All 38 editor oracles matched native Rust in the packed consumers
+and passed schema/OPC and independent readback. For the same python-docx
+linked-numbering fixture, the native oracle, CLI, installed Python and packed
+Node and both browser modes emitted identical DOCX bytes. Tests separately
+checked no-op preservation, stale anchors, conflicts, live references and
+opaque or broken style links.
+
+Closure criterion: require the combined fix and its cross-binding,
+schema/OPC, and preservation qualification on `main`. Do not count
+effective numbering, ownership migration, unsafe/dangling references,
+protected or arbitrary nested editing targets, legacy numbering tabs,
+independent theme fallbacks, or unmodeled default/metadata variants against
+the supported direct model. See [modeled acceptance](EDITOR-RESOURCES.md#modeled-acceptance-boundary).
+#3 is manually closed; this follow-up tracks #48 without reopening it.
+
+The isolated integration takes the structural merge at `c3ea09d` and the
+resource/style recovery at `2d5de8e`. It retains the earlier mixed oracles,
+physical-table property no-op guards, and both CLI discovery modes. The new
+fixture stages a numbering style and a footer list, applies a staged table
+style in the physical footer, and edits a section margin and border while
+preserving opaque attributes on the margin group and untouched border edge.
+These are three original-snapshot scopes, not a combined cross-owner batch.
+The combined verification passed 345 Rust all-feature/all-target tests, three
+doctests, native/Wasm Clippy, Rust 1.88, and 77 focused schema-required tests
+against the installed Python wheel. The CLI output matched the installed core
+at every stage; independent XML/ZIP readback and live-reference rejection
+verify that unchanged fields and physical-owner payloads survive.
+Packed Node 22/24 and Chromium 159 in development and production matched
+all 37 editor outputs and 13 catalogs.
 
 The merge of `f269508` into `c1b6627` combines the resource/style and structural
 CLI variants, including both inspection selectors in one request. Physical
@@ -122,6 +202,38 @@ schema/OPC checks; Node 22 and 24 also matched the 38 editor files. The
 installed Python catalog matched all 12 files; the
 independent Python editor checks verified the new combined workflow, revision
 and field packages, retained part payloads and python-docx readback.
+
+**#48 / style recovery atop `7d5d08b`:** recover the pending numbering work,
+compound style changes from `e7c7696`, and the pending numbering-style
+ownership regression in a separate worktree. The transaction stages abstract
+and instance replacements before styles and payloads, and rechecks removals
+against the finished package. Direct footer/header, ordinary note/comment
+and physical table-cell paragraphs can take numbering references. The CLI
+resolves those addresses against the digest-bound source and exposes abstract
+and instance replacement, level edits, relinking and explicit style retargeting.
+Equivalent level payloads and compatible default/metadata scalar lexemes
+remain untouched.
+
+Qualification: 341 Rust all-feature/all-target tests, three doctests, and
+974 schema-required tests against the installed Python 3.12 wheel passed.
+Rust 1.88, native/Wasm Clippy, strict installed TypeScript, offline Wasm/glue
+replay and the 632-page strict docs build passed. All 12 catalogs matched
+exactly across Rust, installed Python, packed Node 22/24/26 and Chromium 159
+development/production. All 29 editor outputs matched Rust in those packed
+consumers and passed schema/OPC checks. An independent footer/cell fixture
+matched Rust CLI, installed Python and packed Node byte for byte, including
+no-op, stale-anchor, duplicate, live-reference and opaque-markup probes.
+
+At that recovery checkpoint the direct readers did not reconstruct full
+abstract/override level bodies or expose their abstract style links. Edits
+were not yet able to change levels of style-linked abstracts or safely relink
+across them. Dropping level addresses of surviving instances and editing
+nested or protected paragraph targets remained unsupported.
+Unmodeled defaults, extended metadata and non-string/non-boolean custom
+variants are retained but not editable; the CLI still uses declaration
+shorthands. Style retargeting is restricted to provable, same-kind stored IDs;
+unknown references and lexical alias collisions remain conservative blockers.
+
 Primary integration ([#65](https://github.com/ReinderVosDeWael/rocx/pull/65)):
 the point, section, formatting, story and lifecycle work from `a30c516` is
 combined with `ea1c023` and the preservation guards from `ee4f8f5`. The merge
@@ -147,7 +259,7 @@ TypeScript and offline Wasm/glue replay from the packed source archive.
 The stale table inspection expectation on the hosted PR head is corrected
 and passes locally on Node 22 and 24 with Chromium. Hosted checks must rerun
 on the updated PR head. The remaining editor and transport limits are recorded
-in the acceptance map.
+in the acceptance map. This checkpoint preceded the manual closure of #3.
 
 **#3 preservation review of `fe5e5df`:** the editor now rejects matched MCE
 `ProcessContent` wrappers before treating a property as absent or a bookmark
@@ -255,6 +367,19 @@ The direct layout API addresses each inspected section independently of its
 first block, including empty implicit finals. The [layout contract](EDITOR-PARITY.md#direct-paragraph-and-section-layout)
 lists fields, units, clear semantics and unsupported imported forms.
 
+The recovered numbering increment allocates missing parts beside the main
+document, replaces supported levels and relinks instances without breaking
+consumer level addresses, and edits direct story paragraphs through their
+original physical owner.
+
+The standalone #3 style increment adds attribute-level formatting and tab edits,
+collision-safe creation of an absent styles relationship, and explicit guarded
+style-reference migration. The three style oracles matched complete Rust,
+installed Python, packed Node 26 and Chromium 159 output and passed schema/OPC
+validation. All eleven catalog files matched Rust/Python/Node. The installed
+consumer suite compared 25 editor outputs. Exercise style ownership with the
+#48 instance/override editor (`c1a8fac`) in a combined checkout.
+
 The ten topic branches start from `fad29a9` and were first combined in
 [#63](https://github.com/ReinderVosDeWael/rocx/pull/63). The
 [editor inventory](EDITOR-PARITY.md) describes the available calls
@@ -267,8 +392,8 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #44 Inlines | Insert/replace supported direct body inlines. Inspect and patch direct formatting on runs, including hyperlink children, in body paragraphs, physical body cells, effective header/footer parts and ordinary note/comment entries. | Nested tables, control/revision targets, themed or split Latin font selections and destructive edits over unrecognized properties. |
 | #45 Tables | Inspect and patch direct properties, insert/remove physical rows/cells and logical columns, and replace cell content in body, nested and physical story tables. Replace guarded table/row/cell nodes or remove eligible whole tables in the direct body. | Splitting protected merges, unsafe destructive changes, whole-node replacement/removal outside direct-body scope and cross-owner batches. |
 | #46 Stories | Shared/local images and guarded block splices in all six header/footer slots; create/link/remove explicit story references; direct story text, ordinary entry inlines and simple paragraph edits; note reference create/attach/detach/delete/retarget/renumber; base comment author/date/initials. | Deleting OPC story parts, custom note marks, shared or nested note reference edits, destructive rich block edits, modern comment metadata, reserved entries and local text forks. |
-| #47 Styles | Inspect direct property groups, regions and base/next/linked IDs. Add all four style kinds, edit selected scalar fields, set/clear all 13 conditional wrappers, and replace/remove recognized unused custom styles. | Non-scalar per-field patches, opaque destructive edits and retargeting live users. |
-| #48 Resources | Direct defaults and settings, core/extended/custom metadata, guarded abstract and concrete numbering edits, overrides and anchored paragraph numbering. | Rich destructive edits, unmodeled metadata and defaults. |
+| #47 Styles | Inspect direct properties, regions and base/next/linked IDs; add all four kinds and create an absent catalog; patch direct formatting attributes and tabs, set/clear all 13 conditional wrappers, and migrate provable typed ID references. | Rewriting field instructions or opaque users, arbitrary unmodeled XML edits, and migrating linked numbering styles. |
+| #48 Resources | Modeled defaults and metadata; typed direct numbering catalogs and guarded abstract/instance/override edits, reciprocal style-owned levels and direct body/cell/story paragraph numbering. | Effective numbering, ownership migration, unsafe level loss, protected or arbitrary nested targets, and unmodeled defaults or metadata. |
 | #49 Revisions and #3 follow-up | Track insertion, replacement, deletion and paired moves of simple direct body runs; track direct bold and simple whole-paragraph insert/delete; review eligible changes. | Mixed ordinary/revision transactions, other property changes, block moves and rich or nested revisions. |
 | #50 Controls | Inspect physical story owners; wrap/unwrap compatible main-story siblings in block/inline/row/cell contexts; replace supported rich block or inline content; edit approved metadata, text and choice lists. | Nested and bound edits, other specialized types, and mutation outside the main story. |
 | #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, story images/text, revision operations (including paragraph marks and bold), rich inline/field/range/control/drawing edits, point insertions, block flags, direct layout, section lifecycle, story references/splices, direct and physical table edits, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; physical-owner rich formatting and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |

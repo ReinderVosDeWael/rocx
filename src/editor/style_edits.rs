@@ -15,6 +15,7 @@ use std::{
 };
 mod fields;
 mod numbering;
+mod retarget;
 
 #[derive(Clone, Debug)]
 /// Exact style identity issued by one imported document snapshot.
@@ -50,6 +51,11 @@ pub enum StyleEdit {
         definition: StyleDefinition,
     },
     Remove(StyleAnchor),
+    /// Move all provable stored uses to a same-kind definition, then remove the source.
+    Retarget {
+        target: StyleAnchor,
+        replacement: StyleAnchor,
+    },
 }
 
 fn identity(def: &StyleDefinition) -> (&str, &str) {
@@ -367,6 +373,31 @@ impl ImportedDocument {
         }
         Ok(())
     }
+
+    pub(super) fn bind_numbering_styles(
+        &self,
+        pkg: &mut Package,
+        styles: &[StyleEdit],
+    ) -> Result<()> {
+        let mut pending = styles
+            .iter()
+            .filter_map(|edit| match edit {
+                StyleEdit::Add(StyleDefinition::Numbering(s)) => Some(s),
+                _ => None,
+            })
+            .peekable();
+        if pending.peek().is_none() {
+            return Ok(());
+        }
+        let (_, path) = pkg
+            .related(&self.main, "styles")?
+            .ok_or_else(|| unsupported("missing staged styles part"))?;
+        let root = pkg.word(&path)?;
+        for style in pending {
+            numbering::bind(self, pkg, &root, &style.name.replace(' ', ""), style)?;
+        }
+        Ok(())
+    }
     /// Resolve an exact ID in the selected catalog; names are not edit addresses.
     pub fn style_anchor(&self, id: &str) -> Result<StyleAnchor> {
         let (_, root) = self
@@ -388,6 +419,15 @@ impl ImportedDocument {
 
     pub(super) fn stage_styles(&self, package: &mut Package, edits: &[StyleEdit]) -> Result<()> {
         if edits.is_empty() {
+            return Ok(());
+        }
+        if edits
+            .iter()
+            .any(|e| matches!(e, StyleEdit::Retarget { .. }))
+        {
+            if edits.len() != 1 {
+                return Err(unsupported("retarget requires a single style operation"));
+            }
             return Ok(());
         }
         let (path, mut root) = match self.style_part()? {
@@ -434,6 +474,8 @@ impl ImportedDocument {
             }
         }
         let mut targets = BTreeSet::new();
+        let mut fields = BTreeSet::new();
+        let mut field_styles = BTreeSet::new();
         let original = edits
             .iter()
             .any(|edit| matches!(edit, StyleEdit::Replace { .. } | StyleEdit::Remove(_)))
@@ -447,6 +489,7 @@ impl ImportedDocument {
         let mut changed = false;
         for edit in edits {
             let target = match edit {
+                StyleEdit::Retarget { .. } => unreachable!(),
                 StyleEdit::Add(_) => None,
                 StyleEdit::Patch { target, .. }
                 | StyleEdit::Field { target, .. }
@@ -454,7 +497,15 @@ impl ImportedDocument {
                 | StyleEdit::Replace { target, .. }
                 | StyleEdit::Remove(target) => {
                     self.validate_snapshot(&target.snapshot)?;
-                    if !targets.insert(target.id.as_str()) {
+                    let id = target.id.as_str();
+                    let conflict = if let StyleEdit::Field { field, region, .. } = edit {
+                        field_styles.insert(id);
+                        targets.contains(id)
+                            || !fields.insert((id, region.as_deref(), field.as_str()))
+                    } else {
+                        field_styles.contains(id) || !targets.insert(id)
+                    };
+                    if conflict {
                         return Err(unsupported("duplicate style edit target"));
                     }
                     Some(target.id.as_str())
@@ -495,7 +546,7 @@ impl ImportedDocument {
                     if slot.is_some() {
                         return Err(unsupported("cannot replace a linked numbering style"));
                     }
-                    numbering::add(self, package, &mut root, &id, s)?;
+                    numbering::reserve(&mut root, &id, s);
                     added_numbering = true;
                     changed = true;
                 } else {

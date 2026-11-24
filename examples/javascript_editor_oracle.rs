@@ -39,6 +39,103 @@ fn pair(a: &str, b: &str) -> Table {
     ])
 }
 
+fn physical_resources(directory: &std::path::Path) -> Vec<u8> {
+    use rocx::editor::{
+        EditBatch, LayoutBorder, LayoutEdit, LayoutField, LayoutValue, NumberingEdit as N,
+        ResourceEdit::Numbering, StyleEdit, TableOperation, TableSite, TableStructureEdit,
+    };
+    let owner = "word/footer1.xml";
+    let source = fs::read(directory.join("physical-resources-source.docx")).unwrap();
+    let original = ImportedDocument::open(&source).unwrap();
+    let target = original.story_paragraph_anchor(owner, 0, None).unwrap();
+    let staged = original
+        .preview_edits(EditBatch {
+            styles: &[
+                StyleEdit::Add(
+                    rocx::TableStyleDefinition::default()
+                        .with_name("Owner Table Style")
+                        .into(),
+                ),
+                StyleEdit::Add(
+                    rocx::NumberingStyleDefinition {
+                        name: "Owner Numbering Style".into(),
+                        numbering_id: 773,
+                    }
+                    .into(),
+                ),
+            ],
+            resources: &[
+                Numbering(N::AddAbstract {
+                    abstract_id: 772,
+                    levels: vec![rocx::NumberingLevel {
+                        level: 0,
+                        start: 1,
+                        format: "decimal".into(),
+                        text: "%1.".into(),
+                        ..Default::default()
+                    }],
+                }),
+                Numbering(N::AddInstance {
+                    num_id: 773,
+                    abstract_id: 772,
+                }),
+                Numbering(N::StoryParagraph {
+                    target,
+                    value: Some(rocx::NumberingReference { id: 773, level: 0 }),
+                }),
+            ],
+            ..Default::default()
+        })
+        .unwrap()
+        .to_docx()
+        .unwrap();
+    let numbered = ImportedDocument::open(&staged).unwrap();
+    let donor = Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![Paragraph::new("Donor text must not move").into()]).into(),
+        ])
+        .into(),
+    ])
+    .with_properties(TableProperties::default().with_style("Owner Table Style"));
+    let donor = immediate(donor.resolve()).unwrap().unwrap();
+    let table = &numbered.part_tables(Some(owner)).unwrap()[0];
+    let tables_edited = numbered
+        .edit_part_tables(
+            owner,
+            &[TableStructureEdit {
+                target: table.anchor.clone(),
+                operation: TableOperation::Property {
+                    site: TableSite::Table,
+                    field: "style".into(),
+                    source: Some(Box::new(donor)),
+                },
+            }],
+        )
+        .unwrap();
+    let pre_layout = ImportedDocument::open(&tables_edited).unwrap();
+    let section = &pre_layout.sections().unwrap()[0].anchor;
+    pre_layout
+        .preview_layout(&[
+            LayoutEdit::Section(
+                section.clone(),
+                LayoutField::MarginLeft,
+                Some(LayoutValue::Integer(1440)),
+            ),
+            LayoutEdit::Section(
+                section.clone(),
+                LayoutField::BorderTop,
+                Some(LayoutValue::Border(LayoutBorder {
+                    size: Some(12),
+                    color: Some("123456".into()),
+                    space: None,
+                })),
+            ),
+        ])
+        .unwrap()
+        .to_docx()
+        .unwrap()
+}
+
 fn structural_resources(directory: &std::path::Path) -> Vec<u8> {
     use rocx::editor::{
         CustomValue, EditBatch, NumberingEdit as N,
@@ -292,6 +389,11 @@ fn main() {
         }
         fs::write(directory.join("native-formatOwners.docx"), bytes).unwrap();
     }
+    fs::write(
+        directory.join("native-physicalResources.docx"),
+        physical_resources(&directory),
+    )
+    .unwrap();
     let doc = ImportedDocument::open(&fs::read(directory.join("base.docx")).unwrap()).unwrap();
     let headers = doc.default_headers().unwrap();
     let image = immediate(Component::resolve(ImageRun::new(
@@ -363,6 +465,164 @@ fn main() {
     ];
     let shared = edit(1, HeaderEditMode::Shared);
     let write = |name: &str, bytes: Vec<u8>| fs::write(directory.join(name), bytes).unwrap();
+    {
+        use rocx::{
+            Color, LineHeight, NumberingAlignment, NumberingLevel, NumberingReference,
+            NumberingSuffix, ParagraphFormat, TabAlignment, TabLeader, TabStop, ThemeColor,
+            Underline,
+            editor::{
+                DefaultField, DefaultValue, EditBatch, ImportedInlineNode, InlineAction,
+                InlineEdit, MetadataField, NumberingEdit as N, ResourceEdit as R,
+                TableStructureEdit,
+            },
+        };
+        let open = |name| ImportedDocument::open(&fs::read(directory.join(name)).unwrap()).unwrap();
+        let doc = open("numbering-linked.docx");
+        let catalog = doc.numbering_catalog().unwrap();
+        let owner = catalog
+            .abstracts
+            .iter()
+            .find(|a| a.abstract_id == 710)
+            .unwrap();
+        assert_eq!(owner.style_link.as_deref(), Some("FixtureList"));
+        let override_level = &catalog
+            .instances
+            .iter()
+            .find(|i| i.num_id == 712)
+            .unwrap()
+            .level_overrides[0];
+        assert_eq!(&owner.levels[0], override_level);
+        assert_eq!(
+            override_level.label_format.as_ref().unwrap().size,
+            Some(12.5)
+        );
+        assert_eq!(
+            override_level
+                .paragraph_format
+                .as_ref()
+                .unwrap()
+                .line_height,
+            Some(LineHeight::Exact(10.))
+        );
+        let level = NumberingLevel::default()
+            .with_start(5)
+            .with_format("ordinal")
+            .with_text("%1)")
+            .with_restart(0)
+            .with_is_legal(false)
+            .with_suffix(NumberingSuffix::Space)
+            .with_alignment(NumberingAlignment::Start)
+            .with_paragraph_style("Heading 2")
+            .with_label_format(
+                RunFormat::default()
+                    .with_bold(false)
+                    .with_size(12.5)
+                    .with_underline(Underline::Double)
+                    .with_color(Color::Theme {
+                        name: ThemeColor::Accent2,
+                        tint: Some(16),
+                        shade: None,
+                    }),
+            )
+            .with_paragraph_format(
+                ParagraphFormat::default()
+                    .with_alignment(Alignment::Center)
+                    .with_first_line_indent(-9.)
+                    .with_line_height(LineHeight::Exact(11.))
+                    .with_tab_stops(vec![
+                        TabStop::default()
+                            .with_position(12.)
+                            .with_alignment(TabAlignment::Right)
+                            .with_leader(TabLeader::Dot),
+                    ]),
+            );
+        let replace = R::Numbering(N::ReplaceAbstract {
+            abstract_id: 710,
+            levels: vec![level],
+        });
+        for name in ["numbering-dangling.docx", "numbering-opaque.docx"] {
+            assert!(
+                open(name)
+                    .preview_edits(EditBatch {
+                        resources: std::slice::from_ref(&replace),
+                        ..Default::default()
+                    })
+                    .is_err()
+            );
+        }
+        let resources = [
+            replace,
+            R::Numbering(N::Paragraph {
+                target: anchor(&doc, 0),
+                value: Some(NumberingReference { id: 713, level: 0 }),
+            }),
+            R::Default(
+                DefaultField::TrackRevisions,
+                Some(DefaultValue::Bool(false)),
+            ),
+            R::Metadata(
+                MetadataField::Comments,
+                Some("Numbering fixture review".into()),
+            ),
+        ];
+        write(
+            "native-linkedNumbering.docx",
+            doc.preview_edits(EditBatch {
+                resources: &resources,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap(),
+        );
+        let mixed = open("linked-mixed-source.docx");
+        let [
+            BodyBlock::Paragraph(p),
+            BodyBlock::Table(first),
+            BodyBlock::Table(last),
+        ] = mixed.body()
+        else {
+            panic!("linked mixed fixture body")
+        };
+        let ImportedInlineNode::Run(run) = &p.inline_structure[0] else {
+            panic!("linked mixed fixture run")
+        };
+        let mixed_resources = [
+            resources[0].clone(),
+            R::Numbering(N::Paragraph {
+                target: p.anchor.clone(),
+                value: Some(NumberingReference { id: 713, level: 0 }),
+            }),
+            resources[2].clone(),
+            resources[3].clone(),
+            R::Numbering(N::StoryParagraph {
+                target: mixed.cell_paragraph_anchor(&last.anchor, 0, 0, 0).unwrap(),
+                value: Some(NumberingReference { id: 713, level: 0 }),
+            }),
+        ];
+        write(
+            "native-linkedMixed.docx",
+            mixed
+                .preview_edits(EditBatch {
+                    resources: &mixed_resources,
+                    inline_edits: &[InlineEdit {
+                        target: run.anchor.clone(),
+                        action: InlineAction::PatchFormat {
+                            set: Box::new(RunFormat::default().with_bold(true)),
+                            clear: vec![],
+                        },
+                    }],
+                    structural: &[TableStructureEdit {
+                        target: first.anchor.clone(),
+                        operation: TableOperation::RemoveTable,
+                    }],
+                    ..Default::default()
+                })
+                .unwrap()
+                .to_docx()
+                .unwrap(),
+        );
+    }
     use rocx::editor::{TableOperation, TableSite};
     let mut physical = fs::read(directory.join("physical-table-source.docx")).unwrap();
     let linked_cell = immediate(Component::resolve(Paragraph::from_children(vec![
@@ -647,6 +907,42 @@ fn main() {
             })
             .unwrap();
         write("native-numberingEdits.docx", numbers.to_docx().unwrap());
+        let owned = catalog
+            .preview_edits(EditBatch {
+                styles: &[StyleEdit::Add(
+                    rocx::NumberingStyleDefinition {
+                        name: "Owned List".into(),
+                        numbering_id: 91,
+                    }
+                    .into(),
+                )],
+                resources: &[
+                    Numbering(N::AddInstance {
+                        num_id: 91,
+                        abstract_id: 90,
+                    }),
+                    Numbering(N::AddAbstract {
+                        abstract_id: 90,
+                        levels: vec![rocx::NumberingLevel {
+                            level: 0,
+                            start: 1,
+                            format: "decimal".into(),
+                            text: "%1.".into(),
+                            ..Default::default()
+                        }],
+                    }),
+                    Numbering(N::InstanceStart {
+                        num_id: 91,
+                        level: 0,
+                        start: Some(6),
+                    }),
+                ],
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        write("native-styleOwnedList.docx", owned);
         let style = |name: &str| ParagraphStyleDefinition::default().with_name(name);
         let changes = [
             StyleEdit::Add(style("Memo Added").with_base_style("Memo Active").into()),
@@ -670,6 +966,18 @@ fn main() {
                     ..Default::default()
                 })),
             },
+            StyleEdit::Field {
+                target: catalog.style_anchor("LightShading").unwrap(),
+                region: Some("firstRow".into()),
+                field: "shd.fill".into(),
+                value: Some("BADACE".into()),
+            },
+            StyleEdit::Field {
+                target: catalog.style_anchor("LightShading").unwrap(),
+                region: Some("firstRow".into()),
+                field: "spacing.after".into(),
+                value: Some("180".into()),
+            },
             StyleEdit::Add(
                 rocx::NumberingStyleDefinition {
                     name: "Memo List".into(),
@@ -690,6 +998,32 @@ fn main() {
                 .unwrap()
                 .to_docx()
                 .unwrap(),
+        );
+        let preview = |doc: &ImportedDocument, edits: &[StyleEdit]| {
+            doc.preview_edits(rocx::editor::EditBatch {
+                styles: edits,
+                ..Default::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap()
+        };
+        write(
+            "native-styleRetarget.docx",
+            preview(
+                &catalog,
+                &[StyleEdit::Retarget {
+                    target: catalog.style_anchor("MemoActive").unwrap(),
+                    replacement: catalog.style_anchor("MemoReplace").unwrap(),
+                }],
+            ),
+        );
+        let missing =
+            ImportedDocument::open(&fs::read(directory.join("styles-missing.docx")).unwrap())
+                .unwrap();
+        write(
+            "native-styleCreate.docx",
+            preview(&missing, &[StyleEdit::Add(style("First Style").into())]),
         );
     }
     {

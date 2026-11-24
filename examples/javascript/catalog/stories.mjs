@@ -157,5 +157,7 @@ export function numbering() {
     { id: 61, levels: bullets, abstractId: 100 },
     { id: 62, levels: bullets, abstractId: 100, startOverrides: [{ level: 0, start: 4 }] },
     { id: 63, abstractId: 101, inheritStyle: "Catalog Bullets" },
+    { id: 64, abstractId: 102, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}] },
+    { id: 65, abstractId: 103, levels: [{level: 0, start: 1, format: "decimal", text: "%1."}] },
   ];
 }
