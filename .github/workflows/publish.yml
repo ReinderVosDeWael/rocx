@@ -9,6 +9,10 @@ on:
         description: Verify crates.io trusted-publisher authentication without publishing
         type: boolean
         default: false
+      recover_npm_040:
+        description: Stage the qualified v0.4.0 npm artifact from the original tag run
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +24,7 @@ concurrency:
 jobs:
   validate:
     name: Validate release
+    if: github.event_name != 'workflow_dispatch' || !inputs.recover_npm_040
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -208,7 +213,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          artifact="dist/rocx-docx-$version.tgz"
+          artifact="./dist/rocx-docx-$version.tgz"
           node --input-type=module - "$artifact" <<'JS'
           import { createHash } from "node:crypto";
           import { readFileSync } from "node:fs";
@@ -225,6 +230,49 @@ jobs:
           else
             npm publish "$artifact" --access public --ignore-scripts
           fi
+
+  recover-npm-040:
+    name: Recover npm 0.4.0 staging
+    if: github.repository == 'ReinderVosDeWael/rocx' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.recover_npm_040
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/rocx-docx
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.15.0
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: npm-package
+          path: dist
+          run-id: 45623224278
+          github-token: ${{ github.token }}
+      - name: Verify and stage the original tag's tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          artifact="./dist/rocx-docx-0.4.0.tgz"
+          node --input-type=module - "$artifact" <<'JS'
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+          const report = JSON.parse(readFileSync("dist/provenance.json", "utf8"));
+          const digest = createHash("sha256").update(readFileSync(process.argv[2])).digest("hex");
+          const qualified = "1c7505c2dd5db0a7fe57e70088c86c95b99fda04dd3abd6b0970b777a2ca1551";
+          if (report.status !== "qualified" || report.tarball.name !== "rocx-docx-0.4.0.tgz" || report.tarball.sha256 !== qualified || digest !== qualified) {
+            throw new Error("Downloaded npm tarball does not match the qualification report");
+          }
+          JS
+          test -n "$NODE_AUTH_TOKEN"
+          npm stage publish "$artifact" --access public --ignore-scripts
 
   publish-pypi:
     name: Publish Python package
