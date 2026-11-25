@@ -54,8 +54,8 @@ Choose a language to write `report.docx`.
 
 === "JavaScript"
 
-    Install the [JavaScript development tarball](javascript.md) in your
-    Node.js project. Save this as `report.mjs` and run `node report.mjs`:
+    Run `npm install rocx-docx` in your [Node.js project](javascript.md).
+    Save this as `report.mjs` and run `node report.mjs`:
 
     ```javascript
     import { writeFile } from "node:fs/promises";

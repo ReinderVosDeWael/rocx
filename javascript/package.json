@@ -1,12 +1,18 @@
 {
   "name": "rocx-docx",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Author DOCX documents in Node and browsers with the Rust rocx engine",
   "type": "module",
   "engines": {
     "node": "^22.12.0 || >=24.0.0"
   },
   "license": "LGPL-2.1-or-later",
+  "homepage": "https://reindervosdewael.github.io/rocx/",
+  "bugs": "https://github.com/ReinderVosDeWael/rocx/issues",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ReinderVosDeWael/rocx.git",

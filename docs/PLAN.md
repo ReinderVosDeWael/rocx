@@ -2,6 +2,21 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+## 0.4.0 release
+
+Release Rust, Python and `rocx-docx` for npm from one validated commit.
+[#3](https://github.com/ReinderVosDeWael/rocx/issues/3) and
+[#48](https://github.com/ReinderVosDeWael/rocx/issues/48) are closed; MCP
+([#52](https://github.com/ReinderVosDeWael/rocx/issues/52)) is not a release gate.
+Before pushing `v0.4.0`, complete untagged hosted preflight, verify the registry
+publisher setup tracked by #4, and confirm the npm first-release credential.
+See [the release runbook](RELEASING.md).
+
+The first untagged [OIDC preflight](https://github.com/ReinderVosDeWael/rocx/actions/runs/45616363684)
+confirmed GitHub issued its token, but crates.io reports no trusted publisher
+configured for `ReinderVosDeWael/rocx`. npm has no public `rocx-docx` package yet;
+the first tag needs the `npm` environment's bootstrap secret to stage it.
+
 ## Current milestone: implement the remaining editor capabilities
 
 **#48 follow-up:** merge `26eb84e` into `b89afbc` without changing either
@@ -38,8 +53,8 @@ saved parents. Catalog comparisons use the merged declarations rather than
 requiring expanded examples to reproduce an older catalog.
 
 **Historical qualification of `b89afbc`:**
-The owner closed #3 manually; [PR #65](https://github.com/ReinderVosDeWael/rocx/pull/65)
-remains draft. The primary branch now merges `1fda978` onto `5be07b3`.
+The owner closed #3 manually. [PR #65](https://github.com/ReinderVosDeWael/rocx/pull/65)
+merged as `ecc0704`; the modeled resource follow-up merged as `edd24a2`.
 The [acceptance map](EDITOR-ACCEPTANCE.md) records the combined operation
 inventory and evidence without changing tracker state. Its typed catalog
 checks now include the rich `.controls`, `.objects` and `.entry-text` results

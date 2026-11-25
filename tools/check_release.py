@@ -1,8 +1,10 @@
-"""Verify that a release tag matches both package manifests and lock files."""
+"""Verify that a release tag matches the Rust, Python and npm package versions."""
 
 from __future__ import annotations
 
 import argparse
+import ast
+import json
 import os
 import sys
 import tomllib
@@ -46,7 +48,17 @@ def release_versions(root: Path, tag: str) -> dict[str, str]:
         "pyproject.toml": _manifest_version(root, "pyproject.toml", "project"),
         "Cargo.lock": _lock_version(root, "Cargo.lock"),
         "uv.lock": _lock_version(root, "uv.lock"),
+        "javascript/Cargo.lock": _lock_version(root, "javascript/Cargo.lock"),
+        "javascript/package.json": json.loads(
+            (root / "javascript/package.json").read_text(encoding="utf-8")
+        )["version"],
     }
+    runtime = "python/rocx/__init__.py"
+    versions[runtime] = next(
+        (ast.literal_eval(node.value) for node in ast.parse((root / runtime).read_text(encoding="utf-8")).body
+         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__version__" for t in node.targets)),
+        None,
+    )
     mismatched = {
         source: version for source, version in versions.items() if version != expected
     }
@@ -79,9 +91,7 @@ def main() -> int:
     except (KeyError, OSError, ValueError) as error:
         print(f"release check failed: {error}", file=sys.stderr)
         return 1
-    print(
-        f"release {args.tag} matches Cargo.toml, pyproject.toml, Cargo.lock and uv.lock"
-    )
+    print(f"release {args.tag} matches the Rust, Python and npm versions")
     return 0
 
 

@@ -1,6 +1,7 @@
 """Check the tag/version gate that runs before publishing."""
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,9 @@ def write_tree(root: Path, **overrides: str) -> None:
         "pyproject": "0.2.0",
         "cargo_lock": "0.2.0",
         "uv_lock": "0.2.0",
+        "wasm_lock": "0.2.0",
+        "npm": "0.2.0",
+        "runtime": "0.2.0",
     }
     versions.update(overrides)
     (root / "Cargo.toml").write_text(
@@ -29,7 +33,11 @@ def write_tree(root: Path, **overrides: str) -> None:
         f'[project]\nname = "rocx"\nversion = "{versions["pyproject"]}"\n',
         encoding="utf-8",
     )
-    for name, key in (("Cargo.lock", "cargo_lock"), ("uv.lock", "uv_lock")):
+    (root / "javascript").mkdir()
+    (root / "javascript/package.json").write_text(json.dumps({"name": "rocx-docx", "version": versions["npm"]}))
+    (root / "python/rocx").mkdir(parents=True)
+    (root / "python/rocx/__init__.py").write_text(f'__version__ = "{versions["runtime"]}"\n')
+    for name, key in (("Cargo.lock", "cargo_lock"), ("uv.lock", "uv_lock"), ("javascript/Cargo.lock", "wasm_lock")):
         (root / name).write_text(
             f'[[package]]\nname = "rocx"\nversion = "{versions[key]}"\n',
             encoding="utf-8",
@@ -50,6 +58,9 @@ def test_matching_versions_pass(tmp_path: Path) -> None:
         ("pyproject.toml", "pyproject"),
         ("Cargo.lock", "cargo_lock"),
         ("uv.lock", "uv_lock"),
+        ("javascript/Cargo.lock", "wasm_lock"),
+        ("javascript/package.json", "npm"),
+        ("python/rocx/__init__.py", "runtime"),
     ],
 )
 def test_mismatched_version_fails(tmp_path: Path, source: str, keyword: str) -> None:

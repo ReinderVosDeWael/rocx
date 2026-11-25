@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 ### Authoring
 
@@ -13,17 +13,21 @@
 
 ### Existing documents
 
-- Inspect run and hyperlink boundaries in direct body and default-header
-  paragraphs with snapshot-scoped read-only addresses in Rust and Python.
-  Inherited aliases of one physical header share addresses.
-- Combine body alignment, table insertion, and default-header image edits in
-  one atomic preview. Retained previews share unchanged package payloads.
+- Inspect run and hyperlink boundaries in direct body and table-cell paragraphs
+  and in default, first-page and even-page headers and footers. Inherited
+  references to one physical story share snapshot-scoped inline addresses.
+- Preview supported text, structure, style, numbering, metadata and drawing
+  edits against snapshot-scoped anchors. Submit supported mixed batches
+  atomically in Rust, Python, JavaScript or through the JSON CLI.
+- Create and review supported Word revisions; edit eligible content controls
+  and physical story parts. Retained previews share unchanged package payloads.
+  See the [editor operation contract](docs/EDITOR-PARITY.md) for supported
+  targets and preservation limits.
 
 ### JavaScript
 
-- Add an npm-installable Rust/Wasm tarball for Node and Chromium with a typed,
-  byte-oriented API for formatted paragraphs, simple tables, and inline images.
-  The tarball is separate from the Rust/Python distributions.
+- The `rocx-docx` npm package supports Node and browsers, with named authoring
+  factories, reusable snapshots, templates, inspection and edit previews.
 
 ### Template fixes
 
