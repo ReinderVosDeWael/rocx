@@ -170,7 +170,7 @@ jobs:
 
   verify-crates-oidc:
     name: Verify crates.io OIDC
-    if: github.event_name == 'workflow_dispatch' && inputs.verify_crates_oidc
+    if: (github.event_name == 'workflow_dispatch' && inputs.verify_crates_oidc) || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     environment: crates-io
     permissions:
@@ -181,7 +181,7 @@ jobs:
 
   publish-npm:
     name: Publish npm package
-    needs: [validate, wheels, sdist, npm-package]
+    needs: [validate, wheels, sdist, npm-package, verify-crates-oidc]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -209,7 +209,17 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           artifact="dist/rocx-docx-$version.tgz"
-          test -f "$artifact"
+          node --input-type=module - "$artifact" <<'JS'
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+          import { basename } from "node:path";
+          const artifact = process.argv[2];
+          const report = JSON.parse(readFileSync("dist/provenance.json", "utf8"));
+          const digest = createHash("sha256").update(readFileSync(artifact)).digest("hex");
+          if (report.status !== "qualified" || report.tarball.name !== basename(artifact) || report.tarball.sha256 !== digest) {
+            throw new Error("Downloaded npm tarball does not match the qualification report");
+          }
+          JS
           if [ -n "$NPM_BOOTSTRAP_TOKEN" ]; then
             NODE_AUTH_TOKEN="$NPM_BOOTSTRAP_TOKEN" npm stage publish "$artifact" --access public --ignore-scripts
           else
@@ -218,7 +228,7 @@ jobs:
 
   publish-pypi:
     name: Publish Python package
-    needs: [validate, wheels, sdist, npm-package]
+    needs: [validate, wheels, sdist, npm-package, verify-crates-oidc]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -247,7 +257,7 @@ jobs:
 
   publish-crate:
     name: Publish Rust crate
-    needs: [validate, wheels, sdist, npm-package]
+    needs: [validate, wheels, sdist, npm-package, verify-crates-oidc]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -257,16 +267,13 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      CARGO_TOKEN_MISSING: ${{ secrets.CARGO_REGISTRY_TOKEN == '' }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Authenticate with crates.io
         id: auth
-        if: env.CARGO_TOKEN_MISSING == 'true'
         uses: rust-lang/crates-io-auth-action@v1.0.6
       - name: Publish crate
         run: cargo publish --locked
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

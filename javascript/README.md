@@ -58,7 +58,7 @@ cp examples/javascript/{author,node,browser,vite.config}.mjs examples/javascript
 cp tests/fixtures/images/sample.png /tmp/rocx-js-example/
 cd /tmp/rocx-js-example
 npm init -y
-npm install /tmp/rocx-docx-0.1.0.tgz
+npm install /tmp/rocx-docx-0.4.0.tgz
 node node.mjs sample.png report.docx
 ```
 

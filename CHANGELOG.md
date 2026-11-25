@@ -16,8 +16,13 @@
 - Inspect run and hyperlink boundaries in direct body and table-cell paragraphs
   and in default, first-page and even-page headers and footers. Inherited
   references to one physical story share snapshot-scoped inline addresses.
-- Combine body alignment, table insertion, and default-header image edits in
-  one atomic preview. Retained previews share unchanged package payloads.
+- Preview supported text, structure, style, numbering, metadata and drawing
+  edits against snapshot-scoped anchors. Submit supported mixed batches
+  atomically in Rust, Python, JavaScript or through the JSON CLI.
+- Create and review supported Word revisions; edit eligible content controls
+  and physical story parts. Retained previews share unchanged package payloads.
+  See the [editor operation contract](docs/EDITOR-PARITY.md) for supported
+  targets and preservation limits.
 
 ### JavaScript
 

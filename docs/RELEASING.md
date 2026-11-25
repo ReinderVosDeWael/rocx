@@ -28,9 +28,8 @@ for a short-lived PyPI credential.
 
 crates.io trusted publishing uses the environment `crates-io` and the same
 workflow filename. Version 0.3.0 used the bootstrap `CARGO_REGISTRY_TOKEN`
-secret. The workflow still uses that secret when present; otherwise it
-authenticates through `rust-lang/crates-io-auth-action`. Verify the following
-trusted-publisher configuration in crates.io before removing the secret:
+secret. Starting in 0.4.0 the workflow only uses OIDC. Verify the following
+trusted-publisher configuration in crates.io, then remove the unused secret:
 
 | Field | Value |
 | --- | --- |
