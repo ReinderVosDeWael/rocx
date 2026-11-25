@@ -1,13 +1,19 @@
 # JavaScript: write a DOCX in Node or the browser
 
-Install `rocx-docx` from a **development tarball**, not the npm registry. Use the artifact for your source revision: `0.1.0` alone does not identify the API. Installation needs no Rust toolchain, runtime dependencies or install scripts.
+Install the released package from npm:
+
+```sh
+npm install rocx-docx
+```
+
+Installation needs no Rust toolchain, runtime dependencies or install scripts.
 
 ## Build and install the tarball
 
 Download and unpack a `rocx-docx-node-*` artifact from the [package workflow](https://github.com/ReinderVosDeWael/rocx/actions/workflows/javascript.yml). From your application, install the extracted `.tgz`:
 
 ```sh
-npm install ./path/to/rocx-docx-0.1.0.tgz
+npm install ./path/to/rocx-docx-0.4.0.tgz
 ```
 
 If no artifact is available for your revision, build one from the repository root with Bash, `tar`, Cargo and Node:

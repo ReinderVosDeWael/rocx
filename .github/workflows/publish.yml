@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      verify_crates_oidc:
+        description: Verify crates.io trusted-publisher authentication without publishing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -122,9 +127,98 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  npm-package:
+    name: Qualify npm tarball
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ROCX_SCHEMA_DIR: ${{ github.workspace }}/.validation-schemas
+      ROCX_INSTALL_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10.4.0
+      - run: uv sync --locked --group test
+      - uses: actions/cache@v6.1.0
+        id: schemas
+        with:
+          path: ${{ env.ROCX_SCHEMA_DIR }}
+          key: official-schemas-${{ hashFiles('tools/validate_ooxml.py') }}
+      - if: steps.schemas.outputs.cache-hit != 'true'
+        run: uv run --no-sync python tools/validate_ooxml.py --download-schemas
+      - run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - id: packed
+        run: env -u CARGO_INCREMENTAL bash javascript/tests/check-packed.sh
+        env:
+          TMPDIR: ${{ runner.temp }}
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: npm-package
+          path: |
+            ${{ steps.packed.outputs.tarball }}
+            ${{ steps.packed.outputs.provenance }}
+          if-no-files-found: error
+
+  verify-crates-oidc:
+    name: Verify crates.io OIDC
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_crates_oidc
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: rust-lang/crates-io-auth-action@v1.0.6
+
+  publish-npm:
+    name: Publish npm package
+    needs: [validate, wheels, sdist, npm-package]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/rocx-docx
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.15.0
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: npm-package
+          path: dist
+      - name: Stage first version or publish through OIDC
+        env:
+          NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          artifact="dist/rocx-docx-$version.tgz"
+          test -f "$artifact"
+          if [ -n "$NPM_BOOTSTRAP_TOKEN" ]; then
+            NODE_AUTH_TOKEN="$NPM_BOOTSTRAP_TOKEN" npm stage publish "$artifact" --access public --ignore-scripts
+          else
+            npm publish "$artifact" --access public --ignore-scripts
+          fi
+
   publish-pypi:
     name: Publish Python package
-    needs: [validate, wheels, sdist]
+    needs: [validate, wheels, sdist, npm-package]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -153,7 +247,7 @@ jobs:
 
   publish-crate:
     name: Publish Rust crate
-    needs: [validate, wheels, sdist]
+    needs: [validate, wheels, sdist, npm-package]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15

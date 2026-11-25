@@ -2,6 +2,16 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+## 0.4.0 release
+
+Release Rust, Python and `rocx-docx` for npm from one validated commit.
+[#3](https://github.com/ReinderVosDeWael/rocx/issues/3) and
+[#48](https://github.com/ReinderVosDeWael/rocx/issues/48) are closed; MCP
+([#52](https://github.com/ReinderVosDeWael/rocx/issues/52)) is not a release gate.
+Before pushing `v0.4.0`, complete untagged hosted preflight, verify the registry
+publisher setup tracked by #4, and confirm the npm first-release credential.
+See [the release runbook](RELEASING.md).
+
 ## Current milestone: implement the remaining editor capabilities
 
 **#48 follow-up:** merge `26eb84e` into `b89afbc` without changing either

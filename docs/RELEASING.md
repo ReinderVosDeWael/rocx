@@ -2,14 +2,14 @@
 
 Publish packages only through [the GitHub Actions workflow](../.github/workflows/publish.yml).
 Creating a local tag does not publish anything. Pushing a `v*` tag to GitHub
-starts CI, which validates, builds, and publishes to PyPI and crates.io. Manual
+starts CI, which validates, builds, and publishes to PyPI, crates.io and npm. Manual
 workflow dispatches are preflight only, even when run on a tag: they build
 artifacts without uploading them to the registries. Do not publish packages
 with local upload commands.
 
-The JavaScript tarball is built and tested separately by the
-[packed consumer workflow](../.github/workflows/javascript.yml). Neither
-workflow publishes to npm.
+The release workflow runs the installed JavaScript consumer gate. The npm job
+uploads the qualified tarball without rebuilding it. On the first release it
+stages the tarball for approval rather than publishing it directly.
 
 ## One-time registry setup
 
@@ -39,7 +39,20 @@ trusted-publisher configuration in crates.io before removing the secret:
 | Environment | `crates-io` |
 
 Environment protection rules (for example required reviewers) are strongly
-recommended for both environments.
+recommended for all publishing environments.
+
+For `rocx-docx` on npm, use the GitHub environment `npm`:
+
+- For a package that does not yet exist, create a short-lived npm granular
+  token authorized to stage a new public package, and store it as the
+  **environment secret** `NPM_BOOTSTRAP_TOKEN`. The tag run stages the
+  qualified tarball. An npm maintainer must approve the package with 2FA.
+  Inspect the staging state before rerunning a failed publication job.
+- Once the package exists, remove the bootstrap secret and revoke the token.
+  In [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) authorize
+  owner `ReinderVosDeWael`, repository `rocx`, workflow `publish.yml`,
+  environment `npm`, with **npm publish** allowed. Configure the binding
+  near the next release so it does not expire before its first use.
 
 These tables specify the intended configuration, not a verification of private
 registry settings. The [0.3.0 publish run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45191346555)
@@ -58,8 +71,8 @@ tests, documentation and license notices. Build the site locally using
 the tag push starts the publication workflow. Use an untagged validation run
 first to exercise the hosted build matrix without publishing.
 
-1. Update the package version in `Cargo.toml` and `pyproject.toml`, and the
-   Python runtime version (`rocx.__version__`). Keep all three identical.
+1. Update `Cargo.toml`, `pyproject.toml`, the Python runtime version
+   (`rocx.__version__`), and `javascript/package.json` to the same version.
 2. Refresh the root lock files with `cargo check` and `uv lock`. Refresh the
    JavaScript adapter's lock file too: its path dependency records the root
    crate version. With the `wasm32-unknown-unknown` target installed, run
@@ -67,7 +80,7 @@ first to exercise the hosted build matrix without publishing.
 3. Verify the tag matches every recorded version:
 
    ```sh
-   python tools/check_release.py --tag v0.3.0
+   python tools/check_release.py --tag v0.4.0
    ```
 
 4. Run the verification runbook in [tests/README.md](../tests/README.md),
@@ -75,13 +88,14 @@ first to exercise the hosted build matrix without publishing.
    probe. The schema command must set `ROCX_REQUIRE_SCHEMAS=1`; its successful
    completion proves missing schemas did not become skips.
 5. Commit the release candidate. Run the hosted workflow manually from an
-   untagged ref at that commit. Confirm validation and artifact builds succeed
-   without registry uploads.
+   untagged ref at that commit. Enable `verify_crates_oidc` to test the
+   crates.io credential exchange independently of the bootstrap token.
+   Confirm validation and artifact builds succeed without registry uploads.
 6. Create and push the tag for the commit that passed preflight:
 
    ```sh
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.4.0
+   git push origin v0.4.0
    ```
 
 The tag push runs the full release gate. Publishing starts only after validation
@@ -96,6 +110,7 @@ manual dispatch.
 | Python wheel | Linux x86_64 (`manylinux_2_17`), macOS universal2, Windows x86_64 |
 | Python sdist | Any platform with a Rust toolchain |
 | Rust crate | `rocx` from crates.io |
+| npm tarball | `rocx-docx` for Node and browsers |
 
 Wheels target CPython 3.12 and newer through the `abi3-py312` contract. Other
 architectures can install from the sdist; they are not currently built as

@@ -1,6 +1,6 @@
 # JavaScript API reference
 
-[Install the development tarball](../javascript.md#build-and-install-the-tarball). For exact input and result types, see the [shipped declarations](../javascript.md#typescript-declarations).
+[Install `rocx-docx`](../javascript.md). For exact input and result types, see the [shipped declarations](../javascript.md#typescript-declarations).
 
 ## Generate and resolve
 
