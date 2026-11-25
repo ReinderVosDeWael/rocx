@@ -12,10 +12,12 @@ Before pushing `v0.4.0`, complete untagged hosted preflight, verify the registry
 publisher setup tracked by #4, and confirm the npm first-release credential.
 See [the release runbook](RELEASING.md).
 
-The first untagged [OIDC preflight](https://github.com/ReinderVosDeWael/rocx/actions/runs/45616363684)
-confirmed GitHub issued its token, but crates.io reports no trusted publisher
-configured for `ReinderVosDeWael/rocx`. npm has no public `rocx-docx` package yet;
-the first tag needs the `npm` environment's bootstrap secret to stage it.
+[Untagged preflight](https://github.com/ReinderVosDeWael/rocx/actions/runs/45618855400)
+passed crates.io OIDC, qualification and all artifact builds. #4 is closed.
+The [v0.4.0 tag run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45623224278)
+published Rust and Python. npm misinterpreted its relative tarball path as a
+Git repository. Recover by staging the original verified tarball from that
+run, then approve it on npm; do not change the tag or rebuild the tarball.
 
 ## Current milestone: implement the remaining editor capabilities
 
