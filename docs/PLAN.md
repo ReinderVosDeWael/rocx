@@ -109,9 +109,30 @@ removal. Inline declarations now include modeled shapes, column charts, and
 picture transformation and accessibility. The Rust 1.88 installed binary
 passed 141 MCP and parity tests plus ten subtests. Native byte comparisons
 covered all ten property groups, shared chart forking, and occurrence-local
-image replacement. Continue with eligible entry pictures, style and numbering
-resources, then reconcile remaining payload and owner coverage against the
-compiled ledger.
+image replacement.
+
+The entry-inline increment pages original note and comment inlines and
+previews native edits scoped to one physical part, including pictures,
+external hyperlinks, and direct formatting. Saved picture lifecycles and
+hyperlinks matched direct Rust bytes for comments and relocated footnotes and
+endnotes. Reference runs and unrelated parts were preserved. The Rust 1.88
+installed binary passed 145 MCP and parity tests plus ten subtests.
+
+The style increment adds paged catalog readback and the seven native style
+variants in ordinary previews, including missing catalog creation, conditional
+table regions, and guarded reference migration. Saved previews matched
+direct Rust bytes for mixed edits, catalog creation, clears, and retargeting.
+The Rust 1.88 installed binary passed 148 MCP and parity tests plus ten
+subtests.
+
+The numbering increment pages abstract and concrete catalogs, exposes their
+independent read scopes, and supports global definition and override edits
+with direct body assignments in the ordinary batch. Relocated-catalog
+lifecycle previews and first-part creation with a staged numbering style
+matched direct Rust bytes. The Rust 1.88 installed binary passed 152 MCP and
+parity tests plus ten subtests. Continue with physical story and cell
+paragraph assignments, then reconcile the remaining payload and owner
+coverage against the compiled ledger.
 
 ## 0.4.0 release
 

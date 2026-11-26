@@ -313,7 +313,38 @@ with encoded `bytes` to redirect just one picture, and `remove-object` to
 remove an eligible object. `insert-after` and `replace` take the same
 declarations. Reopen the output to patch a second group on the same
 occurrence. Protected or opaque changes are rejected by the native editor;
-these edit actions are currently exposed only for direct body occurrences.
+shapes, charts and fractions are edited only in the direct body. Pictures
+in notes and comments use the separate entry operation below.
+
+### Edit inlines in notes and comments
+
+Use `view:{"kind":"entry-inlines"}` to page through direct inlines in
+footnotes, endnotes, and comments. In `entry_inlines`, each row identifies
+its physical `owner`, entry (kind, original catalog index, and stored ID),
+block and inline indices, and native inline projection. Separator and
+continuation notes and reference marks are inspectable but do not have inline
+edit anchors. The native editor still checks each issued target for protection
+and eligibility.
+Use `entry-runs` instead for the existing text-only `edit-story-text` flow.
+
+Use the owner anchor and target inline anchors from `entry-inlines` in a
+single `preview_edits.operation`:
+
+```json
+{"kind":"edit-entry-inlines","anchor":"<entry owner anchor>","edits":[
+  {"anchor":"<entry picture anchor>","edit":{"kind":"drawing-description","value":"New caption"}}
+]}
+```
+
+In one physical part you can insert or replace an eligible inline with
+text, a tab, break, external hyperlink, or embedded image, and format
+eligible direct runs. On pictures use `remove-object`, `image-asset`,
+`drawing-description` (including `null` to clear), or `drawing-property`
+with an image donor for `size`, `placement`, `crop`, `transform`, or
+`accessibility`. A new relationship belongs to the entry part, even when
+that part was relocated. Ordinary body edits and other owners cannot be
+included in this operation. The preview returns `changes: null`, and a
+reopened output supplies fresh anchors.
 
 ### Move, add or remove a bookmark or comment range
 
@@ -506,6 +537,82 @@ block and inline indices. Pass that owner and its direct run anchors to the
 same `edit-story-text` operation. You can edit runs in several entries in
 one part, but cannot mix parts. Reserved notes and note markers do not
 receive run-edit anchors.
+
+### Inspect and edit imported styles
+
+Use `view:{"kind":"styles"}` to inspect the relationship-selected styles part.
+The paged `styles` list is in stored order. `part_name` is `null` if the
+document has no styles relationship. Each row shows its stored ID, kind,
+display name, base/next/linked IDs, and `property_xml` for direct property
+groups and table regions. This is not computed formatting. Duplicate or
+missing IDs do not issue edit anchors.
+
+In the ordinary `preview_edits.edits` array, send `kind:"style"` with an
+`edit` of kind `add`, `replace`, `patch`, `field`, `region`, `remove`, or
+`retarget`. Except for `add`, these use the original style anchor, not the
+display name or ID. `retarget` takes a second anchor as `replacement`;
+it must be the only style operation in its batch.
+
+```json
+{"kind":"style","edit":{"kind":"field","anchor":"<style anchor>",
+ "field":"jc","value":"center"}}
+```
+
+`patch` sets the supplied `bold` or `italic` flag. `field` takes a
+[native field key](EDITOR-PARITY.md#imported-style-edits) and a stored string
+value (or `null` to clear), with an optional OOXML region such as `firstRow`.
+`region` replaces the entire named conditional table region with a
+declaration, or clears it with `null`. Style definitions support paragraph,
+character, table, and numbering kinds. Paragraph declarations take direct
+paragraph `format` and optional `text` formatting; table declarations use
+a `regions` list of `{region, format}` pairs. Numbering styles bind to an
+existing `numbering_id`. See tool discovery for the typed definitions.
+
+An `add` can create a missing catalog or introduce a style used by body
+insertion in the same preview. The native editor rejects conflicting style
+IDs, unsafe replacement or removal of referenced definitions, and reference
+migrations it cannot prove safe. Reopen a saved preview to use anchors for
+new styles.
+
+### Inspect and edit numbering
+
+Use `view:{"kind":"numbering-abstracts"}` and
+`view:{"kind":"numbering-instances"}` for paged `abstracts` and `instances`.
+The native readback includes stored levels, start and replacement overrides,
+and numbering-style links. It does not compute inherited numbering or the
+label Word will display. Each cursor is valid only for its own view and
+document. A missing numbering part returns empty lists.
+
+For narrower reads, use `resource-value` with `query.kind:"abstract-starts"`
+or `query.kind:"numbering-instances"`. These native readers do not depend on
+the full catalog or style-link readback. To read one direct body paragraph's
+assignment, pass its compact inspection anchor to
+`view:{"kind":"paragraph-numbering","anchor":"<paragraph anchor>"}`. `value`
+is `{id, level}` or `null` if no assignment is directly stored.
+
+Use `kind:"numbering"` in the ordinary edit array:
+
+```json
+{"kind":"numbering","edit":{"kind":"paragraph","anchor":"<paragraph anchor>",
+ "value":{"id":90,"level":0}}}
+```
+
+`add-abstract` and `replace-abstract` take an `abstract_id` and `levels`.
+Each level specifies `level` (0–8), `start`, OOXML `format`, and label `text`,
+and may include direct paragraph and label formatting. Use `abstract-level`
+to replace or remove a level, and `abstract-start` to change just its start.
+`add-instance` and `relink-instance` take `num_id` and `abstract_id`;
+`replace-instance` replaces a link and all direct overrides via a
+`definition` with `id`, `abstract_id`, `start_overrides`, and `level_overrides`.
+Use `instance-start` and `instance-level` to change the two override types
+independently. Use `null` in a required `value` to clear it. `remove-instance`
+and `remove-abstract` use the respective numeric IDs.
+
+Definitions, numbering styles, and paragraph assignments can use IDs staged
+in the same preview, including when a numbering part is first created.
+The native editor rejects conflicting edits and removals that
+would leave live references. Numbering assignment here targets direct body
+paragraphs, not physical story or table-cell paragraphs.
 
 ### Edit metadata and direct document defaults
 

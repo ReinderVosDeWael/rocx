@@ -19,6 +19,22 @@ impl Snapshot {
                 .default_alignment()
                 .map(|value| json!(value.map(alignment_name))),
             ResourceQuery::CustomProperty { name } => doc.custom_property(&name).map(custom_value),
+            ResourceQuery::AbstractStarts {} => doc.abstract_starts().map(|starts| {
+                json!(starts.into_iter().map(|start| json!({
+                    "abstract_id": start.abstract_id, "level": start.level, "start": start.start,
+                })).collect::<Vec<_>>())
+            }),
+            ResourceQuery::NumberingInstances {} => {
+                doc.numbering_instances().map(|instances| {
+                    json!(instances.into_iter().map(|instance| json!({
+                    "num_id": instance.num_id, "abstract_id": instance.abstract_id,
+                    "replacement_levels": instance.replacement_levels,
+                    "start_overrides": instance.start_overrides.into_iter().map(|start| {
+                        json!({"level": start.level, "start": start.start})
+                    }).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>())
+                })
+            }
         }
         .map_err(|error| error.to_string())?;
         Ok(json!({"value": value}))

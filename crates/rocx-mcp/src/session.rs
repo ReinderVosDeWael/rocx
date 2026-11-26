@@ -2,8 +2,10 @@ use crate::{
     editor::Snapshot,
     schema::{
         Edit,
+        entry_inlines::EntryInlineChange,
         layout::LayoutChange,
         notes::{NoteChange, NoteKind},
+        numbering::NumberingChange,
         resources::ResourceQuery,
         revisions::RevisionChange,
         run_format::RunFormatChange,
@@ -53,14 +55,18 @@ pub(crate) enum PageView {
     BodyTables,
     Entries,
     EntryRuns,
+    EntryInlines,
     Fields,
     FormatRuns,
     Layout,
     NoteReferences,
+    NumberingAbstracts,
+    NumberingInstances,
     PhysicalTables,
     Revisions,
     Sections,
     Stories,
+    Styles,
 }
 
 impl PageView {
@@ -74,14 +80,18 @@ impl PageView {
             Self::BodyTables => "body-tables",
             Self::Entries => "entries",
             Self::EntryRuns => "entry-runs",
+            Self::EntryInlines => "entry-inlines",
             Self::Fields => "fields",
             Self::FormatRuns => "format-runs",
             Self::Layout => "layout",
             Self::NoteReferences => "note-references",
+            Self::NumberingAbstracts => "numbering-abstracts",
+            Self::NumberingInstances => "numbering-instances",
             Self::PhysicalTables => "physical-tables",
             Self::Revisions => "revisions",
             Self::Sections => "sections",
             Self::Stories => "stories",
+            Self::Styles => "styles",
         }
     }
 }
@@ -258,6 +268,43 @@ impl Session {
         Ok(result)
     }
 
+    fn scoped_numbering_paragraph<'a>(
+        doc: &Document,
+        document: &str,
+        anchor: &'a str,
+    ) -> Result<&'a str, String> {
+        let (owner, local) = anchor
+            .split_once('/')
+            .ok_or("invalid_anchor: inspect the compact body for a paragraph anchor")?;
+        if owner != document {
+            return Err("wrong_owner: use a paragraph anchor from the selected document".into());
+        }
+        if doc.snapshot.has_issued_anchor(local) {
+            Ok(local)
+        } else if doc.view_anchors.contains_key(local) {
+            Err("wrong_anchor_type: expected a compact body paragraph anchor".into())
+        } else {
+            Err("invalid_anchor: inspect the compact body for a paragraph anchor".into())
+        }
+    }
+
+    pub fn inspect_paragraph_numbering(
+        &self,
+        document: String,
+        anchor: String,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let local = Self::scoped_numbering_paragraph(doc, &document, &anchor)?;
+        let value = doc.snapshot.paragraph_numbering(local).map_err(|error| {
+            if error.starts_with("wrong_anchor_type:") {
+                error
+            } else {
+                format!("inspection_failed: {error}")
+            }
+        })?;
+        Ok(json!({"document":document, "value":value}))
+    }
+
     pub fn inspect_page(
         &mut self,
         document: String,
@@ -293,14 +340,18 @@ impl Session {
             PageView::BodyTables => doc.snapshot.body_table_page(start, limit),
             PageView::Entries => doc.snapshot.entry_page(start, limit),
             PageView::EntryRuns => doc.snapshot.entry_run_page(start, limit),
+            PageView::EntryInlines => doc.snapshot.entry_inline_page(start, limit),
             PageView::Fields => doc.snapshot.field_page(start, limit),
             PageView::FormatRuns => doc.snapshot.format_run_page(start, limit),
             PageView::Layout => doc.snapshot.layout_page(start, limit),
             PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
+            PageView::NumberingAbstracts => doc.snapshot.numbering_page(true, start, limit),
+            PageView::NumberingInstances => doc.snapshot.numbering_page(false, start, limit),
             PageView::PhysicalTables => doc.snapshot.physical_table_page(start, limit),
             PageView::Revisions => doc.snapshot.revision_page(start, limit),
             PageView::Sections => doc.snapshot.section_page(start, limit),
             PageView::Stories => doc.snapshot.story_page(start, limit),
+            PageView::Styles => doc.snapshot.style_page(start, limit),
         }
         .map_err(|e| format!("inspection_failed: {e}"))?;
         for row in &mut rows {
@@ -321,11 +372,22 @@ impl Session {
             PageView::BodyTables => "body_tables",
             PageView::FormatRuns => "format_runs",
             PageView::NoteReferences => "note_references",
+            PageView::NumberingAbstracts => "abstracts",
+            PageView::NumberingInstances => "instances",
             PageView::EntryRuns => "entry_runs",
+            PageView::EntryInlines => "entry_inlines",
             PageView::PhysicalTables => "physical_tables",
             _ => view.key(),
         };
-        Ok(json!({"document":document, (field):rows, "next_cursor":next_cursor}))
+        let mut result = json!({"document":document, (field):rows, "next_cursor":next_cursor});
+        if view == PageView::Styles {
+            result["part_name"] = json!(
+                doc.snapshot
+                    .styles_part_name()
+                    .map_err(|e| format!("inspection_failed: {e}"))?
+            );
+        }
+        Ok(result)
     }
 
     pub fn preview_entry(
@@ -449,6 +511,28 @@ impl Session {
                     .map(|bytes| (bytes, Value::Null))
             },
         )
+    }
+
+    pub fn preview_entry_inlines(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<EntryInlineChange>,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let view = PageView::EntryInlines;
+        Self::scoped_anchor(doc, &document, view, anchor)?;
+        if edits.is_empty() {
+            return Err("invalid_batch: supply at least one entry inline edit".into());
+        }
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_entry_inlines(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
     }
 
     pub fn preview_noop(&mut self, document: String) -> Result<Value, String> {
@@ -583,6 +667,20 @@ impl Session {
             return Err("invalid_batch: supply at least one edit".into());
         }
         for (i, edit) in edits.iter_mut().enumerate() {
+            if let Edit::Numbering { edit } = edit {
+                if let NumberingChange::Paragraph { anchor, .. } = edit {
+                    *anchor = Self::scoped_numbering_paragraph(doc, &document, anchor)?.to_owned();
+                }
+                continue;
+            }
+            if let Edit::Style { edit } = edit {
+                edit.scope(|anchor| {
+                    *anchor =
+                        Self::scoped_anchor(doc, &document, PageView::Styles, anchor)?.to_owned();
+                    Ok(())
+                })?;
+                continue;
+            }
             if let Edit::Control { edit } = edit {
                 edit.scope(|anchor, is_site| {
                     let view = if is_site {

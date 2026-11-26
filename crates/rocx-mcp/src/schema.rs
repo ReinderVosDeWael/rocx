@@ -2,15 +2,18 @@ pub(crate) mod blocks;
 pub(crate) mod body_inlines;
 pub(crate) mod controls;
 mod entries;
+pub(crate) mod entry_inlines;
 pub(crate) mod fields;
 pub(crate) mod layout;
 mod limits;
 pub(crate) mod notes;
+pub(crate) mod numbering;
 pub(crate) mod payloads;
 pub(crate) mod resources;
 pub(crate) mod revisions;
 pub(crate) mod run_format;
 pub(crate) mod stories;
+pub(crate) mod styles;
 pub(crate) mod tables;
 
 use rmcp::{
@@ -89,7 +92,10 @@ impl ToolKind {
                   Use controls and control-sites for main-story content control edits, or \
                   story-controls for read-only physical story controls. \
                   Body-inlines describes drawings; chart-series reads the series at one \
-                  body-inlines anchor. \
+                  body-inlines anchor. Use entry-inlines for note and comment inline anchors, \
+                  or styles for the physical style catalog and original style anchors. \
+                  Use numbering-abstracts and numbering-instances for direct list catalogs, \
+                  or paragraph-numbering for the stored assignment of one body paragraph. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
@@ -236,6 +242,27 @@ impl Call {
                 Some(View::EntryRuns { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
                 }
+                Some(View::EntryInlines { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::EntryInlines, limit, cursor)
+                }
+                Some(View::Styles { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::Styles, limit, cursor)
+                }
+                Some(View::NumberingAbstracts { limit, cursor }) => session.inspect_page(
+                    input.document,
+                    PageView::NumberingAbstracts,
+                    limit,
+                    cursor,
+                ),
+                Some(View::NumberingInstances { limit, cursor }) => session.inspect_page(
+                    input.document,
+                    PageView::NumberingInstances,
+                    limit,
+                    cursor,
+                ),
+                Some(View::ParagraphNumbering { anchor }) => {
+                    session.inspect_paragraph_numbering(input.document, anchor)
+                }
                 Some(View::Resources { custom_property }) => {
                     session.inspect_resources(input.document, custom_property)
                 }
@@ -263,6 +290,9 @@ impl Call {
                 Operation::EditLayout { edits } => session.preview_layout(input.document, edits),
                 Operation::EditStoryText { anchor, edits } => {
                     session.preview_story_text(input.document, &anchor, edits)
+                }
+                Operation::EditEntryInlines { anchor, edits } => {
+                    session.preview_entry_inlines(input.document, &anchor, edits)
                 }
                 Operation::EditStoryReference { anchor, edit } => {
                     session.preview_story_reference(input.document, &anchor, edit)
@@ -499,6 +529,10 @@ pub(crate) enum Edit {
     },
     /// Change a main-story content control using anchors from controls or control-sites.
     Control { edit: controls::ControlChange },
+    /// Edit the relationship-selected style catalog.
+    Style { edit: styles::StyleChange },
+    /// Change a list definition, instance or direct body paragraph assignment.
+    Numbering { edit: numbering::NumberingChange },
 }
 
 impl Edit {
@@ -519,7 +553,11 @@ impl Edit {
             | Self::Field { anchor, .. }
             | Self::Inline { anchor, .. }
             | Self::TableStructure { anchor, .. } => Some(anchor),
-            Self::Resource { .. } | Self::PairedRange { .. } | Self::Control { .. } => None,
+            Self::Resource { .. }
+            | Self::PairedRange { .. }
+            | Self::Control { .. }
+            | Self::Style { .. }
+            | Self::Numbering { .. } => None,
         }
     }
 
@@ -535,7 +573,11 @@ impl Edit {
             Self::RunText { .. } | Self::RunRemove { .. } => "run",
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
-            Self::Resource { .. } | Self::PairedRange { .. } | Self::Control { .. } => {
+            Self::Resource { .. }
+            | Self::PairedRange { .. }
+            | Self::Control { .. }
+            | Self::Style { .. }
+            | Self::Numbering { .. } => {
                 unreachable!("edit has no single anchor")
             }
             Self::Block { .. }
@@ -853,8 +895,8 @@ mod tests {
             ("inline", &["edit"][..]),
             ("table-structure", &["edit"][..]),
         ];
-        assert_eq!(variants.len(), required.len() + 3);
-        for kind in ["resource", "control"] {
+        assert_eq!(variants.len(), required.len() + 5);
+        for kind in ["resource", "control", "style", "numbering"] {
             let variant = variants
                 .iter()
                 .find(|variant| variant["properties"]["kind"]["const"] == kind)

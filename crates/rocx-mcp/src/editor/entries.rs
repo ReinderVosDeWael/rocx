@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 use super::{Snapshot, projected_run_text};
 use crate::schema::stories::StoryTextChange;
 
+mod inlines;
+
 impl Snapshot {
     pub fn entry_page(
         &self,

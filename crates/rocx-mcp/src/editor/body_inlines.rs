@@ -1,9 +1,8 @@
-use rocx::ImageRun;
-use rocx::editor::{BodyBlock, ImportedInlineNode, InlineAction, InlineAnchor, InlineEdit};
+use rocx::editor::{BodyBlock, ImportedInlineNode, InlineAnchor, InlineEdit};
 use serde_json::{Value, json};
 
 use super::{Snapshot, projected_run_text};
-use crate::schema::{body_inlines::BodyInlineChange, payloads::resolve_component};
+use crate::schema::body_inlines::BodyInlineChange;
 
 const PREFIX: &str = "body-inline:";
 
@@ -76,33 +75,7 @@ impl Snapshot {
         change: BodyInlineChange,
     ) -> Result<InlineEdit, String> {
         let target = self.body_inline_anchor(local)?.clone();
-        let action = match change {
-            BodyInlineChange::InsertAfter { inline } => {
-                InlineAction::InsertAfter(inline.resolve()?)
-            }
-            BodyInlineChange::Replace { inline } => InlineAction::Replace(inline.resolve()?),
-            BodyInlineChange::RemoveHyperlink {} => InlineAction::RemoveHyperlink,
-            BodyInlineChange::HyperlinkTooltip { value } => {
-                InlineAction::HyperlinkTooltip(value.into_option())
-            }
-            BodyInlineChange::HyperlinkHistory { value } => {
-                InlineAction::HyperlinkHistory(value.into_option())
-            }
-            BodyInlineChange::Format { action } => action.into(),
-            BodyInlineChange::RemoveObject {} => InlineAction::RemoveObject,
-            BodyInlineChange::DrawingDescription { value } => {
-                InlineAction::SetDrawingDescription(value.into_option())
-            }
-            BodyInlineChange::ImageAsset { bytes } => InlineAction::SetImageAsset(
-                resolve_component(ImageRun::new(bytes))?
-                    .image()
-                    .ok_or("expected resolved image")?
-                    .clone(),
-            ),
-            BodyInlineChange::DrawingProperty { property, inline } => {
-                InlineAction::PatchDrawing(property.into(), inline.resolve()?)
-            }
-        };
+        let action = change.resolve()?;
         Ok(InlineEdit { target, action })
     }
 
@@ -116,7 +89,7 @@ impl Snapshot {
     }
 }
 
-fn project(node: &ImportedInlineNode) -> Value {
+pub(super) fn project(node: &ImportedInlineNode) -> Value {
     match node {
         ImportedInlineNode::Run(run) => {
             let (text, has_opaque_content) = projected_run_text(&run.items);

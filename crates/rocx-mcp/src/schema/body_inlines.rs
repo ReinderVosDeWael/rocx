@@ -1,8 +1,15 @@
 use rmcp::schemars::{self, JsonSchema};
-use rocx::editor::DrawingProperty;
+use rocx::{
+    ImageRun,
+    editor::{DrawingProperty, InlineAction},
+};
 use serde::Deserialize;
 
-use super::{blocks::Nullable, payloads::InlineInput, run_format::RunFormatAction};
+use super::{
+    blocks::Nullable,
+    payloads::{InlineInput, resolve_component},
+    run_format::RunFormatAction,
+};
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -31,6 +38,32 @@ pub(crate) enum BodyInlineChange {
         property: DrawingGroup,
         inline: Box<InlineInput>,
     },
+}
+
+impl BodyInlineChange {
+    pub(crate) fn resolve(self) -> Result<InlineAction, String> {
+        Ok(match self {
+            Self::InsertAfter { inline } => InlineAction::InsertAfter(inline.resolve()?),
+            Self::Replace { inline } => InlineAction::Replace(inline.resolve()?),
+            Self::RemoveHyperlink {} => InlineAction::RemoveHyperlink,
+            Self::HyperlinkTooltip { value } => InlineAction::HyperlinkTooltip(value.into_option()),
+            Self::HyperlinkHistory { value } => InlineAction::HyperlinkHistory(value.into_option()),
+            Self::Format { action } => action.into(),
+            Self::RemoveObject {} => InlineAction::RemoveObject,
+            Self::DrawingDescription { value } => {
+                InlineAction::SetDrawingDescription(value.into_option())
+            }
+            Self::ImageAsset { bytes } => InlineAction::SetImageAsset(
+                resolve_component(ImageRun::new(bytes))?
+                    .image()
+                    .ok_or("expected resolved image")?
+                    .clone(),
+            ),
+            Self::DrawingProperty { property, inline } => {
+                InlineAction::PatchDrawing(property.into(), inline.resolve()?)
+            }
+        })
+    }
 }
 
 #[derive(Deserialize, JsonSchema)]

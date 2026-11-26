@@ -16,6 +16,10 @@ pub(crate) enum ResourceQuery {
     DocumentDefaults {},
     /// Read direct paragraph justification using the legacy alignment names.
     DefaultAlignment {},
+    /// Read direct abstract level starts independently of the full catalog.
+    AbstractStarts {},
+    /// Read concrete IDs and override coordinates independently of modeled level details.
+    NumberingInstances {},
     /// Read one custom property by its exact, nonblank name.
     CustomProperty { name: String },
 }

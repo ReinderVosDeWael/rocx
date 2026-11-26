@@ -143,9 +143,14 @@ owner or input field is still delegated to a later slice.
 For slice 6, MCP now discovers main-story controls, original wrapping sites
 and read-only physical story controls. The ordinary batch transports native
 control patches and all six wrapper actions. Body drawing actions and
-chart-series inspection use original body-inline anchors. Rich replacements
-still share the existing declaration limits, and physical entry picture
-editing remains open.
+chart-series inspection use original body-inline anchors. Physical entry
+pictures use a separate owner-scoped inline transaction. Rich replacements
+still share the existing declaration limits.
+
+For slice 5, style discovery and all native `StyleEdit` variants are exposed
+through the ordinary batch. Numbering catalog, definition, and override
+operations are exposed, including assignments to direct body paragraphs.
+Physical paragraph discovery and assignment remain open.
 
 ## Qualification and drift control
 

@@ -3,6 +3,7 @@ use rocx::editor::EntryEdit;
 use serde::{Deserialize, Deserializer};
 
 use super::{
+    entry_inlines::EntryInlineChange,
     layout::LayoutChange,
     notes::{NoteChange, NoteKind},
     resources::ResourceQuery,
@@ -190,6 +191,44 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Page through direct inlines, including pictures, in physical note and comment entries.
+    EntryInlines {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect the relationship-selected styles catalog, in stored order.
+    Styles {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through native directly stored abstract numbering definitions.
+    NumberingAbstracts {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through native concrete instances and their modeled overrides.
+    NumberingInstances {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Read a direct body's stored list assignment at a compact paragraph anchor.
+    ParagraphNumbering { anchor: String },
     /// Read direct defaults and document properties without evaluating style inheritance.
     Resources {
         /// Look up a single custom property by name.
@@ -236,6 +275,13 @@ pub(super) enum Operation {
         /// Physical owner anchor from the stories or entry-runs view.
         anchor: String,
         edits: Vec<StoryTextChange>,
+    },
+    /// Edit inlines in a single physical footnote, endnote, or comment part.
+    EditEntryInlines {
+        /// Physical owner anchor from the entry-inlines view.
+        anchor: String,
+        #[schemars(length(min = 1))]
+        edits: Vec<EntryInlineChange>,
     },
     /// Create, link or unlink an explicit story reference for a logical section slot.
     EditStoryReference {

@@ -80,6 +80,14 @@ Additional scoped and import coverage:
 - `test_drawings.py` checks body occurrence readback, drawing property groups,
   shared image redirection and shared chart forking against direct Rust bytes,
   with independent relationship and untouched part checks.
+- `test_entry_inlines.py` checks entry-inline anchor scope, picture lifecycle,
+  mixed direct formatting and local hyperlink allocation in comment and
+  relocated note parts, comparing saved packages with direct Rust bytes.
+- `test_styles.py` checks the relocated and missing style catalogs, native
+  style edits, staged paragraph style use, and guarded reference migration.
+- `test_numbering.py` checks the relocated numbering catalog and narrower
+  readers, direct body assignments, and staged definition, override, relink,
+  and removal transactions against native bytes.
 - `test_physical_tables.py` distinguishes ordinary body table anchors from
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent

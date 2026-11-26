@@ -25,17 +25,21 @@ mod entries;
 mod fields;
 mod layout;
 mod notes;
+mod numbering;
 mod paired_ranges;
 mod resources;
 mod revisions;
 mod run_format;
 mod stories;
+mod styles;
 mod tables;
 
 pub struct Snapshot {
     document: ImportedDocument,
     inspection: OnceLock<Result<Inspection, String>>,
     story_controls: OnceLock<Result<Vec<rocx::editor::ImportedControl>, String>>,
+    styles: OnceLock<Result<Option<rocx::editor::ImportedStyles>, String>>,
+    numbering: OnceLock<Result<rocx::editor::ImportedNumberingCatalog, String>>,
 }
 
 enum Target {
@@ -77,6 +81,8 @@ impl Snapshot {
                 .map_err(|e| e.to_string())?,
             inspection: OnceLock::new(),
             story_controls: OnceLock::new(),
+            styles: OnceLock::new(),
+            numbering: OnceLock::new(),
         })
     }
 
@@ -129,8 +135,19 @@ impl Snapshot {
                 batch.resources.push(edit.into());
                 continue;
             }
+            if let Edit::Numbering { edit } = edit {
+                batch.resources.push(
+                    edit.resolve(|local| self.numbering_paragraph_anchor(local))
+                        .map_err(locate)?,
+                );
+                continue;
+            }
             if let Edit::Control { edit } = edit {
                 self.control_edit(edit, &mut batch).map_err(locate)?;
+                continue;
+            }
+            if let Edit::Style { edit } = edit {
+                batch.styles.push(self.style_edit(edit).map_err(locate)?);
                 continue;
             }
             if let Edit::Block { anchor, edit } = edit {
@@ -213,9 +230,9 @@ impl Snapshot {
                 inline_edits: &batch.inline_edits,
                 paired_ranges: &batch.paired_ranges,
                 controls: &batch.controls,
+                styles: &batch.styles,
                 wrappers: &batch.wrappers,
                 structural: &batch.structural,
-                ..EditBatch::default()
             })
             .map_err(|e| format!("preview: {e}"))?;
         encode_preview(&preview)
@@ -254,6 +271,7 @@ struct Batch {
     inline_edits: Vec<InlineEdit>,
     paired_ranges: Vec<PairedRangeEdit>,
     controls: Vec<rocx::editor::ControlEdit>,
+    styles: Vec<rocx::editor::StyleEdit>,
     wrappers: Vec<rocx::editor::WrapperEdit>,
     structural: Vec<rocx::editor::TableStructureEdit>,
 }

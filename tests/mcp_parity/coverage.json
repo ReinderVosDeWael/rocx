@@ -27,6 +27,15 @@
     "story-images": "tests/mcp/test_story_images.py::test_story_image_all_slots_from_paged_anchors",
     "story-image-rejection": "tests/mcp/test_story_images.py::test_story_image_rejects_missing_slot_and_physical_owner",
     "entry-runs": "tests/mcp/test_entry_runs.py::test_entry_story_text_in_one_physical_owner",
+    "entry-inline-discovery": "tests/mcp/test_entry_inlines.py::test_entry_inline_discovery",
+    "entry-inline-bytes": "tests/mcp/test_entry_inlines.py::test_entry_picture_lifecycle_native_bytes",
+    "style-discovery": "tests/mcp/test_styles.py::test_style_discovery",
+    "style-bytes": "tests/mcp/test_styles.py::test_styles_native_mixed_and_retarget",
+    "style-catalog": "tests/mcp/test_styles.py::test_styles_absence_and_duplicate_ids",
+    "numbering-discovery": "tests/mcp/test_numbering.py::test_numbering_discovery",
+    "numbering-bytes": "tests/mcp/test_numbering.py::test_numbering_native_lifecycle",
+    "numbering-reader-scope": "tests/mcp/test_numbering.py::test_numbering_independent_readers_ignore_bad_style_catalog",
+    "numbering-first-part": "tests/mcp/test_numbering.py::test_numbering_creates_part_with_reciprocal_style_link",
     "resource-discovery": "tests/mcp/test_resources.py::test_resource_discovery",
     "resource-query": "tests/mcp/test_resources.py::test_resource_value_queries_isolate_malformed_metadata",
     "resource-mixed": "tests/mcp/test_resources.py::test_mixed_resource_batch_native_bytes_and_preservation",
@@ -114,13 +123,14 @@
       "positive": ["body-table-mixed", "table-geometry", "table-owners"], "negative": ["body-table-mixed", "table-paging"]
     },
     "EditBatch::styles": {
-      "scope": "relationship-selected styles", "target": "style ID, anchor, property, or conditional region", "mcp": "preview_edits.edits (planned style operations)",
-      "status": "planned", "gap": "No style mutation or provable reference retargeting.", "positive": [], "negative": []
+      "scope": "relationship-selected styles", "target": "style anchor, property, or conditional region", "mcp": "preview_edits.edits[kind=style]",
+      "status": "partial", "gap": "All seven variants are transported and byte-tested; not every modeled property, conditional region or guard has installed evidence.",
+      "positive": ["style-bytes", "style-catalog"], "negative": ["style-discovery", "style-bytes", "style-catalog"]
     },
     "EditBatch::resources": {
       "scope": "package resources and paragraph assignments", "target": "metadata, defaults, numbering definitions/overrides or original body/cell/story paragraph", "mcp": "preview_edits.edits[kind=resource]",
-      "status": "partial", "gap": "Metadata and defaults are transported; numbering declarations, overrides, staged references and paragraph assignments remain open.",
-      "positive": ["resource-discovery", "resource-mixed", "resource-retry"], "negative": ["resource-discovery", "resource-retry"]
+      "status": "partial", "gap": "Metadata, defaults, numbering definitions, overrides and direct body assignments are transported; physical story and cell paragraph assignments remain open.",
+      "positive": ["resource-discovery", "resource-mixed", "resource-retry", "numbering-bytes"], "negative": ["resource-discovery", "resource-retry", "numbering-bytes"]
     },
     "EditBatch::controls": {
       "scope": "main story", "target": "control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=patch]",
@@ -291,13 +301,13 @@
     "ImportedDocument::preview_with_styles": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus style edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "styles"],
-      "status": "partial", "gap": "Style slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Style actions compose with ordinary edits but inherit style and baseline qualification limits.", "positive": ["baseline-mixed", "style-bytes"], "negative": ["baseline-mixed", "style-bytes"]
     },
     "ImportedDocument::preview_with_resources": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus document resource edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "resources"],
-      "status": "partial", "gap": "Supports atomic resource and body edits; numbering and rich baseline declarations remain unimplemented.",
-      "positive": ["baseline-mixed", "resource-mixed"], "negative": ["baseline-mixed", "resource-retry"]
+      "status": "partial", "gap": "Supports atomic resource and body edits. Physical numbering assignments and some rich baseline declarations remain unimplemented.",
+      "positive": ["baseline-mixed", "resource-mixed", "numbering-bytes"], "negative": ["baseline-mixed", "resource-retry", "numbering-bytes"]
     },
     "ImportedDocument::preview_with_controls": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus control edits", "mcp": "preview_edits.edits",
@@ -366,8 +376,9 @@
       "status": "partial", "gap": "All seven variants are transported and byte-tested. Installed paragraph successes cover note examples only; discardable deletion is tested only on a footnote. Native protected field/range boundaries, duplicate decimal identities in one owner and extended comment rejection lack installed evidence.", "positive": ["entry-discovery", "entry-scoped-bytes", "entry-rejection"], "negative": ["entry-discovery", "entry-scoped-bytes", "entry-rejection"]
     },
     "ImportedDocument::edit_entry_inlines": {
-      "scope": "one physical ordinary note/comment part", "target": "owner-local entry inline anchors", "mcp": "preview_edits.operation (planned entry inline editing)",
-      "status": "planned", "gap": "No entry inline batch or byte-only result.", "positive": [], "negative": []
+      "scope": "one physical ordinary note/comment part", "target": "owner-local direct entry inline anchors", "mcp": "preview_edits.operation[kind=edit-entry-inlines]",
+      "status": "partial", "gap": "Direct image lifecycle, formatting and external links are qualified; this operation does not issue hyperlink child run anchors for format-only batches. Those anchors are available via format-runs. Other picture groups and payloads still need installed evidence.",
+      "positive": ["entry-inline-discovery", "entry-inline-bytes"], "negative": ["entry-inline-discovery", "entry-inline-bytes"]
     },
     "ImportedDocument::edit_note_reference": {
       "scope": "main-document reference sites and their note definitions", "target": "reference anchor or insertion site, note kind and note ID", "mcp": "inspect_document.view[kind=note-references]; preview_edits.operation[kind=edit-note-reference]",
@@ -400,12 +411,13 @@
       "status": "covered", "positive": ["range-lifecycle"], "negative": ["range-discovery", "range-lifecycle"]
     },
     "ImportedDocument::styles": {
-      "scope": "relationship-selected styles part", "target": "typed stored style kinds, direct properties and conditional regions", "mcp": "inspect_document (planned styles view)",
-      "status": "planned", "gap": "No style catalog.", "positive": [], "negative": []
+      "scope": "relationship-selected styles part", "target": "stored style metadata and native direct property XML", "mcp": "inspect_document.view[kind=styles]",
+      "status": "partial", "gap": "Known types, property XML, relocated and missing parts are qualified; malformed or unsupported source kinds lack installed evidence.",
+      "positive": ["style-bytes", "style-catalog"], "negative": ["style-discovery", "style-bytes"]
     },
     "ImportedDocument::style_anchor": {
-      "scope": "relationship-selected styles part", "target": "stored style ID resolved to a snapshot anchor", "mcp": "inspect_document (planned style selector)",
-      "status": "planned", "gap": "No style handle discovery.", "positive": [], "negative": []
+      "scope": "relationship-selected styles part", "target": "unique stored style ID resolved to a snapshot anchor", "mcp": "inspect_document.view[kind=styles]",
+      "status": "covered", "positive": ["style-bytes"], "negative": ["style-bytes", "style-catalog"]
     },
     "ImportedDocument::document_defaults": {
       "scope": "relationship-selected defaults/settings parts", "target": "typed direct stored default fields", "mcp": "inspect_document.view[kind=resource-value].query[kind=document-defaults]",
@@ -437,20 +449,21 @@
       "status": "covered", "positive": ["resource-query", "resource-mixed"], "negative": ["resource-query", "resource-discovery"]
     },
     "ImportedDocument::numbering_catalog": {
-      "scope": "relationship-selected numbering part", "target": "abstract/concrete definitions and modeled level/override payloads", "mcp": "inspect_document (planned numbering catalog view)",
-      "status": "planned", "gap": "No numbering catalog.", "positive": [], "negative": []
+      "scope": "relationship-selected numbering part", "target": "abstract/concrete definitions and modeled level/override payloads", "mcp": "inspect_document.view[kind=numbering-abstracts|numbering-instances]",
+      "status": "partial", "gap": "Native serialization, rich levels and reciprocal links are qualified; installed evidence still lacks level-free aliases and opaque level readback.",
+      "positive": ["numbering-bytes", "numbering-first-part"], "negative": ["numbering-discovery", "numbering-reader-scope"]
     },
     "ImportedDocument::abstract_starts": {
-      "scope": "relationship-selected numbering part", "target": "stored starts by abstract ID and level", "mcp": "inspect_document (planned abstract starts view)",
-      "status": "planned", "gap": "No abstract numbering starts projection.", "positive": [], "negative": []
+      "scope": "relationship-selected numbering part", "target": "stored starts by abstract ID and level", "mcp": "inspect_document.view[kind=resource-value].query[kind=abstract-starts]",
+      "status": "covered", "positive": ["numbering-bytes"], "negative": ["numbering-discovery", "numbering-reader-scope"]
     },
     "ImportedDocument::numbering_instances": {
-      "scope": "relationship-selected numbering part", "target": "concrete numbering instance IDs and stored overrides", "mcp": "inspect_document (planned numbering instances view)",
-      "status": "planned", "gap": "No concrete numbering projection.", "positive": [], "negative": []
+      "scope": "relationship-selected numbering part", "target": "concrete numbering instance IDs and stored overrides", "mcp": "inspect_document.view[kind=resource-value].query[kind=numbering-instances]",
+      "status": "covered", "positive": ["numbering-bytes"], "negative": ["numbering-discovery", "numbering-reader-scope"]
     },
     "ImportedDocument::paragraph_numbering": {
-      "scope": "direct body", "target": "paragraph anchor and stored direct assignment", "mcp": "inspect_document (planned body numbering selector)",
-      "status": "planned", "gap": "No direct paragraph numbering readback.", "positive": [], "negative": []
+      "scope": "direct body", "target": "compact paragraph anchor and stored direct assignment", "mcp": "inspect_document.view[kind=paragraph-numbering]",
+      "status": "covered", "positive": ["numbering-bytes"], "negative": ["numbering-discovery", "numbering-bytes"]
     },
     "ImportedDocument::story_paragraph_anchor": {
       "scope": "physical header/footer or ordinary note/comment entry", "target": "owner part, optional entry ID and direct paragraph block index", "mcp": "inspect_document (planned story paragraph selector)",
@@ -663,8 +676,9 @@
       "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging", "entry-rejection"]
     },
     "rocx::editor::ImportedEntry::inline_structure": {
-      "scope": "one footnote, endnote or comment", "target": "typed inline structure at an original entry block index", "mcp": "inspect_document (planned entry inline view)",
-      "status": "planned", "gap": "Entry paragraph text and opaque-content indicators project blocks; they do not expose typed inline nodes, run anchors or inline structure.", "positive": [], "negative": []
+      "scope": "one footnote, endnote or comment", "target": "typed inline structure at an original entry block index", "mcp": "inspect_document.view[kind=entry-inlines]",
+      "status": "partial", "gap": "The view addresses supported direct nodes and projects hyperlink children and pictures; flattened text and opaque indicators do not represent every native run item.",
+      "positive": ["entry-inline-bytes"], "negative": ["entry-inline-discovery", "entry-inline-bytes"]
     },
     "rocx::editor::ImportedHeader::inline_structure": {
       "scope": "effective default header", "target": "typed inline structure at an original header block index", "mcp": "inspect_document (planned physical header inline view)",

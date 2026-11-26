@@ -14,8 +14,9 @@ mod table;
 #[cfg(test)]
 mod tests;
 
-use format::ParagraphFormatInput;
-pub(crate) use format::RunFormatInput;
+pub(crate) use format::{
+    LineHeightInput, ParagraphFormatInput, RunFormatInput, RunLanguageInput, TabStopInput,
+};
 pub(crate) use inline::InlineInput;
 pub(crate) use table::RichTableInput;
 
