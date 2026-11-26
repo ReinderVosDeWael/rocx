@@ -18,6 +18,11 @@ check and the strict 699-page documentation build also passed. See the
 [installed acceptance instructions](../tests/mcp/README.md) for reproduction.
 Keep #52 open until the combined changes and hosted checks reach `main`.
 
+**Next milestone — [#72](https://github.com/ReinderVosDeWael/rocx/issues/72):**
+follow the [full MCP/Rust editor parity plan](MCP-EDITOR-PARITY.md). Freeze the
+public Rust surface first, then deliver inspection and owner-scoped editing in
+tested slices. Keep full parity separate from the seven-edit #52 baseline.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.
