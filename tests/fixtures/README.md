@@ -26,3 +26,11 @@ direct paragraph and an empty paragraph.
 ```sh
 uv run --with python-docx==1.2.0 --no-project python tests/fixtures/generate_imported_table_cells.py
 ```
+`imported-entry-stories.docx` is a checked-in fixture for the MCP Rust unit
+tests. It includes relocated note parts, overlapping lexical IDs and a
+comment containing an opaque table. Regenerate it from the repository root:
+
+```sh
+PYTHONPATH=tests/mcp uv run --no-project --with-requirements tests/mcp/requirements.txt \
+  python -c 'from pathlib import Path; from test_stdio import make_entry_source; make_entry_source(Path("tests/fixtures/imported-entry-stories.docx"))'
+```
