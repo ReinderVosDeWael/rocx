@@ -6,7 +6,9 @@ use crate::{
         notes::{NoteChange, NoteKind},
         resources::ResourceQuery,
         revisions::RevisionChange,
+        run_format::RunFormatChange,
         stories::{StoryBlockChange, StoryReferenceChange, StoryTextChange},
+        tables::PhysicalTableChange,
     },
 };
 use rocx::opc::ReadLimits;
@@ -43,10 +45,15 @@ struct Document {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PageView {
+    BodyInlines,
+    BodyTables,
     Entries,
     EntryRuns,
+    Fields,
+    FormatRuns,
     Layout,
     NoteReferences,
+    PhysicalTables,
     Revisions,
     Sections,
     Stories,
@@ -55,10 +62,15 @@ pub(crate) enum PageView {
 impl PageView {
     fn key(self) -> &'static str {
         match self {
+            Self::BodyInlines => "body-inlines",
+            Self::BodyTables => "body-tables",
             Self::Entries => "entries",
             Self::EntryRuns => "entry-runs",
+            Self::Fields => "fields",
+            Self::FormatRuns => "format-runs",
             Self::Layout => "layout",
             Self::NoteReferences => "note-references",
+            Self::PhysicalTables => "physical-tables",
             Self::Revisions => "revisions",
             Self::Sections => "sections",
             Self::Stories => "stories",
@@ -254,10 +266,15 @@ impl Session {
             }
         };
         let (mut rows, next) = match view {
+            PageView::BodyInlines => doc.snapshot.body_inline_page(start, limit),
+            PageView::BodyTables => doc.snapshot.body_table_page(start, limit),
             PageView::Entries => doc.snapshot.entry_page(start, limit),
             PageView::EntryRuns => doc.snapshot.entry_run_page(start, limit),
+            PageView::Fields => doc.snapshot.field_page(start, limit),
+            PageView::FormatRuns => doc.snapshot.format_run_page(start, limit),
             PageView::Layout => doc.snapshot.layout_page(start, limit),
             PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
+            PageView::PhysicalTables => doc.snapshot.physical_table_page(start, limit),
             PageView::Revisions => doc.snapshot.revision_page(start, limit),
             PageView::Sections => doc.snapshot.section_page(start, limit),
             PageView::Stories => doc.snapshot.story_page(start, limit),
@@ -274,8 +291,12 @@ impl Session {
             format!("{document}/{local}")
         });
         let field = match view {
+            PageView::BodyInlines => "body_inlines",
+            PageView::BodyTables => "body_tables",
+            PageView::FormatRuns => "format_runs",
             PageView::NoteReferences => "note_references",
             PageView::EntryRuns => "entry_runs",
+            PageView::PhysicalTables => "physical_tables",
             _ => view.key(),
         };
         Ok(json!({"document":document, (field):rows, "next_cursor":next_cursor}))
@@ -433,6 +454,44 @@ impl Session {
         )
     }
 
+    pub fn preview_run_format(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<RunFormatChange>,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let view = PageView::FormatRuns;
+        Self::scoped_anchor(doc, &document, view, anchor)?;
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_run_format(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
+    }
+
+    pub fn preview_part_tables(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<PhysicalTableChange>,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let view = PageView::PhysicalTables;
+        Self::scoped_anchor(doc, &document, view, anchor)?;
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_part_tables(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
+    }
+
     fn scoped_anchor<'a>(
         doc: &Document,
         document: &str,
@@ -498,8 +557,14 @@ impl Session {
             return Err("invalid_batch: supply at least one edit".into());
         }
         for (i, edit) in edits.iter_mut().enumerate() {
-            let header_image = matches!(edit, Edit::HeaderImage { .. });
-            let block = matches!(edit, Edit::Block { .. });
+            let view = match edit {
+                Edit::HeaderImage { .. } => Some(PageView::Stories),
+                Edit::Block { .. } => Some(PageView::Sections),
+                Edit::Field { .. } => Some(PageView::Fields),
+                Edit::Inline { .. } => Some(PageView::BodyInlines),
+                Edit::TableStructure { .. } => Some(PageView::BodyTables),
+                _ => None,
+            };
             let Some(anchor) = edit.anchor_slot() else {
                 continue;
             };
@@ -511,11 +576,8 @@ impl Session {
                     "wrong_owner: inspect the selected document for edit {i}"
                 ));
             }
-            let story_for_image =
-                header_image && doc.view_anchors.get(local) == Some(&PageView::Stories);
-            let section_for_block =
-                block && doc.view_anchors.get(local) == Some(&PageView::Sections);
-            if !doc.snapshot.has_issued_anchor(local) && !story_for_image && !section_for_block {
+            let matches_view = view.is_some_and(|view| doc.view_anchors.get(local) == Some(&view));
+            if !doc.snapshot.has_issued_anchor(local) && !matches_view {
                 if doc.view_anchors.contains_key(local) {
                     return Err(format!(
                         "wrong_anchor_type: edit {i} requires an ordinary edit anchor"

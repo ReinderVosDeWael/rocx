@@ -24,8 +24,8 @@ full saved packages, then independently inspect DOCX semantics, protected part
 payloads, header relationships, and Transitional schema/OPC validity.
 For newly authored documents, the oracle receives the observed clock timestamp
 as a render input; neither ZIP is normalized or rewritten before comparison.
-The note-reference, layout, revision, resource, block and story suites locate their
-independent native oracle binaries beside `ROCX_MCP_ORACLE`.
+The domain suites locate their independent native oracle binaries beside
+`ROCX_MCP_ORACLE`.
 
 Entry-story coverage (`test_stdio.py`):
 
@@ -67,3 +67,10 @@ Additional scoped and import coverage:
   `test_stories.py` checks reusable rich paragraph payloads in body/story
   insertion, section-local splices, eligible removals, and hyperlink
   relationship ownership.
+- `test_fields.py` and `test_body_inlines.py` compare original-coordinate
+  inline/field transactions and reports. `test_run_format.py` checks
+  owner-scoped formatting, aliases and all clear slots.
+- `test_physical_tables.py` distinguishes ordinary body table anchors from
+  physical-owner anchors and covers native geometry and cell edits.
+  `test_rich_table.py` checks recursive cell declarations and independent
+  readback of table, row and cell properties.

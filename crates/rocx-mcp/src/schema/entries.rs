@@ -7,7 +7,9 @@ use super::{
     notes::{NoteChange, NoteKind},
     resources::ResourceQuery,
     revisions::RevisionChange,
+    run_format::RunFormatChange,
     stories::{StoryBlockChange, StoryReferenceChange, StoryTextChange},
+    tables::PhysicalTableChange,
 };
 
 const MIN_LIMIT: usize = 1;
@@ -96,6 +98,51 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Inspect supported fields in original main-story order.
+    Fields {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect direct body inlines and original node anchors.
+    BodyInlines {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect direct body tables for ordinary mixed geometry edits.
+    BodyTables {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect direct run formatting in physical owners.
+    FormatRuns {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect top-level and nested physical tables and their owners.
+    PhysicalTables {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
     /// Page through direct runs in note and comment entries, by physical owner.
     EntryRuns {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
@@ -163,6 +210,20 @@ pub(super) enum Operation {
         /// Logical slot anchor from the stories view.
         anchor: String,
         edit: StoryBlockChange,
+    },
+    /// Edit native direct run formatting in one physical owner.
+    EditRunFormat {
+        /// Owner anchor from the format-runs view.
+        anchor: String,
+        #[schemars(length(min = 1))]
+        edits: Vec<RunFormatChange>,
+    },
+    /// Edit tables in a single physical part.
+    EditPartTables {
+        /// Owner anchor from the physical-tables view.
+        anchor: String,
+        #[schemars(length(min = 1))]
+        edits: Vec<PhysicalTableChange>,
     },
     /// Preview the package produced by an empty native EditBatch, without mutating the source.
     NoOp {},

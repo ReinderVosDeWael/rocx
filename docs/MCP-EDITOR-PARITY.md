@@ -47,6 +47,13 @@ All native `BlockEdit` variants are transported; payload coverage is partial:
 rich table cells, native annotations, and additional inline/block kinds
 remain open.
 
+Field, body-inline and direct-body table edits now share the ordinary
+transaction. Physical run formatting and table operations have separate
+owner-scoped transactions with byte-only previews. Rich table declarations
+support nested blocks and modeled table, row and cell properties, excluding
+row/cell control wrappers; native physical tables do not accept whole-node
+replacement or removal.
+
 ## What counts as parity?
 
 Start from the public `rocx::editor` API, especially `ImportedDocument`,

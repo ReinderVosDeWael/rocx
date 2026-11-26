@@ -81,6 +81,18 @@ block change reports. The combined suite passed 99 tests and ten subtests;
 formatted hyperlink paragraph and a section split. Continue extending the same
 declarations for rich tables, fields, controls and physical run edits.
 
+The next increment implements field readback and ordinary field/body-inline
+edits, plus single-owner transactions for physical run formatting and
+nested/direct tables. Reuse a rich, recursive table declaration for insertion,
+cell contents and eligible donor properties. Direct-body table geometry and
+whole-node edits run in the ordinary batch; physical owners retain native
+scope restrictions.
+
+Next: discover paired bookmark/comment markers and structured control sites
+and qualify their original-coordinate transactions. Continue with drawing
+and chart actions, style and numbering resources, then reconcile the remaining
+payload and owner coverage against the compiled ledger.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.
