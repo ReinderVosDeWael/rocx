@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add [`rocx-mcp`](docs/MCP.md), a local stdio server for creating DOCX
+  documents, inspecting edit targets, previewing batches and saving a selected
+  preview to a new copy. Install it from the separate Cargo workspace crate.
+
 ## 0.4.0
 
 ### Authoring

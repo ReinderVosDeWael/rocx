@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.88"
 publish = false
 
+# The packed Wasm source is replayed independently with its own lockfile.
+[workspace]
+
 [lib]
 crate-type = ["cdylib"]
 

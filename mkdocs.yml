@@ -33,6 +33,7 @@ nav:
   - JavaScript: javascript.md
   - Guides:
       - JSON editor CLI: editor-cli.md
+      - Local MCP server: mcp.md
       - Formatting and drawings: contracts/FORMATTING.md
       - Deferred values: contracts/DEFERRED-FIELDS.md
       - Tables: contracts/TABLES.md

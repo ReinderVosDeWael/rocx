@@ -1,0 +1,19 @@
+[package]
+name = "rocx-mcp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Local MCP stdio server for editing DOCX files with rocx"
+license = "LGPL-2.1-or-later"
+repository = "https://github.com/ReinderVosDeWael/rocx"
+publish = false
+
+[dependencies]
+futures-executor = "0.3"
+rmcp = { version = "=3.11.0", default-features = false, features = ["server", "transport-io"] }
+rocx = { path = "../.." }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+uuid = { version = "1", features = ["v4"] }
