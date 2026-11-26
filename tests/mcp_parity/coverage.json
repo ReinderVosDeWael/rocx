@@ -31,6 +31,11 @@
     "resource-query": "tests/mcp/test_resources.py::test_resource_value_queries_isolate_malformed_metadata",
     "resource-mixed": "tests/mcp/test_resources.py::test_mixed_resource_batch_native_bytes_and_preservation",
     "resource-retry": "tests/mcp/test_resources.py::test_resource_only_rejection_and_retry_without_inspection",
+    "block-discovery": "tests/mcp/test_blocks.py::test_block_discovery",
+    "block-mixed": "tests/mcp/test_blocks.py::test_mixed_block_preview_rejects_overlap_then_matches_native",
+    "section-boundaries": "tests/mcp/test_blocks.py::test_section_lifecycle_matches_native",
+    "rich-paragraph": "tests/mcp/test_stories.py::test_insert_rich_paragraph_native_bytes",
+    "rich-story-blocks": "tests/mcp/test_stories.py::test_rich_story_blocks_native_bytes_and_preservation",
     "lifetime": "tests/mcp/test_stdio.py::test_retained_selection_lifetime_and_exclusive_save",
     "capacity": "tests/mcp/test_stdio.py::test_capacity_rejects_without_eviction_and_close_releases"
   },
@@ -54,9 +59,9 @@
       "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
     },
     "EditBatch::paragraphs": {
-      "scope": "direct body", "target": "paragraph after which to insert a resolved paragraph", "mcp": "preview_edits.edits[kind=insert-paragraph]",
-      "status": "partial", "gap": "Plain text only; no rich resolved paragraph payload.",
-      "positive": ["baseline-mixed", "baseline-created"], "negative": ["baseline-mixed"]
+      "scope": "direct body", "target": "paragraph after which to insert a resolved paragraph", "mcp": "preview_edits.edits[kind=insert-paragraph|insert-rich-paragraph]",
+      "status": "partial", "gap": "Formatted declarations are transported, but not all native inline kinds and paragraph payload fields are represented.",
+      "positive": ["baseline-mixed", "baseline-created", "rich-paragraph"], "negative": ["baseline-mixed", "rich-paragraph"]
     },
     "EditBatch::cells": {
       "scope": "direct body table", "target": "physical row and cell beneath original table anchor", "mcp": "preview_edits.edits[kind=cell-alignment]",
@@ -75,8 +80,9 @@
       "status": "covered", "positive": ["body-scalar-edits", "discovery"], "negative": ["body-scalar-edits"]
     },
     "EditBatch::blocks": {
-      "scope": "direct body and section contents", "target": "paragraph, table, or section and original block gap", "mcp": "preview_edits.edits (planned block operations)",
-      "status": "planned", "gap": "No block replacement/removal, section lifecycle, or block flags.", "positive": [], "negative": []
+      "scope": "direct body and section contents", "target": "paragraph or section and original block gap", "mcp": "preview_edits.edits[kind=block]",
+      "status": "partial", "gap": "All nine native variants are transported, but replace payloads do not yet represent all resolved paragraph/block values.",
+      "positive": ["block-discovery", "block-mixed", "section-boundaries"], "negative": ["block-discovery", "block-mixed", "section-boundaries"]
     },
     "EditBatch::inline_edits": {
       "scope": "ordinary body batch", "target": "inline or drawing occurrence anchor", "mcp": "preview_edits.edits (planned inline operations)",
@@ -113,8 +119,7 @@
     },
     "EditPreview::block_changes": {
       "scope": "retained preview", "target": "original changed block indices", "mcp": "preview_edits.changes.block_changes",
-      "status": "partial", "gap": "Empty report is qualified; block edits that populate this report remain unimplemented.",
-      "positive": ["empty-batch"], "negative": ["empty-batch"]
+      "status": "covered", "positive": ["empty-batch", "block-mixed", "section-boundaries"], "negative": ["empty-batch", "block-mixed"]
     },
     "EditPreview::cell_alignment_changes": {
       "scope": "retained preview", "target": "original table, physical row/cell and before/after alignment", "mcp": "preview_edits.changes.cell_alignments",
@@ -237,14 +242,16 @@
       "status": "partial", "gap": "Range slice supported; inherits baseline declaration and story limits.", "positive": ["baseline-mixed", "body-scalar-edits", "empty-batch"], "negative": ["baseline-mixed", "body-scalar-edits"]
     },
     "ImportedDocument::preview_blocks": {
-      "scope": "ordinary body batch", "target": "block and section edits", "mcp": "preview_edits.edits (planned block operations)",
+      "scope": "ordinary body batch", "target": "block and section edits", "mcp": "preview_edits.edits[kind=block]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["blocks"],
-      "status": "planned", "gap": "Block slice not implemented.", "positive": [], "negative": []
+      "status": "partial", "gap": "All transaction variants exposed; replacement declarations are partial.",
+      "positive": ["block-mixed", "section-boundaries"], "negative": ["block-mixed", "section-boundaries"]
     },
     "ImportedDocument::preview_with_blocks": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus block and section edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "blocks"],
-      "status": "partial", "gap": "Block slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Block transaction is mixed with ordinary edits; replacement and baseline declaration gaps remain.",
+      "positive": ["baseline-mixed", "block-mixed"], "negative": ["baseline-mixed", "block-mixed"]
     },
     "ImportedDocument::preview_with_inlines": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus inline edits", "mcp": "preview_edits.edits",
@@ -273,9 +280,8 @@
       "status": "partial", "gap": "Control slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::sections": {
-      "scope": "main document section ranges", "target": "section anchor and direct section information", "mcp": "inspect_document.view[kind=layout|stories]",
-      "status": "partial", "gap": "Direct layout and logical story slots expose original section indices; section body ranges and full flags are missing.",
-      "positive": ["layout-bytes", "story-paging"], "negative": ["layout-rejection"]
+      "scope": "main document section ranges", "target": "section anchor and direct section information", "mcp": "inspect_document.view[kind=sections]",
+      "status": "covered", "positive": ["layout-bytes", "section-boundaries"], "negative": ["block-discovery", "section-boundaries"]
     },
     "ImportedDocument::default_headers": {
       "scope": "logical section default header", "target": "effective default header blocks and inlines", "mcp": "inspect_document.headers[variant=default]; inspect_document.view[kind=stories]",
@@ -312,12 +318,13 @@
     },
     "ImportedDocument::edit_story_reference": {
       "scope": "one logical section story slot", "target": "section, header/footer kind, and slot variant", "mcp": "preview_edits.operation[kind=edit-story-reference]",
-      "status": "partial", "gap": "Create uses plain paragraphs, not rich blocks. Link is limited to physical parts exposed by an effective slot, not every related part.",
-      "positive": ["story-reference"], "negative": ["story-reference"]
+      "status": "partial", "gap": "Both plain and supported rich blocks are accepted for create. Link is limited to physical parts exposed by an effective slot, not every related part.",
+      "positive": ["story-reference", "rich-story-blocks"], "negative": ["story-reference"]
     },
     "ImportedDocument::edit_story_blocks": {
-      "scope": "one logical story slot with shared/local intent", "target": "slot anchor, original block gap, removal count and resolved blocks", "mcp": "preview_edits.operation (planned story splicing)",
-      "status": "planned", "gap": "No scoped block splice or byte-only result.", "positive": [], "negative": []
+      "scope": "one logical story slot with shared/local intent", "target": "slot anchor, original block gap, removal count and resolved blocks", "mcp": "preview_edits.operation[kind=edit-story-blocks]",
+      "status": "partial", "gap": "Shared and local splices are transported; full resolved block payloads remain open.",
+      "positive": ["rich-story-blocks"], "negative": ["rich-story-blocks"]
     },
     "ImportedDocument::edit_story_text": {
       "scope": "one physical header/footer or ordinary note/comment part", "target": "eligible direct text run anchors owned by that part", "mcp": "preview_edits.operation[kind=edit-story-text]",

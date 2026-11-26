@@ -72,6 +72,15 @@ formatting and tables. Keep rich story creation, linking eligible but
 unreferenced story parts, numbering/style edits and remaining slices open
 in the ledger until there is installed-client evidence.
 
+The block increment wires rich declarations into ordinary
+paragraph insertion, block edits, story creation and story splicing. Section
+inspection exposes original body ranges for split/merge. All nine native block
+variants passed installed-client checks, including native byte parity and
+block change reports. The combined suite passed 99 tests and ten subtests;
+35 Rust tests and Clippy passed on Rust 1.88 and stable. Live OpenCode saved a
+formatted hyperlink paragraph and a section split. Continue extending the same
+declarations for rich tables, fields, controls and physical run edits.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.

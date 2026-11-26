@@ -13,7 +13,7 @@ from docx.shared import Inches
 from jsonschema.validators import validator_for
 import pytest
 
-from test_stdio import anyio_backend, call, digest, executable, failure, launch, parts
+from test_stdio import anyio_backend, call, digest, executable, failure, launch, parts, validate
 
 
 pytestmark = pytest.mark.anyio
@@ -22,6 +22,108 @@ HEADER = "word/custom/relocated-header.xml"
 HEADER_RELS = "word/custom/_rels/relocated-header.xml.rels"
 MAIN = "word/document.xml"
 MAIN_RELS = "word/_rels/document.xml.rels"
+
+RICH = {
+    "format": {"spacing_after": 9.0},
+    "inlines": [
+        {"kind": "text", "text": "Styled 😀", "format": {"bold": True, "italic": False, "size": 14.0}},
+        {"kind": "text", "text": " tail"},
+        {"kind": "hyperlink", "target": {"kind": "url", "url": "https://example.org/rich"},
+         "children": [{"kind": "text", "text": " source"}]},
+    ],
+}
+
+
+def assert_rich(paragraph):
+    assert paragraph.text == "Styled 😀 tail source"
+    assert paragraph.runs[0].bold is True and paragraph.runs[0].italic is False
+    assert paragraph.runs[0].font.size.pt == 14
+    assert paragraph.paragraph_format.space_after.pt == 9
+    assert paragraph.hyperlinks[0].url == "https://example.org/rich"
+
+
+@pytest.mark.parametrize("case", [
+    "create-rich", "rich-splice-shared", "rich-splice-local", "rich-splice-footer",
+])
+async def test_rich_story_blocks_native_bytes_and_preservation(launch, story_source, case):
+    if case == "rich-splice-local":
+        fixture = docx.Document(story_source)
+        fixture.sections[1].footer.is_linked_to_previous = True
+        fixture.save(story_source)
+    source = story_source.read_bytes()
+    blocks = [{"kind": "paragraph", "paragraph": RICH}]
+    async with launch() as client:
+        document = await open_document(client, story_source)
+        rows, _ = await story_page(client, document)
+        if case == "create-rich":
+            operation = {"kind": "edit-story-reference", "anchor": rows[5]["anchor"],
+                         "edit": {"kind": "create-rich", "blocks": blocks}}
+        elif case == "rich-splice-footer":
+            operation = {"kind": "edit-story-blocks", "anchor": rows[9]["anchor"],
+                         "edit": {"mode": "shared", "index": 0, "remove": 1, "blocks": blocks}}
+        elif case == "rich-splice-local":
+            operation = {"kind": "edit-story-blocks", "anchor": rows[6]["anchor"],
+                         "edit": {"mode": "section-local", "index": 2, "remove": 0, "blocks": blocks}}
+            # The original header's symbol/table markup prevents a local fork.
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          operation=operation)
+            operation = {**operation, "anchor": rows[9]["anchor"],
+                         "edit": {**operation["edit"], "index": 1}}
+        else:
+            operation = {
+                "kind": "edit-story-blocks", "anchor": rows[6]["anchor"],
+                "edit": {"mode": "shared" if case.endswith("shared") else "section-local",
+                         "index": 2, "remove": 0, "blocks": blocks},
+            }
+            await failure(client, "preview_edits", "wrong_anchor_type", document=document,
+                          operation={**operation, "anchor": rows[6]["owner"]["anchor"]})
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          operation={**operation, "edit": {**operation["edit"], "index": 0, "remove": 1}})
+        output = await save_preview(client, document, story_source, case, operation)
+
+    assert story_source.read_bytes() == source
+    document = docx.Document(output)
+    if case == "create-rich":
+        assert_rich(document.sections[0].even_page_footer.paragraphs[0])
+    elif case == "rich-splice-footer":
+        assert len(document.sections[1].footer.paragraphs) == 1
+        assert_rich(document.sections[1].footer.paragraphs[0])
+        assert document.sections[0].footer.paragraphs[0].text == "Prior footer"
+    elif case == "rich-splice-local":
+        assert_rich(document.sections[1].footer.paragraphs[-1])
+        assert [p.text for p in document.sections[0].footer.paragraphs] == ["Prior footer"]
+        assert document.sections[1].footer.paragraphs[0].text == "Prior footer"
+    else:
+        assert_rich(document.sections[1].header.paragraphs[-1])
+        assert (document.sections[0].header.paragraphs[-1].text == "Styled 😀 tail source") == case.endswith("shared")
+        assert document.sections[1].header.tables[0].cell(0, 0).text == "Opaque table"
+    before, after = parts(story_source), parts(output)
+    if not case.endswith("shared"):
+        assert before[HEADER_RELS] == after[HEADER_RELS]
+        assert before[HEADER] == after[HEADER]
+    else:
+        assert b"https://example.org/header" in after[HEADER_RELS]
+        assert b"https://example.org/rich" in after[HEADER_RELS]
+    validate(output)
+
+
+async def test_insert_rich_paragraph_native_bytes(launch, story_source):
+    async with launch() as client:
+        document = await open_document(client, story_source)
+        body = (await call(client, "inspect_document", document=document))["body"]
+        edit = {"kind": "insert-rich-paragraph", "anchor": body[0]["anchor"], "paragraph": RICH}
+        await failure(client, "preview_edits", "invalid_input", document=document,
+                      edits=[{**edit, "paragraph": {**RICH, "extra": True}}])
+        preview = await call(client, "preview_edits", document=document, edits=[edit])
+        assert preview["changes"]["paragraph_insertions"] == [0]
+        output = story_source.with_name("rich-insert.docx")
+        await call(client, "save_copy", document=document, preview=preview["preview"], output=output.name)
+    assert output.read_bytes() == story_oracle(story_source, "rich-insert")
+    assert_rich(docx.Document(output).paragraphs[1])
+    before, after = parts(story_source), parts(output)
+    assert {k for k, v in before.items() if after[k] != v} == {MAIN, MAIN_RELS}
+    assert b"https://example.org/rich" in after[MAIN_RELS]
+    validate(output)
 
 
 @pytest.fixture

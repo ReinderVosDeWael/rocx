@@ -97,7 +97,7 @@ impl Snapshot {
     }
 }
 
-fn layout_values(layout: &BTreeMap<LayoutField, LayoutValue>) -> Value {
+pub(super) fn layout_values(layout: &BTreeMap<LayoutField, LayoutValue>) -> Value {
     Value::Object(
         layout
             .iter()

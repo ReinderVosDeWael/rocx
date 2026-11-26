@@ -193,6 +193,58 @@ an explicit off flag, or omit the edit to leave the field alone. Paragraph
 and section changes can share one layout transaction, but cannot be combined
 with an ordinary batch in the same preview.
 
+### Edit body blocks and section boundaries
+
+Use compact inspection for paragraph anchors, and `view:{"kind":"sections"}`
+for section anchors and original half-open body ranges. In the ordinary
+`edits` array, use `{"kind":"block","anchor":"<anchor>","edit":{...}}`.
+
+| Edit kind | Target and input |
+| --- | --- |
+| `insert-rich-paragraph` | Top-level edit (not nested under `block`); paragraph anchor and a `paragraph` declaration. |
+| `replace-paragraph`, `remove-paragraph` | Paragraph anchor; replacement requires `paragraph`. |
+| `replace-section` | A paragraph in the section; ordered `blocks`. The Rust editor requires the first direct paragraph of that section. |
+| `split-section` | Section anchor; `offset` is an original section-relative block gap. |
+| `merge-section` | Section anchor for the boundary to remove; the following section provides layout. |
+| `keep-with-next` | Paragraph anchor; `value` is an explicit boolean. |
+| `paragraph-flag` | Paragraph anchor; named direct `field` and explicit boolean or `null` to clear. |
+| `section-flag` | First paragraph's anchor; named direct `field` and explicit boolean or `null` to clear. |
+| `section-type` | First paragraph's anchor; `nextPage`, `nextColumn`, `continuous`, `evenPage`, `oddPage`, or `null` to clear. |
+
+A split can add an empty paragraph to carry the new section boundary.
+
+For example, insert a formatted paragraph after an existing one:
+
+```json
+{
+  "document":"<document>",
+  "edits":[{
+    "kind":"insert-rich-paragraph",
+    "anchor":"<paragraph anchor>",
+    "paragraph":{
+      "format":{"spacing_after":9},
+      "inlines":[{"kind":"text","text":"Important","format":{"bold":true}}]
+    }
+  }]
+}
+```
+
+These formatting sizes and spacings are in points, not the direct layout
+view's stored units. The core rejects overlapping changes, unsafe boundaries,
+or replacements that would discard protected content. For a section or
+story block list, wrap each paragraph declaration as
+`{"kind":"paragraph","paragraph":{...}}`.
+
+The declaration accepts `text`, `tab`, `break`, `image`, `hyperlink`,
+`fraction`, and `field` inlines. For a hyperlink, pass `target` as
+`{"kind":"url","url":"https://example.org"}` or
+`{"kind":"bookmark","name":"Bookmark1"}`, plus its displayed `children`.
+Images take encoded `bytes`, not paths. A table block uses `kind:"table"`,
+rectangular plain-text `rows`, and optional `column_widths` in twips. See
+tool discovery for the typed members. Authoring annotations, nested and
+formatted table cells, and some native inline types are not yet available
+in these declarations.
+
 ### Propose and review tracked changes
 
 Use compact inspection for proposal anchors. Send a standalone
@@ -250,6 +302,11 @@ anchor and run anchors match; their slot anchors are still distinct.
   inspected physical part of the same kind. Use `edit:{"kind":"remove"}` to
   remove an explicit reference and resume inheritance, without deleting the
   package part.
+- Use `create-rich` with `blocks` instead of plain `paragraphs` to author
+  formatted content when creating a story. To splice an existing story, use
+  `operation:{"kind":"edit-story-blocks","anchor":"<slot anchor>","edit":{"mode":"section-local","index":0,"remove":0,"blocks":[...]}}`.
+  The `index` and `remove` count original blocks, including opaque blocks.
+  The server does not discard opaque content to make a splice succeed.
 
 Scoped story edits return `changes: null`; image edits include a record of
 the physical source/output parts and affected sections. The compact view

@@ -40,6 +40,13 @@ shorthand. Metadata and direct defaults are eligible for ordinary mixed
 batches, but numbering, style transactions, and rich declarations are still
 separate outstanding work.
 
+Rich paragraph declarations now share one decoder across ordinary paragraph
+insertion, body replacement, and scoped story creation/splicing. Direct section
+inspection supplies original half-open ranges and anchors for split/merge.
+All native `BlockEdit` variants are transported; payload coverage is partial:
+rich table cells, native annotations, and additional inline/block kinds
+remain open.
+
 ## What counts as parity?
 
 Start from the public `rocx::editor` API, especially `ImportedDocument`,

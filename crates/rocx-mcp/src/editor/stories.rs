@@ -8,7 +8,10 @@ use rocx::{HeaderFooterType, Paragraph, ResolvedBlock};
 use serde_json::{Value, json};
 
 use super::{Snapshot, projected_run_text, resolve};
-use crate::schema::stories::{StoryReferenceChange, StoryTextChange};
+use crate::schema::{
+    payloads::BlockInput,
+    stories::{StoryBlockChange, StoryReferenceChange, StoryTextChange},
+};
 
 const KINDS: [SectionStoryKind; 2] = [SectionStoryKind::Header, SectionStoryKind::Footer];
 const VARIANTS: [HeaderFooterType; 3] = [
@@ -174,6 +177,12 @@ impl Snapshot {
                     .map(|text| resolve(Paragraph::new(text)).map(ResolvedBlock::Paragraph))
                     .collect::<Result<_, _>>()?,
             ),
+            StoryReferenceChange::CreateRich { blocks } => StoryReferenceEdit::Create(
+                blocks
+                    .into_iter()
+                    .map(BlockInput::resolve)
+                    .collect::<Result<_, _>>()?,
+            ),
             StoryReferenceChange::Link { anchor } => {
                 let stories = self.stories()?;
                 let (_, source) = stories.owner(&anchor)?;
@@ -186,6 +195,24 @@ impl Snapshot {
         };
         self.document
             .edit_story_reference(slot.section, slot.kind, slot.variant, edit)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn edit_story_blocks(
+        &self,
+        local: &str,
+        edit: StoryBlockChange,
+    ) -> Result<Vec<u8>, String> {
+        let anchor = self
+            .story_image_anchor(local)
+            .ok_or("wrong_anchor_type: expected a logical slot with an existing story")?;
+        let content = edit
+            .blocks
+            .into_iter()
+            .map(BlockInput::resolve)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.document
+            .edit_story_blocks(&anchor, edit.mode.into(), edit.index, edit.remove, &content)
             .map_err(|e| e.to_string())
     }
 }

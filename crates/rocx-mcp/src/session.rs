@@ -6,7 +6,7 @@ use crate::{
         notes::{NoteChange, NoteKind},
         resources::ResourceQuery,
         revisions::RevisionChange,
-        stories::{StoryReferenceChange, StoryTextChange},
+        stories::{StoryBlockChange, StoryReferenceChange, StoryTextChange},
     },
 };
 use rocx::opc::ReadLimits;
@@ -48,6 +48,7 @@ pub(crate) enum PageView {
     Layout,
     NoteReferences,
     Revisions,
+    Sections,
     Stories,
 }
 
@@ -59,6 +60,7 @@ impl PageView {
             Self::Layout => "layout",
             Self::NoteReferences => "note-references",
             Self::Revisions => "revisions",
+            Self::Sections => "sections",
             Self::Stories => "stories",
         }
     }
@@ -257,6 +259,7 @@ impl Session {
             PageView::Layout => doc.snapshot.layout_page(start, limit),
             PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
             PageView::Revisions => doc.snapshot.revision_page(start, limit),
+            PageView::Sections => doc.snapshot.section_page(start, limit),
             PageView::Stories => doc.snapshot.story_page(start, limit),
         }
         .map_err(|e| format!("inspection_failed: {e}"))?;
@@ -411,6 +414,25 @@ impl Session {
         self.retain_preview(document, bytes, changes)
     }
 
+    pub fn preview_story_blocks(
+        &mut self,
+        document: String,
+        anchor: &str,
+        edit: StoryBlockChange,
+    ) -> Result<Value, String> {
+        self.preview_scoped(
+            document,
+            PageView::Stories,
+            anchor,
+            None,
+            |snapshot, local, _| {
+                snapshot
+                    .edit_story_blocks(local, edit)
+                    .map(|bytes| (bytes, Value::Null))
+            },
+        )
+    }
+
     fn scoped_anchor<'a>(
         doc: &Document,
         document: &str,
@@ -477,6 +499,7 @@ impl Session {
         }
         for (i, edit) in edits.iter_mut().enumerate() {
             let header_image = matches!(edit, Edit::HeaderImage { .. });
+            let block = matches!(edit, Edit::Block { .. });
             let Some(anchor) = edit.anchor_slot() else {
                 continue;
             };
@@ -490,7 +513,9 @@ impl Session {
             }
             let story_for_image =
                 header_image && doc.view_anchors.get(local) == Some(&PageView::Stories);
-            if !doc.snapshot.has_issued_anchor(local) && !story_for_image {
+            let section_for_block =
+                block && doc.view_anchors.get(local) == Some(&PageView::Sections);
+            if !doc.snapshot.has_issued_anchor(local) && !story_for_image && !section_for_block {
                 if doc.view_anchors.contains_key(local) {
                     return Err(format!(
                         "wrong_anchor_type: edit {i} requires an ordinary edit anchor"

@@ -308,7 +308,8 @@ async def test_discovery(launch):
             "alignment": {"alignment"}, "insert-paragraph": {"text"}, "insert-table": {"rows"},
             "run-text": {"text"}, "run-remove": set(), "cell-alignment": {"alignment"},
             "header-image": {"mode", "bytes"}, "text-range": {"start", "end", "text"},
-            "insert-text": {"offset", "text"}, "resource": {"edit"},
+            "insert-text": {"offset", "text"}, "resource": {"edit"}, "block": {"edit"},
+            "insert-rich-paragraph": {"paragraph"},
         }
         assert len(variants) == len(expected) and kinds.keys() == expected.keys()
         for kind, variant_schema in kinds.items():
