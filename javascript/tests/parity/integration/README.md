@@ -45,7 +45,14 @@ published Wasm, and wasm-bindgen glue bytes. Both npm installs must match
 Cargo registry source, and schema hashes must stay stable; build tool
 versions and the locked npm consumer tool versions are recorded.
 
-Retain the output directory and console log for each Node matrix entry.
+By default, the runner removes its scratch directory on exit, including on
+failure or a catchable interruption. For qualification evidence or local
+debugging, run `bash javascript/tests/check-packed.sh --keep-output` and save
+the console log. The runner prints the retained path; remove it when it is
+no longer needed. Hosted jobs use `--keep-output` so subsequent steps can
+upload artifacts. An uncatchable stop (such as `SIGKILL` or power loss) can
+leave scratch behind even without `--keep-output`.
+
 The machine-readable `provenance.json` advances from `built-and-replayed`
 to `qualified` only after the packed behavior gate passes. A terminal-only
 reviewer can check retained evidence without npm, Cargo, or installing tools

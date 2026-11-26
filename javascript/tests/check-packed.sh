@@ -1,8 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
-output=$(mktemp -d "${TMPDIR:-/var/tmp}/rocx-packed-js.XXXXXX")
+keep_output=0
+if [[ $# == 1 && $1 == --keep-output ]]; then
+    keep_output=1
+elif (( $# != 0 )); then
+    echo "Usage: bash javascript/tests/check-packed.sh [--keep-output]" >&2
+    exit 2
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
+scratch=$(CDPATH= cd -- "${TMPDIR:-/var/tmp}" && pwd -P)
+output=$(mktemp -d "$scratch/rocx-packed-js.XXXXXX")
+if (( ! keep_output )); then
+    cleanup() {
+        local status=$?
+        if ! rm -rf -- "$output" && (( status == 0 )); then
+            exit 1
+        fi
+    }
+    trap cleanup EXIT
+fi
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 echo "Packed artifact, consumers and DOCX outputs: $output"
 image="$root/tests/fixtures/images/sample.png"
 images=$(dirname -- "$image")
@@ -111,7 +132,7 @@ uv run --no-sync python tools/check_examples.py --output-dir "$parity/catalog-re
 uv run --no-sync python tools/check_javascript.py "$output"
 unset CARGO_TARGET_DIR
 "$PYTHON" "$provenance" finish "$output" --checkout "$root"
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+if (( keep_output )) && [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     printf 'tarball=%s\n' "$artifact" >> "$GITHUB_OUTPUT"
     printf 'provenance=%s\n' "$output/provenance.json" >> "$GITHUB_OUTPUT"
 fi
