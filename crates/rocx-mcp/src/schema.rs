@@ -1,7 +1,9 @@
+pub(crate) mod blocks;
 mod entries;
 pub(crate) mod layout;
 mod limits;
 pub(crate) mod notes;
+pub(crate) mod payloads;
 pub(crate) mod resources;
 pub(crate) mod revisions;
 pub(crate) mod stories;
@@ -74,7 +76,8 @@ impl ToolKind {
                   result. Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
                   definitions with entry anchors, note-references for direct body note sites and \
                   tracked revisions with {\"kind\":\"revisions\"}, or direct paragraph and section \
-                  properties with {\"kind\":\"layout\"}. Use {\"kind\":\"stories\"} for all six \
+                  properties with {\"kind\":\"layout\"}. Use {\"kind\":\"sections\"} for native \
+                  body ranges and boundary anchors, {\"kind\":\"stories\"} for all six \
                   header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
@@ -186,6 +189,9 @@ impl Call {
                 Some(View::Stories { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::Stories, limit, cursor)
                 }
+                Some(View::Sections { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::Sections, limit, cursor)
+                }
                 Some(View::EntryRuns { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
                 }
@@ -219,6 +225,9 @@ impl Call {
                 }
                 Operation::EditStoryReference { anchor, edit } => {
                     session.preview_story_reference(input.document, &anchor, edit)
+                }
+                Operation::EditStoryBlocks { anchor, edit } => {
+                    session.preview_story_blocks(input.document, &anchor, edit)
                 }
                 Operation::NoOp {} => session.preview_noop(input.document),
             },
@@ -341,6 +350,11 @@ pub(crate) enum Edit {
         anchor: String,
         text: String,
     },
+    /// Insert a paragraph with declared formatting and inlines after the anchor.
+    InsertRichParagraph {
+        anchor: String,
+        paragraph: Box<payloads::ParagraphInput>,
+    },
     /// Insert a table immediately after the anchor.
     InsertTable {
         /// Paragraph anchor.
@@ -397,6 +411,11 @@ pub(crate) enum Edit {
     },
     /// Set or clear a named document property or direct default in the ordinary batch.
     Resource { edit: resources::ResourceChange },
+    /// Change a body block, direct properties or a section boundary.
+    Block {
+        anchor: String,
+        edit: blocks::BlockChange,
+    },
 }
 
 impl Edit {
@@ -404,13 +423,15 @@ impl Edit {
         match self {
             Self::Alignment { anchor, .. }
             | Self::InsertParagraph { anchor, .. }
+            | Self::InsertRichParagraph { anchor, .. }
             | Self::InsertTable { anchor, .. }
             | Self::RunText { anchor, .. }
             | Self::RunRemove { anchor, .. }
             | Self::TextRange { anchor, .. }
             | Self::InsertText { anchor, .. }
             | Self::CellAlignment { anchor, .. }
-            | Self::HeaderImage { anchor, .. } => Some(anchor),
+            | Self::HeaderImage { anchor, .. }
+            | Self::Block { anchor, .. } => Some(anchor),
             Self::Resource { .. } => None,
         }
     }
@@ -419,6 +440,7 @@ impl Edit {
         match self {
             Self::Alignment { .. }
             | Self::InsertParagraph { .. }
+            | Self::InsertRichParagraph { .. }
             | Self::InsertTable { .. }
             | Self::TextRange { .. }
             | Self::InsertText { .. } => "paragraph",
@@ -426,6 +448,7 @@ impl Edit {
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
             Self::Resource { .. } => unreachable!("resources have no anchor"),
+            Self::Block { .. } => unreachable!("block adapter resolves its own target"),
         }
     }
 }
@@ -715,6 +738,7 @@ mod tests {
         let required = [
             ("alignment", &["alignment"][..]),
             ("insert-paragraph", &["text"][..]),
+            ("insert-rich-paragraph", &["paragraph"][..]),
             ("insert-table", &["rows"][..]),
             ("run-text", &["text"][..]),
             ("run-remove", &[][..]),
@@ -722,6 +746,7 @@ mod tests {
             ("insert-text", &["offset", "text"][..]),
             ("cell-alignment", &["alignment"][..]),
             ("header-image", &["mode", "bytes"][..]),
+            ("block", &["edit"][..]),
         ];
         assert_eq!(variants.len(), required.len() + 1);
         let resource = variants

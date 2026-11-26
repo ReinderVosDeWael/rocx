@@ -7,7 +7,7 @@ use super::{
     notes::{NoteChange, NoteKind},
     resources::ResourceQuery,
     revisions::RevisionChange,
-    stories::{StoryReferenceChange, StoryTextChange},
+    stories::{StoryBlockChange, StoryReferenceChange, StoryTextChange},
 };
 
 const MIN_LIMIT: usize = 1;
@@ -87,6 +87,15 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Page through native section boundaries and direct section properties.
+    Sections {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
     /// Page through direct runs in note and comment entries, by physical owner.
     EntryRuns {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
@@ -148,6 +157,12 @@ pub(super) enum Operation {
         /// Logical slot anchor from the stories view.
         anchor: String,
         edit: StoryReferenceChange,
+    },
+    /// Splice original blocks in an existing header/footer slot.
+    EditStoryBlocks {
+        /// Logical slot anchor from the stories view.
+        anchor: String,
+        edit: StoryBlockChange,
     },
     /// Preview the package produced by an empty native EditBatch, without mutating the source.
     NoOp {},

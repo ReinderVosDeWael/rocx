@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use rocx::editor::{
-    BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, HeaderAnchor, HeaderEditMode,
+    BlockEdit, BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, HeaderAnchor, HeaderEditMode,
     HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedRowChild,
     ImportedTableChild, InlineAnchor, ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion,
     ResourceEdit, RunTextEdit, SectionStoryKind, TableAnchor, TableInsertion, TextInsertion,
@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 
 use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
 
+mod blocks;
 mod entries;
 mod layout;
 mod notes;
@@ -112,6 +113,17 @@ impl Snapshot {
                 batch.resources.push(edit.into());
                 continue;
             }
+            if let Edit::Block { anchor, edit } = edit {
+                let block = self.block_edit(&anchor, edit).map_err(|e| {
+                    if e.starts_with("wrong_anchor_type: ") {
+                        e
+                    } else {
+                        format!("edit {number}: {e}")
+                    }
+                })?;
+                batch.blocks.push(block);
+                continue;
+            }
             let header_image = matches!(edit, Edit::HeaderImage { .. });
             let local = edit.anchor_slot().expect("anchored edit");
             let story_target = header_image
@@ -151,6 +163,7 @@ impl Snapshot {
                 ranges: &batch.ranges,
                 text_insertions: &batch.text_insertions,
                 resources: &batch.resources,
+                blocks: &batch.blocks,
                 ..EditBatch::default()
             })
             .map_err(|e| format!("preview: {e}"))?;
@@ -185,6 +198,7 @@ struct Batch {
     ranges: Vec<TextRangeEdit>,
     text_insertions: Vec<TextInsertion>,
     resources: Vec<ResourceEdit>,
+    blocks: Vec<BlockEdit>,
 }
 
 impl Batch {
@@ -200,6 +214,12 @@ impl Batch {
                 self.paragraphs.push(ParagraphInsertion {
                     target: target.clone(),
                     paragraph: resolve(Paragraph::new(text))?,
+                });
+            }
+            (Edit::InsertRichParagraph { paragraph, .. }, Target::Paragraph(target)) => {
+                self.paragraphs.push(ParagraphInsertion {
+                    target: target.clone(),
+                    paragraph: paragraph.resolve()?,
                 });
             }
             (Edit::InsertTable { rows, .. }, Target::Paragraph(target)) => {

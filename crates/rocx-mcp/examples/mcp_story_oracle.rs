@@ -1,8 +1,10 @@
 //! Direct native byte oracle for the independent MCP story fixture.
 use rocx::{
-    Component, HeaderFooterType, Paragraph, ResolvedBlock,
+    Component, HeaderFooterType, Hyperlink, HyperlinkTarget, Paragraph, ParagraphFormat,
+    ResolvedBlock, RunFormat, TextRun,
     editor::{
-        ImportedDocument, ImportedInlineNode, RunTextEdit, SectionStoryKind, StoryReferenceEdit,
+        BodyBlock, EditBatch, HeaderEditMode, ImportedDocument, ImportedInlineNode,
+        ParagraphInsertion, RunTextEdit, SectionStoryKind, StoryReferenceEdit,
     },
 };
 use std::{env, fs};
@@ -27,6 +29,34 @@ fn story_text(doc: &ImportedDocument) -> Vec<u8> {
     doc.edit_story_text(&source.part_name, &edits).unwrap()
 }
 
+fn rich_paragraph() -> rocx::ResolvedParagraph {
+    futures_executor::block_on(
+        Paragraph::from_children(vec![
+            TextRun::new("Styled 😀")
+                .with_format(RunFormat {
+                    bold: Some(true),
+                    italic: Some(false),
+                    size: Some(14.0),
+                    ..RunFormat::default()
+                })
+                .into(),
+            TextRun::new(" tail").into(),
+            Hyperlink::new(
+                HyperlinkTarget::external("https://example.org/rich").unwrap(),
+                vec![TextRun::new(" source").into()],
+            )
+            .into(),
+        ])
+        .with_format(ParagraphFormat {
+            spacing_after: Some(9.0),
+            ..ParagraphFormat::default()
+        })
+        .resolve(),
+    )
+    .unwrap()
+    .unwrap()
+}
+
 fn main() {
     let mut args = env::args_os().skip(1);
     let case = args.next().unwrap();
@@ -38,6 +68,72 @@ fn main() {
     use SectionStoryKind::{Footer, Header};
     let bytes = match case.to_str().unwrap() {
         "text" => story_text(&doc),
+        "rich-insert" => {
+            let BodyBlock::Paragraph(paragraph) = &doc.body()[0] else {
+                panic!("fixture must start with a paragraph");
+            };
+            doc.preview_edits(EditBatch {
+                paragraphs: &[ParagraphInsertion {
+                    target: paragraph.anchor.clone(),
+                    paragraph: rich_paragraph(),
+                }],
+                ..EditBatch::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap()
+        }
+        "create-rich" => doc
+            .edit_story_reference(
+                0,
+                Footer,
+                Even,
+                StoryReferenceEdit::Create(vec![ResolvedBlock::Paragraph(rich_paragraph())]),
+            )
+            .unwrap(),
+        "rich-splice-shared" | "rich-splice-local" => {
+            let local = case == "rich-splice-local";
+            let story = doc
+                .stories()
+                .unwrap()
+                .into_iter()
+                .find(|story| {
+                    story.kind == if local { Footer } else { Header }
+                        && story.variant == Default
+                        && story.section_index == 1
+                })
+                .unwrap();
+            doc.edit_story_blocks(
+                &story.anchor.unwrap(),
+                if local {
+                    HeaderEditMode::SectionLocal
+                } else {
+                    HeaderEditMode::Shared
+                },
+                if local { 1 } else { 2 },
+                0,
+                &[ResolvedBlock::Paragraph(rich_paragraph())],
+            )
+            .unwrap()
+        }
+        "rich-splice-footer" => {
+            let story = doc
+                .stories()
+                .unwrap()
+                .into_iter()
+                .find(|story| {
+                    story.kind == Footer && story.variant == Default && story.section_index == 1
+                })
+                .unwrap();
+            doc.edit_story_blocks(
+                &story.anchor.unwrap(),
+                HeaderEditMode::Shared,
+                0,
+                1,
+                &[ResolvedBlock::Paragraph(rich_paragraph())],
+            )
+            .unwrap()
+        }
         "create" => {
             let blocks = ["New even footer", "Second paragraph & 😀"]
                 .into_iter()
