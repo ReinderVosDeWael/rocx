@@ -421,6 +421,12 @@ async def test_scalar_edits_native_bytes_and_retry(launch, tmp_path):
 
         preview = await call(client, "preview_edits", document=document, edits=edits)
         assert list(tmp_path.iterdir()) == [source]
+        assert preview["changes"]["run_text"] == [
+            {"target": 0, "inline_index": 0, "before": "A😀B", "after": "😀B"},
+            {"target": 0, "inline_index": 1, "before": "CDe", "after": " + C🦊&"},
+            {"target": 0, "inline_index": 2, "before": "XY", "after": "Y!"},
+            {"target": 1, "inline_index": 0, "before": "", "after": "runless"},
+        ]
         saved = await call(client, "save_copy", document=document, preview=preview["preview"],
                            output=output.name)
         assert saved["output_snapshot"] == preview["output_snapshot"] == digest(output.read_bytes())

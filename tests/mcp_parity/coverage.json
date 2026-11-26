@@ -102,7 +102,7 @@
     },
     "EditPreview::run_text_changes": {
       "scope": "retained preview", "target": "original block/run coordinates and before/after text", "mcp": "preview_edits.changes.run_text",
-      "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "covered", "positive": ["baseline-mixed", "body-scalar-edits"], "negative": ["baseline-mixed", "body-scalar-edits"]
     },
     "EditPreview::changes": {
       "scope": "retained preview", "target": "original paragraph coordinates and before/after alignment", "mcp": "preview_edits.changes.changes",
@@ -136,7 +136,7 @@
     "ImportedDocument::body": {
       "scope": "direct body", "target": "ordered original body blocks with typed nested values", "mcp": "inspect_document.body",
       "status": "partial", "gap": "Compact projection only; missing rich paragraph/inline values, nested tables and full direct properties.",
-      "positive": ["baseline-mixed", "baseline-created"], "negative": ["lifetime"]
+      "positive": ["baseline-mixed", "baseline-created", "body-scalar-edits"], "negative": ["lifetime"]
     },
     "ImportedDocument::inline_at": {
       "scope": "snapshot-local inline identity", "target": "issued inline anchor", "mcp": "inspect_document (planned inline detail view)",
