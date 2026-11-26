@@ -3,10 +3,9 @@
 Publish packages only through [the GitHub Actions workflow](../.github/workflows/publish.yml).
 Creating a local tag does not publish anything. Pushing a `v*` tag to GitHub
 starts CI, which validates, builds, and publishes to PyPI, crates.io and npm.
-Normal workflow dispatches are preflight only, even when run on a tag: they
-build artifacts without uploading them to the registries. The one-time npm
-recovery below is an explicit exception. Do not publish packages with local
-upload commands.
+Workflow dispatches are preflight only, even when run on a tag: they build
+artifacts without uploading them to the registries. Do not publish packages
+with local upload commands.
 
 The release workflow runs the installed JavaScript consumer gate. The npm job
 uploads the qualified tarball without rebuilding it. On the first release it
@@ -102,11 +101,6 @@ The tag push runs the full release gate. Publishing starts only after validation
 and every wheel/sdist build succeeds. Retry a failed tag-triggered release
 using GitHub Actions' rerun controls for the original tag-push run, not a new
 manual dispatch.
-
-For the original `v0.4.0` tag only, the `recover_npm_040` dispatch on `main`
-stages the already-qualified npm tarball from run `45623224278`. Use this
-instead of rerunning the original job's incorrect local tarball path. This
-does not upload to crates.io or PyPI or change the tag.
 
 ## Published artifacts
 

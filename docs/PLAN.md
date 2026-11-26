@@ -16,8 +16,14 @@ See [the release runbook](RELEASING.md).
 passed crates.io OIDC, qualification and all artifact builds. #4 is closed.
 The [v0.4.0 tag run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45623224278)
 published Rust and Python. npm misinterpreted its relative tarball path as a
-Git repository. Recover by staging the original verified tarball from that
-run, then approve it on npm; do not change the tag or rebuild the tarball.
+Git repository. The [recovery run](https://github.com/ReinderVosDeWael/rocx/actions/runs/45629145225)
+successfully staged the original tarball. The public npm registry now serves
+`rocx-docx@0.4.0`; a clean install generated a DOCX, and the registry tarball
+matched the original qualified artifact byte for byte (SHA-256
+`1c7505c2dd5db0a7fe57e70088c86c95b99fda04dd3abd6b0970b777a2ca1551`).
+The [#70](https://github.com/ReinderVosDeWael/rocx/issues/70) cleanup removes
+the one-time workflow and runbook exception while retaining the corrected
+tarball path and digest check for tag-triggered publication.
 
 ## Current milestone: implement the remaining editor capabilities
 
