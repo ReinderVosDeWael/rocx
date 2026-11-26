@@ -6,7 +6,7 @@ use rocx::editor::{
     BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, HeaderAnchor, HeaderEditMode,
     HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedRowChild,
     ImportedTableChild, InlineAnchor, ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion,
-    RunTextEdit, SectionStoryKind, TableAnchor, TableInsertion,
+    RunTextEdit, SectionStoryKind, TableAnchor, TableInsertion, TextInsertion, TextRangeEdit,
 };
 use rocx::{
     Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph,
@@ -123,6 +123,8 @@ impl Snapshot {
                 paragraphs: &batch.paragraphs,
                 cells: &batch.cells,
                 run_removals: &batch.run_removals,
+                ranges: &batch.ranges,
+                text_insertions: &batch.text_insertions,
                 ..EditBatch::default()
             })
             .map_err(|e| format!("preview: {e}"))?;
@@ -140,6 +142,8 @@ struct Batch {
     paragraphs: Vec<ParagraphInsertion>,
     cells: Vec<CellAlignmentEdit>,
     run_removals: Vec<InlineAnchor>,
+    ranges: Vec<TextRangeEdit>,
+    text_insertions: Vec<TextInsertion>,
 }
 
 impl Batch {
@@ -170,6 +174,24 @@ impl Batch {
                 });
             }
             (Edit::RunRemove { .. }, Target::Run(target)) => self.run_removals.push(target.clone()),
+            (
+                Edit::TextRange {
+                    start, end, text, ..
+                },
+                Target::Paragraph(target),
+            ) => self.ranges.push(TextRangeEdit {
+                target: target.clone(),
+                start,
+                end,
+                text,
+            }),
+            (Edit::InsertText { offset, text, .. }, Target::Paragraph(target)) => {
+                self.text_insertions.push(TextInsertion {
+                    target: target.clone(),
+                    position: offset,
+                    text,
+                });
+            }
             (
                 Edit::CellAlignment { alignment, .. },
                 Target::Cell {
@@ -314,6 +336,23 @@ fn projected_run_text(items: &[ImportedInline]) -> (String, bool) {
     (text, opaque)
 }
 
+fn scalar_length(inlines: &[ImportedInlineNode]) -> Option<usize> {
+    // This is coordinate metadata, not an edit guard. In particular, the
+    // projection may not show a field or paired range begun in another block.
+    inlines.iter().try_fold(0, |length, inline| {
+        let ImportedInlineNode::Run(run) = inline else {
+            return None;
+        };
+        let [ImportedInline::Text(text)] = run.items.as_slice() else {
+            return None;
+        };
+        if text.contains(['\t', '\r', '\n']) {
+            return None;
+        }
+        Some(length + text.chars().count())
+    })
+}
+
 fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
     let mut anchors = BTreeMap::new();
     let body = document
@@ -351,6 +390,7 @@ fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
                     "type": "paragraph", "index": index, "anchor": anchor,
                     "text": paragraph.text, "alignment_xml": paragraph.alignment_xml,
                     "has_opaque_content": paragraph.has_opaque_content, "runs": runs,
+                    "scalar_length": scalar_length(&paragraph.inline_structure),
                 })
             }
             BodyBlock::Table(table) => {
@@ -460,6 +500,7 @@ mod tests {
         let body = inspection["body"].as_array().unwrap();
         assert_eq!(body.len(), 1);
         assert_eq!(body[0]["text"], "");
+        assert_eq!(body[0]["scalar_length"], 0);
         let (preview, _) = blank
             .preview(vec![Edit::InsertParagraph {
                 anchor: anchor(&body[0]["anchor"]),
@@ -511,6 +552,7 @@ mod tests {
         let remove = &body[1]["runs"][1]["anchor"];
         let cell = &body[2]["cells"][0]["anchor"];
         let drawing = &body[3]["runs"][0];
+        assert!(body[3]["scalar_length"].is_null());
         assert_eq!(drawing["has_opaque_content"], true);
         assert!(drawing.get("anchor").is_none());
         let alignment = || Edit::Alignment {
@@ -625,6 +667,157 @@ mod tests {
         assert_eq!(reopened["body"][1]["text"], "inserted");
         assert_eq!(reopened["body"][2]["text"], "kept");
         assert_eq!(reopened["body"][3]["type"], "table");
+    }
+
+    #[test]
+    fn scalar_edits_mix_at_original_coordinates_and_match_native_bytes() {
+        let input = authored(vec![
+            Section::new(vec![
+                Paragraph::from_children(vec![
+                    TextRun::new("A😀").into(),
+                    TextRun::new("BéC").into(),
+                ])
+                .into(),
+                Paragraph::from_children(vec![]).into(),
+                Paragraph::new("mixed\trun").into(),
+            ])
+            .into(),
+        ]);
+        let snapshot = open(&input);
+        let inspection = snapshot.inspect().unwrap();
+        let body = &inspection["body"];
+        assert_eq!(body[0]["scalar_length"], 5);
+        assert_eq!(body[1]["scalar_length"], 0);
+        assert!(body[2]["scalar_length"].is_null());
+        let first = || anchor(&body[0]["anchor"]);
+        let blank = || anchor(&body[1]["anchor"]);
+        let (bytes, changes) = snapshot
+            .preview(vec![
+                Edit::TextRange {
+                    anchor: first(),
+                    start: 3,
+                    end: 4,
+                    text: String::new(),
+                },
+                Edit::InsertText {
+                    anchor: first(),
+                    offset: 2,
+                    text: "+".into(),
+                },
+                Edit::InsertText {
+                    anchor: blank(),
+                    offset: 0,
+                    text: "🦀".into(),
+                },
+                Edit::TextRange {
+                    anchor: first(),
+                    start: 1,
+                    end: 2,
+                    text: "long".into(),
+                },
+            ])
+            .unwrap();
+        let native = ImportedDocument::open(&input).unwrap();
+        let [BodyBlock::Paragraph(a), BodyBlock::Paragraph(b), _] = native.body() else {
+            panic!("three paragraphs");
+        };
+        let expected = native
+            .preview_edits(EditBatch {
+                ranges: &[
+                    TextRangeEdit {
+                        target: a.anchor.clone(),
+                        start: 3,
+                        end: 4,
+                        text: String::new(),
+                    },
+                    TextRangeEdit {
+                        target: a.anchor.clone(),
+                        start: 1,
+                        end: 2,
+                        text: "long".into(),
+                    },
+                ],
+                text_insertions: &[
+                    TextInsertion {
+                        target: a.anchor.clone(),
+                        position: 2,
+                        text: "+".into(),
+                    },
+                    TextInsertion {
+                        target: b.anchor.clone(),
+                        position: 0,
+                        text: "🦀".into(),
+                    },
+                ],
+                ..EditBatch::default()
+            })
+            .unwrap()
+            .to_docx()
+            .unwrap();
+        assert_eq!(bytes, expected);
+        assert_eq!(
+            changes["run_text"],
+            json!([
+                {"target":0,"inline_index":0,"before":"A😀","after":"Along"},
+                {"target":0,"inline_index":1,"before":"BéC","after":"+BC"},
+                {"target":1,"inline_index":0,"before":"","after":"🦀"},
+            ])
+        );
+        let actual = open(&bytes).inspect().unwrap();
+        assert_eq!(actual["body"][0]["text"], "Along+BC");
+        assert_eq!(actual["body"][1]["text"], "🦀");
+        assert_eq!(snapshot.inspect().unwrap(), inspection);
+    }
+
+    #[test]
+    fn scalar_coordinates_do_not_bypass_cross_paragraph_protection() {
+        let bytes = Snapshot::create(
+            ["before", "start", "protected", "end", "after"]
+                .map(str::to_owned)
+                .to_vec(),
+        )
+        .unwrap();
+        let doc = ImportedDocument::open(&bytes).unwrap();
+        let run = |index| {
+            let BodyBlock::Paragraph(paragraph) = &doc.body()[index] else {
+                panic!("direct paragraph");
+            };
+            let [ImportedInlineNode::Run(run)] = paragraph.inline_structure.as_slice() else {
+                panic!("one direct run");
+            };
+            &run.anchor
+        };
+        let bytes = doc
+            .set_paired_range(1, Some("guard"), Some((run(1), run(3))))
+            .unwrap();
+        let snapshot = open(&bytes);
+        let inspection = snapshot.inspect().unwrap();
+        let body = inspection["body"].as_array().unwrap();
+        let lengths: Vec<_> = body.iter().map(|p| p["scalar_length"].as_u64()).collect();
+        assert_eq!(lengths, [Some(6), None, Some(9), None, Some(5)]);
+        assert_eq!(body[2]["text"], "protected");
+        assert_eq!(body[2]["has_opaque_content"], false);
+        let safe_edit = || Edit::InsertText {
+            anchor: anchor(&body[0]["anchor"]),
+            offset: 6,
+            text: "!".into(),
+        };
+        let err = snapshot
+            .preview(vec![
+                safe_edit(),
+                Edit::InsertText {
+                    anchor: anchor(&body[2]["anchor"]),
+                    offset: 0,
+                    text: "+".into(),
+                },
+            ])
+            .unwrap_err();
+        assert!(err.contains("outside fields and ranges"), "{err}");
+        assert_eq!(snapshot.inspect().unwrap(), inspection);
+        let (retry, _) = snapshot.preview(vec![safe_edit()]).unwrap();
+        let output = open(&retry).inspect().unwrap();
+        assert_eq!(output["body"][0]["text"], "before!");
+        assert_eq!(output["body"][2]["text"], "protected");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use rocx::{
     editor::{
         BodyBlock, CellAlignmentEdit, EditBatch, HeaderEditMode, HeaderImageEdit, ImportedDocument,
         ImportedInlineNode, ImportedParagraph, ParagraphAlignmentEdit, ParagraphInsertion,
-        RunTextEdit, TableInsertion,
+        RunTextEdit, TableInsertion, TextInsertion, TextRangeEdit,
     },
 };
 use std::{fs, future::Future, path::Path, task::Poll};
@@ -100,6 +100,55 @@ fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> Vec<u8> {
     .unwrap()
 }
 
+fn scalar(source: &Path) -> Vec<u8> {
+    let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    let [
+        BodyBlock::Paragraph(formatted),
+        BodyBlock::Paragraph(empty),
+        ..,
+    ] = doc.body()
+    else {
+        panic!("expected formatted and runless fixture paragraphs");
+    };
+    doc.preview_edits(EditBatch {
+        ranges: &[
+            TextRangeEdit {
+                target: formatted.anchor.clone(),
+                start: 0,
+                end: 1,
+                text: String::new(),
+            },
+            TextRangeEdit {
+                target: formatted.anchor.clone(),
+                start: 4,
+                end: 7,
+                text: "🦊&".into(),
+            },
+        ],
+        text_insertions: &[
+            TextInsertion {
+                target: formatted.anchor.clone(),
+                position: 3,
+                text: " + ".into(),
+            },
+            TextInsertion {
+                target: empty.anchor.clone(),
+                position: 0,
+                text: "runless".into(),
+            },
+            TextInsertion {
+                target: formatted.anchor.clone(),
+                position: 8,
+                text: "!".into(),
+            },
+        ],
+        ..EditBatch::default()
+    })
+    .unwrap()
+    .to_docx()
+    .unwrap()
+}
+
 fn authored(timestamp: &str, paragraphs: &[String]) -> Vec<u8> {
     let blocks = if paragraphs.is_empty() {
         vec![Paragraph::new("").into()]
@@ -133,8 +182,9 @@ fn main() {
             };
             (output, mixed(Path::new(source), Path::new(png), mode))
         }
+        [command, output, source] if command == "scalar" => (output, scalar(Path::new(source))),
         _ => panic!(
-            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE"
+            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | scalar OUTPUT SOURCE"
         ),
     };
     fs::write(output, bytes).unwrap();

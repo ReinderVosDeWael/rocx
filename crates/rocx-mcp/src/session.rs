@@ -247,6 +247,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::ToolKind;
 
     #[test]
     fn previews_require_issued_anchors_from_the_selected_document() {
@@ -297,6 +298,70 @@ mod tests {
                 .is_ok()
         );
         assert_eq!(session.inspect_document(document).unwrap(), inspection);
+    }
+
+    #[test]
+    fn rejected_scalar_boundaries_leave_the_same_handles_usable_for_retry() {
+        let mut session = Session::default();
+        let initial = session.create_document(vec!["A😀B".into()]).unwrap();
+        let document = initial["document"].as_str().unwrap();
+        let inspection = session.inspect_document(document.to_owned()).unwrap();
+        let paragraph = &inspection["body"][0];
+        let anchor = &paragraph["anchor"];
+        let range = |start, end| json!({"kind":"text-range","anchor":anchor,"start":start,"end":end,"text":""});
+        let insert = |offset, text: &str| json!({"kind":"insert-text","anchor":anchor,"offset":offset,"text":text});
+        let preview = |session: &mut Session, edits: Value| {
+            ToolKind::Preview
+                .parse(
+                    json!({"document":document,"edits":edits})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                )
+                .unwrap()
+                .dispatch(session)
+        };
+        for (edits, detail) in [
+            (json!([range(1, 1)]), "empty or reversed"),
+            (json!([range(2, 1)]), "empty or reversed"),
+            (json!([range(1, 4)]), "out-of-bounds"),
+            (json!([insert(4, "x")]), "out-of-bounds"),
+            (json!([insert(0, "")]), "nonempty text"),
+            (json!([range(0, 2), insert(1, "x")]), "overlapping"),
+            (json!([insert(2, "x"), insert(2, "y")]), "overlapping"),
+        ] {
+            let error = preview(&mut session, edits).unwrap_err();
+            assert!(error.starts_with("rejected_batch:"), "{error}");
+            assert!(error.contains(detail), "{error}");
+        }
+        assert_eq!(session.document(document).unwrap().previews.len(), 1);
+        let other = session.create_document(vec!["other".into()]).unwrap();
+        let foreign = session
+            .inspect_document(other["document"].as_str().unwrap().to_owned())
+            .unwrap();
+        for (anchor, category) in [
+            (&paragraph["runs"][0]["anchor"], "wrong_anchor_type:"),
+            (&foreign["body"][0]["anchor"], "wrong_owner:"),
+        ] {
+            let error = preview(
+                &mut session,
+                json!([{"kind":"insert-text","anchor":anchor,"offset":0,"text":"x"}]),
+            )
+            .unwrap_err();
+            assert!(error.starts_with(category), "{error}");
+        }
+        let result = preview(&mut session, json!([insert(3, "!"), range(1, 2)])).unwrap();
+        assert_eq!(result["changes"]["run_text"][0]["after"], "AB!");
+        let retained = &session.document(document).unwrap().previews;
+        assert_eq!(retained.len(), 2);
+        assert_eq!(
+            retained[initial["preview"].as_str().unwrap()].digest,
+            initial["snapshot"]
+        );
+        assert_eq!(
+            session.inspect_document(document.to_owned()).unwrap(),
+            inspection
+        );
     }
 
     #[test]

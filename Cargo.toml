@@ -12,10 +12,14 @@ documentation = "https://reindervosdewael.github.io/rocx/"
 exclude = [
     "/crates/rocx-mcp/",
     "/docs/MCP-PLAN.md",
+    "/docs/MCP-EDITOR-PARITY.md",
     "/docs/PLAN.md",
     "/docs/ROADMAP-HISTORY.md",
     "/javascript/",
     "/tests/mcp/",
+    "/tests/mcp_parity/",
+    "/tools/mcp_parity_surface.py",
+    "/tools/check_mcp_parity.py",
 ]
 
 [workspace]

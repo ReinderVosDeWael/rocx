@@ -57,9 +57,12 @@ impl ToolKind {
             ),
             Self::Inspect => (
                 "Inspect body paragraphs and runs, physical table cells, and default and first-page \
-                 header slots. Returns reusable opaque anchors for candidate edits to this snapshot. \
+                  header slots. Returns reusable opaque anchors for candidate edits to this snapshot. \
+                 A paragraph's scalar_length describes Unicode scalar coordinates for its plain-text \
+                 projection, with null meaning none are advertised. It is not edit permission: \
+                 preview_edits validates the actual target and batch. \
                  Example result excerpt: {\"document\":\"<document>\",\"body\":[{\"type\":\"paragraph\",\
-                 \"anchor\":\"<paragraph anchor>\",\"text\":\"Example\"}],\"headers\":[]}.",
+                 \"anchor\":\"<paragraph anchor>\",\"text\":\"Example\",\"scalar_length\":7}],\"headers\":[]}.",
                 schema_for_input::<Document>(),
             ),
             Self::Preview => (
@@ -225,6 +228,26 @@ pub(crate) enum Edit {
         /// Run anchor.
         anchor: String,
     },
+    /// Replace or delete a nonempty range in a plain direct body paragraph.
+    TextRange {
+        /// Paragraph anchor.
+        anchor: String,
+        /// Inclusive original Unicode scalar offset.
+        start: usize,
+        /// Exclusive original Unicode scalar offset; must exceed start.
+        end: usize,
+        /// Replacement text. An empty string deletes the range.
+        text: String,
+    },
+    /// Insert nonempty text at an original Unicode scalar boundary in a plain direct body paragraph.
+    InsertText {
+        /// Paragraph anchor.
+        anchor: String,
+        /// Original Unicode scalar offset, including paragraph end.
+        offset: usize,
+        /// Inserted text with no tabs or line breaks.
+        text: String,
+    },
     /// Set vertical alignment of a physical table cell.
     CellAlignment {
         /// Cell anchor.
@@ -249,6 +272,8 @@ impl Edit {
             | Self::InsertTable { anchor, .. }
             | Self::RunText { anchor, .. }
             | Self::RunRemove { anchor, .. }
+            | Self::TextRange { anchor, .. }
+            | Self::InsertText { anchor, .. }
             | Self::CellAlignment { anchor, .. }
             | Self::HeaderImage { anchor, .. } => anchor,
         }
@@ -256,9 +281,11 @@ impl Edit {
 
     pub(crate) fn target_kind(&self) -> &'static str {
         match self {
-            Self::Alignment { .. } | Self::InsertParagraph { .. } | Self::InsertTable { .. } => {
-                "paragraph"
-            }
+            Self::Alignment { .. }
+            | Self::InsertParagraph { .. }
+            | Self::InsertTable { .. }
+            | Self::TextRange { .. }
+            | Self::InsertText { .. } => "paragraph",
             Self::RunText { .. } | Self::RunRemove { .. } => "run",
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
@@ -315,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_has_six_strict_tools_and_seven_discriminated_edits() {
+    fn discovery_has_six_strict_tools_and_nine_discriminated_edits() {
         let tools = ToolKind::ALL.map(ToolKind::definition);
         assert_eq!(
             tools.each_ref().map(|tool| tool.name.as_ref()),
@@ -345,6 +372,8 @@ mod tests {
             ("insert-table", &["rows"][..]),
             ("run-text", &["text"][..]),
             ("run-remove", &[][..]),
+            ("text-range", &["start", "end", "text"][..]),
+            ("insert-text", &["offset", "text"][..]),
             ("cell-alignment", &["alignment"][..]),
             ("header-image", &["mode", "bytes"][..]),
         ];
@@ -359,6 +388,13 @@ mod tests {
             assert_eq!(fields.len(), extra.len() + 2);
             for field in ["kind", "anchor"].into_iter().chain(extra.iter().copied()) {
                 assert!(fields.contains(&json!(field)), "{kind} requires {field}");
+            }
+            for field in ["start", "end", "offset"]
+                .into_iter()
+                .filter(|field| extra.contains(field))
+            {
+                assert_eq!(variant["properties"][field]["type"], "integer");
+                assert_eq!(variant["properties"][field]["minimum"], 0);
             }
             if kind == "header-image" {
                 let byte = &variant["properties"]["bytes"]["items"];
@@ -378,6 +414,8 @@ mod tests {
                 {"kind":"insert-table","anchor":"p","rows":[["A","B"],["C","D"]]},
                 {"kind":"run-text","anchor":"r","text":"Updated"},
                 {"kind":"run-remove","anchor":"r"},
+                {"kind":"text-range","anchor":"p","start":0,"end":1,"text":""},
+                {"kind":"insert-text","anchor":"p","offset":0,"text":"New"},
                 {"kind":"cell-alignment","anchor":"c","alignment":"both"},
                 {"kind":"header-image","anchor":"h","mode":"section-local","bytes":[0,255]}
             ]))
@@ -389,6 +427,11 @@ mod tests {
             json!({"kind":"run-remove"}),
             json!({"kind":"run-remove","anchor":0}),
             json!({"kind":"run-remove","anchor":"r","text":"unused"}),
+            json!({"kind":"text-range","anchor":"p","start":-1,"end":1,"text":""}),
+            json!({"kind":"text-range","anchor":"p","start":0,"end":1.5,"text":""}),
+            json!({"kind":"text-range","anchor":"p","start":0,"end":1}),
+            json!({"kind":"insert-text","anchor":"p","offset":"0","text":"New"}),
+            json!({"kind":"insert-text","anchor":"p","offset":0,"end":1,"text":"New"}),
             json!({"kind":"alignment","anchor":"p","alignment":"top"}),
             json!({"kind":"cell-alignment","anchor":"c","alignment":"left"}),
             json!({"kind":"insert-table","anchor":"p","rows":[]}),
