@@ -95,10 +95,15 @@ Comment ranges operate on existing definitions without modifying them.
 The saved lifecycle outputs match direct Rust bytes, and a live OpenCode
 client saved and paged through a cross-paragraph bookmark.
 
-Next: discover structured control sites and qualify their original-coordinate
-transactions. Continue with drawing and chart actions, style and numbering
-resources, then reconcile the remaining payload and owner coverage against the
-compiled ledger.
+The content-control increment adds paged main-story controls and wrapping
+sites, read-only physical story controls, and ordinary patch, wrap, unwrap,
+definition, choice and content replacement edits. The Rust 1.88 installed
+binary passed 139 MCP and parity tests plus ten subtests. Saved previews
+matched direct Rust output for all four wrapping contexts and a mixed
+control batch; independent checks validated the packages and confirmed that
+only the main document part changed. Continue with drawing and chart
+actions, style and numbering resources, then reconcile remaining payload
+and owner coverage against the compiled ledger.
 
 ## 0.4.0 release
 

@@ -47,6 +47,9 @@ struct Document {
 pub(crate) enum PageView {
     BodyInlines,
     RangeMarkers,
+    Controls,
+    ControlSites,
+    StoryControls,
     BodyTables,
     Entries,
     EntryRuns,
@@ -65,6 +68,9 @@ impl PageView {
         match self {
             Self::BodyInlines => "body-inlines",
             Self::RangeMarkers => "range-markers",
+            Self::Controls => "controls",
+            Self::ControlSites => "control-sites",
+            Self::StoryControls => "story-controls",
             Self::BodyTables => "body-tables",
             Self::Entries => "entries",
             Self::EntryRuns => "entry-runs",
@@ -270,6 +276,9 @@ impl Session {
         let (mut rows, next) = match view {
             PageView::BodyInlines => doc.snapshot.body_inline_page(start, limit),
             PageView::RangeMarkers => doc.snapshot.range_marker_page(start, limit),
+            PageView::Controls => Ok(doc.snapshot.control_page(start, limit)),
+            PageView::ControlSites => Ok(doc.snapshot.control_site_page(start, limit)),
+            PageView::StoryControls => doc.snapshot.story_control_page(start, limit),
             PageView::BodyTables => doc.snapshot.body_table_page(start, limit),
             PageView::Entries => doc.snapshot.entry_page(start, limit),
             PageView::EntryRuns => doc.snapshot.entry_run_page(start, limit),
@@ -296,6 +305,8 @@ impl Session {
         let field = match view {
             PageView::BodyInlines => "body_inlines",
             PageView::RangeMarkers => "range_markers",
+            PageView::ControlSites => "control_sites",
+            PageView::StoryControls => "story_controls",
             PageView::BodyTables => "body_tables",
             PageView::FormatRuns => "format_runs",
             PageView::NoteReferences => "note_references",
@@ -561,6 +572,18 @@ impl Session {
             return Err("invalid_batch: supply at least one edit".into());
         }
         for (i, edit) in edits.iter_mut().enumerate() {
+            if let Edit::Control { edit } = edit {
+                edit.scope(|anchor, is_site| {
+                    let view = if is_site {
+                        PageView::ControlSites
+                    } else {
+                        PageView::Controls
+                    };
+                    *anchor = Self::scoped_anchor(doc, &document, view, anchor)?.to_owned();
+                    Ok(())
+                })?;
+                continue;
+            }
             if let Edit::PairedRange { endpoints, .. } = edit {
                 if let Some(endpoints) = endpoints {
                     for anchor in [&mut endpoints.first, &mut endpoints.last] {

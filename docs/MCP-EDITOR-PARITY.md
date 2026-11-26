@@ -140,6 +140,11 @@ slice 4's physical identities. Finish the mixed resource oracle after both
 body and physical table support. No domain is “complete” while a required
 owner or input field is still delegated to a later slice.
 
+For slice 6, MCP now discovers main-story controls, original wrapping sites
+and read-only physical story controls. The ordinary batch transports native
+control patches and all six wrapper actions. Rich replacements still share
+the existing declaration limits, and drawing and chart actions remain open.
+
 ## Qualification and drift control
 
 1. Extend `tests/mcp/` to launch the **installed** binary with the independent

@@ -42,6 +42,9 @@
     "range-discovery": "tests/mcp/test_ranges.py::test_paired_range_discovery",
     "range-ambiguous": "tests/mcp/test_ranges.py::test_range_markers_preserve_ambiguous_source",
     "range-lifecycle": "tests/mcp/test_ranges.py::test_paired_range_lifecycle",
+    "control-discovery": "tests/mcp/test_controls.py::test_control_discovery",
+    "control-lifecycle": "tests/mcp/test_controls.py::test_control_lifecycle",
+    "control-guards": "tests/mcp/test_controls.py::test_control_native_guards",
     "run-format": "tests/mcp/test_run_format.py::test_physical_run_format_native_bytes",
     "run-format-discovery": "tests/mcp/test_run_format.py::test_run_format_discovery",
     "run-format-catalog-errors": "tests/mcp/test_run_format.py::test_broken_unrelated_catalog_does_not_block_body",
@@ -118,12 +121,13 @@
       "positive": ["resource-discovery", "resource-mixed", "resource-retry"], "negative": ["resource-discovery", "resource-retry"]
     },
     "EditBatch::controls": {
-      "scope": "main story", "target": "control anchor", "mcp": "preview_edits.edits (planned control operations)",
-      "status": "planned", "gap": "No control text, content or property mutations.", "positive": [], "negative": []
+      "scope": "main story", "target": "control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=patch]",
+      "status": "covered", "positive": ["control-discovery", "control-lifecycle"], "negative": ["control-lifecycle", "control-guards"]
     },
     "EditBatch::wrappers": {
-      "scope": "main story", "target": "block, inline, row or cell site/control anchor", "mcp": "preview_edits.edits (planned wrapper operations)",
-      "status": "planned", "gap": "No wrap, unwrap, definition, or choice mutations.", "positive": [], "negative": []
+      "scope": "main story", "target": "block, inline, row or cell site/control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=wrap|unwrap|define|choice|replace-inlines|replace-blocks]",
+      "status": "partial", "gap": "All wrapper actions are transported and byte-tested on representative inputs. Rich replacement inherits the limits of the shared inline and block declarations.",
+      "positive": ["control-discovery", "control-lifecycle"], "negative": ["control-lifecycle", "control-guards"]
     },
     "EditBatch::fields": {
       "scope": "main story, including balanced field spans", "target": "original field anchor or direct inline insertion site", "mcp": "preview_edits.edits[kind=field]; kind=inline for insertion",
@@ -296,7 +300,7 @@
     "ImportedDocument::preview_with_controls": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus control edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "controls"],
-      "status": "partial", "gap": "Control slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Control patches compose with baseline edits; inherits baseline payload limits.", "positive": ["baseline-mixed", "control-lifecycle"], "negative": ["baseline-mixed", "control-guards"]
     },
     "ImportedDocument::sections": {
       "scope": "main document section ranges", "target": "section anchor and direct section information", "mcp": "inspect_document.view[kind=sections]",
@@ -463,36 +467,42 @@
       "status": "planned", "gap": "No drawing occurrence/series readback.", "positive": [], "negative": []
     },
     "ImportedDocument::story_controls": {
-      "scope": "physical story owners", "target": "typed control metadata and owner identities", "mcp": "inspect_document (planned physical controls view)",
-      "status": "planned", "gap": "No rich physical control discovery.", "positive": [], "negative": []
+      "scope": "physical story owners", "target": "typed read-only control metadata and owner identities", "mcp": "inspect_document.view[kind=story-controls]",
+      "status": "partial", "gap": "Qualified for shared footer and comment owners; relocated owners and other entry kinds lack installed evidence.",
+      "positive": ["control-lifecycle"], "negative": ["control-discovery"]
     },
     "ImportedDocument::controls": {
-      "scope": "main story", "target": "controls with native contexts, anchors and properties", "mcp": "inspect_document.body[type=content-control]",
-      "status": "planned", "gap": "Compact direct-block summaries do not establish parity with the typed control catalog.", "positive": [], "negative": []
+      "scope": "main story", "target": "controls with native contexts, anchors and properties", "mcp": "inspect_document.view[kind=controls]",
+      "status": "partial", "gap": "All native metadata fields are projected; installed readback does not yet exercise all imported types and contexts.",
+      "positive": ["control-lifecycle", "control-guards"], "negative": ["control-discovery", "control-lifecycle"]
     },
     "ImportedDocument::control_sites": {
-      "scope": "main story", "target": "eligible original block, inline, row and cell sites", "mcp": "inspect_document (planned control site view)",
-      "status": "planned", "gap": "No issued wrapper site handles.", "positive": [], "negative": []
+      "scope": "main story", "target": "eligible original block, inline, row and cell sites", "mcp": "inspect_document.view[kind=control-sites]",
+      "status": "covered", "positive": ["control-lifecycle"], "negative": ["control-discovery", "control-lifecycle"]
     },
     "ImportedDocument::preview_wrap_control": {
-      "scope": "main story", "target": "one eligible wrapper site and tag", "mcp": "preview_edits.edits (planned single-site wrap)",
+      "scope": "main story", "target": "one eligible wrapper site and tag", "mcp": "preview_edits.edits[kind=control].edit[kind=wrap] without last",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "planned", "gap": "Wrapper slice not implemented.", "positive": [], "negative": []
+      "status": "partial", "gap": "Single-site wraps have native byte evidence; broader wrapper slice remains partial.",
+      "positive": ["control-lifecycle"], "negative": ["control-discovery", "control-lifecycle"]
     },
     "ImportedDocument::preview_unwrap_control": {
-      "scope": "main story", "target": "one eligible control anchor", "mcp": "preview_edits.edits (planned unwrap)",
+      "scope": "main story", "target": "one eligible control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=unwrap]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "planned", "gap": "Wrapper slice not implemented.", "positive": [], "negative": []
+      "status": "partial", "gap": "Installed byte evidence covers block unwrap only.",
+      "positive": ["control-lifecycle"], "negative": ["control-lifecycle", "control-guards"]
     },
     "ImportedDocument::preview_replace_control": {
-      "scope": "main story", "target": "control anchor and complete replacement definition", "mcp": "preview_edits.edits (planned control definition replacement)",
+      "scope": "main story", "target": "control anchor and complete replacement definition", "mcp": "preview_edits.edits[kind=control].edit[kind=define]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "planned", "gap": "Wrapper slice not implemented.", "positive": [], "negative": []
+      "status": "partial", "gap": "Transport covers all modeled definition variants; installed byte evidence exercises a plain definition only.",
+      "positive": ["control-lifecycle"], "negative": ["control-discovery"]
     },
     "ImportedDocument::preview_control_choice": {
-      "scope": "main story", "target": "control anchor, selected value and optional list items", "mcp": "preview_edits.edits (planned control choice)",
+      "scope": "main story", "target": "control anchor, selected value and optional list items", "mcp": "preview_edits.edits[kind=control].edit[kind=choice]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "planned", "gap": "Wrapper slice not implemented.", "positive": [], "negative": []
+      "status": "partial", "gap": "Installed byte evidence covers choice with list replacement; selection retaining the original list and a choice no-op lack installed evidence.",
+      "positive": ["control-lifecycle"], "negative": ["control-discovery", "control-lifecycle"]
     },
     "ImportedDocument::preview_tracked_text": {
       "scope": "separate main-story revision proposal", "target": "direct run anchor, action, author and optional date", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=insert-text-after|replace-text|delete-text]",

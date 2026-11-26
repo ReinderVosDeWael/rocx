@@ -20,6 +20,7 @@ use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
 mod blocks;
 mod body_inlines;
 mod body_tables;
+mod controls;
 mod entries;
 mod fields;
 mod layout;
@@ -34,6 +35,7 @@ mod tables;
 pub struct Snapshot {
     document: ImportedDocument,
     inspection: OnceLock<Result<Inspection, String>>,
+    story_controls: OnceLock<Result<Vec<rocx::editor::ImportedControl>, String>>,
 }
 
 enum Target {
@@ -74,6 +76,7 @@ impl Snapshot {
             document: ImportedDocument::open_with_limits(bytes, limits)
                 .map_err(|e| e.to_string())?,
             inspection: OnceLock::new(),
+            story_controls: OnceLock::new(),
         })
     }
 
@@ -124,6 +127,10 @@ impl Snapshot {
             };
             if let Edit::Resource { edit } = edit {
                 batch.resources.push(edit.into());
+                continue;
+            }
+            if let Edit::Control { edit } = edit {
+                self.control_edit(edit, &mut batch).map_err(locate)?;
                 continue;
             }
             if let Edit::Block { anchor, edit } = edit {
@@ -205,6 +212,8 @@ impl Snapshot {
                 fields: &batch.fields,
                 inline_edits: &batch.inline_edits,
                 paired_ranges: &batch.paired_ranges,
+                controls: &batch.controls,
+                wrappers: &batch.wrappers,
                 structural: &batch.structural,
                 ..EditBatch::default()
             })
@@ -244,6 +253,8 @@ struct Batch {
     fields: Vec<FieldEdit>,
     inline_edits: Vec<InlineEdit>,
     paired_ranges: Vec<PairedRangeEdit>,
+    controls: Vec<rocx::editor::ControlEdit>,
+    wrappers: Vec<rocx::editor::WrapperEdit>,
     structural: Vec<rocx::editor::TableStructureEdit>,
 }
 

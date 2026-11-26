@@ -1,5 +1,6 @@
 pub(crate) mod blocks;
 pub(crate) mod body_inlines;
+pub(crate) mod controls;
 mod entries;
 pub(crate) mod fields;
 pub(crate) mod layout;
@@ -85,6 +86,8 @@ impl ToolKind {
                   header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
                   Use fields, range-markers and body-inlines for original inline sites, format-runs for \
                   physical run targets, and body-tables or physical-tables for table edits. \
+                  Use controls and control-sites for main-story content control edits, or \
+                  story-controls for read-only physical story controls. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
@@ -206,6 +209,15 @@ impl Call {
                 }
                 Some(View::RangeMarkers { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::RangeMarkers, limit, cursor)
+                }
+                Some(View::Controls { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::Controls, limit, cursor)
+                }
+                Some(View::ControlSites { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::ControlSites, limit, cursor)
+                }
+                Some(View::StoryControls { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::StoryControls, limit, cursor)
                 }
                 Some(View::BodyTables { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::BodyTables, limit, cursor)
@@ -480,6 +492,8 @@ pub(crate) enum Edit {
         anchor: String,
         edit: tables::BodyTableEdit,
     },
+    /// Change a main-story content control using anchors from controls or control-sites.
+    Control { edit: controls::ControlChange },
 }
 
 impl Edit {
@@ -500,7 +514,7 @@ impl Edit {
             | Self::Field { anchor, .. }
             | Self::Inline { anchor, .. }
             | Self::TableStructure { anchor, .. } => Some(anchor),
-            Self::Resource { .. } | Self::PairedRange { .. } => None,
+            Self::Resource { .. } | Self::PairedRange { .. } | Self::Control { .. } => None,
         }
     }
 
@@ -516,7 +530,7 @@ impl Edit {
             Self::RunText { .. } | Self::RunRemove { .. } => "run",
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
-            Self::Resource { .. } | Self::PairedRange { .. } => {
+            Self::Resource { .. } | Self::PairedRange { .. } | Self::Control { .. } => {
                 unreachable!("edit has no single anchor")
             }
             Self::Block { .. }
@@ -834,13 +848,15 @@ mod tests {
             ("inline", &["edit"][..]),
             ("table-structure", &["edit"][..]),
         ];
-        assert_eq!(variants.len(), required.len() + 2);
-        let resource = variants
-            .iter()
-            .find(|variant| variant["properties"]["kind"]["const"] == "resource")
-            .unwrap();
-        assert_eq!(resource["required"], json!(["kind", "edit"]));
-        assert_eq!(resource["additionalProperties"], false);
+        assert_eq!(variants.len(), required.len() + 3);
+        for kind in ["resource", "control"] {
+            let variant = variants
+                .iter()
+                .find(|variant| variant["properties"]["kind"]["const"] == kind)
+                .unwrap();
+            assert_eq!(variant["required"], json!(["kind", "edit"]));
+            assert_eq!(variant["additionalProperties"], false);
+        }
         let range = variants
             .iter()
             .find(|variant| variant["properties"]["kind"]["const"] == "paired-range")

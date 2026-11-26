@@ -73,6 +73,10 @@ Additional scoped and import coverage:
 - `test_ranges.py` checks lexical marker readback and cursor scope, then
   compares mixed cross-paragraph moves, removal and creation with Rust,
   preserving the existing comment definition and unrelated parts.
+- `test_controls.py` checks typed main-story and physical-story readback,
+  original-site wrapping in all four contexts, and a mixed control batch
+  against native bytes. It also checks cursor and anchor scope, conflicts,
+  locked controls, original payload formatting and unrelated part preservation.
 - `test_physical_tables.py` distinguishes ordinary body table anchors from
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent

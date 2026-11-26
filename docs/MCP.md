@@ -296,6 +296,45 @@ markers. For a comment this also removes the body reference, not the
 definition. Neither optional field accepts explicit `null`. The editor
 rejects ambiguous pairs, protected endpoints, and unsafe removals.
 
+### Inspect and edit content controls
+
+Use `view:{"kind":"controls"}` for main-story controls, including those in
+tables. The `controls` rows report the native context, literal ID and lock,
+tag and alias, binding status, type, and stored list or multiline properties.
+Use `view:{"kind":"control-sites"}` for eligible original wrapping sites.
+The `control_sites` rows have a context (`block`, `inline`, `row`, or `cell`),
+text label and anchor. IDs, tags and text labels are not addresses.
+
+Use `view:{"kind":"story-controls"}` to read controls in physical headers,
+footers and ordinary note/comment entries. The `story_controls` rows identify
+the owner part and, where applicable, the literal entry ID and physical entry
+index. Shared parts are listed once; these rows do not issue edit anchors.
+
+In an ordinary `preview_edits.edits` batch, use `kind:"control"` with a typed
+`edit`. Wrap a single site by omitting `last`, or wrap an inclusive range of
+ordered siblings from the same snapshot:
+
+```json
+{"kind":"control","edit":{"kind":"wrap","first":"<site anchor>",
+ "last":"<site anchor>","tag":"Reviewed"}}
+```
+
+Other actions take an `anchor` from `controls`: `patch` sets supplied `tag`,
+`alias` or single-line `text`; `unwrap` promotes the existing payload;
+`define` replaces all modeled properties. Supply a `text` declaration of
+kind `rich`, `plain` (optional `multi_line`), or `drop-down` (`items` and
+`selected`). Omit `id`, `tag`, `alias` or `lock` to clear the corresponding
+property; supported lock values are `unlocked`, `control`, `content`, and
+`both`. `choice`
+selects a literal `selected` value, optionally replacing the ordered `items`
+(`display_text` and `value` pairs). Use `replace-blocks` with `blocks` or
+`replace-inlines` with `inlines` for a nonempty rich payload matching the
+control's context. Both reuse the existing block and inline declarations.
+
+The editor rejects unsupported, bound, locked or protected edits and
+overlapping targets. Reopen a saved preview to inspect the new controls or
+sites; a preview does not issue new anchors or change the source snapshot.
+
 ### Format runs in one physical part
 
 Use `view:{"kind":"format-runs"}`. A run row has a physical `owner` anchor,
