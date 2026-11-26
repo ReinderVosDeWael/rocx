@@ -23,6 +23,12 @@ check and the strict 699-page documentation build also passed. See the
 [installed acceptance instructions](../tests/mcp/README.md) for reproduction.
 The hosted checks passed, PR #71 merged to `main`, and #52 is closed.
 
+Local MCP follow-up [#84](https://github.com/ReinderVosDeWael/rocx/issues/84):
+add `save_in_place` for an explicitly selected preview of an opened file.
+Keep `save_copy` exclusive-create and qualify replacement and stale-source
+refusal through the installed stdio client. This is MCP file handling, not
+a new editor operation in the language bindings.
+
 **In progress — [#72](https://github.com/ReinderVosDeWael/rocx/issues/72):**
 follow the [full MCP/Rust editor parity plan](MCP-EDITOR-PARITY.md). The first
 increment freezes the compiled editor surface, maps it to coverage obligations,

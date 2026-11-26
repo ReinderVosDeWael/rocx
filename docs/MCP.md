@@ -448,6 +448,18 @@ SHA-256 as `output_snapshot`. It refuses an existing destination. Choose
 another name and retry with the same preview. An I/O failure after creating
 the destination may leave a partial new copy.
 
+To update the file you opened, call `save_in_place` with `document` and
+`preview` (no output path). It checks that the source still matches the
+original SHA-256 and replaces it with the exact preview bytes using a temporary
+file in the same directory. It returns the canonical output path and
+`output_snapshot`. Missing or changed sources, files opened through a
+symbolic link at the filename, and in-memory documents are refused.
+
+The live handle still describes the original snapshot. Reopen the saved file
+to make further edits. Replacement does not update other hard links or
+preserve all filesystem metadata. The snapshot check is not a lock against
+other writers; close external editors before saving.
+
 One session can retain 16 documents and 64 previews (256 MiB of encoded
 preview bytes in total). A created document's initial preview counts toward
 those limits. Close documents to release capacity. Closing a document or

@@ -27,6 +27,10 @@ as a render input; neither ZIP is normalized or rewritten before comparison.
 The domain suites locate their independent native oracle binaries beside
 `ROCX_MCP_ORACLE`.
 
+The in-place save tests in `test_stdio.py` compare the replaced source byte for
+byte with the same preview saved to a new copy, inspect it with `python-docx`,
+and check stale, missing, symbolic-link and in-memory source refusals.
+
 Entry-story coverage (`test_stdio.py`):
 
 - `test_entry_discovery` validates the entries selector, page bounds, exclusive

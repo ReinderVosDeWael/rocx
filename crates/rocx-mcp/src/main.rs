@@ -94,6 +94,9 @@ fn session_error(tool: ToolKind, error: &str) -> CallToolResult {
         }
         "capacity" => "Close a document to release session capacity.",
         "source_path" | "destination_exists" => "Choose a new output path.",
+        "no_source" => "Use save_copy to write this preview to a new file.",
+        "source_alias" => "Open the regular source file directly and create a new preview.",
+        "source_changed" => "Reopen the current file and create a new preview, or use save_copy.",
         "invalid_path" | "io" => "Check the server-host path and permissions before retrying.",
         "invalid_document_data" if matches!(tool, ToolKind::Open) => {
             "Check that the input is a valid DOCX and fits the supplied import limits."
