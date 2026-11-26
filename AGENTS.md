@@ -26,6 +26,12 @@ You may modify `AGENTS.md` whenever you deem it necessary to improve or change
 repository agent behavior in future sessions. Keep repository guidance
 consistent with higher-priority instructions and actual permissions.
 
+Reuse the checkout's Cargo `target/` for routine builds and tests. Do not
+create a persistent `CARGO_TARGET_DIR` per issue, PR, or test run. When a
+qualification check requires isolation, use one run-owned scratch directory
+and clean it up on success, failure, and interruption. Retain evidence only
+when needed, and record its location and cleanup plan.
+
 Use `python-docx` to generate independent DOCX fixtures and to open and inspect
 basic features of existing Word files and edited outputs. Use package-level
 checks for relationships, opaque markup, and exact byte preservation;

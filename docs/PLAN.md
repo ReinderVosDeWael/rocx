@@ -2,6 +2,11 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+Local build hygiene ([#82](https://github.com/ReinderVosDeWael/rocx/issues/82)):
+reuse the checkout's Cargo target for routine checks and clean up isolated
+packed JavaScript runs by default. Hosted artifact jobs explicitly retain
+output without changing the clean Wasm build and replay requirements.
+
 ## Active interface milestone: local MCP server (#52)
 
 Build `crates/rocx-mcp` using the [implementation and acceptance plan](MCP-PLAN.md).

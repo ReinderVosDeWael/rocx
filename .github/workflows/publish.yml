@@ -157,7 +157,7 @@ jobs:
         run: uv run --no-sync python tools/validate_ooxml.py --download-schemas
       - run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
       - id: packed
-        run: env -u CARGO_INCREMENTAL bash javascript/tests/check-packed.sh
+        run: env -u CARGO_INCREMENTAL bash javascript/tests/check-packed.sh --keep-output
         env:
           TMPDIR: ${{ runner.temp }}
       - uses: actions/upload-artifact@v7.0.2

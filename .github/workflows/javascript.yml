@@ -35,6 +35,8 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v10.4.0
       - run: uv sync --locked --group test
+      - if: matrix.node == '22'
+        run: python javascript/tests/test_packed_scratch.py
       - uses: actions/cache@v6.1.0
         id: schemas
         with:
@@ -48,7 +50,7 @@ jobs:
       - id: packed
         # The toolchain action sets CARGO_INCREMENTAL; verify the shipped source
         # with Cargo's unmodified release defaults, as local consumers do.
-        run: env -u CARGO_INCREMENTAL bash javascript/tests/check-packed.sh
+        run: env -u CARGO_INCREMENTAL bash javascript/tests/check-packed.sh --keep-output
         env:
           TMPDIR: ${{ runner.temp }}
       - uses: actions/upload-artifact@v7.0.2
