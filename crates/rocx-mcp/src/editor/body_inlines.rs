@@ -1,8 +1,9 @@
+use rocx::ImageRun;
 use rocx::editor::{BodyBlock, ImportedInlineNode, InlineAction, InlineAnchor, InlineEdit};
 use serde_json::{Value, json};
 
 use super::{Snapshot, projected_run_text};
-use crate::schema::body_inlines::BodyInlineChange;
+use crate::schema::{body_inlines::BodyInlineChange, payloads::resolve_component};
 
 const PREFIX: &str = "body-inline:";
 
@@ -88,8 +89,30 @@ impl Snapshot {
                 InlineAction::HyperlinkHistory(value.into_option())
             }
             BodyInlineChange::Format { action } => action.into(),
+            BodyInlineChange::RemoveObject {} => InlineAction::RemoveObject,
+            BodyInlineChange::DrawingDescription { value } => {
+                InlineAction::SetDrawingDescription(value.into_option())
+            }
+            BodyInlineChange::ImageAsset { bytes } => InlineAction::SetImageAsset(
+                resolve_component(ImageRun::new(bytes))?
+                    .image()
+                    .ok_or("expected resolved image")?
+                    .clone(),
+            ),
+            BodyInlineChange::DrawingProperty { property, inline } => {
+                InlineAction::PatchDrawing(property.into(), inline.resolve()?)
+            }
         };
         Ok(InlineEdit { target, action })
+    }
+
+    pub fn chart_series(&self, local: &str) -> Result<Value, String> {
+        let anchor = self.body_inline_anchor(local)?;
+        let (categories, values) = self
+            .document
+            .chart_series(anchor)
+            .map_err(|error| error.to_string())?;
+        Ok(json!({"categories": categories, "values": values}))
     }
 }
 
@@ -97,8 +120,20 @@ fn project(node: &ImportedInlineNode) -> Value {
     match node {
         ImportedInlineNode::Run(run) => {
             let (text, has_opaque_content) = projected_run_text(&run.items);
-            json!({"kind":"run", "text":text, "has_opaque_content":has_opaque_content,
-                   "has_opaque_formatting":run.has_opaque_formatting})
+            let mut row = json!({"kind":"run", "text":text, "has_opaque_content":has_opaque_content,
+                   "has_opaque_formatting":run.has_opaque_formatting});
+            if let Some(drawing) = &run.drawing {
+                row["drawing"] = json!({
+                    "kind": drawing.kind, "placement": drawing.placement,
+                    "description": drawing.description, "title": drawing.title, "name": drawing.name,
+                    "geometry": drawing.geometry, "shape_text": drawing.shape_text,
+                    "crop": drawing.crop, "rotation": drawing.rotation,
+                    "flip_horizontal": drawing.flip_horizontal, "flip_vertical": drawing.flip_vertical,
+                    "relationship_id": drawing.relationship_id, "width_emu": drawing.width_emu,
+                    "height_emu": drawing.height_emu,
+                });
+            }
+            row
         }
         ImportedInlineNode::Hyperlink(link) => json!({
             "kind":"hyperlink", "relationship_id":link.relationship_id, "bookmark":link.bookmark,

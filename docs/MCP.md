@@ -271,6 +271,50 @@ or explicit `null`, `cache` with an inline `children` list, `replace` with a
 field `inline` declaration, or `remove`. Rust validates the original span,
 cached content, and overlap with the rest of the batch.
 
+### Change a drawing, chart, or fraction
+
+A `body-inlines` run has a `drawing` object when the native editor recognizes
+an embedded picture, shape, or chart. It shows the occurrence's placement,
+extent in EMUs, accessibility attributes and relationship ID, plus modeled
+shape or picture properties. Crop readback is in thousandths of a percent
+and rotation in 1/60000 degree units. An explicit `false` flip is distinct
+from an absent flip. A simple fraction appears as its own row.
+
+For one supported chart, inspect
+`view:{"kind":"chart-series","anchor":"<body-inlines anchor>"}` to read its
+ordered `categories` and `values`. This is a separate lookup: a chart whose
+series cannot be decoded does not prevent other inline rows from being read.
+Update a workbook-free column series in an ordinary inline edit:
+
+```json
+{"kind":"inline","anchor":"<body-inlines chart anchor>","edit":{
+  "kind":"drawing-property","property":"chart-series",
+  "inline":{"kind":"column-chart","width":100,"height":75,
+            "categories":["North","South"],"values":[12,8]}
+}}
+```
+
+The donor declaration's width and height are in points; `chart-series`
+does not copy them. A changed series forks the chart part for the selected
+occurrence, leaving others that shared the old part unchanged.
+
+Other `drawing-property` groups are `size`, `placement`, `crop`, `transform`,
+`accessibility`, `shape-geometry`, `shape-fill`, `shape-outline`, and
+`shape-text`. Use a donor of the same drawing kind. An `image` declaration
+takes encoded `bytes` and optional `alt_text` and `transformation`. The
+transformation takes dimensions and offsets in points, rotation in degrees,
+crop in percentages, and optional floating `anchor` properties. A `shape`
+declaration takes a `properties` object with optional geometry, dimensions,
+fill, outline, plain text, text format, and floating anchor. See tool
+discovery for the full declaration schema.
+
+Use `drawing-description` with a string `value` or `null`, `image-asset`
+with encoded `bytes` to redirect just one picture, and `remove-object` to
+remove an eligible object. `insert-after` and `replace` take the same
+declarations. Reopen the output to patch a second group on the same
+occurrence. Protected or opaque changes are rejected by the native editor;
+these edit actions are currently exposed only for direct body occurrences.
+
 ### Move, add or remove a bookmark or comment range
 
 Use `view:{"kind":"range-markers"}` to page through the original direct

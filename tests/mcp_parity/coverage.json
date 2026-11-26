@@ -45,6 +45,8 @@
     "control-discovery": "tests/mcp/test_controls.py::test_control_discovery",
     "control-lifecycle": "tests/mcp/test_controls.py::test_control_lifecycle",
     "control-guards": "tests/mcp/test_controls.py::test_control_native_guards",
+    "drawing-discovery": "tests/mcp/test_drawings.py::test_drawing_discovery",
+    "drawing-bytes": "tests/mcp/test_drawings.py::test_drawings_native_bytes_and_chart_fork",
     "run-format": "tests/mcp/test_run_format.py::test_physical_run_format_native_bytes",
     "run-format-discovery": "tests/mcp/test_run_format.py::test_run_format_discovery",
     "run-format-catalog-errors": "tests/mcp/test_run_format.py::test_broken_unrelated_catalog_does_not_block_body",
@@ -103,8 +105,8 @@
     },
     "EditBatch::inline_edits": {
       "scope": "ordinary body batch", "target": "inline or drawing occurrence anchor", "mcp": "preview_edits.edits[kind=inline]",
-      "status": "partial", "gap": "Insert/replace, hyperlink properties/removal and direct formatting are available; drawing edits and some resolved inline types remain open.",
-      "positive": ["body-inlines", "run-format-discovery"], "negative": ["body-inlines"]
+      "status": "partial", "gap": "Native ordinary actions, including direct-body drawing edits, are exposed. Some resolved inline declaration types remain open.",
+      "positive": ["body-inlines", "run-format-discovery", "drawing-bytes"], "negative": ["body-inlines", "drawing-bytes"]
     },
     "EditBatch::structural": {
       "scope": "direct body tables", "target": "table, physical row/cell, or logical column", "mcp": "preview_edits.edits[kind=table-structure]",
@@ -277,7 +279,7 @@
     "ImportedDocument::preview_with_inlines": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus inline edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "inline_edits"],
-      "status": "partial", "gap": "Body inline edits work with the original slices, but drawing actions and full declaration coverage remain open.",
+      "status": "partial", "gap": "Body inline actions include drawings but still lack full declaration coverage.",
       "positive": ["baseline-mixed", "body-inlines"], "negative": ["baseline-mixed", "body-inlines"]
     },
     "ImportedDocument::preview_with_table_structure": {
@@ -463,8 +465,8 @@
       "status": "planned", "gap": "No physical paragraph numbering readback.", "positive": [], "negative": []
     },
     "ImportedDocument::chart_series": {
-      "scope": "relationship-selected chart at drawing occurrence", "target": "inline anchor and category/value series", "mcp": "inspect_document (planned chart series view)",
-      "status": "planned", "gap": "No drawing occurrence/series readback.", "positive": [], "negative": []
+      "scope": "relationship-selected chart at direct body drawing occurrence", "target": "issued inline anchor and category/value series", "mcp": "inspect_document.view[kind=chart-series]",
+      "status": "covered", "positive": ["drawing-bytes"], "negative": ["drawing-discovery", "drawing-bytes"]
     },
     "ImportedDocument::story_controls": {
       "scope": "physical story owners", "target": "typed read-only control metadata and owner identities", "mcp": "inspect_document.view[kind=story-controls]",

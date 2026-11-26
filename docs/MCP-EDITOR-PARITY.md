@@ -142,8 +142,10 @@ owner or input field is still delegated to a later slice.
 
 For slice 6, MCP now discovers main-story controls, original wrapping sites
 and read-only physical story controls. The ordinary batch transports native
-control patches and all six wrapper actions. Rich replacements still share
-the existing declaration limits, and drawing and chart actions remain open.
+control patches and all six wrapper actions. Body drawing actions and
+chart-series inspection use original body-inline anchors. Rich replacements
+still share the existing declaration limits, and physical entry picture
+editing remains open.
 
 ## Qualification and drift control
 

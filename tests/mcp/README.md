@@ -77,6 +77,9 @@ Additional scoped and import coverage:
   original-site wrapping in all four contexts, and a mixed control batch
   against native bytes. It also checks cursor and anchor scope, conflicts,
   locked controls, original payload formatting and unrelated part preservation.
+- `test_drawings.py` checks body occurrence readback, drawing property groups,
+  shared image redirection and shared chart forking against direct Rust bytes,
+  with independent relationship and untouched part checks.
 - `test_physical_tables.py` distinguishes ordinary body table anchors from
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent

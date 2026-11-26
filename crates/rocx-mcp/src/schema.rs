@@ -88,6 +88,8 @@ impl ToolKind {
                   physical run targets, and body-tables or physical-tables for table edits. \
                   Use controls and control-sites for main-story content control edits, or \
                   story-controls for read-only physical story controls. \
+                  Body-inlines describes drawings; chart-series reads the series at one \
+                  body-inlines anchor. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
@@ -206,6 +208,9 @@ impl Call {
                 }
                 Some(View::BodyInlines { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
+                }
+                Some(View::ChartSeries { anchor }) => {
+                    session.inspect_chart_series(input.document, anchor)
                 }
                 Some(View::RangeMarkers { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::RangeMarkers, limit, cursor)

@@ -247,6 +247,17 @@ impl Session {
         Ok(result)
     }
 
+    pub fn inspect_chart_series(&self, document: String, anchor: String) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let local = Self::scoped_anchor(doc, &document, PageView::BodyInlines, &anchor)?;
+        let mut result = doc
+            .snapshot
+            .chart_series(local)
+            .map_err(|e| format!("inspection_failed: {e}"))?;
+        result["document"] = json!(document);
+        Ok(result)
+    }
+
     pub fn inspect_page(
         &mut self,
         document: String,

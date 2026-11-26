@@ -101,9 +101,17 @@ definition, choice and content replacement edits. The Rust 1.88 installed
 binary passed 139 MCP and parity tests plus ten subtests. Saved previews
 matched direct Rust output for all four wrapping contexts and a mixed
 control batch; independent checks validated the packages and confirmed that
-only the main document part changed. Continue with drawing and chart
-actions, style and numbering resources, then reconcile remaining payload
-and owner coverage against the compiled ledger.
+only the main document part changed.
+
+The body-object increment exposes drawing and fraction readback, chart-series
+queries, direct-body drawing patches, image asset redirection, and object
+removal. Inline declarations now include modeled shapes, column charts, and
+picture transformation and accessibility. The Rust 1.88 installed binary
+passed 141 MCP and parity tests plus ten subtests. Native byte comparisons
+covered all ten property groups, shared chart forking, and occurrence-local
+image replacement. Continue with eligible entry pictures, style and numbering
+resources, then reconcile remaining payload and owner coverage against the
+compiled ledger.
 
 ## 0.4.0 release
 
