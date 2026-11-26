@@ -255,6 +255,76 @@ fn authored(timestamp: &str, paragraphs: &[String]) -> Vec<u8> {
     .unwrap()
 }
 
+fn story_image(source: &Path, png: &Path, slot: &str, mode: &str) -> Vec<u8> {
+    let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    let (kind, variant) = slot.split_once(':').unwrap();
+    let variant = match variant {
+        "default" => HeaderFooterType::Default,
+        "first" => HeaderFooterType::First,
+        "even" => HeaderFooterType::Even,
+        _ => panic!("invalid story variant"),
+    };
+    let target = doc
+        .stories()
+        .unwrap()
+        .into_iter()
+        .find(|s| s.section_index == 1 && s.kind.as_str() == kind && s.variant == variant)
+        .unwrap()
+        .anchor
+        .unwrap();
+    let image = resolve_now(ImageRun::new(fs::read(png).unwrap()).resolve())
+        .unwrap()
+        .unwrap()
+        .image()
+        .unwrap()
+        .clone();
+    let edit = HeaderImageEdit {
+        target,
+        mode: match mode {
+            "shared" => HeaderEditMode::Shared,
+            "section-local" => HeaderEditMode::SectionLocal,
+            _ => panic!("invalid story image mode"),
+        },
+        image,
+    };
+    doc.preview_header_image(&edit).unwrap().to_docx().unwrap()
+}
+
+fn entry_runs(source: &Path, kind: &str) -> Vec<u8> {
+    let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    let entries = doc.entry_stories().unwrap();
+    let ids: &[&str] = match kind {
+        "footnote" => &["007", "8"],
+        "endnote" => &["007"],
+        "comment" => &["0"],
+        _ => panic!("invalid fixture entry kind"),
+    };
+    let selected: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            entries
+                .iter()
+                .find(|entry| entry.kind.as_str() == kind && entry.id == *id)
+                .unwrap()
+        })
+        .collect();
+    let edits: Vec<_> = selected
+        .iter()
+        .map(|entry| {
+            // Each fixture begins with a note mark or comment annotation reference.
+            let Some(ImportedInlineNode::Run(run)) = entry.inline_structure(0).unwrap().get(1)
+            else {
+                panic!("expected fixture entry run");
+            };
+            RunTextEdit {
+                target: run.anchor.clone(),
+                text: format!("Revised {kind} {}", entry.id),
+            }
+        })
+        .collect();
+    doc.edit_story_text(&selected[0].part_name, &edits).unwrap()
+}
+
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let (output, bytes) = match args.as_slice() {
@@ -268,6 +338,13 @@ fn main() {
                 _ => panic!("invalid header mode"),
             };
             (output, mixed(Path::new(source), Path::new(png), mode))
+        }
+        [command, output, source, png, slot, mode] if command == "story-image" => (
+            output,
+            story_image(Path::new(source), Path::new(png), slot, mode),
+        ),
+        [command, output, source, kind] if command == "entry-runs" => {
+            (output, entry_runs(Path::new(source), kind))
         }
         [command, output, source] if command == "scalar" => (output, scalar(Path::new(source))),
         [command, output, source, case] if command == "entry" => {
@@ -300,7 +377,7 @@ fn main() {
             (output, serde_json::to_vec(&result).unwrap())
         }
         _ => panic!(
-            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | scalar OUTPUT SOURCE | entry OUTPUT SOURCE CASE | inspect-entries OUTPUT SOURCE | no-op OUTPUT SOURCE | open-with-limits OUTPUT SOURCE COUNT MEMBER TOTAL"
+            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | story-image OUTPUT SOURCE PNG SLOT MODE | entry-runs OUTPUT SOURCE KIND | scalar OUTPUT SOURCE | entry OUTPUT SOURCE CASE | inspect-entries OUTPUT SOURCE | no-op OUTPUT SOURCE | open-with-limits OUTPUT SOURCE COUNT MEMBER TOTAL"
         ),
     };
     fs::write(output, bytes).unwrap();

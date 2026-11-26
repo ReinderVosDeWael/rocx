@@ -2,7 +2,9 @@ mod entries;
 pub(crate) mod layout;
 mod limits;
 pub(crate) mod notes;
+pub(crate) mod resources;
 pub(crate) mod revisions;
+pub(crate) mod stories;
 
 use rmcp::{
     handler::server::common::schema_for_input,
@@ -72,7 +74,8 @@ impl ToolKind {
                   result. Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
                   definitions with entry anchors, note-references for direct body note sites and \
                   tracked revisions with {\"kind\":\"revisions\"}, or direct paragraph and section \
-                  properties with {\"kind\":\"layout\"}. \
+                  properties with {\"kind\":\"layout\"}. Use {\"kind\":\"stories\"} for all six \
+                  header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
@@ -180,6 +183,18 @@ impl Call {
                 Some(View::Revisions { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::Revisions, limit, cursor)
                 }
+                Some(View::Stories { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::Stories, limit, cursor)
+                }
+                Some(View::EntryRuns { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
+                }
+                Some(View::Resources { custom_property }) => {
+                    session.inspect_resources(input.document, custom_property)
+                }
+                Some(View::ResourceValue { query }) => {
+                    session.inspect_resource_value(input.document, query)
+                }
             },
             Self::Preview(Preview::Ordinary(input)) => {
                 session.preview_edits(input.document, input.edits)
@@ -199,6 +214,12 @@ impl Call {
                     edit,
                 } => session.preview_revision(input.document, anchor, paired_anchor, edit),
                 Operation::EditLayout { edits } => session.preview_layout(input.document, edits),
+                Operation::EditStoryText { anchor, edits } => {
+                    session.preview_story_text(input.document, &anchor, edits)
+                }
+                Operation::EditStoryReference { anchor, edit } => {
+                    session.preview_story_reference(input.document, &anchor, edit)
+                }
                 Operation::NoOp {} => session.preview_noop(input.document),
             },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
@@ -366,18 +387,20 @@ pub(crate) enum Edit {
         anchor: String,
         alignment: CellAlignment,
     },
-    /// Append an inline image to a header slot.
+    /// Append an inline image to an existing header or footer slot.
     HeaderImage {
-        /// Header slot anchor.
+        /// Slot anchor from compact inspection or the stories view.
         anchor: String,
         mode: HeaderMode,
         /// Complete encoded image as byte values.
         bytes: Vec<u8>,
     },
+    /// Set or clear a named document property or direct default in the ordinary batch.
+    Resource { edit: resources::ResourceChange },
 }
 
 impl Edit {
-    pub(crate) fn anchor_slot(&mut self) -> &mut String {
+    pub(crate) fn anchor_slot(&mut self) -> Option<&mut String> {
         match self {
             Self::Alignment { anchor, .. }
             | Self::InsertParagraph { anchor, .. }
@@ -387,7 +410,8 @@ impl Edit {
             | Self::TextRange { anchor, .. }
             | Self::InsertText { anchor, .. }
             | Self::CellAlignment { anchor, .. }
-            | Self::HeaderImage { anchor, .. } => anchor,
+            | Self::HeaderImage { anchor, .. } => Some(anchor),
+            Self::Resource { .. } => None,
         }
     }
 
@@ -401,6 +425,7 @@ impl Edit {
             Self::RunText { .. } | Self::RunRemove { .. } => "run",
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
+            Self::Resource { .. } => unreachable!("resources have no anchor"),
         }
     }
 }
@@ -663,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_has_six_strict_tools_and_nine_discriminated_edits() {
+    fn discovery_has_six_strict_tools_and_discriminated_edits() {
         let tools = ToolKind::ALL.map(ToolKind::definition);
         assert_eq!(
             tools.each_ref().map(|tool| tool.name.as_ref()),
@@ -698,7 +723,13 @@ mod tests {
             ("cell-alignment", &["alignment"][..]),
             ("header-image", &["mode", "bytes"][..]),
         ];
-        assert_eq!(variants.len(), required.len());
+        assert_eq!(variants.len(), required.len() + 1);
+        let resource = variants
+            .iter()
+            .find(|variant| variant["properties"]["kind"]["const"] == "resource")
+            .unwrap();
+        assert_eq!(resource["required"], json!(["kind", "edit"]));
+        assert_eq!(resource["additionalProperties"], false);
         for (kind, extra) in required {
             let variant = variants
                 .iter()

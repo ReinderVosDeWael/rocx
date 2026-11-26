@@ -5,7 +5,9 @@ use serde::{Deserialize, Deserializer};
 use super::{
     layout::LayoutChange,
     notes::{NoteChange, NoteKind},
+    resources::ResourceQuery,
     revisions::RevisionChange,
+    stories::{StoryReferenceChange, StoryTextChange},
 };
 
 const MIN_LIMIT: usize = 1;
@@ -76,6 +78,33 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Page through all logical header/footer slots and their physical owners.
+    Stories {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through direct runs in note and comment entries, by physical owner.
+    EntryRuns {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Read direct defaults and document properties without evaluating style inheritance.
+    Resources {
+        /// Look up a single custom property by name.
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        custom_property: Option<String>,
+    },
+    /// Inspect one resource via its independent native accessor.
+    ResourceValue { query: ResourceQuery },
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -108,6 +137,18 @@ pub(super) enum Operation {
     },
     /// Apply one native layout transaction against the original paragraph and section owners.
     EditLayout { edits: Vec<LayoutChange> },
+    /// Change run text in one physical header, footer, note or comment part.
+    EditStoryText {
+        /// Physical owner anchor from the stories or entry-runs view.
+        anchor: String,
+        edits: Vec<StoryTextChange>,
+    },
+    /// Create, link or unlink an explicit story reference for a logical section slot.
+    EditStoryReference {
+        /// Logical slot anchor from the stories view.
+        anchor: String,
+        edit: StoryReferenceChange,
+    },
     /// Preview the package produced by an empty native EditBatch, without mutating the source.
     NoOp {},
 }

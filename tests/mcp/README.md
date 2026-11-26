@@ -24,8 +24,8 @@ full saved packages, then independently inspect DOCX semantics, protected part
 payloads, header relationships, and Transitional schema/OPC validity.
 For newly authored documents, the oracle receives the observed clock timestamp
 as a render input; neither ZIP is normalized or rewritten before comparison.
-The note-reference, layout and revision suites locate their independent
-native oracle binaries beside `ROCX_MCP_ORACLE`.
+The note-reference, layout, revision, resource and story suites locate their
+independent native oracle binaries beside `ROCX_MCP_ORACLE`.
 
 Entry-story coverage (`test_stdio.py`):
 
@@ -56,3 +56,9 @@ Additional scoped and import coverage:
   conflict, invalid target and unchanged package parts separately.
 - `test_limits.py` compares the exact and just-under archive budgets with
   Rust and verifies native empty-batch preview bytes and retention.
+- `test_stories.py`, `test_story_images.py` and `test_entry_runs.py` cover
+  physical run edits, aliases, logical reference lifecycle, and shared/local
+  image previews for every header/footer slot. They verify relationships
+  and untouched parts separately from native byte comparisons.
+- `test_resources.py` covers explicit set/clear, mixed resource/body previews,
+  independent named queries, and rejection/retry before any anchor is issued.
