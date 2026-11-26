@@ -604,7 +604,7 @@ mod tests {
                     target: x.anchor.clone(),
                     text: "kept".into(),
                 }],
-                run_removals: &[y.anchor.clone()],
+                run_removals: std::slice::from_ref(&y.anchor),
                 cells: &[CellAlignmentEdit {
                     target: t.anchor.clone(),
                     row_index: 0,
