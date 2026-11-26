@@ -137,8 +137,11 @@ impl Snapshot {
             }
             if let Edit::Numbering { edit } = edit {
                 batch.resources.push(
-                    edit.resolve(|local| self.numbering_paragraph_anchor(local))
-                        .map_err(locate)?,
+                    edit.resolve(
+                        |local| self.numbering_paragraph_anchor(local),
+                        |local| self.physical_numbering_anchor(local),
+                    )
+                    .map_err(locate)?,
                 );
                 continue;
             }

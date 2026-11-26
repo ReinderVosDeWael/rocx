@@ -5,7 +5,7 @@ use crate::{
         entry_inlines::EntryInlineChange,
         layout::LayoutChange,
         notes::{NoteChange, NoteKind},
-        numbering::NumberingChange,
+        numbering::{NumberingChange, PhysicalNumberingScope},
         resources::ResourceQuery,
         revisions::RevisionChange,
         run_format::RunFormatChange,
@@ -62,6 +62,7 @@ pub(crate) enum PageView {
     NoteReferences,
     NumberingAbstracts,
     NumberingInstances,
+    NumberingParagraphs(PhysicalNumberingScope),
     PhysicalTables,
     Revisions,
     Sections,
@@ -87,6 +88,11 @@ impl PageView {
             Self::NoteReferences => "note-references",
             Self::NumberingAbstracts => "numbering-abstracts",
             Self::NumberingInstances => "numbering-instances",
+            Self::NumberingParagraphs(scope) => match scope {
+                PhysicalNumberingScope::Cells => "numbering-paragraphs-cells",
+                PhysicalNumberingScope::Stories => "numbering-paragraphs-stories",
+                PhysicalNumberingScope::Entries => "numbering-paragraphs-entries",
+            },
             Self::PhysicalTables => "physical-tables",
             Self::Revisions => "revisions",
             Self::Sections => "sections",
@@ -272,19 +278,36 @@ impl Session {
         doc: &Document,
         document: &str,
         anchor: &'a str,
+        physical: bool,
     ) -> Result<&'a str, String> {
+        let source = if physical {
+            "numbering-paragraphs"
+        } else {
+            "compact body"
+        };
         let (owner, local) = anchor
             .split_once('/')
-            .ok_or("invalid_anchor: inspect the compact body for a paragraph anchor")?;
+            .ok_or_else(|| format!("invalid_anchor: inspect {source} for a paragraph anchor"))?;
         if owner != document {
             return Err("wrong_owner: use a paragraph anchor from the selected document".into());
         }
-        if doc.snapshot.has_issued_anchor(local) {
-            Ok(local)
-        } else if doc.view_anchors.contains_key(local) {
-            Err("wrong_anchor_type: expected a compact body paragraph anchor".into())
+        let compact = doc.snapshot.has_issued_anchor(local);
+        let view = doc.view_anchors.get(local);
+        let eligible = if physical {
+            matches!(view, Some(PageView::NumberingParagraphs(_)))
         } else {
-            Err("invalid_anchor: inspect the compact body for a paragraph anchor".into())
+            compact
+        };
+        if eligible {
+            Ok(local)
+        } else if compact || view.is_some() {
+            Err(format!(
+                "wrong_anchor_type: expected a paragraph anchor from {source}"
+            ))
+        } else {
+            Err(format!(
+                "invalid_anchor: inspect {source} for a paragraph anchor"
+            ))
         }
     }
 
@@ -294,7 +317,7 @@ impl Session {
         anchor: String,
     ) -> Result<Value, String> {
         let doc = self.document(&document)?;
-        let local = Self::scoped_numbering_paragraph(doc, &document, &anchor)?;
+        let local = Self::scoped_numbering_paragraph(doc, &document, &anchor, false)?;
         let value = doc.snapshot.paragraph_numbering(local).map_err(|error| {
             if error.starts_with("wrong_anchor_type:") {
                 error
@@ -347,6 +370,9 @@ impl Session {
             PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
             PageView::NumberingAbstracts => doc.snapshot.numbering_page(true, start, limit),
             PageView::NumberingInstances => doc.snapshot.numbering_page(false, start, limit),
+            PageView::NumberingParagraphs(scope) => {
+                doc.snapshot.physical_numbering_page(scope, start, limit)
+            }
             PageView::PhysicalTables => doc.snapshot.physical_table_page(start, limit),
             PageView::Revisions => doc.snapshot.revision_page(start, limit),
             PageView::Sections => doc.snapshot.section_page(start, limit),
@@ -374,6 +400,7 @@ impl Session {
             PageView::NoteReferences => "note_references",
             PageView::NumberingAbstracts => "abstracts",
             PageView::NumberingInstances => "instances",
+            PageView::NumberingParagraphs(_) => "paragraphs",
             PageView::EntryRuns => "entry_runs",
             PageView::EntryInlines => "entry_inlines",
             PageView::PhysicalTables => "physical_tables",
@@ -668,8 +695,16 @@ impl Session {
         }
         for (i, edit) in edits.iter_mut().enumerate() {
             if let Edit::Numbering { edit } = edit {
-                if let NumberingChange::Paragraph { anchor, .. } = edit {
-                    *anchor = Self::scoped_numbering_paragraph(doc, &document, anchor)?.to_owned();
+                match edit {
+                    NumberingChange::Paragraph { anchor, .. } => {
+                        *anchor = Self::scoped_numbering_paragraph(doc, &document, anchor, false)?
+                            .to_owned();
+                    }
+                    NumberingChange::PhysicalParagraph { anchor, .. } => {
+                        *anchor = Self::scoped_numbering_paragraph(doc, &document, anchor, true)?
+                            .to_owned();
+                    }
+                    _ => {}
                 }
                 continue;
             }

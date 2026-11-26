@@ -95,7 +95,8 @@ impl ToolKind {
                   body-inlines anchor. Use entry-inlines for note and comment inline anchors, \
                   or styles for the physical style catalog and original style anchors. \
                   Use numbering-abstracts and numbering-instances for direct list catalogs, \
-                  or paragraph-numbering for the stored assignment of one body paragraph. \
+                  paragraph-numbering for one direct body assignment, or numbering-paragraphs \
+                  for physical story, entry and body-cell assignments. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
@@ -263,6 +264,16 @@ impl Call {
                 Some(View::ParagraphNumbering { anchor }) => {
                     session.inspect_paragraph_numbering(input.document, anchor)
                 }
+                Some(View::NumberingParagraphs {
+                    scope,
+                    limit,
+                    cursor,
+                }) => session.inspect_page(
+                    input.document,
+                    PageView::NumberingParagraphs(scope),
+                    limit,
+                    cursor,
+                ),
                 Some(View::Resources { custom_property }) => {
                     session.inspect_resources(input.document, custom_property)
                 }
@@ -531,7 +542,7 @@ pub(crate) enum Edit {
     Control { edit: controls::ControlChange },
     /// Edit the relationship-selected style catalog.
     Style { edit: styles::StyleChange },
-    /// Change a list definition, instance or direct body paragraph assignment.
+    /// Change a list definition, instance or paragraph assignment.
     Numbering { edit: numbering::NumberingChange },
 }
 

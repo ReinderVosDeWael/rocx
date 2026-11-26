@@ -6,6 +6,7 @@ use super::{
     entry_inlines::EntryInlineChange,
     layout::LayoutChange,
     notes::{NoteChange, NoteKind},
+    numbering::PhysicalNumberingScope,
     resources::ResourceQuery,
     revisions::RevisionChange,
     run_format::RunFormatChange,
@@ -229,6 +230,16 @@ pub(super) enum View {
     },
     /// Read a direct body's stored list assignment at a compact paragraph anchor.
     ParagraphNumbering { anchor: String },
+    /// Read direct numbering and issue anchors for physical story, entry, or body-cell paragraphs.
+    NumberingParagraphs {
+        scope: PhysicalNumberingScope,
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
     /// Read direct defaults and document properties without evaluating style inheritance.
     Resources {
         /// Look up a single custom property by name.

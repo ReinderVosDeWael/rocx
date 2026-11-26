@@ -88,6 +88,9 @@ Additional scoped and import coverage:
 - `test_numbering.py` checks the relocated numbering catalog and narrower
   readers, direct body assignments, and staged definition, override, relink,
   and removal transactions against native bytes.
+- `test_physical_numbering.py` checks native numbering in body cells, shared
+  headers and footers, and ordinary note/comment entries, including package
+  preservation and address stability when an earlier table is removed.
 - `test_physical_tables.py` distinguishes ordinary body table anchors from
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent

@@ -1,5 +1,7 @@
 use rmcp::schemars::{self, JsonSchema, Schema, SchemaGenerator, json_schema};
-use rocx::editor::{AbstractStart, NumberingEdit, ParagraphAnchor, ResourceEdit};
+use rocx::editor::{
+    AbstractStart, NumberingEdit, ParagraphAnchor, ResourceEdit, StoryParagraphAnchor,
+};
 use rocx::{
     NumberingAlignment, NumberingDefinition, NumberingLevel, NumberingReference,
     NumberingStartOverride, NumberingSuffix,
@@ -69,12 +71,26 @@ pub(crate) enum NumberingChange {
         anchor: String,
         value: Nullable<ListReference>,
     },
+    /// Set or clear a physical paragraph from the numbering-paragraphs view.
+    PhysicalParagraph {
+        anchor: String,
+        value: Nullable<ListReference>,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum PhysicalNumberingScope {
+    Cells,
+    Stories,
+    Entries,
 }
 
 impl NumberingChange {
     pub(crate) fn resolve(
         self,
         paragraph: impl FnOnce(&str) -> Result<ParagraphAnchor, String>,
+        physical: impl FnOnce(&str) -> Result<StoryParagraphAnchor, String>,
     ) -> Result<ResourceEdit, String> {
         let levels = |levels: Vec<Level>| levels.into_iter().map(Into::into).collect();
         let level_value =
@@ -153,6 +169,10 @@ impl NumberingChange {
             },
             Self::Paragraph { anchor, value } => NumberingEdit::Paragraph {
                 target: paragraph(&anchor)?,
+                value: value.into_option().map(Into::into),
+            },
+            Self::PhysicalParagraph { anchor, value } => NumberingEdit::StoryParagraph {
+                target: physical(&anchor)?,
                 value: value.into_option().map(Into::into),
             },
         };

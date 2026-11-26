@@ -611,8 +611,29 @@ and `remove-abstract` use the respective numeric IDs.
 Definitions, numbering styles, and paragraph assignments can use IDs staged
 in the same preview, including when a numbering part is first created.
 The native editor rejects conflicting edits and removals that
-would leave live references. Numbering assignment here targets direct body
-paragraphs, not physical story or table-cell paragraphs.
+would leave live references.
+
+For other physical paragraphs, use
+`view:{"kind":"numbering-paragraphs","scope":"cells"}` for direct paragraphs
+in direct body tables, `scope:"stories"` for effective headers and footers,
+or `scope:"entries"` for notes and comments. Each scope has its own cursor.
+The `paragraphs` rows include text, original coordinates, and a direct
+numbering `value`. The same part shared by multiple sections is listed just
+once. A row with `unavailable` instead of `value` and `anchor` could not be
+read or addressed as an eligible native paragraph. Nested tables are not
+traversed.
+
+Send the issued anchor with `physical-paragraph` in the ordinary batch:
+
+```json
+{"kind":"numbering","edit":{"kind":"physical-paragraph",
+ "anchor":"<physical paragraph anchor>","value":{"id":90,"level":0}}}
+```
+
+As with direct body numbering, `null` clears the assignment. A batch can
+stage a list, assign it across several physical owners, and edit other
+disjoint body content. A table structure edit cannot share the same table
+as a cell numbering edit. Reopen a saved result to get fresh anchors.
 
 ### Edit metadata and direct document defaults
 

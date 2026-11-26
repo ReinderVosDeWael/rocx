@@ -36,6 +36,9 @@
     "numbering-bytes": "tests/mcp/test_numbering.py::test_numbering_native_lifecycle",
     "numbering-reader-scope": "tests/mcp/test_numbering.py::test_numbering_independent_readers_ignore_bad_style_catalog",
     "numbering-first-part": "tests/mcp/test_numbering.py::test_numbering_creates_part_with_reciprocal_style_link",
+    "physical-numbering-discovery": "tests/mcp/test_physical_numbering.py::test_physical_numbering_discovery",
+    "physical-numbering-bytes": "tests/mcp/test_physical_numbering.py::test_physical_numbering_mixed_native_bytes",
+    "physical-numbering-owner-errors": "tests/mcp/test_physical_numbering.py::test_physical_numbering_isolates_unavailable_rows",
     "resource-discovery": "tests/mcp/test_resources.py::test_resource_discovery",
     "resource-query": "tests/mcp/test_resources.py::test_resource_value_queries_isolate_malformed_metadata",
     "resource-mixed": "tests/mcp/test_resources.py::test_mixed_resource_batch_native_bytes_and_preservation",
@@ -129,8 +132,8 @@
     },
     "EditBatch::resources": {
       "scope": "package resources and paragraph assignments", "target": "metadata, defaults, numbering definitions/overrides or original body/cell/story paragraph", "mcp": "preview_edits.edits[kind=resource]",
-      "status": "partial", "gap": "Metadata, defaults, numbering definitions, overrides and direct body assignments are transported; physical story and cell paragraph assignments remain open.",
-      "positive": ["resource-discovery", "resource-mixed", "resource-retry", "numbering-bytes"], "negative": ["resource-discovery", "resource-retry", "numbering-bytes"]
+      "status": "partial", "gap": "Metadata, defaults, definitions, overrides, and direct and physical numbering assignments are transported; uncommon native formatting and guard combinations still lack installed evidence.",
+      "positive": ["resource-discovery", "resource-mixed", "resource-retry", "numbering-bytes", "physical-numbering-bytes"], "negative": ["resource-discovery", "resource-retry", "numbering-bytes", "physical-numbering-bytes"]
     },
     "EditBatch::controls": {
       "scope": "main story", "target": "control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=patch]",
@@ -306,8 +309,8 @@
     "ImportedDocument::preview_with_resources": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus document resource edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "resources"],
-      "status": "partial", "gap": "Supports atomic resource and body edits. Physical numbering assignments and some rich baseline declarations remain unimplemented.",
-      "positive": ["baseline-mixed", "resource-mixed", "numbering-bytes"], "negative": ["baseline-mixed", "resource-retry", "numbering-bytes"]
+      "status": "partial", "gap": "Supports atomic resource, numbering and body edits. Some rich baseline declarations and resource variants still lack installed evidence.",
+      "positive": ["baseline-mixed", "resource-mixed", "numbering-bytes", "physical-numbering-bytes"], "negative": ["baseline-mixed", "resource-retry", "numbering-bytes", "physical-numbering-bytes"]
     },
     "ImportedDocument::preview_with_controls": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus control edits", "mcp": "preview_edits.edits",
@@ -466,16 +469,16 @@
       "status": "covered", "positive": ["numbering-bytes"], "negative": ["numbering-discovery", "numbering-bytes"]
     },
     "ImportedDocument::story_paragraph_anchor": {
-      "scope": "physical header/footer or ordinary note/comment entry", "target": "owner part, optional entry ID and direct paragraph block index", "mcp": "inspect_document (planned story paragraph selector)",
-      "status": "planned", "gap": "No physical story paragraph handles.", "positive": [], "negative": []
+      "scope": "physical header/footer or ordinary note/comment entry", "target": "owner part, optional entry ID and direct paragraph block index", "mcp": "inspect_document.view[kind=numbering-paragraphs,scope=stories|entries]",
+      "status": "covered", "positive": ["physical-numbering-bytes"], "negative": ["physical-numbering-discovery", "physical-numbering-bytes", "physical-numbering-owner-errors"]
     },
     "ImportedDocument::cell_paragraph_anchor": {
-      "scope": "direct body table cell", "target": "table anchor and original physical row/cell/paragraph indices", "mcp": "inspect_document (planned cell paragraph selector)",
-      "status": "planned", "gap": "Compact cell identities do not address cell paragraphs.", "positive": [], "negative": []
+      "scope": "direct body table cell", "target": "table anchor and original physical row/cell/paragraph indices", "mcp": "inspect_document.view[kind=numbering-paragraphs,scope=cells]",
+      "status": "covered", "positive": ["physical-numbering-bytes"], "negative": ["physical-numbering-discovery", "physical-numbering-bytes"]
     },
     "ImportedDocument::story_paragraph_numbering": {
-      "scope": "physical story/ordinary entry or body cell paragraph", "target": "physical paragraph anchor and stored direct assignment", "mcp": "inspect_document (planned physical paragraph numbering selector)",
-      "status": "planned", "gap": "No physical paragraph numbering readback.", "positive": [], "negative": []
+      "scope": "physical story/ordinary entry or body cell paragraph", "target": "physical paragraph anchor and stored direct assignment", "mcp": "inspect_document.view[kind=numbering-paragraphs]; preview_edits.edits[kind=numbering].edit[kind=physical-paragraph]",
+      "status": "covered", "positive": ["physical-numbering-bytes"], "negative": ["physical-numbering-bytes", "physical-numbering-owner-errors"]
     },
     "ImportedDocument::chart_series": {
       "scope": "relationship-selected chart at direct body drawing occurrence", "target": "issued inline anchor and category/value series", "mcp": "inspect_document.view[kind=chart-series]",

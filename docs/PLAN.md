@@ -130,9 +130,15 @@ independent read scopes, and supports global definition and override edits
 with direct body assignments in the ordinary batch. Relocated-catalog
 lifecycle previews and first-part creation with a staged numbering style
 matched direct Rust bytes. The Rust 1.88 installed binary passed 152 MCP and
-parity tests plus ten subtests. Continue with physical story and cell
-paragraph assignments, then reconcile the remaining payload and owner
-coverage against the compiled ledger.
+parity tests plus ten subtests.
+
+The physical-numbering increment pages direct paragraphs in shared
+header/footer parts, note/comment entries, and direct body cells. Ordinary
+previews can target these paragraphs alongside staged lists. Assignment and
+cleanup batches matched direct Rust bytes, including a cell in a later table
+after removing an earlier one. Continue with typed inline discovery in
+header/footer and table-cell paragraphs, then reconcile remaining payload and
+owner coverage against the compiled ledger.
 
 ## 0.4.0 release
 

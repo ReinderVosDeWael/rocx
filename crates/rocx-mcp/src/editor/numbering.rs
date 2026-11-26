@@ -1,7 +1,16 @@
-use rocx::editor::{ImportedNumberingCatalog, ParagraphAnchor};
+use rocx::{
+    NumberingReference,
+    editor::{ImportedNumberingCatalog, ParagraphAnchor},
+};
 use serde_json::{Value, json};
 
 use super::{Snapshot, Target};
+
+mod physical;
+
+fn assignment_value(value: Option<NumberingReference>) -> Value {
+    json!(value.map(|value| json!({"id": value.id, "level": value.level})))
+}
 
 fn window<T: Clone>(items: &[T], start: usize, limit: usize) -> Vec<T> {
     items
@@ -55,8 +64,6 @@ impl Snapshot {
             .document
             .paragraph_numbering(&anchor)
             .map_err(|e| e.to_string())?;
-        Ok(json!(value.map(
-            |value| json!({"id": value.id, "level": value.level})
-        )))
+        Ok(assignment_value(value))
     }
 }

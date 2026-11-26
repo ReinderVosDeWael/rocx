@@ -149,8 +149,8 @@ still share the existing declaration limits.
 
 For slice 5, style discovery and all native `StyleEdit` variants are exposed
 through the ordinary batch. Numbering catalog, definition, and override
-operations are exposed, including assignments to direct body paragraphs.
-Physical paragraph discovery and assignment remain open.
+operations are exposed, including assignments to direct body paragraphs
+and eligible physical header/footer, entry, and body-cell paragraphs.
 
 ## Qualification and drift control
 
