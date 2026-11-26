@@ -55,9 +55,38 @@ returned by the server for the placeholders.
 Start with `open_document` and `{"path":"input.docx"}`, then inspect, preview,
 and save as above. The supported edits are paragraph alignment, paragraph or
 table insertion after a paragraph, direct run text replacement or removal,
+replacement/deletion of a text range or insertion at a text position,
 physical table-cell vertical alignment, and image insertion in a default or
 first-page header. For a header image, specify `shared` to edit its shared
 part or `section-local` to limit the change to the selected section.
+
+### Edit part of a paragraph
+
+Use the **paragraph** anchor and count Unicode scalar values in its original
+text. Inspection returns `scalar_length` for candidate paragraphs and `null`
+where scalar positions are not advertised. A length is not a guarantee that
+a protected paragraph can be edited. In `A😀BC`, the emoji occupies `[1,2)` and the end position
+is `4`. This batch replaces the emoji and appends a period, producing `AxBC.`:
+
+```json
+{
+  "document": "<document>",
+  "edits": [
+    {"kind":"text-range","anchor":"<paragraph anchor>","start":1,"end":2,"text":"x"},
+    {"kind":"insert-text","anchor":"<paragraph anchor>","offset":4,"text":"."}
+  ]
+}
+```
+
+Use `text:""` in a nonempty `text-range` to delete. Use `insert-text` with
+nonempty text for a point insertion. Offsets can cross consecutive plain
+text runs but cannot cross a paragraph, field or hyperlink. A combining mark
+counts separately from its base character. In JavaScript use `Array.from(text)`
+instead of UTF-16 string indices. The core rejects conflicting edits and
+paragraphs with unsupported markup; see [the native range contract](EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs)
+for formatting and boundary rules.
+
+### Save or continue editing
 
 Every preview starts from the opened or created document. Put edits that
 should apply together in one batch, using anchors from inspection of that

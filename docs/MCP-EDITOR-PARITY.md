@@ -5,6 +5,20 @@ Baseline: `b38ac22` in [PR #71](https://github.com/ReinderVosDeWael/rocx/pull/71
 [#52](https://github.com/ReinderVosDeWael/rocx/issues/52) qualifies the initial
 six tools and seven edits; it need not wait for this follow-up.
 
+## Implementation checkpoint
+
+The [parity inventory](../tests/mcp_parity/README.md) starts at the three
+compiled editor roots. Its first snapshot has 70 `ImportedDocument` methods,
+18 `EditBatch` fields and 10 `EditPreview` methods. Separate entries record
+reachable payload types, fields and variants; the symbol count is **not** a
+measure of user-facing feature completion.
+
+The first ordinary-batch extension transports `TextRangeEdit` and
+`TextInsertion` as [paragraph-anchored scalar edits](MCP.md#edit-part-of-a-paragraph).
+The installed-client fixture covers non-BMP text, mixed formatting, runless
+paragraphs, rejection/retry and equality with the native saved package.
+The broader inspection and physical-owner work in the table below remains open.
+
 ## What counts as parity?
 
 Start from the public `rocx::editor` API, especially `ImportedDocument`,

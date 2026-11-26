@@ -16,12 +16,20 @@ including native byte parity, readback, package preservation, and lifecycle
 errors. Rust 1.88 Clippy, the existing CLI tests, the independent Wasm build
 check and the strict 699-page documentation build also passed. See the
 [installed acceptance instructions](../tests/mcp/README.md) for reproduction.
-Keep #52 open until the combined changes and hosted checks reach `main`.
+The hosted checks passed, PR #71 merged to `main`, and #52 is closed.
 
-**Next milestone — [#72](https://github.com/ReinderVosDeWael/rocx/issues/72):**
-follow the [full MCP/Rust editor parity plan](MCP-EDITOR-PARITY.md). Freeze the
-public Rust surface first, then deliver inspection and owner-scoped editing in
-tested slices. Keep full parity separate from the seven-edit #52 baseline.
+**In progress — [#72](https://github.com/ReinderVosDeWael/rocx/issues/72):**
+follow the [full MCP/Rust editor parity plan](MCP-EDITOR-PARITY.md). The first
+increment freezes the compiled editor surface, maps it to coverage obligations,
+and adds original-snapshot scalar range replacement/deletion and point
+insertion in plain body paragraphs. Qualify these edits independently of
+the seven original edit kinds; broad inspection and scoped edits remain open.
+
+Local checks: the compiled snapshot contains 1,908 symbols. The MCP crate's
+13 Rust tests and Clippy passed on Rust 1.88 and stable. Nine installed-client
+tests passed, including native byte parity and rejection/retry for scalar
+edits. A live OpenCode client replaced `😀` and appended a period using
+original offsets in `A😀BC`; independent `python-docx` readback gave `AxBC.`.
 
 ## 0.4.0 release
 

@@ -205,9 +205,10 @@ async def test_discovery(launch):
         expected = {
             "alignment": {"alignment"}, "insert-paragraph": {"text"}, "insert-table": {"rows"},
             "run-text": {"text"}, "run-remove": set(), "cell-alignment": {"alignment"},
-            "header-image": {"mode", "bytes"},
+            "header-image": {"mode", "bytes"}, "text-range": {"start", "end", "text"},
+            "insert-text": {"offset", "text"},
         }
-        assert len(variants) == 7 and kinds.keys() == expected.keys()
+        assert len(variants) == 9 and kinds.keys() == expected.keys()
         for kind, variant_schema in kinds.items():
             assert set(variant_schema["required"]) == {"kind", "anchor"} | expected[kind]
             assert variant_schema["additionalProperties"] is False
@@ -226,12 +227,25 @@ async def test_discovery(launch):
         assert rows["items"]["items"]["type"] == "string"
         byte = kinds["header-image"]["properties"]["bytes"]["items"]
         assert (byte["type"], byte["minimum"], byte["maximum"]) == ("integer", 0, 255)
+        for kind, coordinates in [("text-range", ("start", "end")), ("insert-text", ("offset",))]:
+            properties = kinds[kind]["properties"]
+            assert properties["text"]["type"] == "string"
+            for coordinate in coordinates:
+                assert properties[coordinate]["type"] == "integer"
+                assert properties[coordinate]["minimum"] == 0
         validate_preview = validator_for(preview)(preview)
         assert validate_preview.is_valid({"document": "doc", "edits": [
             {"kind": "run-remove", "anchor": "run"},
         ]})
         assert not validate_preview.is_valid({"document": "doc", "edits": [
             {"kind": "run-remove", "anchor": "run", "text": "unknown"},
+        ]})
+        assert validate_preview.is_valid({"document": "doc", "edits": [
+            {"kind": "text-range", "anchor": "paragraph", "start": 1, "end": 2, "text": ""},
+            {"kind": "insert-text", "anchor": "paragraph", "offset": 0, "text": "😀"},
+        ]})
+        assert not validate_preview.is_valid({"document": "doc", "edits": [
+            {"kind": "insert-text", "anchor": "paragraph", "offset": -1, "text": "😀"},
         ]})
         with pytest.raises(McpError):
             await client.call_tool("not_a_rocx_tool", {})
@@ -342,6 +356,100 @@ async def test_mixed_native_bytes_and_preservation(launch, tmp_path, mode):
     assert original_parts.keys() <= output_parts.keys()
     for name in original_parts.keys() - allowed_changes:
         assert original_parts[name] == output_parts[name], name
+    validate(source, output)
+
+
+async def test_scalar_edits_native_bytes_and_retry(launch, tmp_path):
+    source = tmp_path / "scalar.docx"
+    output = tmp_path / "scalar-copy.docx"
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    formatted = fixture.add_paragraph()
+    formatted.add_run("A😀B").bold = True
+    formatted.add_run("CDe").italic = True
+    formatted.add_run("XY").underline = True
+    fixture.add_paragraph()
+    fixture.add_paragraph("Do not\tedit")
+    fixture.save(source)
+    original = source.read_bytes()
+
+    async with launch() as client:
+        opened = await call(client, "open_document", path=source.name)
+        document = opened["document"]
+        assert opened["snapshot"] == digest(original)
+        seen = await call(client, "inspect_document", document=document)
+        plain, empty, mixed = seen["body"]
+        assert plain["text"] == "A😀BCDeXY" and empty["text"] == ""
+        assert [p["scalar_length"] for p in (plain, empty, mixed)] == [8, 0, None]
+        # Unsorted edits refer to original scalar positions, not UTF-8 bytes or UTF-16 units.
+        replace = dict(kind="text-range", anchor=plain["anchor"], start=4, end=7, text="🦊&")
+        point = dict(kind="insert-text", anchor=plain["anchor"], offset=3, text=" + ")
+        edits = [
+            replace,
+            dict(kind="insert-text", anchor=empty["anchor"], offset=0, text="runless"),
+            point,
+            dict(kind="text-range", anchor=plain["anchor"], start=0, end=1, text=""),
+            dict(kind="insert-text", anchor=plain["anchor"], offset=plain["scalar_length"], text="!"),
+        ]
+
+        for edit in [dict(replace, start=-1), dict(point, offset=1.5)]:
+            await failure(client, "preview_edits", "invalid_input", document=document, edits=[edit])
+        for edit in [replace, point]:
+            await failure(client, "preview_edits", "wrong_anchor_type", document=document,
+                          edits=[dict(edit, anchor=plain["runs"][0]["anchor"])])
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          edits=[*edits, dict(edit, anchor=mixed["anchor"])])
+        for edit in [
+            dict(replace, start=2, end=2),
+            dict(replace, start=7, end=6),
+            dict(replace, end=9),  # 9 would be in bounds if lengths used UTF-16 units.
+            dict(point, offset=9),
+            dict(point, text=""),
+            dict(point, text="\n"),
+        ]:
+            await failure(client, "preview_edits", "rejected_batch", document=document, edits=[edit])
+        for conflicting in [
+            dict(point, offset=5),  # Strictly inside the cross-run replacement.
+            point,  # Duplicate insertion point.
+            dict(kind="run-text", anchor=plain["runs"][1]["anchor"], text="conflict"),
+        ]:
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          edits=[*edits, conflicting])
+        assert list(tmp_path.iterdir()) == [source]
+        assert source.read_bytes() == original
+        assert await call(client, "inspect_document", document=document) == seen
+
+        preview = await call(client, "preview_edits", document=document, edits=edits)
+        assert list(tmp_path.iterdir()) == [source]
+        assert preview["changes"]["run_text"] == [
+            {"target": 0, "inline_index": 0, "before": "A😀B", "after": "😀B"},
+            {"target": 0, "inline_index": 1, "before": "CDe", "after": " + C🦊&"},
+            {"target": 0, "inline_index": 2, "before": "XY", "after": "Y!"},
+            {"target": 1, "inline_index": 0, "before": "", "after": "runless"},
+        ]
+        saved = await call(client, "save_copy", document=document, preview=preview["preview"],
+                           output=output.name)
+        assert saved["output_snapshot"] == preview["output_snapshot"] == digest(output.read_bytes())
+        assert await call(client, "inspect_document", document=document) == seen
+        reopened = await call(client, "open_document", path=output.name)
+        assert reopened["snapshot"] == saved["output_snapshot"]
+        edited_body = (await call(client, "inspect_document", document=reopened["document"]))["body"]
+        assert [p["text"] for p in edited_body[:2]] == ["😀B + C🦊&Y!", "runless"]
+        await failure(client, "preview_edits", "wrong_owner", document=reopened["document"],
+                      edits=[replace])
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == oracle(tmp_path / "native.docx", "scalar", source)
+    formatted, formerly_empty, untouched = docx.Document(output).paragraphs
+    assert [r.text for r in formatted.runs] == ["😀B", " + C🦊&", "Y!"]
+    assert formatted.runs[0].bold and formatted.runs[1].italic and formatted.runs[2].underline
+    (new_run,) = formerly_empty.runs
+    assert new_run.text == "runless" and new_run._r.rPr is None
+    assert untouched.text == "Do not\tedit"
+    original_parts, edited_parts = parts(source), parts(output)
+    assert original_parts.keys() == edited_parts.keys()
+    for name in original_parts.keys() - {"word/document.xml"}:
+        assert original_parts[name] == edited_parts[name], name
     validate(source, output)
 
 
