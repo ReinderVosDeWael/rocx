@@ -86,6 +86,48 @@ instead of UTF-16 string indices. The core rejects conflicting edits and
 paragraphs with unsupported markup; see [the native range contract](EDITOR-PARITY.md#character-ranges-in-plain-body-paragraphs)
 for formatting and boundary rules.
 
+### Inspect and edit a footnote, endnote, or comment
+
+Call `inspect_document` with `{"document":"<document>","view":{"kind":"entries","limit":10}}`.
+The `entries` list contains footnotes, then endnotes, then comments in source
+order. Each entry identifies its physical part, original string ID, kind,
+note type or comment metadata, and indexed blocks. An unsupported block is
+marked opaque. Reserved note entries are visible but do not have edit anchors.
+If `next_cursor` is non-null, pass it as `view.cursor` on the next call. The
+default page size is 25 entries; the accepted range is 1–100.
+
+Copy the `anchor` from the entry itself, not its ID. A footnote and an
+endnote can share the same ID. For example, to change a base comment's author:
+
+```json
+{
+  "document": "<document>",
+  "operation": {
+    "kind": "edit-entry",
+    "anchor": "<comment entry anchor>",
+    "edit": {"kind":"comment-author","value":"Editorial team"}
+  }
+}
+```
+
+Send this to `preview_edits` as **one operation**, without an `edits` array.
+It returns a retained preview and digest; `changes` is `null` because the
+native entry editor returns document bytes without a change report.
+
+| Entry edit | Input and effect |
+| --- | --- |
+| `insert-paragraph` | `index`, `text`: insert before an original block index; use the block count to append. |
+| `replace-paragraph` | `index`, `text`: replace an eligible simple paragraph at that index. |
+| `remove-paragraph` | `index`: remove an eligible paragraph; cannot remove the last one. |
+| `comment-author` | `value`: set a base comment's author string. |
+| `comment-initials`, `comment-date` | `value`: set the string or pass explicit `null` to clear it. |
+| `delete-unused-note` | Remove an unreferenced, discardable ordinary note definition. |
+
+An anchor identifies a candidate. The editor still protects references,
+reserved note markers, rich content and threaded comments. Entry cursors and
+anchors are valid only for the document that issued them. After reopening a
+saved copy, inspect it again.
+
 ### Save or continue editing
 
 Every preview starts from the opened or created document. Put edits that

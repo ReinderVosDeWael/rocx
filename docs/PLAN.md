@@ -31,6 +31,15 @@ tests passed, including native byte parity and rejection/retry for scalar
 edits. A live OpenCode client replaced `😀` and appended a period using
 original offsets in `A😀BC`; independent `python-docx` readback gave `AxBC.`.
 
+The next #72 increment introduces `inspect_document.view` with bounded entry
+pages, issues snapshot-owned anchors for ordinary footnotes, endnotes and
+comments, and exposes the seven `EntryEdit` variants as a standalone
+`preview_edits.operation`. All 22 installed-client tests passed, including
+108-entry pagination, relocated owners, colliding lexical IDs, cursor lifetime
+and native byte comparisons. All 21 Rust tests and Clippy passed on 1.88 and
+stable. Live OpenCode discovery showed typed ordinary and scoped request
+forms; a saved comment author change affected only `word/comments.xml`.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.

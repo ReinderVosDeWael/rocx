@@ -1,8 +1,10 @@
 """Acceptance tests for the installed rocx-mcp process, not its Rust handlers."""
 
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -14,10 +16,14 @@ import anyio
 import docx
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.opc.constants import RELATIONSHIP_TYPE
+from docx.opc.packuri import PackURI
+from docx.opc.part import Part
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.table import Table
 from jsonschema.validators import validator_for
+from lxml import etree
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.exceptions import McpError
@@ -31,7 +37,7 @@ EXPECTED_TOOLS = {
     "create_document": set(),
     "open_document": {"path"},
     "inspect_document": {"document"},
-    "preview_edits": {"document", "edits"},
+    "preview_edits": {"document"},
     "save_copy": {"document", "preview", "output"},
     "close_document": {"document"},
 }
@@ -146,6 +152,102 @@ def make_source(path, title="Original"):
     return path.read_bytes()
 
 
+ENTRY_CASES = {
+    "delete-unused": (("footnote", "8"), dict(kind="delete-unused-note")),
+    "replace-first": (
+        ("footnote", "007"), dict(kind="replace-paragraph", index=0, text="New footnote 😀"),
+    ),
+    "insert-last": (
+        ("endnote", "007"), dict(kind="insert-paragraph", index=2, text="New endnote & tail"),
+    ),
+    "remove-last": (("endnote", "007"), dict(kind="remove-paragraph", index=1)),
+    "author": (("comment", "0"), dict(kind="comment-author", value="Café & Co.")),
+    "same-author": (("comment", "0"), dict(kind="comment-author", value="Original")),
+    "initials-set": (("comment", "0"), dict(kind="comment-initials", value="CC")),
+    "initials-clear": (("comment", "0"), dict(kind="comment-initials", value=None)),
+    "date-set": (("comment", "0"), dict(kind="comment-date", value="2030-02-03T04:05:06Z")),
+    "date-clear": (("comment", "0"), dict(kind="comment-date", value=None)),
+}
+
+
+def make_entry_source(path, comments=1):
+    document = docx.Document()
+    document.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    paragraph = document.add_paragraph("Body unchanged")
+
+    def element(tag, **attributes):
+        node = OxmlElement(f"w:{tag}")
+        for key, value in attributes.items():
+            node.set(qn(f"w:{key}"), value)
+        return node
+
+    for kind in ("footnote", "endnote"):
+        # python-docx cannot author notes: assemble their XML and relationships
+        # with its OPC package API. Neither path is the usual Word default.
+        plural = f"{kind}s"
+        root = element(plural)
+        notes = [("-1", "separator"), ("007", None)]
+        if kind == "footnote":
+            notes.append(("8", None))
+        for ident, note_type in notes:
+            entry = element(kind, id=ident)
+            root.append(entry)
+            p, run = element("p"), element("r")
+            entry.append(p)
+            p.append(run)
+            if note_type:
+                entry.set(qn("w:type"), note_type)
+                run.append(element(note_type))
+                continue
+            run.append(element(f"{kind}Ref"))
+            text_run = element("r")
+            text = element("t")
+            text.text = f"{kind} {ident}"
+            text_run.append(text)
+            p.append(text_run)
+            if kind == "endnote":
+                tail, tail_run, tail_text = element("p"), element("r"), element("t")
+                tail_text.text = "Original endnote tail"
+                tail_run.append(tail_text)
+                tail.append(tail_run)
+                entry.append(tail)
+        paragraph.add_run()._r.append(element(f"{kind}Reference", id="007"))
+        part = Part(
+            PackURI(f"/word/notes/{plural}.xml"),
+            f"application/vnd.openxmlformats-officedocument.wordprocessingml.{plural}+xml",
+            etree.tostring(root, encoding="UTF-8", xml_declaration=True, standalone=True),
+        )
+        document.part.relate_to(part, getattr(RELATIONSHIP_TYPE, plural.upper()))
+
+    comment = document.add_comment(paragraph.runs[0], text="First comment",
+                                   author="Original", initials="OO")
+    comment._element.set(qn("w:date"), "2025-01-02T03:04:05Z")
+    comment.add_paragraph("Opaque symbol").add_run()._r.append(
+        element("sym", font="Symbol", char="F041"),
+    )
+    table = document.add_table(1, 1)
+    table.cell(0, 0).text = "Opaque table"
+    comment._element.append(deepcopy(table._tbl))
+    table._tbl.getparent().remove(table._tbl)
+    for i in range(1, comments):
+        document.comments.add_comment(text=f"Extra {i}", author="Extra", initials="E")
+    document.save(path)
+    return path.read_bytes()
+
+
+def entry_operation(anchor, edit):
+    return dict(kind="edit-entry", anchor=anchor, edit=edit)
+
+
+async def entry_page(client, document, **view):
+    return await call(client, "inspect_document", document=document,
+                      view=dict(kind="entries", **view))
+
+
+def entry_key(entry):
+    return entry["kind"], entry["id"]
+
+
 def mixed_edits(seen, mode):
     first, before_table, _, tail, table = seen["body"]
     assert [b["type"] for b in seen["body"]] == ["paragraph"] * 4 + ["table"]
@@ -187,19 +289,19 @@ async def test_discovery(launch):
             assert tool.description and "example" in tool.description.lower()
             schema = tool.inputSchema
             assert schema["type"] == "object"
+            validator_for(schema).check_schema(schema)
             assert set(schema.get("required", [])) == EXPECTED_TOOLS[name]
             assert schema["additionalProperties"] is False
-            for field in EXPECTED_TOOLS[name] - {"edits"}:
+            for field in EXPECTED_TOOLS[name]:
                 assert schema["properties"][field]["type"] == "string"
-            validator_for(schema).check_schema(schema)
 
         declared_paragraphs = tools["create_document"].inputSchema["properties"]["paragraphs"]
         assert declared_paragraphs["type"] == "array"
         assert declared_paragraphs["items"]["type"] == "string"
         preview = tools["preview_edits"].inputSchema
-        assert preview["properties"]["edits"]["type"] == "array"
-        assert preview["properties"]["edits"]["minItems"] == 1
-        items = preview["properties"]["edits"]["items"]
+        edits_schema = preview["properties"]["edits"]
+        assert edits_schema["type"] == "array" and edits_schema["minItems"] == 1
+        items = edits_schema["items"]
         variants = items.get("oneOf") or items["anyOf"]
         kinds = {v["properties"]["kind"]["const"]: v for v in variants}
         expected = {
@@ -249,6 +351,285 @@ async def test_discovery(launch):
         ]})
         with pytest.raises(McpError):
             await client.call_tool("not_a_rocx_tool", {})
+
+
+async def test_entry_discovery(launch):
+    async with launch() as client:
+        tools = {tool.name: tool.inputSchema for tool in (await client.list_tools()).tools}
+
+    inspect = validator_for(tools["inspect_document"])(tools["inspect_document"])
+    assert inspect.is_valid({"document": "doc"})
+    for view in [
+        {"kind": "entries"},
+        {"kind": "entries", "limit": 1},
+        {"kind": "entries", "limit": 100, "cursor": "next"},
+    ]:
+        assert inspect.is_valid({"document": "doc", "view": view})
+    for view in [
+        None, {}, {"kind": "other"}, {"kind": "entries", "extra": 1},
+        {"kind": "entries", "limit": 0}, {"kind": "entries", "limit": 101},
+        {"kind": "entries", "limit": 1.5}, {"kind": "entries", "cursor": 7},
+    ]:
+        assert not inspect.is_valid({"document": "doc", "view": view}), view
+
+    preview = validator_for(tools["preview_edits"])(tools["preview_edits"])
+    request = {"document": "doc"}
+    ordinary = dict(request, edits=[{"kind": "run-remove", "anchor": "run"}])
+    assert preview.is_valid(ordinary)
+    for case in ENTRY_CASES.values():
+        target, edit = case
+        operation = entry_operation("entry", edit)
+        scoped = dict(request, operation=operation)
+        assert preview.is_valid(scoped), (target, edit)
+        assert not preview.is_valid(dict(ordinary, operation=operation))
+        assert not preview.is_valid({"operation": operation})
+        assert not preview.is_valid(dict(request, operation=dict(operation, extra=True)))
+        assert not preview.is_valid(dict(request, operation=entry_operation(
+            "entry", dict(edit, extra=True),
+        )))
+        for member in edit:
+            invalid = {key: value for key, value in edit.items() if key != member}
+            assert not preview.is_valid(dict(request, operation=entry_operation("entry", invalid)))
+    for invalid in [
+        request,
+        dict(request, edits=[]),
+        dict(request, operation=None),
+        dict(request, operation={"kind": "unknown", "anchor": "entry", "edit": {}}),
+        dict(request, operation=entry_operation("entry", {"kind": "remove-paragraph", "index": -1})),
+        dict(request, operation=entry_operation("entry", {"kind": "comment-author", "value": None})),
+    ]:
+        assert not preview.is_valid(invalid), invalid
+
+
+async def test_entry_paging_native_inspection_and_identity(launch, tmp_path):
+    source = tmp_path / "entries.docx"
+    make_entry_source(source, comments=103)
+    native = json.loads(oracle(tmp_path / "native-entries.json", "inspect-entries", source))
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        other = (await call(client, "open_document", path=source.name))["document"]
+        empty = (await call(client, "create_document"))["document"]
+        assert await entry_page(client, empty) == {
+            "document": empty, "entries": [], "next_cursor": None,
+        }
+        default = await entry_page(client, document)
+        assert len(default["entries"]) == 25
+        assert default["next_cursor"]
+        first = await entry_page(client, document, limit=1)
+        assert len(first["entries"]) == 1
+        first_entry, = first["entries"]
+        assert entry_key(first_entry) == ("footnote", "-1")
+        assert first_entry["note_type"] == "separator" and "anchor" not in first_entry
+        cursor = first["next_cursor"]
+        assert isinstance(cursor, str) and cursor
+        assert await entry_page(client, document, limit=1) == first
+        second = await entry_page(client, document, limit=100, cursor=cursor)
+        assert second["document"] == first["document"] == document
+        assert len(second["entries"]) == 100
+        assert await entry_page(client, document, limit=100, cursor=cursor) == second
+        third = await entry_page(client, document, limit=100, cursor=second["next_cursor"])
+        assert third["document"] == document and third["next_cursor"] is None
+        entries = first["entries"] + second["entries"] + third["entries"]
+        assert len(entries) == 108 and default["entries"] == entries[:len(default["entries"])]
+        default_next = await entry_page(client, document, cursor=default["next_cursor"])
+        assert default_next["entries"] == entries[25:50]
+        assert [{k: v for k, v in e.items() if k != "anchor"} for e in entries] == native
+
+        by_id = {entry_key(entry): entry for entry in entries}
+        assert {entry_key(e) for e in entries if "anchor" not in e} == {
+            ("footnote", "-1"), ("endnote", "-1"),
+        }
+        anchors = [e["anchor"] for e in entries if "anchor" in e]
+        assert all(isinstance(a, str) and a for a in anchors)
+        assert len(set(anchors)) == 106
+        assert by_id["footnote", "007"]["part_name"] == "word/notes/footnotes.xml"
+        assert by_id["endnote", "007"]["part_name"] == "word/notes/endnotes.xml"
+        comment = by_id["comment", "0"]
+        assert comment["blocks"] == [
+            # python-docx adds an annotation reference to the initial comment paragraph.
+            {"index": 0, "type": "paragraph", "text": "First comment", "has_opaque_content": True},
+            {"index": 1, "type": "paragraph", "text": "Opaque symbol", "has_opaque_content": True},
+            {"index": 2, "type": "opaque", "name": "w:tbl"},
+        ]
+        assert by_id["endnote", "007"]["blocks"][1] == {
+            "index": 1, "type": "paragraph", "text": "Original endnote tail",
+            "has_opaque_content": False,
+        }
+        for view, category in [
+            (dict(kind="entries", cursor=cursor), "wrong_owner"),
+            (dict(kind="entries", cursor="never issued"), "invalid_cursor"),
+            (dict(kind="entries", limit=0), "invalid_input"),
+            (dict(kind="entries", limit=101), "invalid_input"),
+        ]:
+            await failure(client, "inspect_document", category, document=other, view=view)
+        foreign = await entry_page(client, other, limit=100)
+        assert not set(anchors) & {e.get("anchor") for e in foreign["entries"]}
+        assert (await entry_page(client, document, limit=100))["entries"] == entries[:100]
+        await call(client, "close_document", document=document)
+        await failure(client, "inspect_document", "invalid_document", document=document,
+                      view=dict(kind="entries", cursor=cursor))
+
+
+def assert_entry_package_delta(source, output, target, case):
+    kind, ident = target
+    owner = f"word/notes/{kind}s.xml" if kind != "comment" else "word/comments.xml"
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {name for name in before if before[name] != after[name]} == (
+        set() if case == "same-author" else {owner}
+    )
+    old_entries, new_entries = [
+        {entry.get(qn("w:id")): entry for entry in ElementTree.fromstring(package[owner])}
+        for package in (before, after)
+    ]
+    assert new_entries.keys() == old_entries.keys() - ({ident} if case == "delete-unused" else set())
+    for untouched in old_entries.keys() - {ident}:
+        assert ElementTree.tostring(new_entries[untouched]) == ElementTree.tostring(
+            old_entries[untouched],
+        )
+
+    document = docx.Document(output)
+    assert [p.text for p in document.paragraphs] == ["Body unchanged"]
+    comment = document.comments.get(0)
+    assert [p.text for p in comment.paragraphs] == ["First comment", "Opaque symbol"]
+    assert comment._element.xpath("w:p/w:r/w:sym/@w:char") == ["F041"]
+    assert comment._element.xpath("w:tbl//w:t/text()") == ["Opaque table"]
+    if kind == "comment":
+        old, new = old_entries[ident], new_entries[ident]
+        assert [ElementTree.tostring(node) for node in old] == [
+            ElementTree.tostring(node) for node in new
+        ]
+        assert comment.author == ("Café & Co." if case == "author" else "Original")
+        assert new.get(qn("w:initials")) == {
+            "initials-clear": None, "initials-set": "CC",
+        }.get(case, "OO")
+        date = {"date-clear": None, "date-set": "2030-02-03T04:05:06Z"}.get(
+            case, "2025-01-02T03:04:05Z",
+        )
+        assert new.get(qn("w:date")) == date
+        if date is not None:
+            assert comment.timestamp == (
+                datetime(2030, 2, 3, 4, 5, 6, tzinfo=timezone.utc) if case == "date-set"
+                else datetime(2025, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+            )
+    elif case != "delete-unused":
+        entry = new_entries[ident]
+        assert entry.get(qn("w:id")) == "007"
+        assert entry[0][0][0].tag == qn(f"w:{kind}Ref")
+        assert ["".join(t.text for t in p.iter(qn("w:t"))) for p in entry] == {
+            "replace-first": ["New footnote 😀"],
+            "insert-last": ["endnote 007", "Original endnote tail", "New endnote & tail"],
+            "remove-last": ["endnote 007"],
+        }[case]
+
+
+@pytest.mark.parametrize("case", ENTRY_CASES)
+async def test_entry_scoped_native_bytes_and_preservation(launch, tmp_path, case):
+    source, output = [tmp_path / name for name in ("entries.docx", "copy.docx")]
+    original = make_entry_source(source)
+    target, edit = ENTRY_CASES[case]
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        seen = await entry_page(client, document, limit=100)
+        entry = next(e for e in seen["entries"] if entry_key(e) == target)
+        operation = entry_operation(entry["anchor"], edit)
+        draft = await call(client, "preview_edits", document=document, operation=operation)
+        assert draft["document"] == document and draft["changes"] is None
+
+        # Retain a different preview before saving the selected scoped bytes.
+        comment = next(e for e in seen["entries"] if entry_key(e) == ("comment", "0"))
+        alternative = await call(client, "preview_edits", document=document, operation=entry_operation(
+            comment["anchor"], dict(kind="comment-author", value="Other preview"),
+        ))
+        assert draft["preview"] != alternative["preview"]
+        assert draft["output_snapshot"] != alternative["output_snapshot"]
+        assert list(tmp_path.iterdir()) == [source]
+        saved = await call(client, "save_copy", document=document, preview=draft["preview"],
+                           output=output.name)
+        assert saved["output_snapshot"] == draft["output_snapshot"] == digest(output.read_bytes())
+        assert await entry_page(client, document, limit=100) == seen
+        reopened = await call(client, "open_document", path=output.name)
+        assert reopened["snapshot"] == saved["output_snapshot"]
+        await failure(client, "preview_edits", "wrong_owner", document=reopened["document"],
+                      operation=operation)
+        reopened_entries = (await entry_page(client, reopened["document"], limit=100))["entries"]
+        native_inspection = json.loads(oracle(
+            tmp_path / "native-entries.json", "inspect-entries", output,
+        ))
+        assert [{k: v for k, v in e.items() if k != "anchor"} for e in reopened_entries] == (
+            native_inspection
+        )
+        await call(client, "close_document", document=document)
+        await failure(client, "save_copy", "invalid_document", document=document,
+                      preview=draft["preview"], output="closed.docx")
+        assert not (tmp_path / "closed.docx").exists()
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == oracle(tmp_path / "native.docx", "entry", source, case)
+    assert_entry_package_delta(source, output, target, case)
+    validate(source, output)
+
+
+async def test_entry_rejection_retry_and_foreign_handles(launch, tmp_path):
+    source = tmp_path / "entries.docx"
+    original = make_entry_source(source)
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        other = (await call(client, "open_document", path=source.name))["document"]
+        compact = await call(client, "inspect_document", document=document)
+        body = compact["body"][0]["anchor"]
+        page = await entry_page(client, document, limit=100)
+        entry_anchors = {entry_key(e): e["anchor"] for e in page["entries"] if "anchor" in e}
+        live = entry_anchors["footnote", "007"]
+        comment = entry_anchors["comment", "0"]
+        delete = ENTRY_CASES["delete-unused"][1]
+        delete_live = entry_operation(live, delete)
+        for target, edit in [
+            (live, delete),
+            (live, dict(kind="remove-paragraph", index=0)),
+            (live, dict(kind="insert-paragraph", index=2, text="out of bounds")),
+            (live, dict(kind="comment-author", value="not a comment")),
+            (comment, dict(kind="remove-paragraph", index=2)),  # Opaque table.
+            (comment, dict(kind="comment-date", value="not a timestamp")),
+        ]:
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          operation=entry_operation(target, edit))
+        for edit in [
+            dict(kind="comment-initials"), dict(kind="comment-date"),
+            dict(kind="comment-author", value=None), dict(kind="remove-paragraph", index=-1),
+            dict(kind="delete-unused-note", extra=True),
+        ]:
+            await failure(client, "preview_edits", "invalid_input", document=document,
+                          operation=entry_operation(comment, edit))
+        await failure(client, "preview_edits", "invalid_input", document=document)
+        ordinary = [dict(kind="alignment", anchor=body, alignment="center")]
+        for edits in ([], ordinary):
+            await failure(client, "preview_edits", "invalid_input", document=document,
+                          edits=edits, operation=delete_live)
+        await failure(client, "preview_edits", "wrong_owner", document=other, operation=delete_live)
+        await failure(client, "preview_edits", "wrong_anchor_type", document=document,
+                      operation=entry_operation(body, delete))
+        await failure(client, "preview_edits", "wrong_anchor_type", document=document,
+                      edits=[dict(ordinary[0], anchor=live)])
+        await failure(client, "preview_edits", "invalid_anchor", document=document,
+                      operation=entry_operation("never issued", delete))
+        assert list(tmp_path.iterdir()) == [source] and source.read_bytes() == original
+        assert await entry_page(client, document, limit=100) == page
+
+        # A valid edit of the *same* live note still works on its already issued anchor.
+        retry = await call(client, "preview_edits", document=document,
+                           operation=entry_operation(live, ENTRY_CASES["replace-first"][1]))
+        await failure(client, "save_copy", "wrong_owner", document=other, preview=retry["preview"],
+                      output="foreign.docx")
+        await call(client, "save_copy", document=document, preview=retry["preview"],
+                   output="retry.docx")
+        await failure(client, "save_copy", "destination_exists", document=document,
+                      preview=retry["preview"], output="retry.docx")
+        assert not (tmp_path / "foreign.docx").exists()
+        retry_output = tmp_path / "retry.docx"
+        assert retry_output.read_bytes() == oracle(
+            tmp_path / "native.docx", "entry", source, "replace-first",
+        )
 
 
 @pytest.mark.parametrize("mode", ["shared", "section-local"])

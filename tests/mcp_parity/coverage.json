@@ -5,6 +5,10 @@
     "baseline-mixed": "tests/mcp/test_stdio.py::test_mixed_native_bytes_and_preservation",
     "baseline-created": "tests/mcp/test_stdio.py::test_create_edit_and_save_initial_preview",
     "body-scalar-edits": "tests/mcp/test_stdio.py::test_scalar_edits_native_bytes_and_retry",
+    "entry-discovery": "tests/mcp/test_stdio.py::test_entry_discovery",
+    "entry-paging": "tests/mcp/test_stdio.py::test_entry_paging_native_inspection_and_identity",
+    "entry-scoped-bytes": "tests/mcp/test_stdio.py::test_entry_scoped_native_bytes_and_preservation",
+    "entry-rejection": "tests/mcp/test_stdio.py::test_entry_rejection_retry_and_foreign_handles",
     "lifetime": "tests/mcp/test_stdio.py::test_retained_selection_lifetime_and_exclusive_save",
     "capacity": "tests/mcp/test_stdio.py::test_capacity_rejects_without_eviction_and_close_releases"
   },
@@ -273,12 +277,12 @@
       "status": "planned", "gap": "Body run-text does not support these owners; no byte-only result.", "positive": [], "negative": []
     },
     "ImportedDocument::entry_stories": {
-      "scope": "physical footnote, endnote and comment parts", "target": "ordinary entry identities and typed story content", "mcp": "inspect_document (planned entry view)",
-      "status": "planned", "gap": "No entry discovery.", "positive": [], "negative": []
+      "scope": "relationship-selected footnote, endnote and comment parts, including special notes", "target": "source-order definitions, stored metadata and projected blocks; snapshot-owned candidate edit anchors", "mcp": "inspect_document.view[kind=entries] (limit, cursor) → entries, next_cursor",
+      "status": "partial", "gap": "All three kinds and special notes are listed, but paragraphs are projected as text and an opaque-content flag rather than typed inline values. Special notes have no edit anchor; an issued anchor does not guarantee operation eligibility.", "positive": ["entry-discovery", "entry-paging", "entry-scoped-bytes"], "negative": ["entry-discovery", "entry-paging"]
     },
     "ImportedDocument::edit_entry": {
-      "scope": "one ordinary note or comment definition in its physical owner", "target": "owner, entry ID, block site or comment metadata", "mcp": "preview_edits.operation (planned entry editing)",
-      "status": "planned", "gap": "No entry block/metadata mutations or byte-only result.", "positive": [], "negative": []
+      "scope": "one ordinary note or base comment definition in its physical owner; standalone byte-only result", "target": "issued entry anchor supplies the physical owner and original ID lexeme to Rust for decimal identity validation; edits use original block indices or base comment metadata", "mcp": "preview_edits.operation[kind=edit-entry] (anchor, edit), changes=null; save_copy(document, preview, output)",
+      "status": "partial", "gap": "All seven variants are transported and byte-tested. Installed paragraph successes cover note examples only; discardable deletion is tested only on a footnote. Native protected field/range boundaries, duplicate decimal identities in one owner and extended comment rejection lack installed evidence.", "positive": ["entry-discovery", "entry-scoped-bytes", "entry-rejection"], "negative": ["entry-discovery", "entry-scoped-bytes", "entry-rejection"]
     },
     "ImportedDocument::edit_entry_inlines": {
       "scope": "one physical ordinary note/comment part", "target": "owner-local entry inline anchors", "mcp": "preview_edits.operation (planned entry inline editing)",
@@ -286,7 +290,7 @@
     },
     "ImportedDocument::edit_note_reference": {
       "scope": "main-document reference sites and their note definitions", "target": "reference anchor or insertion site, note kind and note ID", "mcp": "preview_edits.operation (planned note lifecycle)",
-      "status": "planned", "gap": "No reference/definition lifecycle or byte-only result.", "positive": [], "negative": []
+      "status": "planned", "gap": "No reference creation, attachment, detachment, deletion, retargeting or renumbering. The scoped edit-entry deletion only removes an unused definition.", "positive": [], "negative": []
     },
     "ImportedDocument::field_at": {
       "scope": "main story", "target": "paragraph anchor and original field inline index", "mcp": "inspect_document (planned field detail view)",
@@ -445,13 +449,129 @@
       "status": "partial", "gap": "Save supports the encoded preview; full story-slot and resolved image inputs remain gaps.",
       "positive": ["baseline-mixed"], "negative": ["lifetime"]
     },
+    "rocx::editor::EntryEdit": {
+      "scope": "standalone edit to one ordinary entry definition", "target": "seven edit kinds; no note reference sites", "mcp": "preview_edits.operation[kind=edit-entry].edit",
+      "status": "partial", "gap": "All variants have exact saved-byte evidence on representative inputs; native paragraph edits on comments and additional protection cases are not qualified.", "positive": ["entry-discovery", "entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::CommentAuthor": {
+      "scope": "base comment", "target": "set author", "mcp": "preview_edits.operation.edit[kind=comment-author]",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::CommentAuthor::0": {
+      "scope": "base comment", "target": "required author string, not nullable", "mcp": "preview_edits.operation.edit[kind=comment-author].value",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::CommentDate": {
+      "scope": "base comment", "target": "set or clear stored date", "mcp": "preview_edits.operation.edit[kind=comment-date]",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::CommentDate::0": {
+      "scope": "base comment", "target": "required date-time string or null to clear; Rust validates the string", "mcp": "preview_edits.operation.edit[kind=comment-date].value",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::CommentInitials": {
+      "scope": "base comment", "target": "set or clear initials", "mcp": "preview_edits.operation.edit[kind=comment-initials]",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::CommentInitials::0": {
+      "scope": "base comment", "target": "required initials string or null to clear", "mcp": "preview_edits.operation.edit[kind=comment-initials].value",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::DeleteUnusedNote": {
+      "scope": "discardable, unreferenced ordinary note definition", "target": "one footnote or endnote; no reference or comment mutation", "mcp": "preview_edits.operation.edit[kind=delete-unused-note]",
+      "status": "partial", "gap": "Unused footnote deletion and live footnote rejection are tested; discardability rejection and successful endnote deletion lack installed evidence.", "positive": ["entry-scoped-bytes"], "negative": ["entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::InsertParagraph": {
+      "scope": "one ordinary entry", "target": "insert a plain paragraph at an eligible original block gap", "mcp": "preview_edits.operation.edit[kind=insert-paragraph]",
+      "status": "partial", "gap": "Endnote append and out-of-bounds rejection are tested; interior and comment insertion and native range-boundary checks lack installed evidence.", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::InsertParagraph::index": {
+      "scope": "one ordinary entry", "target": "zero-based original block gap, including append", "mcp": "preview_edits.operation.edit[kind=insert-paragraph].index",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::InsertParagraph::text": {
+      "scope": "one ordinary entry", "target": "required plain paragraph text", "mcp": "preview_edits.operation.edit[kind=insert-paragraph].text",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery"]
+    },
+    "rocx::editor::EntryEdit::RemoveParagraph": {
+      "scope": "one ordinary entry", "target": "remove an eligible original paragraph without removing the last block or protected mark", "mcp": "preview_edits.operation.edit[kind=remove-paragraph]",
+      "status": "partial", "gap": "Endnote tail removal and rejection on a first note paragraph and an opaque comment block are tested; successful comment removal and last-block protection lack installed evidence.", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::RemoveParagraph::0": {
+      "scope": "one ordinary entry", "target": "zero-based original block index, counting non-paragraph blocks", "mcp": "preview_edits.operation.edit[kind=remove-paragraph].index",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+    },
+    "rocx::editor::EntryEdit::ReplaceParagraph": {
+      "scope": "one ordinary entry", "target": "replace an eligible original paragraph while retaining supported initial note or comment marks", "mcp": "preview_edits.operation.edit[kind=replace-paragraph]",
+      "status": "partial", "gap": "First footnote paragraph replacement preserves its mark; comment replacement, retention of a supported first-block style and rich-content rejection lack installed evidence.", "positive": ["entry-scoped-bytes", "entry-rejection"], "negative": ["entry-discovery", "entry-scoped-bytes"]
+    },
+    "rocx::editor::EntryEdit::ReplaceParagraph::index": {
+      "scope": "one ordinary entry", "target": "zero-based original block index, counting non-paragraph blocks", "mcp": "preview_edits.operation.edit[kind=replace-paragraph].index",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery"]
+    },
+    "rocx::editor::EntryEdit::ReplaceParagraph::text": {
+      "scope": "one ordinary entry", "target": "required plain replacement text", "mcp": "preview_edits.operation.edit[kind=replace-paragraph].text",
+      "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery"]
+    },
+    "rocx::editor::EntryKind": {
+      "scope": "entry definition readback", "target": "footnote, endnote or comment", "mcp": "inspect_document.entries[].kind",
+      "status": "covered", "positive": ["entry-paging"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::EntryKind::Comment": {
+      "scope": "entry definition readback", "target": "comment", "mcp": "inspect_document.entries[].kind=comment",
+      "status": "covered", "positive": ["entry-paging"], "negative": ["entry-rejection"]
+    },
+    "rocx::editor::EntryKind::Endnote": {
+      "scope": "entry definition readback", "target": "endnote", "mcp": "inspect_document.entries[].kind=endnote",
+      "status": "covered", "positive": ["entry-paging"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::EntryKind::Footnote": {
+      "scope": "entry definition readback", "target": "footnote", "mcp": "inspect_document.entries[].kind=footnote",
+      "status": "covered", "positive": ["entry-paging"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::EntryKind::as_str": {
+      "scope": "entry definition readback", "target": "canonical kind string", "mcp": "inspect_document.entries[].kind",
+      "alias_of": "rocx::editor::EntryKind", "status": "covered", "positive": ["entry-paging"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::ImportedEntry": {
+      "scope": "one footnote, endnote or comment definition", "target": "stored entry identity and metadata with ordered blocks", "mcp": "inspect_document.entries[]",
+      "status": "partial", "gap": "Stored fields are transported; blocks are projected and typed inline structure is not transported.", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::ImportedEntry::author": {
+      "scope": "entry definition readback", "target": "optional stored author; null when absent", "mcp": "inspect_document.entries[].author",
+      "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging"]
+    },
     "rocx::editor::ImportedEntry::blocks": {
-      "scope": "one ordinary footnote, endnote or comment", "target": "ordered physical entry blocks", "mcp": "inspect_document (planned entry block view)",
-      "status": "planned", "gap": "No entry block discovery.", "positive": [], "negative": []
+      "scope": "one footnote, endnote or comment", "target": "ordered physical entry blocks, including non-paragraph blocks", "mcp": "inspect_document.entries[].blocks",
+      "status": "partial", "gap": "Opaque block names are transported, but paragraphs expose projected text and an opaque-content flag instead of their ImportedInline values.", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging", "entry-rejection"]
+    },
+    "rocx::editor::ImportedEntry::date": {
+      "scope": "entry definition readback", "target": "optional stored date string; null when absent", "mcp": "inspect_document.entries[].date",
+      "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::ImportedEntry::id": {
+      "scope": "one physical entry owner", "target": "stored lexical ID string, not a handle or globally unique identity", "mcp": "inspect_document.entries[].id",
+      "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging", "entry-rejection"]
+    },
+    "rocx::editor::ImportedEntry::initials": {
+      "scope": "entry definition readback", "target": "optional stored initials; null when absent", "mcp": "inspect_document.entries[].initials",
+      "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::ImportedEntry::kind": {
+      "scope": "entry definition readback", "target": "native entry kind", "mcp": "inspect_document.entries[].kind",
+      "status": "covered", "positive": ["entry-paging"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::ImportedEntry::note_type": {
+      "scope": "entry definition readback", "target": "optional stored note type, including reserved values", "mcp": "inspect_document.entries[].note_type",
+      "status": "covered", "positive": ["entry-paging"], "negative": ["entry-paging"]
+    },
+    "rocx::editor::ImportedEntry::part_name": {
+      "scope": "entry definition readback", "target": "physical part name selected by a relationship, not an entry edit argument", "mcp": "inspect_document.entries[].part_name",
+      "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging", "entry-rejection"]
     },
     "rocx::editor::ImportedEntry::inline_structure": {
-      "scope": "one ordinary footnote, endnote or comment", "target": "typed inline structure at an original entry block index", "mcp": "inspect_document (planned entry inline view)",
-      "status": "planned", "gap": "No typed entry inline readback.", "positive": [], "negative": []
+      "scope": "one footnote, endnote or comment", "target": "typed inline structure at an original entry block index", "mcp": "inspect_document (planned entry inline view)",
+      "status": "planned", "gap": "Entry paragraph text and opaque-content indicators project blocks; they do not expose typed inline nodes, run anchors or inline structure.", "positive": [], "negative": []
     },
     "rocx::editor::ImportedHeader::inline_structure": {
       "scope": "effective default header", "target": "typed inline structure at an original header block index", "mcp": "inspect_document (planned physical header inline view)",
@@ -1621,27 +1741,6 @@
     "rocx::editor::DrawingProperty::Size",
     "rocx::editor::DrawingProperty::Transform",
     "rocx::editor::DrawingProperty::parse",
-    "rocx::editor::EntryEdit",
-    "rocx::editor::EntryEdit::CommentAuthor",
-    "rocx::editor::EntryEdit::CommentAuthor::0",
-    "rocx::editor::EntryEdit::CommentDate",
-    "rocx::editor::EntryEdit::CommentDate::0",
-    "rocx::editor::EntryEdit::CommentInitials",
-    "rocx::editor::EntryEdit::CommentInitials::0",
-    "rocx::editor::EntryEdit::DeleteUnusedNote",
-    "rocx::editor::EntryEdit::InsertParagraph",
-    "rocx::editor::EntryEdit::InsertParagraph::index",
-    "rocx::editor::EntryEdit::InsertParagraph::text",
-    "rocx::editor::EntryEdit::RemoveParagraph",
-    "rocx::editor::EntryEdit::RemoveParagraph::0",
-    "rocx::editor::EntryEdit::ReplaceParagraph",
-    "rocx::editor::EntryEdit::ReplaceParagraph::index",
-    "rocx::editor::EntryEdit::ReplaceParagraph::text",
-    "rocx::editor::EntryKind",
-    "rocx::editor::EntryKind::Comment",
-    "rocx::editor::EntryKind::Endnote",
-    "rocx::editor::EntryKind::Footnote",
-    "rocx::editor::EntryKind::as_str",
     "rocx::editor::FieldAction",
     "rocx::editor::FieldAction::Cache",
     "rocx::editor::FieldAction::Cache::0",
@@ -1706,14 +1805,6 @@
     "rocx::editor::ImportedControl::owner_part",
     "rocx::editor::ImportedControl::selected",
     "rocx::editor::ImportedControl::tag",
-    "rocx::editor::ImportedEntry",
-    "rocx::editor::ImportedEntry::author",
-    "rocx::editor::ImportedEntry::date",
-    "rocx::editor::ImportedEntry::id",
-    "rocx::editor::ImportedEntry::initials",
-    "rocx::editor::ImportedEntry::kind",
-    "rocx::editor::ImportedEntry::note_type",
-    "rocx::editor::ImportedEntry::part_name",
     "rocx::editor::ImportedField",
     "rocx::editor::ImportedField::complex",
     "rocx::editor::ImportedField::dirty_xml",

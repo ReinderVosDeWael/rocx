@@ -2,7 +2,7 @@ use crate::{editor::Snapshot, schema::Edit};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
@@ -24,6 +24,8 @@ struct Preview {
 
 struct Document {
     snapshot: Snapshot,
+    entry_anchors: HashSet<String>,
+    entry_pages: HashMap<String, usize>,
     sources: Vec<PathBuf>,
     previews: HashMap<String, Preview>,
 }
@@ -113,6 +115,8 @@ impl Session {
             id,
             Document {
                 snapshot,
+                entry_anchors: HashSet::new(),
+                entry_pages: HashMap::new(),
                 sources,
                 previews,
             },
@@ -147,6 +151,78 @@ impl Session {
         Ok(result)
     }
 
+    pub fn inspect_entries(
+        &mut self,
+        document: String,
+        limit: usize,
+        cursor: Option<String>,
+    ) -> Result<Value, String> {
+        let doc = self.documents.get_mut(&document).ok_or(UNKNOWN)?;
+        if !(1..=100).contains(&limit) {
+            return Err("invalid_input: use an entries limit between 1 and 100".into());
+        }
+        let start = match cursor {
+            None => 0,
+            Some(cursor) => {
+                let (owner, local) = cursor
+                    .split_once('/')
+                    .ok_or("invalid_cursor: restart the entries view")?;
+                if owner != document {
+                    return Err("wrong_owner: use a cursor from the selected document".into());
+                }
+                doc.entry_pages
+                    .get(local)
+                    .copied()
+                    .ok_or("invalid_cursor: restart the entries view")?
+            }
+        };
+        let (mut entries, next) = doc
+            .snapshot
+            .entry_page(start, limit)
+            .map_err(|e| format!("inspection_failed: {e}"))?;
+        for entry in &mut entries {
+            if let Some(local) = entry.get("anchor").and_then(Value::as_str) {
+                doc.entry_anchors.insert(local.to_owned());
+            }
+            scope_anchors(entry, &document);
+        }
+        let next_cursor = next.map(|n| {
+            let local = format!("entries:{n}");
+            doc.entry_pages.insert(local.clone(), n);
+            format!("{document}/{local}")
+        });
+        Ok(json!({"document":document, "entries":entries, "next_cursor":next_cursor}))
+    }
+
+    pub fn preview_entry(
+        &mut self,
+        document: String,
+        anchor: String,
+        edit: rocx::editor::EntryEdit,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let (owner, local) = anchor
+            .split_once('/')
+            .ok_or("invalid_anchor: inspect the entries view")?;
+        if owner != document {
+            return Err("wrong_owner: use an entry anchor from the selected document".into());
+        }
+        if !doc.entry_anchors.contains(local) {
+            return Err(if doc.snapshot.has_issued_anchor(local) {
+                "wrong_anchor_type: inspect the entries view for an entry anchor"
+            } else {
+                "invalid_anchor: inspect the entries view for an entry anchor"
+            }
+            .into());
+        }
+        self.check_preview_limit(0)?;
+        let bytes = doc
+            .snapshot
+            .edit_entry(local, edit)
+            .map_err(|e| format!("rejected_batch: {e}; revise the entry operation and retry"))?;
+        self.retain_preview(document, bytes, Value::Null)
+    }
+
     pub fn preview_edits(
         &mut self,
         document: String,
@@ -167,6 +243,11 @@ impl Session {
                 ));
             }
             if !doc.snapshot.has_issued_anchor(local) {
+                if doc.entry_anchors.contains(local) {
+                    return Err(format!(
+                        "wrong_anchor_type: edit {i} requires an ordinary edit anchor"
+                    ));
+                }
                 return Err(format!(
                     "invalid_anchor: inspect the document again for edit {i}"
                 ));
@@ -181,6 +262,15 @@ impl Session {
                 format!("rejected_batch: {e}; revise the edits and retry")
             }
         })?;
+        self.retain_preview(document, bytes, changes)
+    }
+
+    fn retain_preview(
+        &mut self,
+        document: String,
+        bytes: Vec<u8>,
+        changes: Value,
+    ) -> Result<Value, String> {
         self.check_preview_limit(bytes.len())?;
         let digest = hash(&bytes);
         let handle = format!("{document}/{}", Uuid::new_v4());

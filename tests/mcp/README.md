@@ -24,3 +24,19 @@ full saved packages, then independently inspect DOCX semantics, protected part
 payloads, header relationships, and Transitional schema/OPC validity.
 For newly authored documents, the oracle receives the observed clock timestamp
 as a render input; neither ZIP is normalized or rewritten before comparison.
+
+Entry-story coverage (`test_stdio.py`):
+
+- `test_entry_discovery` validates the entries selector, page bounds, exclusive
+  preview request forms, and all seven edit payloads, including explicit null.
+- `test_entry_paging_native_inspection_and_identity` reads 108 entries from a
+  package with relocated notes. It compares paged results with direct Rust
+  inspection and verifies opaque blocks, reserved entries, lexical IDs, stable
+  anchors, and cursor ownership.
+- `test_entry_scoped_native_bytes_and_preservation` runs each of the seven edits,
+  both set and clear for optional comment fields, and a metadata no-op. Each
+  saved preview matches native Rust bytes; python-docx, ZIP payload comparison,
+  and Transitional schema/OPC validation check the result separately.
+- `test_entry_rejection_retry_and_foreign_handles` rejects invalid payloads,
+  mixed scopes, live-note deletion, destructive edits, and wrong-owner handles
+  before retrying with the original anchor.

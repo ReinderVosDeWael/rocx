@@ -70,18 +70,24 @@ impl ServerHandler for RocxServer {
         let result = tokio::task::block_in_place(|| call.dispatch(&mut session));
         Ok(match result {
             Ok(value) => CallToolResult::structured(value),
-            Err(error) => session_error(&error),
+            Err(error) => session_error(tool, &error),
         }
         .into())
     }
 }
 
-fn session_error(error: &str) -> CallToolResult {
+fn session_error(tool: ToolKind, error: &str) -> CallToolResult {
     let (category, message) = error.split_once(": ").unwrap_or(("session_error", error));
     let action = match category {
         "invalid_document" => "Open or create a document in this session.",
         "invalid_anchor" | "wrong_anchor_type" => {
             "Inspect the document again and use an anchor of the required type."
+        }
+        "invalid_cursor" => {
+            "Omit the cursor to restart, or use a next_cursor from the entries view."
+        }
+        "wrong_owner" if matches!(tool, ToolKind::Inspect) => {
+            "Use a next_cursor issued for the selected document, or omit it to restart."
         }
         "wrong_owner" => "Use anchors and previews belonging to the selected document.",
         "invalid_preview" => "Create a preview for the selected document.",
@@ -110,4 +116,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .waiting()
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_errors_explain_how_to_restart_the_entries_view() {
+        for error in ["invalid_cursor", "wrong_owner"] {
+            let result = session_error(
+                ToolKind::Inspect,
+                &format!("{error}: inspect entries again"),
+            );
+            let content = result.structured_content.unwrap();
+            assert_eq!(result.is_error, Some(true));
+            assert_eq!(content["category"], error);
+            let action = content["action"].as_str().unwrap();
+            assert!(action.contains("next_cursor") && action.contains("restart"));
+        }
+        let content = session_error(ToolKind::Preview, "wrong_owner: foreign anchor")
+            .structured_content
+            .unwrap();
+        assert_eq!(
+            content["action"],
+            "Use anchors and previews belonging to the selected document."
+        );
+    }
 }
