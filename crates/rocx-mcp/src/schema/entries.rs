@@ -2,6 +2,12 @@ use rmcp::schemars::{self, JsonSchema};
 use rocx::editor::EntryEdit;
 use serde::{Deserialize, Deserializer};
 
+use super::{
+    layout::LayoutChange,
+    notes::{NoteChange, NoteKind},
+    revisions::RevisionChange,
+};
+
 const MIN_LIMIT: usize = 1;
 const MAX_LIMIT: usize = 100;
 
@@ -43,6 +49,33 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Page through direct body note references and insertion candidates.
+    NoteReferences {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through revision proposal and review targets in the direct body.
+    Revisions {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through direct paragraph and section layout properties.
+    Layout {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -55,6 +88,28 @@ pub(super) enum Operation {
         anchor: String,
         edit: EntryChange,
     },
+    /// Create, attach, detach, delete, retarget or renumber a direct body note reference.
+    EditNoteReference {
+        /// Anchor from the note-references view.
+        anchor: String,
+        note_kind: NoteKind,
+        edit: NoteChange,
+    },
+    /// Propose or review one tracked edit.
+    EditRevision {
+        /// Direct paragraph/run anchor from compact inspection for proposals,
+        /// or pending revision anchor from the revisions view for review.
+        anchor: String,
+        /// Move destination or other wrapper of a paired move review.
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        paired_anchor: Option<String>,
+        edit: RevisionChange,
+    },
+    /// Apply one native layout transaction against the original paragraph and section owners.
+    EditLayout { edits: Vec<LayoutChange> },
+    /// Preview the package produced by an empty native EditBatch, without mutating the source.
+    NoOp {},
 }
 
 #[derive(Deserialize, JsonSchema)]

@@ -45,7 +45,7 @@ jobs:
       - run: cargo test --locked -p rocx-mcp --all-targets
       - run: cargo clippy --locked -p rocx-mcp --all-targets -- -D warnings
       - run: cargo install --locked --path crates/rocx-mcp --root "$ROCX_MCP_INSTALL_PREFIX"
-      - run: cargo build --locked -p rocx-mcp --example mcp_byte_oracle
+      - run: cargo build --locked -p rocx-mcp --examples
       - uses: actions/cache@v6.1.0
         id: schemas
         with:

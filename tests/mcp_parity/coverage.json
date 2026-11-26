@@ -9,6 +9,18 @@
     "entry-paging": "tests/mcp/test_stdio.py::test_entry_paging_native_inspection_and_identity",
     "entry-scoped-bytes": "tests/mcp/test_stdio.py::test_entry_scoped_native_bytes_and_preservation",
     "entry-rejection": "tests/mcp/test_stdio.py::test_entry_rejection_retry_and_foreign_handles",
+    "import-budgets": "tests/mcp/test_limits.py::test_import_budgets_match_native_reader",
+    "empty-batch": "tests/mcp/test_limits.py::test_empty_native_batch_has_an_explicit_retained_preview",
+    "layout-discovery": "tests/mcp/test_layout.py::test_layout_discovery",
+    "layout-bytes": "tests/mcp/test_layout.py::test_layout_pages_mixed_transaction_and_native_bytes",
+    "layout-rejection": "tests/mcp/test_layout.py::test_layout_rejects_conflicts_and_mismatches_then_allows_retry",
+    "note-sites": "tests/mcp/test_notes.py::test_note_reference_paging_and_indices",
+    "note-reference-bytes": "tests/mcp/test_notes.py::test_note_reference_native_bytes_and_preservation",
+    "note-reference-rejection": "tests/mcp/test_notes.py::test_note_reference_rejection_and_retry",
+    "note-catalog-scope": "tests/mcp/test_notes.py::test_note_reference_first_part_ignores_unrelated_entry_catalog_error",
+    "revision-bytes": "tests/mcp/test_revisions.py::test_revision_native_proposal_and_both_dispositions",
+    "revision-readback": "tests/mcp/test_revisions.py::test_revision_view_paging_read_only_and_opaque",
+    "revision-rejection": "tests/mcp/test_revisions.py::test_revision_wrong_scope_pairing_and_retry",
     "lifetime": "tests/mcp/test_stdio.py::test_retained_selection_lifetime_and_exclusive_save",
     "capacity": "tests/mcp/test_stdio.py::test_capacity_rejects_without_eviction_and_close_releases"
   },
@@ -89,16 +101,18 @@
       "status": "planned", "gap": "No paired marker or comment reference/definition mutation.", "positive": [], "negative": []
     },
     "EditPreview::block_changes": {
-      "scope": "retained preview", "target": "original changed block indices", "mcp": "preview_edits.changes (planned block report)",
-      "status": "planned", "gap": "No block change report.", "positive": [], "negative": []
+      "scope": "retained preview", "target": "original changed block indices", "mcp": "preview_edits.changes.block_changes",
+      "status": "partial", "gap": "Empty report is qualified; block edits that populate this report remain unimplemented.",
+      "positive": ["empty-batch"], "negative": ["empty-batch"]
     },
     "EditPreview::cell_alignment_changes": {
       "scope": "retained preview", "target": "original table, physical row/cell and before/after alignment", "mcp": "preview_edits.changes.cell_alignments",
       "status": "covered", "positive": ["baseline-mixed"], "negative": ["lifetime"]
     },
     "EditPreview::inline_changes": {
-      "scope": "retained preview", "target": "original block and inline indices", "mcp": "preview_edits.changes (planned inline report)",
-      "status": "planned", "gap": "No general inline change report.", "positive": [], "negative": []
+      "scope": "retained preview", "target": "original block and inline indices", "mcp": "preview_edits.changes.inline_changes",
+      "status": "partial", "gap": "Empty report is qualified; general inline edits that populate it remain unimplemented.",
+      "positive": ["empty-batch"], "negative": ["empty-batch"]
     },
     "EditPreview::run_removals": {
       "scope": "retained preview", "target": "original block/run coordinates and removed text", "mcp": "preview_edits.changes.run_removals",
@@ -134,8 +148,24 @@
       "status": "covered", "positive": ["baseline-mixed", "lifetime"], "negative": ["lifetime", "capacity"]
     },
     "ImportedDocument::open_with_limits": {
-      "scope": "one immutable session snapshot", "target": "DOCX bytes and per-open ReadLimits", "mcp": "open_document (planned import options)",
-      "status": "planned", "gap": "Uses core default limits only; no per-open options.", "positive": [], "negative": []
+      "scope": "one immutable session snapshot", "target": "DOCX bytes from server-local path and per-open ReadLimits", "mcp": "open_document(path, limits)",
+      "status": "covered", "positive": ["import-budgets"], "negative": ["import-budgets"]
+    },
+    "rocx::opc::ReadLimits": {
+      "scope": "per-open archive load", "target": "native budgets with per-field defaults", "mcp": "open_document.limits",
+      "status": "covered", "positive": ["import-budgets"], "negative": ["import-budgets"]
+    },
+    "rocx::opc::ReadLimits::max_parts": {
+      "scope": "per-open archive load", "target": "host-sized ZIP member count", "mcp": "open_document.limits.max_parts",
+      "status": "covered", "positive": ["import-budgets"], "negative": ["import-budgets"]
+    },
+    "rocx::opc::ReadLimits::max_part_bytes": {
+      "scope": "per-open archive load", "target": "per-member expanded unsigned 64-bit byte count", "mcp": "open_document.limits.max_part_bytes",
+      "status": "covered", "positive": ["import-budgets"], "negative": ["import-budgets"]
+    },
+    "rocx::opc::ReadLimits::max_expanded_bytes": {
+      "scope": "per-open archive load", "target": "aggregate expanded unsigned 64-bit byte count", "mcp": "open_document.limits.max_expanded_bytes",
+      "status": "covered", "positive": ["import-budgets"], "negative": ["import-budgets"]
     },
     "ImportedDocument::body": {
       "scope": "direct body", "target": "ordered original body blocks with typed nested values", "mcp": "inspect_document.body",
@@ -147,34 +177,34 @@
       "status": "planned", "gap": "Compact inspection emits some run anchors but cannot request a typed node by anchor.", "positive": [], "negative": []
     },
     "ImportedDocument::preview_edits": {
-      "scope": "ordinary mixed batch against original snapshot", "target": "18 slices and change report", "mcp": "preview_edits.edits",
-      "status": "partial", "gap": "Not all batch slices, payloads, owners or reports are implemented; empty batches are rejected.",
-      "positive": ["baseline-mixed", "body-scalar-edits"], "negative": ["baseline-mixed", "body-scalar-edits", "lifetime", "capacity"]
+      "scope": "ordinary mixed batch against original snapshot", "target": "18 slices and change report", "mcp": "preview_edits.edits; preview_edits.operation[kind=no-op] for an empty batch",
+      "status": "partial", "gap": "Not all batch slices, payloads, owners or nonempty reports are qualified.",
+      "positive": ["baseline-mixed", "body-scalar-edits", "empty-batch"], "negative": ["baseline-mixed", "body-scalar-edits", "lifetime", "capacity"]
     },
     "ImportedDocument::preview": {
-      "scope": "ordinary body batch", "target": "paragraph alignments", "mcp": "preview_edits.edits[kind=alignment]",
+      "scope": "ordinary body batch", "target": "paragraph alignments", "mcp": "preview_edits.edits[kind=alignment]; preview_edits.operation[kind=no-op] for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments"],
-      "status": "partial", "gap": "Nonempty calls map to the same batch; empty edit list is rejected.", "positive": ["lifetime"], "negative": ["baseline-mixed", "lifetime"]
+      "status": "covered", "positive": ["lifetime", "empty-batch"], "negative": ["baseline-mixed", "lifetime"]
     },
     "ImportedDocument::preview_batch": {
       "scope": "ordinary body batch", "target": "paragraph alignments and table insertions", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables"],
-      "status": "partial", "gap": "Plain table matrix only; empty edit list rejected.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Plain table matrix only.", "positive": ["baseline-mixed", "empty-batch"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::preview_transaction": {
       "scope": "ordinary mixed batch", "target": "paragraph alignments, table insertions and story images", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images"],
-      "status": "partial", "gap": "Shorthand declarations and limited story slots; empty edit list rejected.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Shorthand declarations and limited story slots.", "positive": ["baseline-mixed", "empty-batch"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::preview_with_text": {
       "scope": "ordinary mixed batch", "target": "transaction slices and run text", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text"],
-      "status": "partial", "gap": "Inherits transaction payload, story and empty-list limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Inherits transaction payload and story limits.", "positive": ["baseline-mixed", "empty-batch"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::preview_with_run_removals": {
       "scope": "ordinary mixed batch", "target": "text batch slices and run removals", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "run_removals"],
-      "status": "partial", "gap": "Inherits transaction payload, story and empty-list limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Inherits transaction payload and story limits.", "positive": ["baseline-mixed", "empty-batch"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::preview_with_paragraphs": {
       "scope": "ordinary mixed batch", "target": "text batch slices and paragraph insertions", "mcp": "preview_edits.edits",
@@ -184,17 +214,17 @@
     "ImportedDocument::preview_with_cells": {
       "scope": "ordinary mixed batch", "target": "text batch slices and physical cell alignment", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "cells"],
-      "status": "partial", "gap": "Inherits transaction payload, story and empty-list limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Inherits transaction payload and story limits.", "positive": ["baseline-mixed", "empty-batch"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::preview_mixed": {
       "scope": "ordinary mixed batch", "target": "original seven edit slices", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals"],
-      "status": "partial", "gap": "Shorthand declarations and limited story slots; empty edit list rejected.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Shorthand declarations and limited story slots.", "positive": ["baseline-mixed", "empty-batch"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::preview_with_ranges": {
       "scope": "ordinary mixed batch", "target": "original seven edit slices plus nonempty scalar ranges", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "ranges"],
-      "status": "partial", "gap": "Range slice supported; inherits baseline declaration, story and empty-list limits.", "positive": ["baseline-mixed", "body-scalar-edits"], "negative": ["baseline-mixed", "body-scalar-edits"]
+      "status": "partial", "gap": "Range slice supported; inherits baseline declaration and story limits.", "positive": ["baseline-mixed", "body-scalar-edits", "empty-batch"], "negative": ["baseline-mixed", "body-scalar-edits"]
     },
     "ImportedDocument::preview_blocks": {
       "scope": "ordinary body batch", "target": "block and section edits", "mcp": "preview_edits.edits (planned block operations)",
@@ -249,8 +279,9 @@
       "status": "partial", "gap": "Same bytes and one report entry for supported slots and image shorthand only.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::preview_layout": {
-      "scope": "separate direct paragraph/section layout transaction", "target": "paragraph or section anchor and typed direct property", "mcp": "preview_edits.operation (planned layout)",
-      "status": "planned", "gap": "No scoped layout or keep/set/clear transport.", "positive": [], "negative": []
+      "scope": "separate direct paragraph/section layout transaction", "target": "paragraph or section anchor and typed direct property", "mcp": "preview_edits.operation[kind=edit-layout]",
+      "status": "partial", "gap": "All field names and value shapes are transported, but installed byte parity exercises only a subset of native fields and owner guards.",
+      "positive": ["layout-discovery", "layout-bytes"], "negative": ["layout-rejection"]
     },
     "ImportedDocument::edit_run_format": {
       "scope": "one physical body, header/footer or ordinary note/comment part", "target": "run anchors including hyperlink children and physical cell runs", "mcp": "preview_edits.operation (planned physical run formatting)",
@@ -289,8 +320,9 @@
       "status": "planned", "gap": "No entry inline batch or byte-only result.", "positive": [], "negative": []
     },
     "ImportedDocument::edit_note_reference": {
-      "scope": "main-document reference sites and their note definitions", "target": "reference anchor or insertion site, note kind and note ID", "mcp": "preview_edits.operation (planned note lifecycle)",
-      "status": "planned", "gap": "No reference creation, attachment, detachment, deletion, retargeting or renumbering. The scoped edit-entry deletion only removes an unused definition.", "positive": [], "negative": []
+      "scope": "main-document reference sites and their note definitions", "target": "reference anchor or insertion site, note kind and note ID", "mcp": "inspect_document.view[kind=note-references]; preview_edits.operation[kind=edit-note-reference]",
+      "status": "partial", "gap": "All six variants are transported; a relocated owner with zero entries has no discoverable part name in the native entry catalog.",
+      "positive": ["note-sites", "note-reference-bytes", "note-catalog-scope"], "negative": ["note-reference-rejection"]
     },
     "ImportedDocument::field_at": {
       "scope": "main story", "target": "paragraph anchor and original field inline index", "mcp": "inspect_document (planned field detail view)",
@@ -414,28 +446,28 @@
       "status": "planned", "gap": "Wrapper slice not implemented.", "positive": [], "negative": []
     },
     "ImportedDocument::preview_tracked_text": {
-      "scope": "separate main-story revision proposal", "target": "direct run anchor, action, author and optional date", "mcp": "preview_edits.operation (planned tracked text)",
-      "status": "planned", "gap": "No tracked text proposal.", "positive": [], "negative": []
+      "scope": "separate main-story revision proposal", "target": "direct run anchor, action, author and optional date", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=insert-text-after|replace-text|delete-text]",
+      "status": "covered", "positive": ["revision-bytes"], "negative": ["revision-rejection"]
     },
     "ImportedDocument::preview_tracked_bold": {
-      "scope": "separate main-story revision proposal", "target": "direct run anchor, bold flag, author and optional date", "mcp": "preview_edits.operation (planned tracked bold)",
-      "status": "planned", "gap": "No tracked formatting proposal.", "positive": [], "negative": []
+      "scope": "separate main-story revision proposal", "target": "direct run anchor, bold flag, author and optional date", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=set-bold]",
+      "status": "covered", "positive": ["revision-bytes"], "negative": ["revision-rejection"]
     },
     "ImportedDocument::preview_tracked_move": {
-      "scope": "separate main-story revision proposal", "target": "original direct run and destination anchors, name, author and date", "mcp": "preview_edits.operation (planned tracked run move)",
-      "status": "planned", "gap": "No paired move proposal.", "positive": [], "negative": []
+      "scope": "separate main-story revision proposal", "target": "original direct run and destination anchors, name, author and date", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=move-text]",
+      "status": "covered", "positive": ["revision-bytes"], "negative": ["revision-rejection"]
     },
     "ImportedDocument::preview_tracked_paragraph": {
-      "scope": "separate main-story revision proposal", "target": "original paragraph anchor, action, author and optional date", "mcp": "preview_edits.operation (planned tracked paragraph)",
-      "status": "planned", "gap": "No tracked paragraph/mark proposal.", "positive": [], "negative": []
+      "scope": "separate main-story revision proposal", "target": "original paragraph anchor, action, author and optional date", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=insert-paragraph-before|delete-paragraph]",
+      "status": "covered", "positive": ["revision-bytes"], "negative": ["revision-rejection"]
     },
     "ImportedDocument::preview_revision": {
-      "scope": "separate main-story revision review", "target": "inline revision anchor, disposition and optional pair", "mcp": "preview_edits.operation (planned inline revision review)",
-      "status": "planned", "gap": "No inline revision review.", "positive": [], "negative": []
+      "scope": "separate main-story revision review", "target": "inline revision anchor, disposition and optional pair", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=review]",
+      "status": "covered", "positive": ["revision-bytes", "revision-readback"], "negative": ["revision-rejection"]
     },
     "ImportedDocument::preview_paragraph_revision": {
-      "scope": "separate main-story revision review", "target": "paragraph revision anchor and accept/reject disposition", "mcp": "preview_edits.operation (planned paragraph revision review)",
-      "status": "planned", "gap": "No paragraph revision review.", "positive": [], "negative": []
+      "scope": "separate main-story revision review", "target": "paragraph revision anchor and accept/reject disposition", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=review-paragraph]",
+      "status": "covered", "positive": ["revision-bytes"], "negative": ["revision-bytes", "revision-rejection"]
     },
     "rocx::editor::HeaderImagePreview::change": {
       "scope": "single-slot image preview", "target": "one logical slot change record", "mcp": "preview_edits.changes.header_images[0]",
@@ -2381,10 +2413,6 @@
     "rocx::editor::WrapperEdit::Wrap::first",
     "rocx::editor::WrapperEdit::Wrap::last",
     "rocx::editor::WrapperEdit::Wrap::tag",
-    "rocx::opc::ReadLimits",
-    "rocx::opc::ReadLimits::max_expanded_bytes",
-    "rocx::opc::ReadLimits::max_part_bytes",
-    "rocx::opc::ReadLimits::max_parts",
     "rocx::template::TextRevisionAction",
     "rocx::template::TextRevisionAction::Accept",
     "rocx::template::TextRevisionAction::Reject"

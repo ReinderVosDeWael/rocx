@@ -1,8 +1,17 @@
-use crate::{editor::Snapshot, schema::Edit};
+use crate::{
+    editor::Snapshot,
+    schema::{
+        Edit,
+        layout::LayoutChange,
+        notes::{NoteChange, NoteKind},
+        revisions::RevisionChange,
+    },
+};
+use rocx::opc::ReadLimits;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
@@ -24,10 +33,29 @@ struct Preview {
 
 struct Document {
     snapshot: Snapshot,
-    entry_anchors: HashSet<String>,
-    entry_pages: HashMap<String, usize>,
+    view_anchors: HashMap<String, PageView>,
+    cursors: HashMap<String, (PageView, usize)>,
     sources: Vec<PathBuf>,
     previews: HashMap<String, Preview>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PageView {
+    Entries,
+    Layout,
+    NoteReferences,
+    Revisions,
+}
+
+impl PageView {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Entries => "entries",
+            Self::Layout => "layout",
+            Self::NoteReferences => "note-references",
+            Self::Revisions => "revisions",
+        }
+    }
 }
 
 #[derive(Default)]
@@ -49,20 +77,23 @@ fn path_slot(path: &Path) -> Result<PathBuf, String> {
         .join(leaf))
 }
 
-fn scope_anchors(value: &mut Value, owner: &str) {
+fn scope_anchors(value: &mut Value, owner: &str, issued: &mut impl FnMut(&str)) {
     match value {
         Value::Object(fields) => {
             for (name, field) in fields {
                 if name == "anchor" {
                     if let Value::String(local) = field {
+                        issued(local);
                         *local = format!("{owner}/{local}");
                     }
                 } else {
-                    scope_anchors(field, owner);
+                    scope_anchors(field, owner, issued);
                 }
             }
         }
-        Value::Array(items) => items.iter_mut().for_each(|v| scope_anchors(v, owner)),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|v| scope_anchors(v, owner, issued)),
         _ => {}
     }
 }
@@ -98,8 +129,13 @@ impl Session {
         bytes: Vec<u8>,
         sources: Vec<PathBuf>,
         initial: bool,
+        limits: Option<ReadLimits>,
     ) -> Result<Value, String> {
-        let snapshot = Snapshot::open(&bytes).map_err(|e| format!("invalid_document_data: {e}"))?;
+        let snapshot = match limits {
+            Some(limits) => Snapshot::open_with_limits(&bytes, limits),
+            None => Snapshot::open(&bytes),
+        }
+        .map_err(|e| format!("invalid_document_data: {e}"))?;
         let id = Uuid::new_v4().to_string();
         let digest = hash(&bytes);
         let mut response = json!({"document": id, "snapshot": digest});
@@ -115,8 +151,8 @@ impl Session {
             id,
             Document {
                 snapshot,
-                entry_anchors: HashSet::new(),
-                entry_pages: HashMap::new(),
+                view_anchors: HashMap::new(),
+                cursors: HashMap::new(),
                 sources,
                 previews,
             },
@@ -124,20 +160,24 @@ impl Session {
         Ok(response)
     }
 
-    pub fn open_document(&mut self, path: String) -> Result<Value, String> {
+    pub fn open_document(
+        &mut self,
+        path: String,
+        limits: Option<ReadLimits>,
+    ) -> Result<Value, String> {
         self.check_document_limit()?;
         let slot = path_slot(Path::new(&path))?;
         let absolute = std::path::absolute(&path).map_err(|e| format!("io: invalid path: {e}"))?;
         let resolved =
             fs::canonicalize(&path).map_err(|e| format!("io: cannot open source: {e}"))?;
         let bytes = fs::read(&resolved).map_err(|e| format!("io: cannot read source: {e}"))?;
-        self.register(bytes, vec![absolute, slot, resolved], false)
+        self.register(bytes, vec![absolute, slot, resolved], false, limits)
     }
 
     pub fn create_document(&mut self, paragraphs: Vec<String>) -> Result<Value, String> {
         self.check_document_limit()?;
         let bytes = Snapshot::create(paragraphs).map_err(|e| format!("invalid_paragraphs: {e}"))?;
-        self.register(bytes, Vec::new(), true)
+        self.register(bytes, Vec::new(), true, None)
     }
 
     pub fn inspect_document(&mut self, document: String) -> Result<Value, String> {
@@ -146,52 +186,59 @@ impl Session {
             .snapshot
             .inspect()
             .map_err(|e| format!("inspection_failed: {e}"))?;
-        scope_anchors(&mut result, &document);
+        scope_anchors(&mut result, &document, &mut |_| {});
         result["document"] = json!(document);
         Ok(result)
     }
 
-    pub fn inspect_entries(
+    pub fn inspect_page(
         &mut self,
         document: String,
+        view: PageView,
         limit: usize,
         cursor: Option<String>,
     ) -> Result<Value, String> {
         let doc = self.documents.get_mut(&document).ok_or(UNKNOWN)?;
         if !(1..=100).contains(&limit) {
-            return Err("invalid_input: use an entries limit between 1 and 100".into());
+            return Err("invalid_input: use a page limit between 1 and 100".into());
         }
         let start = match cursor {
             None => 0,
             Some(cursor) => {
                 let (owner, local) = cursor
                     .split_once('/')
-                    .ok_or("invalid_cursor: restart the entries view")?;
+                    .ok_or("invalid_cursor: restart the selected view")?;
                 if owner != document {
                     return Err("wrong_owner: use a cursor from the selected document".into());
                 }
-                doc.entry_pages
+                doc.cursors
                     .get(local)
-                    .copied()
-                    .ok_or("invalid_cursor: restart the entries view")?
+                    .and_then(|&(issued_view, start)| (issued_view == view).then_some(start))
+                    .ok_or("invalid_cursor: restart the selected view")?
             }
         };
-        let (mut entries, next) = doc
-            .snapshot
-            .entry_page(start, limit)
-            .map_err(|e| format!("inspection_failed: {e}"))?;
-        for entry in &mut entries {
-            if let Some(local) = entry.get("anchor").and_then(Value::as_str) {
-                doc.entry_anchors.insert(local.to_owned());
-            }
-            scope_anchors(entry, &document);
+        let (mut rows, next) = match view {
+            PageView::Entries => doc.snapshot.entry_page(start, limit),
+            PageView::Layout => doc.snapshot.layout_page(start, limit),
+            PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
+            PageView::Revisions => doc.snapshot.revision_page(start, limit),
+        }
+        .map_err(|e| format!("inspection_failed: {e}"))?;
+        for row in &mut rows {
+            scope_anchors(row, &document, &mut |local| {
+                doc.view_anchors.insert(local.to_owned(), view);
+            });
         }
         let next_cursor = next.map(|n| {
-            let local = format!("entries:{n}");
-            doc.entry_pages.insert(local.clone(), n);
+            let local = format!("{}:{n}", view.key());
+            doc.cursors.insert(local.clone(), (view, n));
             format!("{document}/{local}")
         });
-        Ok(json!({"document":document, "entries":entries, "next_cursor":next_cursor}))
+        let field = match view {
+            PageView::NoteReferences => "note_references",
+            _ => view.key(),
+        };
+        Ok(json!({"document":document, (field):rows, "next_cursor":next_cursor}))
     }
 
     pub fn preview_entry(
@@ -200,27 +247,136 @@ impl Session {
         anchor: String,
         edit: rocx::editor::EntryEdit,
     ) -> Result<Value, String> {
+        self.preview_scoped(
+            document,
+            PageView::Entries,
+            &anchor,
+            None,
+            |snapshot, local, _| {
+                snapshot
+                    .edit_entry(local, edit)
+                    .map(|bytes| (bytes, Value::Null))
+            },
+        )
+    }
+
+    pub fn preview_note_reference(
+        &mut self,
+        document: String,
+        anchor: String,
+        kind: NoteKind,
+        edit: NoteChange,
+    ) -> Result<Value, String> {
+        self.preview_scoped(
+            document,
+            PageView::NoteReferences,
+            &anchor,
+            None,
+            |snapshot, local, _| {
+                snapshot
+                    .edit_note_reference(local, kind, edit)
+                    .map(|bytes| (bytes, Value::Null))
+            },
+        )
+    }
+
+    pub fn preview_revision(
+        &mut self,
+        document: String,
+        anchor: String,
+        paired: Option<String>,
+        edit: RevisionChange,
+    ) -> Result<Value, String> {
+        self.preview_scoped(
+            document,
+            PageView::Revisions,
+            &anchor,
+            paired.as_deref(),
+            |snapshot, local, paired| snapshot.preview_revision(local, paired, edit),
+        )
+    }
+
+    pub fn preview_layout(
+        &mut self,
+        document: String,
+        mut edits: Vec<LayoutChange>,
+    ) -> Result<Value, String> {
         let doc = self.document(&document)?;
-        let (owner, local) = anchor
-            .split_once('/')
-            .ok_or("invalid_anchor: inspect the entries view")?;
-        if owner != document {
-            return Err("wrong_owner: use an entry anchor from the selected document".into());
-        }
-        if !doc.entry_anchors.contains(local) {
-            return Err(if doc.snapshot.has_issued_anchor(local) {
-                "wrong_anchor_type: inspect the entries view for an entry anchor"
-            } else {
-                "invalid_anchor: inspect the entries view for an entry anchor"
-            }
-            .into());
+        for edit in &mut edits {
+            edit.anchor =
+                Self::scoped_anchor(doc, &document, PageView::Layout, &edit.anchor)?.to_owned();
         }
         self.check_preview_limit(0)?;
-        let bytes = doc
+        let (bytes, changes) = doc
             .snapshot
-            .edit_entry(local, edit)
-            .map_err(|e| format!("rejected_batch: {e}; revise the entry operation and retry"))?;
-        self.retain_preview(document, bytes, Value::Null)
+            .preview_layout(edits)
+            .map_err(|e| format!("rejected_batch: {e}; revise the layout edits and retry"))?;
+        self.retain_preview(document, bytes, changes)
+    }
+
+    pub fn preview_noop(&mut self, document: String) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        self.check_preview_limit(0)?;
+        let (bytes, changes) = doc
+            .snapshot
+            .preview_noop()
+            .map_err(|e| format!("rejected_batch: {e}"))?;
+        self.retain_preview(document, bytes, changes)
+    }
+
+    fn scoped_anchor<'a>(
+        doc: &Document,
+        document: &str,
+        view: PageView,
+        anchor: &'a str,
+    ) -> Result<&'a str, String> {
+        let (owner, local) = anchor
+            .split_once('/')
+            .ok_or_else(|| format!("invalid_anchor: inspect the {} view", view.key()))?;
+        if owner != document {
+            return Err("wrong_owner: use an anchor from the selected document".into());
+        }
+        match doc.view_anchors.get(local) {
+            Some(issued_view) if *issued_view == view => Ok(local),
+            Some(_) => Err(format!(
+                "wrong_anchor_type: inspect the {} view",
+                view.key()
+            )),
+            None if view == PageView::Revisions && doc.snapshot.has_issued_anchor(local) => {
+                // Proposals use the same direct body targets as ordinary editing.
+                // The revision adapter still checks the target subtype.
+                Ok(local)
+            }
+            None if doc.snapshot.has_issued_anchor(local) => Err(format!(
+                "wrong_anchor_type: inspect the {} view",
+                view.key()
+            )),
+            None => Err(format!("invalid_anchor: inspect the {} view", view.key())),
+        }
+    }
+
+    fn preview_scoped(
+        &mut self,
+        document: String,
+        view: PageView,
+        anchor: &str,
+        paired: Option<&str>,
+        run: impl FnOnce(&Snapshot, &str, Option<&str>) -> Result<(Vec<u8>, Value), String>,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let local = Self::scoped_anchor(doc, &document, view, anchor)?;
+        let paired = paired
+            .map(|anchor| Self::scoped_anchor(doc, &document, view, anchor))
+            .transpose()?;
+        self.check_preview_limit(0)?;
+        let (bytes, changes) = run(&doc.snapshot, local, paired).map_err(|e| {
+            if e.starts_with("wrong_anchor_type: ") {
+                e
+            } else {
+                format!("rejected_batch: {e}; revise the operation and retry")
+            }
+        })?;
+        self.retain_preview(document, bytes, changes)
     }
 
     pub fn preview_edits(
@@ -243,7 +399,7 @@ impl Session {
                 ));
             }
             if !doc.snapshot.has_issued_anchor(local) {
-                if doc.entry_anchors.contains(local) {
+                if doc.view_anchors.contains_key(local) {
                     return Err(format!(
                         "wrong_anchor_type: edit {i} requires an ordinary edit anchor"
                     ));
@@ -510,7 +666,7 @@ mod tests {
         std::os::unix::fs::symlink(&source, &alias).unwrap();
         let mut session = Session::default();
         session
-            .open_document(alias.to_str().unwrap().into())
+            .open_document(alias.to_str().unwrap().into(), None)
             .unwrap();
         let new = session.create_document(Vec::new()).unwrap();
         fs::remove_file(&source).unwrap();

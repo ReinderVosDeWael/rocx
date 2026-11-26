@@ -83,9 +83,7 @@ fn session_error(tool: ToolKind, error: &str) -> CallToolResult {
         "invalid_anchor" | "wrong_anchor_type" => {
             "Inspect the document again and use an anchor of the required type."
         }
-        "invalid_cursor" => {
-            "Omit the cursor to restart, or use a next_cursor from the entries view."
-        }
+        "invalid_cursor" => "Omit the cursor to restart, or use a next_cursor from the same view.",
         "wrong_owner" if matches!(tool, ToolKind::Inspect) => {
             "Use a next_cursor issued for the selected document, or omit it to restart."
         }
@@ -97,6 +95,9 @@ fn session_error(tool: ToolKind, error: &str) -> CallToolResult {
         "capacity" => "Close a document to release session capacity.",
         "source_path" | "destination_exists" => "Choose a new output path.",
         "invalid_path" | "io" => "Check the server-host path and permissions before retrying.",
+        "invalid_document_data" if matches!(tool, ToolKind::Open) => {
+            "Check that the input is a valid DOCX and fits the supplied import limits."
+        }
         "invalid_document_data" | "inspection_failed" => "Check that the input is a valid DOCX.",
         "invalid_paragraphs" => "Check the supplied paragraph text.",
         _ => "Check the request and session state before retrying.",

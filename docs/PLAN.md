@@ -40,6 +40,16 @@ and native byte comparisons. All 21 Rust tests and Clippy passed on 1.88 and
 stable. Live OpenCode discovery showed typed ordinary and scoped request
 forms; a saved comment author change affected only `word/comments.xml`.
 
+The next increment adds note-reference lifecycle, scoped revision
+proposals/review, direct paragraph and section layout, per-open import
+budgets and an explicit native empty-batch preview. It reuses snapshot-owned
+pagination for the new views. Fifty installed-client and fourteen parity
+tests passed, plus ten subtests. Live OpenCode discovery remained typed, and
+saved examples verified a first footnote, direct paragraph layout, tracked
+replacement markup and unchanged payloads for a no-op. Continue with physical
+stories, metadata/defaults and the remaining transaction and declaration
+families; this increment does not meet the #72 closure gate.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.
