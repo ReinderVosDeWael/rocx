@@ -116,6 +116,15 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Inspect physical bookmark markers, comment markers and comment references in direct body paragraphs.
+    RangeMarkers {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
     /// Inspect direct body tables for ordinary mixed geometry edits.
     BodyTables {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]

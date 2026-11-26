@@ -70,6 +70,9 @@ Additional scoped and import coverage:
 - `test_fields.py` and `test_body_inlines.py` compare original-coordinate
   inline/field transactions and reports. `test_run_format.py` checks
   owner-scoped formatting, aliases and all clear slots.
+- `test_ranges.py` checks lexical marker readback and cursor scope, then
+  compares mixed cross-paragraph moves, removal and creation with Rust,
+  preserving the existing comment definition and unrelated parts.
 - `test_physical_tables.py` distinguishes ordinary body table anchors from
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent

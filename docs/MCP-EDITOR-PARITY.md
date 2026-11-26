@@ -54,6 +54,12 @@ support nested blocks and modeled table, row and cell properties, excluding
 row/cell control wrappers; native physical tables do not accept whole-node
 replacement or removal.
 
+The paged `range-markers` view exposes the native direct-body bookmark and
+comment markers, including stored ID spellings. The ordinary `paired-range`
+edit creates, moves or removes the pair using original `body-inlines`
+anchors and native conflict checks. Comment definition creation and deletion
+are not part of the native paired-range transaction.
+
 ## What counts as parity?
 
 Start from the public `rocx::editor` API, especially `ImportedDocument`,

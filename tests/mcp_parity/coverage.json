@@ -39,6 +39,9 @@
     "body-inlines": "tests/mcp/test_body_inlines.py::test_body_inline_edits_match_native",
     "field-discovery": "tests/mcp/test_fields.py::test_field_discovery",
     "field-mixed": "tests/mcp/test_fields.py::test_fields_mixed_batch_matches_native_after_rejection",
+    "range-discovery": "tests/mcp/test_ranges.py::test_paired_range_discovery",
+    "range-ambiguous": "tests/mcp/test_ranges.py::test_range_markers_preserve_ambiguous_source",
+    "range-lifecycle": "tests/mcp/test_ranges.py::test_paired_range_lifecycle",
     "run-format": "tests/mcp/test_run_format.py::test_physical_run_format_native_bytes",
     "run-format-discovery": "tests/mcp/test_run_format.py::test_run_format_discovery",
     "run-format-catalog-errors": "tests/mcp/test_run_format.py::test_broken_unrelated_catalog_does_not_block_body",
@@ -128,8 +131,8 @@
       "positive": ["field-discovery", "field-mixed", "body-inlines"], "negative": ["field-discovery", "field-mixed", "body-inlines"]
     },
     "EditBatch::paired_ranges": {
-      "scope": "main story, including cross-paragraph ranges", "target": "bookmark or comment ID and original inline endpoints", "mcp": "preview_edits.edits (planned paired range operations)",
-      "status": "planned", "gap": "No paired marker or comment reference/definition mutation.", "positive": [], "negative": []
+      "scope": "main story, including cross-paragraph ranges", "target": "bookmark or existing comment ID and optional original inline endpoints", "mcp": "preview_edits.edits[kind=paired-range]",
+      "status": "covered", "positive": ["range-discovery", "range-lifecycle"], "negative": ["range-discovery", "range-lifecycle"]
     },
     "EditPreview::block_changes": {
       "scope": "retained preview", "target": "original changed block indices", "mcp": "preview_edits.changes.block_changes",
@@ -382,13 +385,13 @@
       "positive": ["field-mixed"], "negative": ["field-mixed"]
     },
     "ImportedDocument::body_range_markers": {
-      "scope": "main story range boundaries and references", "target": "bookmark/comment IDs and original marker sites", "mcp": "inspect_document (planned range marker view)",
-      "status": "planned", "gap": "No paired range discovery.", "positive": [], "negative": []
+      "scope": "main story range boundaries and references", "target": "bookmark/comment IDs and original marker sites", "mcp": "inspect_document.view[kind=range-markers]",
+      "status": "covered", "positive": ["range-lifecycle", "range-ambiguous"], "negative": ["range-discovery", "range-lifecycle"]
     },
     "ImportedDocument::set_paired_range": {
-      "scope": "main story", "target": "one bookmark or comment ID with optional endpoint anchors", "mcp": "preview_edits.edits (planned paired range operation)",
+      "scope": "main story", "target": "one bookmark or comment ID with optional endpoint anchors", "mcp": "preview_edits.edits[kind=paired-range]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["paired_ranges"],
-      "status": "planned", "gap": "Paired range slice not implemented; convenience API returns only bytes.", "positive": [], "negative": []
+      "status": "covered", "positive": ["range-lifecycle"], "negative": ["range-discovery", "range-lifecycle"]
     },
     "ImportedDocument::styles": {
       "scope": "relationship-selected styles part", "target": "typed stored style kinds, direct properties and conditional regions", "mcp": "inspect_document (planned styles view)",
@@ -698,6 +701,46 @@
     "rocx::editor::TextInsertion::text": {
       "scope": "original plain paragraph", "target": "nonempty inserted text", "mcp": "preview_edits.edits[kind=insert-text].text",
       "status": "covered", "positive": ["body-scalar-edits"], "negative": ["body-scalar-edits"]
+    },
+    "rocx::editor::BodyRangeMarker": {
+      "scope": "main story", "target": "original marker row", "mcp": "inspect_document.view[kind=range-markers] → range_markers",
+      "status": "covered", "positive": ["range-lifecycle", "range-ambiguous"], "negative": ["range-lifecycle"]
+    },
+    "rocx::editor::BodyRangeMarker::body_index": {
+      "scope": "main story", "target": "original body index", "mcp": "range_markers[].body_index",
+      "status": "covered", "positive": ["range-lifecycle"], "negative": ["range-lifecycle"]
+    },
+    "rocx::editor::BodyRangeMarker::inline_index": {
+      "scope": "main story", "target": "original inline index", "mcp": "range_markers[].inline_index",
+      "status": "covered", "positive": ["range-lifecycle", "range-ambiguous"], "negative": ["range-lifecycle"]
+    },
+    "rocx::editor::BodyRangeMarker::kind": {
+      "scope": "main story", "target": "stored marker kind", "mcp": "range_markers[].kind",
+      "status": "covered", "positive": ["range-lifecycle"], "negative": ["range-lifecycle"]
+    },
+    "rocx::editor::BodyRangeMarker::id": {
+      "scope": "main story", "target": "lexical marker ID or absence", "mcp": "range_markers[].id",
+      "status": "covered", "positive": ["range-lifecycle", "range-ambiguous"], "negative": ["range-ambiguous"]
+    },
+    "rocx::editor::BodyRangeMarker::name": {
+      "scope": "main story", "target": "stored marker name or absence", "mcp": "range_markers[].name",
+      "status": "covered", "positive": ["range-lifecycle", "range-ambiguous"], "negative": ["range-ambiguous"]
+    },
+    "rocx::editor::PairedRangeEdit": {
+      "scope": "main story", "target": "bookmark or comment range", "mcp": "preview_edits.edits[kind=paired-range]",
+      "status": "covered", "positive": ["range-lifecycle"], "negative": ["range-lifecycle", "range-ambiguous"]
+    },
+    "rocx::editor::PairedRangeEdit::bookmark": {
+      "scope": "main story", "target": "bookmark name or omission for comments", "mcp": "preview_edits.edits[kind=paired-range].bookmark",
+      "status": "covered", "positive": ["range-lifecycle"], "negative": ["range-discovery", "range-lifecycle"]
+    },
+    "rocx::editor::PairedRangeEdit::endpoints": {
+      "scope": "main story", "target": "inclusive original inlines or omission to remove", "mcp": "preview_edits.edits[kind=paired-range].endpoints",
+      "status": "covered", "positive": ["range-lifecycle"], "negative": ["range-discovery", "range-lifecycle"]
+    },
+    "rocx::editor::PairedRangeEdit::id": {
+      "scope": "main story", "target": "unsigned 32-bit numeric range ID", "mcp": "preview_edits.edits[kind=paired-range].id",
+      "status": "covered", "positive": ["range-discovery", "range-lifecycle"], "negative": ["range-discovery", "range-lifecycle"]
     }
   },
   "unverified_symbols": [
@@ -1666,12 +1709,6 @@
     "rocx::editor::BodyBlock::Paragraph::0",
     "rocx::editor::BodyBlock::Table",
     "rocx::editor::BodyBlock::Table::0",
-    "rocx::editor::BodyRangeMarker",
-    "rocx::editor::BodyRangeMarker::body_index",
-    "rocx::editor::BodyRangeMarker::id",
-    "rocx::editor::BodyRangeMarker::inline_index",
-    "rocx::editor::BodyRangeMarker::kind",
-    "rocx::editor::BodyRangeMarker::name",
     "rocx::editor::CellAlignmentChange",
     "rocx::editor::CellAlignmentChange::after",
     "rocx::editor::CellAlignmentChange::before",
@@ -2240,10 +2277,6 @@
     "rocx::editor::NumberingEdit::StoryParagraph",
     "rocx::editor::NumberingEdit::StoryParagraph::target",
     "rocx::editor::NumberingEdit::StoryParagraph::value",
-    "rocx::editor::PairedRangeEdit",
-    "rocx::editor::PairedRangeEdit::bookmark",
-    "rocx::editor::PairedRangeEdit::endpoints",
-    "rocx::editor::PairedRangeEdit::id",
     "rocx::editor::ParagraphAlignmentEdit",
     "rocx::editor::ParagraphAlignmentEdit::alignment",
     "rocx::editor::ParagraphAlignmentEdit::target",

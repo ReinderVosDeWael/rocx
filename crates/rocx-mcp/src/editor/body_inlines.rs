@@ -1,4 +1,4 @@
-use rocx::editor::{BodyBlock, ImportedInlineNode, InlineAction, InlineEdit};
+use rocx::editor::{BodyBlock, ImportedInlineNode, InlineAction, InlineAnchor, InlineEdit};
 use serde_json::{Value, json};
 
 use super::{Snapshot, projected_run_text};
@@ -50,11 +50,7 @@ impl Snapshot {
         Ok((rows, next))
     }
 
-    pub fn body_inline_edit(
-        &self,
-        local: &str,
-        change: BodyInlineChange,
-    ) -> Result<InlineEdit, String> {
+    pub(super) fn body_inline_anchor(&self, local: &str) -> Result<&InlineAnchor, String> {
         let error =
             || "wrong_anchor_type: expected an anchor from the body-inlines view".to_owned();
         let (body, inline) = local
@@ -65,12 +61,20 @@ impl Snapshot {
         let Some(BodyBlock::Paragraph(paragraph)) = self.document.body().get(body) else {
             return Err(error());
         };
-        let target = match paragraph.inline_structure.get(inline) {
-            Some(ImportedInlineNode::Run(run)) => &run.anchor,
-            Some(ImportedInlineNode::Hyperlink(link)) => &link.anchor,
-            Some(ImportedInlineNode::Fraction { anchor, .. }) => anchor,
-            _ => return Err(error()),
-        };
+        match paragraph.inline_structure.get(inline) {
+            Some(ImportedInlineNode::Run(run)) => Ok(&run.anchor),
+            Some(ImportedInlineNode::Hyperlink(link)) => Ok(&link.anchor),
+            Some(ImportedInlineNode::Fraction { anchor, .. }) => Ok(anchor),
+            _ => Err(error()),
+        }
+    }
+
+    pub fn body_inline_edit(
+        &self,
+        local: &str,
+        change: BodyInlineChange,
+    ) -> Result<InlineEdit, String> {
+        let target = self.body_inline_anchor(local)?.clone();
         let action = match change {
             BodyInlineChange::InsertAfter { inline } => {
                 InlineAction::InsertAfter(inline.resolve()?)
@@ -85,10 +89,7 @@ impl Snapshot {
             }
             BodyInlineChange::Format { action } => action.into(),
         };
-        Ok(InlineEdit {
-            target: target.clone(),
-            action,
-        })
+        Ok(InlineEdit { target, action })
     }
 }
 

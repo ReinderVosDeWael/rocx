@@ -83,7 +83,7 @@ impl ToolKind {
                   properties with {\"kind\":\"layout\"}. Use {\"kind\":\"sections\"} for native \
                   body ranges and boundary anchors, {\"kind\":\"stories\"} for all six \
                   header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
-                  Use fields and body-inlines for original inline sites, format-runs for \
+                  Use fields, range-markers and body-inlines for original inline sites, format-runs for \
                   physical run targets, and body-tables or physical-tables for table edits. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
@@ -203,6 +203,9 @@ impl Call {
                 }
                 Some(View::BodyInlines { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
+                }
+                Some(View::RangeMarkers { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::RangeMarkers, limit, cursor)
                 }
                 Some(View::BodyTables { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::BodyTables, limit, cursor)
@@ -458,6 +461,20 @@ pub(crate) enum Edit {
         anchor: String,
         edit: body_inlines::BodyInlineChange,
     },
+    /// Create, move or remove a paired bookmark or comment range in the main story.
+    PairedRange {
+        /// Numeric range ID. For a comment, identifies one existing definition.
+        #[schemars(range(min = 0, max = 4_294_967_295u32))]
+        id: u32,
+        /// Bookmark name. Omit for a comment range.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        bookmark: Option<String>,
+        /// Inclusive original endpoints from body-inlines. Omit to remove the pair.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(with = "RangeEndpoints", skip_serializing_if = "Option::is_none")]
+        endpoints: Option<RangeEndpoints>,
+    },
     /// Change a direct body table in the ordinary mixed batch.
     TableStructure {
         anchor: String,
@@ -483,7 +500,7 @@ impl Edit {
             | Self::Field { anchor, .. }
             | Self::Inline { anchor, .. }
             | Self::TableStructure { anchor, .. } => Some(anchor),
-            Self::Resource { .. } => None,
+            Self::Resource { .. } | Self::PairedRange { .. } => None,
         }
     }
 
@@ -499,13 +516,23 @@ impl Edit {
             Self::RunText { .. } | Self::RunRemove { .. } => "run",
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
-            Self::Resource { .. } => unreachable!("resources have no anchor"),
+            Self::Resource { .. } | Self::PairedRange { .. } => {
+                unreachable!("edit has no single anchor")
+            }
             Self::Block { .. }
             | Self::Field { .. }
             | Self::Inline { .. }
             | Self::TableStructure { .. } => unreachable!("domain adapter resolves its own target"),
         }
     }
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(inline)]
+pub(crate) struct RangeEndpoints {
+    pub(crate) first: String,
+    pub(crate) last: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -807,13 +834,19 @@ mod tests {
             ("inline", &["edit"][..]),
             ("table-structure", &["edit"][..]),
         ];
-        assert_eq!(variants.len(), required.len() + 1);
+        assert_eq!(variants.len(), required.len() + 2);
         let resource = variants
             .iter()
             .find(|variant| variant["properties"]["kind"]["const"] == "resource")
             .unwrap();
         assert_eq!(resource["required"], json!(["kind", "edit"]));
         assert_eq!(resource["additionalProperties"], false);
+        let range = variants
+            .iter()
+            .find(|variant| variant["properties"]["kind"]["const"] == "paired-range")
+            .unwrap();
+        assert_eq!(range["required"], json!(["kind", "id"]));
+        assert_eq!(range["additionalProperties"], false);
         for (kind, extra) in required {
             let variant = variants
                 .iter()
