@@ -1,0 +1,113 @@
+mod editor;
+mod schema;
+mod session;
+
+use rmcp::{
+    ErrorData, RoleServer, ServerHandler, ServiceExt,
+    model::{
+        CallToolRequestParams, CallToolResponse, CallToolResult, ErrorCode, Implementation,
+        ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerConfig,
+    },
+    service::RequestContext,
+};
+use serde_json::json;
+use tokio::sync::Mutex;
+
+use crate::{schema::ToolKind, session::Session};
+
+#[derive(Default)]
+struct RocxServer {
+    session: Mutex<Session>,
+}
+
+impl ServerHandler for RocxServer {
+    fn get_info(&self) -> ServerConfig {
+        let mut info = ServerConfig::default();
+        info.protocol_version = ProtocolVersion::V_2025_11_25;
+        info.server_info = Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info
+    }
+
+    async fn list_tools(
+        &self,
+        _: Option<PaginatedRequestParams>,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        Ok(ListToolsResult::with_all_items(
+            ToolKind::ALL
+                .into_iter()
+                .map(ToolKind::definition)
+                .collect(),
+        ))
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        _: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let tool = ToolKind::ALL
+            .into_iter()
+            .find(|tool| tool.name() == request.name)
+            .ok_or_else(|| {
+                ErrorData::new(ErrorCode::METHOD_NOT_FOUND, "Unknown rocx tool", None)
+            })?;
+        let call = match tool.parse(request.arguments.unwrap_or_default()) {
+            Ok(call) => call,
+            Err(message) => {
+                return Ok(CallToolResult::structured_error(json!({
+                    "category": "invalid_input",
+                    "message": message,
+                    "action": "Use tools/list to check required fields and allowed values."
+                }))
+                .into());
+            }
+        };
+        // Session operations are synchronous, including file I/O and DOCX encoding.
+        // Keep the stdio runtime free to read and write protocol frames.
+        let mut session = self.session.lock().await;
+        let result = tokio::task::block_in_place(|| call.dispatch(&mut session));
+        Ok(match result {
+            Ok(value) => CallToolResult::structured(value),
+            Err(error) => session_error(&error),
+        }
+        .into())
+    }
+}
+
+fn session_error(error: &str) -> CallToolResult {
+    let (category, message) = error.split_once(": ").unwrap_or(("session_error", error));
+    let action = match category {
+        "invalid_document" => "Open or create a document in this session.",
+        "invalid_anchor" | "wrong_anchor_type" => {
+            "Inspect the document again and use an anchor of the required type."
+        }
+        "wrong_owner" => "Use anchors and previews belonging to the selected document.",
+        "invalid_preview" => "Create a preview for the selected document.",
+        "invalid_batch" | "rejected_batch" => {
+            "Check the edit targets and values, then retry the batch."
+        }
+        "capacity" => "Close a document to release session capacity.",
+        "source_path" | "destination_exists" => "Choose a new output path.",
+        "invalid_path" | "io" => "Check the server-host path and permissions before retrying.",
+        "invalid_document_data" | "inspection_failed" => "Check that the input is a valid DOCX.",
+        "invalid_paragraphs" => "Check the supplied paragraph text.",
+        _ => "Check the request and session state before retrying.",
+    };
+    CallToolResult::structured_error(json!({
+        "category": category,
+        "message": message,
+        "action": action
+    }))
+}
+
+#[tokio::main(worker_threads = 2)]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    RocxServer::default()
+        .serve(rmcp::transport::stdio())
+        .await?
+        .waiting()
+        .await?;
+    Ok(())
+}

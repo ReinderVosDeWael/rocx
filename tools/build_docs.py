@@ -26,6 +26,7 @@ CONTRACTS = (
 PUBLIC_PAGES = {
     "COMPATIBILITY.md": "compatibility.md",
     "docs/CLI.md": "editor-cli.md",
+    "docs/MCP.md": "mcp.md",
     "docs/VIEWER-COMPATIBILITY-CHECKLIST.md": "viewer-compatibility.md",
     "javascript/README.md": "javascript.md",
 }

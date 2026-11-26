@@ -9,7 +9,20 @@ readme = "README.md"
 repository = "https://github.com/ReinderVosDeWael/rocx"
 homepage = "https://reindervosdewael.github.io/rocx/"
 documentation = "https://reindervosdewael.github.io/rocx/"
-exclude = ["/docs/PLAN.md", "/docs/ROADMAP-HISTORY.md", "/javascript/"]
+exclude = [
+    "/crates/rocx-mcp/",
+    "/docs/MCP-PLAN.md",
+    "/docs/PLAN.md",
+    "/docs/ROADMAP-HISTORY.md",
+    "/javascript/",
+    "/tests/mcp/",
+]
+
+[workspace]
+members = ["crates/rocx-mcp"]
+default-members = ["."]
+exclude = ["javascript"]
+resolver = "3"
 
 [lib]
 crate-type = ["rlib", "cdylib"]

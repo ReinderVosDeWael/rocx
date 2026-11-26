@@ -2,6 +2,22 @@
 
 Documentation pass: publish user guides and API references only. Keep build, architecture, release and verification procedures such as the [viewer observation record](VIEWER-COMPATIBILITY-RECORD.md) in the repository.
 
+## Active interface milestone: local MCP server (#52)
+
+Build `crates/rocx-mcp` using the [implementation and acceptance plan](MCP-PLAN.md).
+The six-tool interface includes new document creation and the seven #41 edit
+kinds. Qualify the installed binary with a real client saving a selected
+preview that matches a direct Rust edit byte for byte. This milestone is
+independent of the 0.4.0 release.
+
+Local qualification passed with `rmcp` 3.11.0 and Python MCP SDK 1.27.0
+negotiating `2025-11-25`: ten Rust tests and eight installed-client tests,
+including native byte parity, readback, package preservation, and lifecycle
+errors. Rust 1.88 Clippy, the existing CLI tests, the independent Wasm build
+check and the strict 699-page documentation build also passed. See the
+[installed acceptance instructions](../tests/mcp/README.md) for reproduction.
+Keep #52 open until the combined changes and hosted checks reach `main`.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.
@@ -420,7 +436,7 @@ and distinguishes them from the broader [operation goals](EDITOR-PARITY.md#opera
 | #49 Revisions and #3 follow-up | Track insertion, replacement, deletion and paired moves of simple direct body runs; track direct bold and simple whole-paragraph insert/delete; review eligible changes. | Mixed ordinary/revision transactions, other property changes, block moves and rich or nested revisions. |
 | #50 Controls | Inspect physical story owners; wrap/unwrap compatible main-story siblings in block/inline/row/cell contexts; replace supported rich block or inline content; edit approved metadata, text and choice lists. | Nested and bound edits, other specialized types, and mutation outside the main story. |
 | #51 JSON CLI / #3 follow-up | Digest-bound transport for the `b0a28b0` batch families, story images/text, revision operations (including paragraph marks and bold), rich inline/field/range/control/drawing edits, point insertions, block flags, direct layout, section lifecycle, story references/splices, direct and physical table edits, metadata, defaults, concrete numbering and style fields/regions. Preview identifies exact output bytes; save-copy exclusively creates. | Declarations are a subset of authoring; physical-owner rich formatting and entry/note lifecycle are not yet exposed over the CLI. See [CLI contract](CLI.md). |
-| #52 MCP | Separate open interface workstream. | Stdio server, discovery, persistent document/preview handles and MCP-client acceptance. The JSON CLI is not an MCP server. |
+| #52 MCP | Separate workspace crate under qualification. See the [active milestone](#active-interface-milestone-local-mcp-server-52). | Remote access, cross-session persistence and edit families beyond the initial seven. |
 
 **#3 table follow-up (before section/story/table recovery):** direct-body table layout can be inspected, set or
 cleared; grid column widths, physical cell spans and vertical merge markers

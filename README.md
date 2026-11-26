@@ -57,6 +57,8 @@ await writeFile("report.docx", await generateDocx(document));
 
 ## Project information
 
+- [Create and edit DOCX files from an MCP client](docs/MCP.md)
+
 - [Migration guide](docs/MIGRATION.md)
 - [Changelog](CHANGELOG.md)
 - [Visual catalog](https://reindervosdewael.github.io/rocx/catalog/)
