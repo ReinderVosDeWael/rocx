@@ -1,12 +1,15 @@
+mod entries;
+
 use rmcp::{
     handler::server::common::schema_for_input,
     model::{JsonObject, Tool},
-    schemars::{self, JsonSchema},
+    schemars::{self, JsonSchema, Schema},
 };
 use serde::{Deserialize, de::DeserializeOwned};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::session::Session;
+use entries::{Operation, View};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ToolKind {
@@ -59,18 +62,25 @@ impl ToolKind {
                 "Inspect body paragraphs and runs, physical table cells, and default and first-page \
                   header slots. Returns reusable opaque anchors for candidate edits to this snapshot. \
                  A paragraph's scalar_length describes Unicode scalar coordinates for its plain-text \
-                 projection, with null meaning none are advertised. It is not edit permission: \
-                 preview_edits validates the actual target and batch. \
-                 Example result excerpt: {\"document\":\"<document>\",\"body\":[{\"type\":\"paragraph\",\
-                 \"anchor\":\"<paragraph anchor>\",\"text\":\"Example\",\"scalar_length\":7}],\"headers\":[]}.",
-                schema_for_input::<Document>(),
+                  projection, with null meaning none are advertised. It is not edit permission: \
+                  preview_edits validates the actual target and batch. Omit view for this compact \
+                  result. Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
+                  definitions with entry anchors. The page limit defaults to 25 (range 1–100); \
+                  pass the returned next_cursor as view.cursor for the same document, with the same \
+                  or a different limit. Omit the cursor to restart. Example compact result excerpt: \
+                  {\"document\":\"<document>\",\"body\":[\
+                  {\"type\":\"paragraph\",\"anchor\":\"<paragraph anchor>\",\"text\":\"Example\",\
+                  \"scalar_length\":7}],\"headers\":[]}.",
+                schema_for_input::<Inspect>(),
             ),
             Self::Preview => (
-                "Validate and encode an ordered batch of edits against the original snapshot. \
-                 Use anchors from inspect_document. Returns a fresh preview handle, output SHA-256, \
-                 and change report without writing a file or invalidating earlier previews. \
-                 Example result excerpt: {\"document\":\"<document>\",\"preview\":\"<preview>\",\
-                 \"output_snapshot\":\"<sha256>\"}.",
+                "Validate and encode edits against the original snapshot. Pass exactly one of \
+                 edits (an ordered ordinary batch) or operation (a single scoped edit). Use anchors \
+                 from inspect_document; edit-entry requires an entry definition anchor from the \
+                 entries view. Returns a fresh preview handle and output SHA-256 without writing \
+                 a file or invalidating earlier previews. Ordinary batches return a change report; \
+                 edit-entry returns changes: null. Example scoped operation: {\"kind\":\"edit-entry\",\
+                 \"anchor\":\"<entry anchor>\",\"edit\":{\"kind\":\"comment-initials\",\"value\":null}}.",
                 schema_for_input::<Preview>(),
             ),
             Self::Save => (
@@ -100,7 +110,13 @@ impl ToolKind {
             Self::Open => parse(arguments).map(Call::Open),
             Self::Inspect => parse(arguments).map(Call::Inspect),
             Self::Preview => {
-                let input: Preview = parse(arguments)?;
+                if arguments.get("operation").is_some() {
+                    if arguments.get("edits").is_some() {
+                        return Err("pass exactly one of edits or operation".into());
+                    }
+                    return parse(arguments).map(Preview::Scoped).map(Call::Preview);
+                }
+                let input: OrdinaryPreview = parse(arguments)?;
                 if input.edits.is_empty() {
                     return Err("edits must contain at least one edit".into());
                 }
@@ -115,7 +131,7 @@ impl ToolKind {
                         ));
                     }
                 }
-                Ok(Call::Preview(input))
+                Ok(Call::Preview(Preview::Ordinary(input)))
             }
             Self::Save => parse(arguments).map(Call::Save),
             Self::Close => parse(arguments).map(Call::Close),
@@ -130,7 +146,7 @@ fn parse<T: DeserializeOwned>(arguments: Value) -> Result<T, String> {
 pub(crate) enum Call {
     Create(Create),
     Open(Open),
-    Inspect(Document),
+    Inspect(Inspect),
     Preview(Preview),
     Save(Save),
     Close(Document),
@@ -141,8 +157,20 @@ impl Call {
         match self {
             Self::Create(input) => session.create_document(input.paragraphs),
             Self::Open(input) => session.open_document(input.path),
-            Self::Inspect(input) => session.inspect_document(input.document),
-            Self::Preview(input) => session.preview_edits(input.document, input.edits),
+            Self::Inspect(input) => match input.view {
+                None => session.inspect_document(input.document),
+                Some(View::Entries { limit, cursor }) => {
+                    session.inspect_entries(input.document, limit, cursor)
+                }
+            },
+            Self::Preview(Preview::Ordinary(input)) => {
+                session.preview_edits(input.document, input.edits)
+            }
+            Self::Preview(Preview::Scoped(input)) => match input.operation {
+                Operation::EditEntry { anchor, edit } => {
+                    session.preview_entry(input.document, anchor, edit.into())
+                }
+            },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
             Self::Close(input) => session.close_document(input.document),
         }
@@ -173,6 +201,17 @@ pub(crate) struct Document {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct Inspect {
+    /// An opaque live document handle from create_document or open_document.
+    document: String,
+    /// Omit for compact body and header inspection.
+    #[serde(default, deserialize_with = "entries::present")]
+    #[schemars(with = "View", skip_serializing_if = "Option::is_none")]
+    view: Option<View>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Save {
     /// The live owner of the preview.
     document: String,
@@ -184,12 +223,51 @@ pub(crate) struct Save {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Preview {
+#[schemars(inline)]
+pub(crate) struct OrdinaryPreview {
     /// The live document whose anchors the edits use.
     document: String,
     /// Ordered edits against the original snapshot.
     #[schemars(length(min = 1))]
     edits: Vec<Edit>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(inline)]
+pub(crate) struct ScopedPreview {
+    /// The live document whose anchors the edits use.
+    document: String,
+    /// A single operation that is not part of an ordinary batch.
+    operation: Operation,
+}
+
+#[derive(JsonSchema)]
+#[schemars(untagged, transform = preview_input_schema)]
+pub(crate) enum Preview {
+    Ordinary(OrdinaryPreview),
+    Scoped(ScopedPreview),
+}
+
+// Keep the strict MCP root discoverable as an object. Its only properties are
+// document and the two mode selectors; exactly two keys requires one mode.
+fn preview_input_schema(schema: &mut Schema) {
+    let branches = schema.remove("anyOf").expect("untagged input union");
+    let mut properties = JsonObject::new();
+    for branch in branches.as_array().expect("input union branches") {
+        properties.extend(
+            branch["properties"]
+                .as_object()
+                .expect("object branch properties")
+                .clone(),
+        );
+    }
+    schema.insert("type".into(), json!("object"));
+    schema.insert("additionalProperties".into(), json!(false));
+    schema.insert("required".into(), json!(["document"]));
+    schema.insert("properties".into(), Value::Object(properties));
+    schema.insert("minProperties".into(), json!(2));
+    schema.insert("maxProperties".into(), json!(2));
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -332,13 +410,220 @@ mod tests {
 
     use super::*;
 
+    fn request(tool: ToolKind, input: Value) -> Result<Call, String> {
+        tool.parse(input.as_object().unwrap().clone())
+    }
+
     fn preview(edits: Value) -> Result<Call, String> {
-        ToolKind::Preview.parse(
-            json!({"document": "doc", "edits": edits})
-                .as_object()
-                .unwrap()
-                .clone(),
+        request(
+            ToolKind::Preview,
+            json!({"document": "doc", "edits": edits}),
         )
+    }
+
+    #[test]
+    fn typed_forms_advertise_strict_selectors_and_exclusive_preview_shapes() {
+        let inspect = ToolKind::Inspect.definition().input_schema;
+        assert_eq!(inspect["required"], json!(["document"]));
+        let view = &inspect["properties"]["view"]["oneOf"][0];
+        assert_eq!(view["additionalProperties"], false, "{view}");
+        assert_eq!(view["required"], json!(["kind"]));
+        assert_eq!(view["properties"]["kind"]["const"], "entries");
+        let limit = &view["properties"]["limit"];
+        assert_eq!(limit["minimum"], 1);
+        assert_eq!(limit["maximum"], 100);
+        assert_eq!(limit["default"], 25);
+        assert_eq!(view["properties"]["cursor"]["type"], "string");
+
+        let preview = ToolKind::Preview.definition().input_schema;
+        assert_eq!(preview["required"], json!(["document"]));
+        assert_eq!(preview["minProperties"], 2);
+        assert_eq!(preview["maxProperties"], 2);
+        let properties = preview["properties"].as_object().unwrap();
+        assert_eq!(properties.len(), 3);
+        assert!(
+            ["document", "edits", "operation"]
+                .iter()
+                .all(|field| properties.contains_key(*field))
+        );
+
+        let operation = &preview["properties"]["operation"]["oneOf"][0];
+        assert_eq!(operation["additionalProperties"], false, "{operation}");
+        assert_eq!(operation["required"], json!(["kind", "anchor", "edit"]));
+        assert_eq!(operation["properties"]["kind"]["const"], "edit-entry");
+        let variants = operation["properties"]["edit"]["oneOf"].as_array().unwrap();
+        let required = [
+            ("delete-unused-note", &[][..]),
+            ("insert-paragraph", &["index", "text"][..]),
+            ("replace-paragraph", &["index", "text"][..]),
+            ("remove-paragraph", &["index"][..]),
+            ("comment-author", &["value"][..]),
+            ("comment-initials", &["value"][..]),
+            ("comment-date", &["value"][..]),
+        ];
+        assert_eq!(variants.len(), required.len());
+        for (kind, fields) in required {
+            let variant = variants
+                .iter()
+                .find(|variant| variant["properties"]["kind"]["const"] == kind)
+                .unwrap();
+            assert_eq!(variant["additionalProperties"], false);
+            let required = variant["required"].as_array().unwrap();
+            assert_eq!(required.len(), fields.len() + 1);
+            for field in ["kind"].into_iter().chain(fields.iter().copied()) {
+                assert!(required.contains(&json!(field)), "{kind} requires {field}");
+            }
+            if fields.contains(&"index") {
+                assert_eq!(variant["properties"]["index"]["type"], "integer");
+                assert_eq!(variant["properties"]["index"]["minimum"], 0);
+            }
+            match kind {
+                "comment-author" => assert_eq!(variant["properties"]["value"]["type"], "string"),
+                "comment-initials" | "comment-date" => {
+                    assert_eq!(
+                        variant["properties"]["value"]["type"],
+                        json!(["string", "null"])
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn inspection_omits_view_or_selects_a_strict_bounded_page() {
+        let valid = [
+            (json!({"document":"doc"}), None),
+            (
+                json!({"document":"doc","view":{"kind":"entries"}}),
+                Some((25, None)),
+            ),
+            (
+                json!({"document":"doc","view":{"kind":"entries","limit":1}}),
+                Some((1, None)),
+            ),
+            (
+                json!({"document":"doc","view":{"kind":"entries","limit":100,"cursor":"cursor"}}),
+                Some((100, Some("cursor"))),
+            ),
+        ];
+        for (input, expected) in valid {
+            let Ok(Call::Inspect(Inspect { document, view })) = request(ToolKind::Inspect, input)
+            else {
+                panic!("valid inspection was rejected");
+            };
+            assert_eq!(document, "doc");
+            assert_eq!(
+                view.as_ref()
+                    .map(|View::Entries { limit, cursor }| (*limit, cursor.as_deref())),
+                expected
+            );
+        }
+        for view in [
+            json!(null),
+            json!({}),
+            json!({"kind":"unsupported"}),
+            json!({"kind":"entries","limit":0}),
+            json!({"kind":"entries","limit":101}),
+            json!({"kind":"entries","limit":1.5}),
+            json!({"kind":"entries","limit":null}),
+            json!({"kind":"entries","cursor":null}),
+            json!({"kind":"entries","cursor":1}),
+            json!({"kind":"entries","unknown":true}),
+        ] {
+            let input = json!({"document":"doc","view":view});
+            assert!(
+                request(ToolKind::Inspect, input.clone()).is_err(),
+                "accepted {input}"
+            );
+        }
+        assert!(request(ToolKind::Inspect, json!({"document":"doc","limit":25})).is_err());
+    }
+
+    fn scoped(edit: Value) -> Value {
+        json!({"document":"doc","operation":{"kind":"edit-entry","anchor":"entry","edit":edit}})
+    }
+
+    #[test]
+    fn scoped_wire_edits_convert_to_native_payloads() {
+        use rocx::editor::EntryEdit;
+
+        for (input, matches) in [
+            (
+                json!({"kind":"delete-unused-note"}),
+                (|edit| matches!(edit, EntryEdit::DeleteUnusedNote)) as fn(EntryEdit) -> bool,
+            ),
+            (
+                json!({"kind":"insert-paragraph","index":0,"text":"insert"}),
+                |edit| matches!(edit, EntryEdit::InsertParagraph { index: 0, text } if text == "insert"),
+            ),
+            (
+                json!({"kind":"replace-paragraph","index":1,"text":"replace"}),
+                |edit| matches!(edit, EntryEdit::ReplaceParagraph { index: 1, text } if text == "replace"),
+            ),
+            (json!({"kind":"remove-paragraph","index":2}), |edit| {
+                matches!(edit, EntryEdit::RemoveParagraph(2))
+            }),
+            (
+                json!({"kind":"comment-author","value":"Author"}),
+                |edit| matches!(edit, EntryEdit::CommentAuthor(value) if value == "Author"),
+            ),
+            (
+                json!({"kind":"comment-initials","value":""}),
+                |edit| matches!(edit, EntryEdit::CommentInitials(Some(value)) if value.is_empty()),
+            ),
+            (json!({"kind":"comment-initials","value":null}), |edit| {
+                matches!(edit, EntryEdit::CommentInitials(None))
+            }),
+            (
+                json!({"kind":"comment-date","value":"2025-01-01T00:00:00Z"}),
+                |edit| matches!(edit, EntryEdit::CommentDate(Some(value)) if value == "2025-01-01T00:00:00Z"),
+            ),
+            (json!({"kind":"comment-date","value":null}), |edit| {
+                matches!(edit, EntryEdit::CommentDate(None))
+            }),
+        ] {
+            let Ok(Call::Preview(Preview::Scoped(ScopedPreview {
+                document,
+                operation: Operation::EditEntry { anchor, edit },
+            }))) = request(ToolKind::Preview, scoped(input.clone()))
+            else {
+                panic!("rejected {input}");
+            };
+            assert_eq!(document, "doc");
+            assert_eq!(anchor, "entry");
+            assert!(matches(edit.into()), "incorrect conversion for {input}");
+        }
+    }
+
+    #[test]
+    fn scoped_requests_reject_mixed_forms_and_invalid_fields() {
+        let edit = json!({"kind":"delete-unused-note"});
+        let operation = scoped(edit.clone())["operation"].clone();
+        for input in [
+            json!({"document":"doc"}),
+            json!({"document":"doc","operation":null}),
+            json!({"document":"doc","operation":operation,"edits":null}),
+            json!({"document":"doc","operation":null,"edits":[{"kind":"run-remove","anchor":"r"}]}),
+            json!({"document":"doc","operation":operation,"extra":false}),
+            json!({"document":"doc","operation":{"kind":"edit-entry","anchor":"e","edit":edit,"extra":null}}),
+            json!({"document":"doc","operation":{"kind":"edit-entry","edit":edit}}),
+            json!({"document":"doc","operation":{"kind":"edit-entry","anchor":"e"}}),
+            json!({"document":"doc","operation":{"kind":"unsupported","anchor":"e","edit":edit}}),
+            scoped(json!({"kind":"delete-unused-note","index":0})),
+            scoped(json!({"kind":"insert-paragraph","index":-1,"text":"text"})),
+            scoped(json!({"kind":"replace-paragraph","index":0})),
+            scoped(json!({"kind":"remove-paragraph","index":0,"text":"extra"})),
+            scoped(json!({"kind":"comment-author","value":null})),
+            scoped(json!({"kind":"comment-initials"})),
+            scoped(json!({"kind":"comment-date"})),
+            scoped(json!({"kind":"comment-date","value":1})),
+        ] {
+            assert!(
+                request(ToolKind::Preview, input.clone()).is_err(),
+                "accepted {input}"
+            );
+        }
     }
 
     #[test]

@@ -17,7 +17,12 @@ The first ordinary-batch extension transports `TextRangeEdit` and
 `TextInsertion` as [paragraph-anchored scalar edits](MCP.md#edit-part-of-a-paragraph).
 The installed-client fixture covers non-BMP text, mixed formatting, runless
 paragraphs, rejection/retry and equality with the native saved package.
-The broader inspection and physical-owner work in the table below remains open.
+The next inspection slice adds a paged `entries` view and an owner-scoped
+`edit-entry` operation for the native `EntryEdit` variants. An entry page
+projects block text and opaque markers; it does not expose the full typed
+inline tree. Entry definitions are separate from body note references:
+`edit_entry_inlines` and `edit_note_reference` remain follow-ups, as does the
+broader inspection and physical-owner work in the table below.
 
 ## What counts as parity?
 

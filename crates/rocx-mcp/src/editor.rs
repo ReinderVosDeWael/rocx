@@ -16,6 +16,8 @@ use serde_json::{Value, json};
 
 use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
 
+mod entries;
+
 pub struct Snapshot {
     document: ImportedDocument,
     inspection: OnceLock<Result<Inspection, String>>,

@@ -1,11 +1,12 @@
 //! Direct core byte oracle for the independent fixtures in `tests/mcp`.
 use rocx::{
-    Alignment, Component, Document, HeaderFooterType, ImageRun, Paragraph, Section, Table,
-    TableCell, TableRow, VerticalAlignment,
+    Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph, Section,
+    Table, TableCell, TableRow, VerticalAlignment,
     editor::{
-        BodyBlock, CellAlignmentEdit, EditBatch, HeaderEditMode, HeaderImageEdit, ImportedDocument,
-        ImportedInlineNode, ImportedParagraph, ParagraphAlignmentEdit, ParagraphInsertion,
-        RunTextEdit, TableInsertion, TextInsertion, TextRangeEdit,
+        BodyBlock, CellAlignmentEdit, EditBatch, EntryEdit, HeaderEditMode, HeaderImageEdit,
+        ImportedDocument, ImportedInline, ImportedInlineNode, ImportedParagraph,
+        ImportedStoryBlock, ParagraphAlignmentEdit, ParagraphInsertion, RunTextEdit,
+        TableInsertion, TextInsertion, TextRangeEdit,
     },
 };
 use std::{fs, future::Future, path::Path, task::Poll};
@@ -149,6 +150,92 @@ fn scalar(source: &Path) -> Vec<u8> {
     .unwrap()
 }
 
+fn entry(source: &Path, case: &str) -> Vec<u8> {
+    let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    let footnote = "word/notes/footnotes.xml";
+    let endnote = "word/notes/endnotes.xml";
+    let comment = "word/comments.xml";
+    let (owner, id, edit) = match case {
+        "delete-unused" => (footnote, "8", EntryEdit::DeleteUnusedNote),
+        "replace-first" => (
+            footnote,
+            "007",
+            EntryEdit::ReplaceParagraph {
+                index: 0,
+                text: "New footnote 😀".into(),
+            },
+        ),
+        "insert-last" => (
+            endnote,
+            "007",
+            EntryEdit::InsertParagraph {
+                index: 2,
+                text: "New endnote & tail".into(),
+            },
+        ),
+        "remove-last" => (endnote, "007", EntryEdit::RemoveParagraph(1)),
+        "author" => (comment, "0", EntryEdit::CommentAuthor("Café & Co.".into())),
+        "same-author" => (comment, "0", EntryEdit::CommentAuthor("Original".into())),
+        "initials-set" => (comment, "0", EntryEdit::CommentInitials(Some("CC".into()))),
+        "initials-clear" => (comment, "0", EntryEdit::CommentInitials(None)),
+        "date-set" => (
+            comment,
+            "0",
+            EntryEdit::CommentDate(Some("2030-02-03T04:05:06Z".into())),
+        ),
+        "date-clear" => (comment, "0", EntryEdit::CommentDate(None)),
+        _ => panic!("unknown entry fixture case: {case}"),
+    };
+    doc.edit_entry(owner, id, edit).unwrap()
+}
+
+fn inspect_entries(source: &Path) -> Vec<u8> {
+    use serde_json::json;
+
+    let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    let entries: Vec<_> = doc
+        .entry_stories()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            let blocks: Vec<_> = entry
+                .blocks()
+                .iter()
+                .enumerate()
+                .map(|(index, block)| match block {
+                    ImportedStoryBlock::Paragraph(items) => {
+                        let text_items: Vec<_> = items
+                            .iter()
+                            .filter_map(|item| match item {
+                                ImportedInline::Text(text) => Some(text.as_str()),
+                                ImportedInline::Tab => Some("\t"),
+                                ImportedInline::Break(
+                                    BreakType::Line | BreakType::TextWrapping,
+                                ) => Some("\n"),
+                                _ => None,
+                            })
+                            .collect();
+                        json!({
+                            "index": index, "type": "paragraph", "text": text_items.concat(),
+                            "has_opaque_content": text_items.len() != items.len(),
+                        })
+                    }
+                    ImportedStoryBlock::Opaque(name) => {
+                        json!({"index": index, "type": "opaque", "name": name})
+                    }
+                    _ => panic!("unexpected block in the entry fixture"),
+                })
+                .collect();
+            json!({
+                "kind": entry.kind.as_str(), "part_name": entry.part_name, "id": entry.id,
+                "note_type": entry.note_type, "author": entry.author, "date": entry.date,
+                "initials": entry.initials, "blocks": blocks,
+            })
+        })
+        .collect();
+    serde_json::to_vec(&entries).unwrap()
+}
+
 fn authored(timestamp: &str, paragraphs: &[String]) -> Vec<u8> {
     let blocks = if paragraphs.is_empty() {
         vec![Paragraph::new("").into()]
@@ -183,8 +270,14 @@ fn main() {
             (output, mixed(Path::new(source), Path::new(png), mode))
         }
         [command, output, source] if command == "scalar" => (output, scalar(Path::new(source))),
+        [command, output, source, case] if command == "entry" => {
+            (output, entry(Path::new(source), case))
+        }
+        [command, output, source] if command == "inspect-entries" => {
+            (output, inspect_entries(Path::new(source)))
+        }
         _ => panic!(
-            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | scalar OUTPUT SOURCE"
+            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | scalar OUTPUT SOURCE | entry OUTPUT SOURCE CASE | inspect-entries OUTPUT SOURCE"
         ),
     };
     fs::write(output, bytes).unwrap();
