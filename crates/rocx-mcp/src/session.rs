@@ -4,7 +4,9 @@ use crate::{
         Edit,
         layout::LayoutChange,
         notes::{NoteChange, NoteKind},
+        resources::ResourceQuery,
         revisions::RevisionChange,
+        stories::{StoryReferenceChange, StoryTextChange},
     },
 };
 use rocx::opc::ReadLimits;
@@ -42,18 +44,22 @@ struct Document {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PageView {
     Entries,
+    EntryRuns,
     Layout,
     NoteReferences,
     Revisions,
+    Stories,
 }
 
 impl PageView {
     fn key(self) -> &'static str {
         match self {
             Self::Entries => "entries",
+            Self::EntryRuns => "entry-runs",
             Self::Layout => "layout",
             Self::NoteReferences => "note-references",
             Self::Revisions => "revisions",
+            Self::Stories => "stories",
         }
     }
 }
@@ -191,6 +197,34 @@ impl Session {
         Ok(result)
     }
 
+    pub fn inspect_resources(
+        &self,
+        document: String,
+        custom_property: Option<String>,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let mut result = doc
+            .snapshot
+            .inspect_resources(custom_property)
+            .map_err(|e| format!("inspection_failed: {e}"))?;
+        result["document"] = json!(document);
+        Ok(result)
+    }
+
+    pub fn inspect_resource_value(
+        &self,
+        document: String,
+        query: ResourceQuery,
+    ) -> Result<Value, String> {
+        let mut result = self
+            .document(&document)?
+            .snapshot
+            .inspect_resource_value(query)
+            .map_err(|e| format!("inspection_failed: {e}"))?;
+        result["document"] = json!(document);
+        Ok(result)
+    }
+
     pub fn inspect_page(
         &mut self,
         document: String,
@@ -219,9 +253,11 @@ impl Session {
         };
         let (mut rows, next) = match view {
             PageView::Entries => doc.snapshot.entry_page(start, limit),
+            PageView::EntryRuns => doc.snapshot.entry_run_page(start, limit),
             PageView::Layout => doc.snapshot.layout_page(start, limit),
             PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
             PageView::Revisions => doc.snapshot.revision_page(start, limit),
+            PageView::Stories => doc.snapshot.story_page(start, limit),
         }
         .map_err(|e| format!("inspection_failed: {e}"))?;
         for row in &mut rows {
@@ -236,6 +272,7 @@ impl Session {
         });
         let field = match view {
             PageView::NoteReferences => "note_references",
+            PageView::EntryRuns => "entry_runs",
             _ => view.key(),
         };
         Ok(json!({"document":document, (field):rows, "next_cursor":next_cursor}))
@@ -314,6 +351,56 @@ impl Session {
         self.retain_preview(document, bytes, changes)
     }
 
+    pub fn preview_story_text(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<StoryTextChange>,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let view = if anchor
+            .split_once('/')
+            .is_some_and(|(_, local)| doc.view_anchors.get(local) == Some(&PageView::EntryRuns))
+        {
+            PageView::EntryRuns
+        } else {
+            PageView::Stories
+        };
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+            let bytes = match view {
+                PageView::EntryRuns => snapshot.edit_entry_story_text(local, edits),
+                _ => snapshot.edit_story_text(local, edits),
+            }?;
+            Ok((bytes, Value::Null))
+        })
+    }
+
+    pub fn preview_story_reference(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edit: StoryReferenceChange,
+    ) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        if let StoryReferenceChange::Link { anchor } = &mut edit {
+            *anchor = Self::scoped_anchor(doc, &document, PageView::Stories, anchor)?.to_owned();
+        }
+        self.preview_scoped(
+            document,
+            PageView::Stories,
+            anchor,
+            None,
+            |snapshot, local, _| {
+                snapshot
+                    .edit_story_reference(local, edit)
+                    .map(|bytes| (bytes, Value::Null))
+            },
+        )
+    }
+
     pub fn preview_noop(&mut self, document: String) -> Result<Value, String> {
         let doc = self.document(&document)?;
         self.check_preview_limit(0)?;
@@ -389,7 +476,10 @@ impl Session {
             return Err("invalid_batch: supply at least one edit".into());
         }
         for (i, edit) in edits.iter_mut().enumerate() {
-            let anchor = edit.anchor_slot();
+            let header_image = matches!(edit, Edit::HeaderImage { .. });
+            let Some(anchor) = edit.anchor_slot() else {
+                continue;
+            };
             let (owner, local) = anchor
                 .split_once('/')
                 .ok_or("invalid_anchor: use an inspected anchor")?;
@@ -398,7 +488,9 @@ impl Session {
                     "wrong_owner: inspect the selected document for edit {i}"
                 ));
             }
-            if !doc.snapshot.has_issued_anchor(local) {
+            let story_for_image =
+                header_image && doc.view_anchors.get(local) == Some(&PageView::Stories);
+            if !doc.snapshot.has_issued_anchor(local) && !story_for_image {
                 if doc.view_anchors.contains_key(local) {
                     return Err(format!(
                         "wrong_anchor_type: edit {i} requires an ordinary edit anchor"

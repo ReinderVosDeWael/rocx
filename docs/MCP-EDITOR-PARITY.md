@@ -32,6 +32,14 @@ native layout transactions and the six revision proposals/review methods.
 Open supports per-request `ReadLimits`, and `no-op` stages the native empty
 batch without changing the established nonempty `edits` request.
 
+Physical story inspection exposes all six header/footer slots, and separate
+owner anchors distinguish shared part edits from per-section references.
+Images accept all six slot anchors; story text also supports ordinary
+note/comment entry runs. Reference creation currently takes plain paragraph
+shorthand. Metadata and direct defaults are eligible for ordinary mixed
+batches, but numbering, style transactions, and rich declarations are still
+separate outstanding work.
+
 ## What counts as parity?
 
 Start from the public `rocx::editor` API, especially `ImportedDocument`,

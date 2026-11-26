@@ -21,6 +21,16 @@
     "revision-bytes": "tests/mcp/test_revisions.py::test_revision_native_proposal_and_both_dispositions",
     "revision-readback": "tests/mcp/test_revisions.py::test_revision_view_paging_read_only_and_opaque",
     "revision-rejection": "tests/mcp/test_revisions.py::test_revision_wrong_scope_pairing_and_retry",
+    "story-paging": "tests/mcp/test_stories.py::test_story_slot_pages_include_missing_and_share_owner_across_aliases",
+    "story-text": "tests/mcp/test_stories.py::test_story_text_scoped_targets_and_native_bytes",
+    "story-reference": "tests/mcp/test_stories.py::test_story_reference_lifecycle_and_native_bytes",
+    "story-images": "tests/mcp/test_story_images.py::test_story_image_all_slots_from_paged_anchors",
+    "story-image-rejection": "tests/mcp/test_story_images.py::test_story_image_rejects_missing_slot_and_physical_owner",
+    "entry-runs": "tests/mcp/test_entry_runs.py::test_entry_story_text_in_one_physical_owner",
+    "resource-discovery": "tests/mcp/test_resources.py::test_resource_discovery",
+    "resource-query": "tests/mcp/test_resources.py::test_resource_value_queries_isolate_malformed_metadata",
+    "resource-mixed": "tests/mcp/test_resources.py::test_mixed_resource_batch_native_bytes_and_preservation",
+    "resource-retry": "tests/mcp/test_resources.py::test_resource_only_rejection_and_retry_without_inspection",
     "lifetime": "tests/mcp/test_stdio.py::test_retained_selection_lifetime_and_exclusive_save",
     "capacity": "tests/mcp/test_stdio.py::test_capacity_rejects_without_eviction_and_close_releases"
   },
@@ -36,8 +46,8 @@
     },
     "EditBatch::header_images": {
       "scope": "logical section slot, shared physical part or section-local fork", "target": "header/footer slot anchor", "mcp": "preview_edits.edits[kind=header-image]",
-      "status": "partial", "gap": "Discovery issues default and first header slots only; even headers, footers and resolved image properties are not represented.",
-      "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "All six story slots are supported in both modes, but only the default image declaration from encoded bytes is represented.",
+      "positive": ["baseline-mixed", "story-images"], "negative": ["baseline-mixed", "story-image-rejection"]
     },
     "EditBatch::run_text": {
       "scope": "direct body", "target": "eligible direct run anchor", "mcp": "preview_edits.edits[kind=run-text]",
@@ -81,8 +91,9 @@
       "status": "planned", "gap": "No style mutation or provable reference retargeting.", "positive": [], "negative": []
     },
     "EditBatch::resources": {
-      "scope": "package resources and paragraph assignments", "target": "metadata, defaults, numbering definitions/overrides or original body/cell/story paragraph", "mcp": "preview_edits.edits (planned resource operations)",
-      "status": "planned", "gap": "No resource mutation or staged resource references.", "positive": [], "negative": []
+      "scope": "package resources and paragraph assignments", "target": "metadata, defaults, numbering definitions/overrides or original body/cell/story paragraph", "mcp": "preview_edits.edits[kind=resource]",
+      "status": "partial", "gap": "Metadata and defaults are transported; numbering declarations, overrides, staged references and paragraph assignments remain open.",
+      "positive": ["resource-discovery", "resource-mixed", "resource-retry"], "negative": ["resource-discovery", "resource-retry"]
     },
     "EditBatch::controls": {
       "scope": "main story", "target": "control anchor", "mcp": "preview_edits.edits (planned control operations)",
@@ -136,8 +147,7 @@
     },
     "EditPreview::header_changes": {
       "scope": "retained preview", "target": "story change records and affected sections", "mcp": "preview_edits.changes.header_images",
-      "status": "partial", "gap": "Baseline exercises default header records only and does not assert the output-part report field in the installed test.",
-      "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "covered", "positive": ["baseline-mixed", "story-images"], "negative": ["baseline-mixed", "story-image-rejection"]
     },
     "EditPreview::to_docx": {
       "scope": "retained preview for live document", "target": "exact staged DOCX bytes", "mcp": "save_copy(document, preview, output)",
@@ -254,7 +264,8 @@
     "ImportedDocument::preview_with_resources": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus document resource edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "resources"],
-      "status": "partial", "gap": "Resource slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Supports atomic resource and body edits; numbering and rich baseline declarations remain unimplemented.",
+      "positive": ["baseline-mixed", "resource-mixed"], "negative": ["baseline-mixed", "resource-retry"]
     },
     "ImportedDocument::preview_with_controls": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus control edits", "mcp": "preview_edits.edits",
@@ -262,21 +273,25 @@
       "status": "partial", "gap": "Control slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
     },
     "ImportedDocument::sections": {
-      "scope": "main document section ranges", "target": "section anchor and direct section information", "mcp": "inspect_document (planned sections view)",
-      "status": "planned", "gap": "No section view, layout, or section handles.", "positive": [], "negative": []
+      "scope": "main document section ranges", "target": "section anchor and direct section information", "mcp": "inspect_document.view[kind=layout|stories]",
+      "status": "partial", "gap": "Direct layout and logical story slots expose original section indices; section body ranges and full flags are missing.",
+      "positive": ["layout-bytes", "story-paging"], "negative": ["layout-rejection"]
     },
     "ImportedDocument::default_headers": {
-      "scope": "logical section default header", "target": "effective default header blocks and inlines", "mcp": "inspect_document.headers[variant=default]",
-      "status": "partial", "gap": "Slot identity only, not typed header content.", "positive": ["baseline-mixed"], "negative": ["lifetime"]
+      "scope": "logical section default header", "target": "effective default header blocks and inlines", "mcp": "inspect_document.headers[variant=default]; inspect_document.view[kind=stories]",
+      "status": "partial", "gap": "The stories view projects ordered blocks and nested runs, but not all typed inline payloads.",
+      "positive": ["baseline-mixed", "story-paging"], "negative": ["lifetime"]
     },
     "ImportedDocument::stories": {
-      "scope": "logical section slots and effective physical parts", "target": "all six header/footer slots with typed blocks and inlines", "mcp": "inspect_document.headers",
-      "status": "partial", "gap": "Compact default/first headers only; no typed story content or footer/even selection.", "positive": ["baseline-mixed"], "negative": ["lifetime"]
+      "scope": "logical section slots and effective physical parts", "target": "all six header/footer slots with typed blocks and inlines", "mcp": "inspect_document.view[kind=stories]",
+      "status": "partial", "gap": "All slots and shared owners are discovered, including missing slots. Story block and inline projections omit rich values.",
+      "positive": ["story-paging", "story-images"], "negative": ["story-paging", "story-image-rejection"]
     },
     "ImportedDocument::preview_header_image": {
       "scope": "one logical story slot", "target": "resolved image and shared/local mode", "mcp": "preview_edits.edits[kind=header-image] (single edit)",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["header_images"],
-      "status": "partial", "gap": "Same bytes and one report entry for supported slots and image shorthand only.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Same bytes and one report entry for all six slots, but resolved image declaration fields are not transported.",
+      "positive": ["baseline-mixed", "story-images"], "negative": ["baseline-mixed", "story-image-rejection"]
     },
     "ImportedDocument::preview_layout": {
       "scope": "separate direct paragraph/section layout transaction", "target": "paragraph or section anchor and typed direct property", "mcp": "preview_edits.operation[kind=edit-layout]",
@@ -296,16 +311,17 @@
       "status": "planned", "gap": "No scoped table batch or byte-only result.", "positive": [], "negative": []
     },
     "ImportedDocument::edit_story_reference": {
-      "scope": "one logical section story slot", "target": "section, header/footer kind, and slot variant", "mcp": "preview_edits.operation (planned story reference editing)",
-      "status": "planned", "gap": "No create/link/remove for explicit references or byte-only result.", "positive": [], "negative": []
+      "scope": "one logical section story slot", "target": "section, header/footer kind, and slot variant", "mcp": "preview_edits.operation[kind=edit-story-reference]",
+      "status": "partial", "gap": "Create uses plain paragraphs, not rich blocks. Link is limited to physical parts exposed by an effective slot, not every related part.",
+      "positive": ["story-reference"], "negative": ["story-reference"]
     },
     "ImportedDocument::edit_story_blocks": {
       "scope": "one logical story slot with shared/local intent", "target": "slot anchor, original block gap, removal count and resolved blocks", "mcp": "preview_edits.operation (planned story splicing)",
       "status": "planned", "gap": "No scoped block splice or byte-only result.", "positive": [], "negative": []
     },
     "ImportedDocument::edit_story_text": {
-      "scope": "one physical header/footer or ordinary note/comment part", "target": "eligible run anchors owned by that part", "mcp": "preview_edits.operation (planned story text)",
-      "status": "planned", "gap": "Body run-text does not support these owners; no byte-only result.", "positive": [], "negative": []
+      "scope": "one physical header/footer or ordinary note/comment part", "target": "eligible direct text run anchors owned by that part", "mcp": "preview_edits.operation[kind=edit-story-text]",
+      "status": "covered", "positive": ["story-text", "entry-runs"], "negative": ["story-text", "entry-runs"]
     },
     "ImportedDocument::entry_stories": {
       "scope": "relationship-selected footnote, endnote and comment parts, including special notes", "target": "source-order definitions, stored metadata and projected blocks; snapshot-owned candidate edit anchors", "mcp": "inspect_document.view[kind=entries] (limit, cursor) → entries, next_cursor",
@@ -356,30 +372,33 @@
       "status": "planned", "gap": "No style handle discovery.", "positive": [], "negative": []
     },
     "ImportedDocument::document_defaults": {
-      "scope": "relationship-selected defaults/settings parts", "target": "typed direct stored default fields", "mcp": "inspect_document (planned defaults view)",
-      "status": "planned", "gap": "No typed defaults or document-wide settings.", "positive": [], "negative": []
+      "scope": "relationship-selected defaults/settings parts", "target": "typed direct stored default fields", "mcp": "inspect_document.view[kind=resource-value].query[kind=document-defaults]",
+      "status": "partial", "gap": "Native default fields are projected, but not every modeled field has installed evidence.",
+      "positive": ["resource-query", "resource-mixed"], "negative": ["resource-discovery", "resource-retry"]
     },
     "ImportedDocument::default_alignment": {
-      "scope": "relationship-selected defaults part", "target": "direct default paragraph alignment", "mcp": "inspect_document (planned defaults alignment selector)",
-      "status": "planned", "gap": "No default alignment discovery.", "positive": [], "negative": []
+      "scope": "relationship-selected defaults part", "target": "direct default paragraph alignment", "mcp": "inspect_document.view[kind=resource-value].query[kind=default-alignment]",
+      "status": "partial", "gap": "Independent native query is supported; installed inspection does not yet qualify every token and legacy read error.",
+      "positive": ["resource-query", "resource-mixed"], "negative": ["resource-discovery", "resource-retry"]
     },
     "ImportedDocument::metadata_field": {
-      "scope": "relationship-selected core and extended properties", "target": "named typed scalar field", "mcp": "inspect_document (planned metadata field selector)",
-      "status": "planned", "gap": "No named metadata readback.", "positive": [], "negative": []
+      "scope": "relationship-selected core and extended properties", "target": "named typed scalar field", "mcp": "inspect_document.view[kind=resource-value].query[kind=metadata]",
+      "status": "partial", "gap": "Independent native lookup is supported; not every core and extended field has an installed readback fixture.",
+      "positive": ["resource-query", "resource-mixed"], "negative": ["resource-query", "resource-retry"]
     },
     "ImportedDocument::core_title": {
-      "scope": "relationship-selected core properties", "target": "Title metadata field", "mcp": "inspect_document (planned metadata selector: title)",
+      "scope": "relationship-selected core properties", "target": "Title metadata field", "mcp": "inspect_document.view[kind=resource-value].query[kind=metadata,field=title]",
       "alias_of": "ImportedDocument::metadata_field",
-      "status": "planned", "gap": "Named metadata inspection not implemented.", "positive": [], "negative": []
+      "status": "covered", "positive": ["resource-query", "resource-mixed"], "negative": ["resource-discovery"]
     },
     "ImportedDocument::core_subject": {
-      "scope": "relationship-selected core properties", "target": "Subject metadata field", "mcp": "inspect_document (planned metadata selector: subject)",
+      "scope": "relationship-selected core properties", "target": "Subject metadata field", "mcp": "inspect_document.view[kind=resource-value].query[kind=metadata,field=subject]",
       "alias_of": "ImportedDocument::metadata_field",
-      "status": "planned", "gap": "Named metadata inspection not implemented.", "positive": [], "negative": []
+      "status": "covered", "positive": ["resource-mixed"], "negative": ["resource-discovery"]
     },
     "ImportedDocument::custom_property": {
-      "scope": "relationship-selected custom properties", "target": "named string or boolean property", "mcp": "inspect_document (planned custom property selector)",
-      "status": "planned", "gap": "No named custom property readback.", "positive": [], "negative": []
+      "scope": "relationship-selected custom properties", "target": "named string or boolean property", "mcp": "inspect_document.view[kind=resource-value].query[kind=custom-property]",
+      "status": "covered", "positive": ["resource-query", "resource-mixed"], "negative": ["resource-query", "resource-discovery"]
     },
     "ImportedDocument::numbering_catalog": {
       "scope": "relationship-selected numbering part", "target": "abstract/concrete definitions and modeled level/override payloads", "mcp": "inspect_document (planned numbering catalog view)",

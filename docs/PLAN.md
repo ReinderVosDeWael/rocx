@@ -30,6 +30,8 @@ Local checks: the compiled snapshot contains 1,908 symbols. The MCP crate's
 tests passed, including native byte parity and rejection/retry for scalar
 edits. A live OpenCode client replaced `😀` and appended a period using
 original offsets in `A😀BC`; independent `python-docx` readback gave `AxBC.`.
+[PR #74](https://github.com/ReinderVosDeWael/rocx/pull/74) merged after hosted
+qualification.
 
 The next #72 increment introduces `inspect_document.view` with bounded entry
 pages, issues snapshot-owned anchors for ordinary footnotes, endnotes and
@@ -39,6 +41,10 @@ comments, and exposes the seven `EntryEdit` variants as a standalone
 and native byte comparisons. All 21 Rust tests and Clippy passed on 1.88 and
 stable. Live OpenCode discovery showed typed ordinary and scoped request
 forms; a saved comment author change affected only `word/comments.xml`.
+The clean checkout CI failure in
+[PR #75](https://github.com/ReinderVosDeWael/rocx/pull/75) was fixed by
+checking in the independent Rust test fixture instead of assuming a locally
+generated example exists.
 
 The next increment adds note-reference lifecycle, scoped revision
 proposals/review, direct paragraph and section layout, per-open import
@@ -49,6 +55,22 @@ saved examples verified a first footnote, direct paragraph layout, tracked
 replacement markup and unchanged payloads for a no-op. Continue with physical
 stories, metadata/defaults and the remaining transaction and declaration
 families; this increment does not meet the #72 closure gate.
+
+The physical-story and resource increment adds six-slot header/footer
+inspection and shared/local image previews, scoped reference lifecycle and
+physical text edits for headers, footers, notes and comments. Metadata and
+direct defaults work inside ordinary mixed batches, with independent
+queries for each native read scope. Live OpenCode created an even-page
+footer, edited its run, then saved a title edit that changed only
+`docProps/core.xml`. The installed MCP and parity suites passed 90 tests
+and ten subtests, including native byte comparisons for all six image
+slots in both modes.
+
+Next: build the reusable resolved paragraph/inline/block transport for
+body and story splices. Extend the existing owner model to physical run
+formatting and tables. Keep rich story creation, linking eligible but
+unreferenced story parts, numbering/style edits and remaining slices open
+in the ledger until there is installed-client evidence.
 
 ## 0.4.0 release
 

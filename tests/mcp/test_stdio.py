@@ -308,13 +308,15 @@ async def test_discovery(launch):
             "alignment": {"alignment"}, "insert-paragraph": {"text"}, "insert-table": {"rows"},
             "run-text": {"text"}, "run-remove": set(), "cell-alignment": {"alignment"},
             "header-image": {"mode", "bytes"}, "text-range": {"start", "end", "text"},
-            "insert-text": {"offset", "text"},
+            "insert-text": {"offset", "text"}, "resource": {"edit"},
         }
-        assert len(variants) == 9 and kinds.keys() == expected.keys()
+        assert len(variants) == len(expected) and kinds.keys() == expected.keys()
         for kind, variant_schema in kinds.items():
-            assert set(variant_schema["required"]) == {"kind", "anchor"} | expected[kind]
+            anchor = set() if kind == "resource" else {"anchor"}
+            assert set(variant_schema["required"]) == {"kind"} | anchor | expected[kind]
             assert variant_schema["additionalProperties"] is False
-            assert variant_schema["properties"]["anchor"]["type"] == "string"
+            if anchor:
+                assert variant_schema["properties"]["anchor"]["type"] == "string"
         assert set(kinds["alignment"]["properties"]["alignment"]["enum"]) == {
             "left", "center", "right", "justify", "distribute", "justify-medium",
             "justify-high", "justify-low", "thai-justify",

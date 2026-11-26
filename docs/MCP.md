@@ -56,9 +56,9 @@ Start with `open_document` and `{"path":"input.docx"}`, then inspect, preview,
 and save as above. The supported edits are paragraph alignment, paragraph or
 table insertion after a paragraph, direct run text replacement or removal,
 replacement/deletion of a text range or insertion at a text position,
-physical table-cell vertical alignment, and image insertion in a default or
-first-page header. For a header image, specify `shared` to edit its shared
-part or `section-local` to limit the change to the selected section.
+physical table-cell vertical alignment, direct resource edits, and image
+insertion in a header or footer. For a story image, specify `shared` to edit
+its shared part or `section-local` to limit the change to the selected section.
 
 To override archive read budgets for one open, pass, for example,
 `{"path":"input.docx","limits":{"max_parts":"100","max_expanded_bytes":"16777216"}}`.
@@ -228,6 +228,72 @@ paragraph mark. Set `action` to `accept` or `reject`. Paired move review
 requires both wrapper anchors; pass the second as `operation.paired_anchor`.
 Some nested revisions are read-only; the core checks anchors, pairing,
 protected ranges and paragraph boundaries before staging any changes.
+
+### Inspect and edit headers and footers
+
+Call `inspect_document` with `view:{"kind":"stories"}` for the six logical
+slots per section: default, first-page and even-page headers and footers.
+Each row has a slot `anchor`, `section_index`, `kind` (`header` or `footer`)
+and `variant` (`default`, `first` or `even`). The `owner` is `null` for a
+missing slot. When several slots share a package part, their physical owner
+anchor and run anchors match; their slot anchors are still distinct.
+
+- Use the slot anchor of an existing part with the ordinary `header-image`
+  edit, including for footers. `shared` changes all aliases that use the
+  part; `section-local` only changes the selected section slot.
+- Use `operation:{"kind":"edit-story-text","anchor":"<owner anchor>","edits":[{"anchor":"<run anchor>","text":"Updated"}]}`
+  to edit eligible direct text runs in one physical part. Hyperlink-child
+  runs are visible but not targets of this operation.
+- Use `operation:{"kind":"edit-story-reference","anchor":"<slot anchor>","edit":{"kind":"create","paragraphs":["New footer"]}}`
+  to create an explicit reference from a missing or inherited slot.
+  Use `edit:{"kind":"link","anchor":"<owner anchor>"}` to link to an
+  inspected physical part of the same kind. Use `edit:{"kind":"remove"}` to
+  remove an explicit reference and resume inheritance, without deleting the
+  package part.
+
+Scoped story edits return `changes: null`; image edits include a record of
+the physical source/output parts and affected sections. The compact view
+still returns only its original default and first-page header rows.
+
+For notes and comments, use `view:{"kind":"entry-runs"}` instead. It returns
+rows with lexical entry IDs, a physical `owner`, and runs with original
+block and inline indices. Pass that owner and its direct run anchors to the
+same `edit-story-text` operation. You can edit runs in several entries in
+one part, but cannot mix parts. Reserved notes and note markers do not
+receive run-edit anchors.
+
+### Edit metadata and direct document defaults
+
+Call `inspect_document` with `view:{"kind":"resources"}` to read `metadata`,
+`document_defaults`, and the legacy `default_alignment`. To look up one
+named string or boolean custom property, add `custom_property` to the view.
+The result is `null` for an absent name; `false` and `""` are stored values.
+Defaults are direct settings, not effective formatting after style inheritance.
+For an independent query, use
+`view:{"kind":"resource-value","query":{"kind":"metadata","field":"title"}}`.
+It returns `value` without reading unrelated properties. Other query kinds
+are `document-defaults`, `default-alignment`, and `custom-property` (with
+`name`).
+
+Use `kind:"resource"` in the ordinary `edits` array. Resource edits need no
+anchor and may be mixed with body edits in one preview. For example:
+
+```json
+{
+  "document":"<document>",
+  "edits":[
+    {"kind":"resource","edit":{"kind":"metadata","field":"company","value":"Example Co."}},
+    {"kind":"resource","edit":{"kind":"default","field":"keepTogether","value":false}},
+    {"kind":"resource","edit":{"kind":"custom-property","name":"Final","value":false}}
+  ]
+}
+```
+
+Every resource edit requires `value`: omit the edit to retain the current
+property; pass `null` to clear it. The native metadata name `comments` aliases
+`description`. The `core-title`, `core-subject` and `default-alignment`
+edits retain the native shorthand fields. See
+[metadata and defaults](EDITOR-RESOURCES.md) for value domains and units.
 
 ### Save or continue editing
 

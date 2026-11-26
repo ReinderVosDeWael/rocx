@@ -6,7 +6,8 @@ use rocx::editor::{
     BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, HeaderAnchor, HeaderEditMode,
     HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedRowChild,
     ImportedTableChild, InlineAnchor, ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion,
-    RunTextEdit, SectionStoryKind, TableAnchor, TableInsertion, TextInsertion, TextRangeEdit,
+    ResourceEdit, RunTextEdit, SectionStoryKind, TableAnchor, TableInsertion, TextInsertion,
+    TextRangeEdit,
 };
 use rocx::{
     Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph,
@@ -19,7 +20,9 @@ use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
 mod entries;
 mod layout;
 mod notes;
+mod resources;
 mod revisions;
+mod stories;
 
 pub struct Snapshot {
     document: ImportedDocument,
@@ -102,16 +105,28 @@ impl Snapshot {
         if edits.is_empty() {
             return Err("edits must not be empty".into());
         }
-        let inspection = self
-            .issued_inspection()
-            .ok_or("inspect the document before previewing edits")?;
         let mut batch = Batch::default();
         for (index, mut edit) in edits.into_iter().enumerate() {
             let number = index + 1;
-            let target = inspection
-                .anchors
-                .get(edit.anchor_slot().as_str())
-                .ok_or_else(|| format!("edit {number}: unknown local anchor"))?;
+            if let Edit::Resource { edit } = edit {
+                batch.resources.push(edit.into());
+                continue;
+            }
+            let header_image = matches!(edit, Edit::HeaderImage { .. });
+            let local = edit.anchor_slot().expect("anchored edit");
+            let story_target = header_image
+                .then(|| self.story_image_anchor(local).map(Target::Header))
+                .flatten();
+            let target = story_target
+                .as_ref()
+                .or_else(|| self.issued_inspection()?.anchors.get(local))
+                .ok_or_else(|| {
+                    if header_image && local.starts_with("story-") {
+                        format!("wrong_anchor_type: edit {number}: expected an existing story slot")
+                    } else {
+                        format!("edit {number}: unknown local anchor")
+                    }
+                })?;
             if target.kind() != edit.target_kind() {
                 return Err(format!(
                     "wrong_anchor_type: edit {number}: expected {}",
@@ -135,6 +150,7 @@ impl Snapshot {
                 run_removals: &batch.run_removals,
                 ranges: &batch.ranges,
                 text_insertions: &batch.text_insertions,
+                resources: &batch.resources,
                 ..EditBatch::default()
             })
             .map_err(|e| format!("preview: {e}"))?;
@@ -168,6 +184,7 @@ struct Batch {
     run_removals: Vec<InlineAnchor>,
     ranges: Vec<TextRangeEdit>,
     text_insertions: Vec<TextInsertion>,
+    resources: Vec<ResourceEdit>,
 }
 
 impl Batch {
