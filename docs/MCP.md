@@ -245,6 +245,86 @@ tool discovery for the typed members. Authoring annotations, nested and
 formatted table cells, and some native inline types are not yet available
 in these declarations.
 
+### Change a field or a direct body inline
+
+Use `view:{"kind":"body-inlines"}` to page through original paragraph inline
+positions, including runs, hyperlinks, fractions, and opaque content. Use the
+inline's anchor in the ordinary `edits` array:
+
+```json
+{"kind":"inline","anchor":"<run anchor>","edit":{
+  "kind":"insert-after","inline":{"kind":"field","instruction":{"kind":"page"}}
+}}
+```
+
+`replace` takes the same `inline` declaration. On an eligible hyperlink,
+`remove-hyperlink` removes the wrapper and its displayed runs;
+`hyperlink-tooltip` and `hyperlink-history` set a direct `value` or clear it
+with `null`. Inspection retains the stored history spelling.
+
+The `fields` view returns original coordinates, instruction text, simple
+versus complex form, raw `dirty_xml` and `locked_xml` values, and the span's
+inline count for a supported field. With its anchor, send an ordinary
+`{"kind":"field","anchor":"<field anchor>","edit":{...}}`.
+Use `instruction` with a string `value`, `dirty` or `locked` with a boolean
+or explicit `null`, `cache` with an inline `children` list, `replace` with a
+field `inline` declaration, or `remove`. Rust validates the original span,
+cached content, and overlap with the rest of the batch.
+
+### Format runs in one physical part
+
+Use `view:{"kind":"format-runs"}`. A run row has a physical `owner` anchor,
+original coordinates, and direct formatting; a candidate row also has its own
+run `anchor`. Main-body cell paragraphs, direct hyperlink children, and
+effective headers, footers, notes and comments are included. Aliases of a part
+refer to the same physical run.
+
+```json
+{
+  "document":"<document>",
+  "operation":{"kind":"edit-run-format","anchor":"<owner anchor>","edits":[
+    {"anchor":"<run anchor>","edit":{"kind":"patch-format","set":{"bold":false},"clear":["font"]}}
+  ]}
+}
+```
+
+Use `set-bold` with a boolean `value`, or `set-toggle` with a `toggle` of
+`bold`, `italic`, `strike`, or `hidden` and boolean or `null` `value`.
+`patch-format` sets only supplied direct properties and clears only named
+slots. Keep all runs in one physical owner; the native transaction may
+reject protected content even for a candidate anchor. The scoped result has
+`changes: null`. To mix a direct body run format change into an ordinary
+batch, use the `body-inlines` anchor with `edit.kind:"format"` and the same
+action under `edit.action`.
+
+### Edit table geometry and content
+
+Use `view:{"kind":"body-tables"}` for direct body tables in an ordinary
+`table-structure` edit. Use `view:{"kind":"physical-tables"}` to find nested
+tables or tables in header/footer/note/comment parts. For a physical
+transaction, use `operation.kind:"edit-part-tables"` with the physical owner
+`anchor` and `edits`, each with that owner's table `anchor` and an `edit`.
+The physical view's `path` describes original XML element positions; it is
+not an edit handle. Results retain direct XML property values and original
+grid widths.
+
+Both forms support `layout`, row/cell/column insertion and removal,
+`replace-cell` with `blocks`, and `set-property`/`clear-property`. Property
+edits take a typed `site` and `field`; setting copies that field from a
+`source` table declaration. Only the ordinary body transaction supports
+whole-node `replace-node` or `remove-table`. Positions are original
+zero-based coordinates, with insertion before the supplied index or at
+the count to append. Native validation protects grid merges and opaque
+content.
+
+Use `insert-rich-table` with a paragraph anchor and a `table` declaration
+to insert a new body table. Supply `rows`, each with `cells`, each with
+`blocks`; optional `properties` at each level describe direct settings.
+Use `{"kind":"rich-table","table":{...}}` as a block to nest a table in a
+cell or supply one to a section or story edit. Grid widths are in twips,
+row heights and margins in points, and border sizes in eighth-points.
+Row and cell control-wrapper declarations are not exposed here.
+
 ### Propose and review tracked changes
 
 Use compact inspection for proposal anchors. Send a standalone

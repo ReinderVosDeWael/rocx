@@ -1,12 +1,16 @@
 pub(crate) mod blocks;
+pub(crate) mod body_inlines;
 mod entries;
+pub(crate) mod fields;
 pub(crate) mod layout;
 mod limits;
 pub(crate) mod notes;
 pub(crate) mod payloads;
 pub(crate) mod resources;
 pub(crate) mod revisions;
+pub(crate) mod run_format;
 pub(crate) mod stories;
+pub(crate) mod tables;
 
 use rmcp::{
     handler::server::common::schema_for_input,
@@ -79,6 +83,8 @@ impl ToolKind {
                   properties with {\"kind\":\"layout\"}. Use {\"kind\":\"sections\"} for native \
                   body ranges and boundary anchors, {\"kind\":\"stories\"} for all six \
                   header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
+                  Use fields and body-inlines for original inline sites, format-runs for \
+                  physical run targets, and body-tables or physical-tables for table edits. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
@@ -192,6 +198,21 @@ impl Call {
                 Some(View::Sections { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::Sections, limit, cursor)
                 }
+                Some(View::Fields { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::Fields, limit, cursor)
+                }
+                Some(View::BodyInlines { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
+                }
+                Some(View::BodyTables { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::BodyTables, limit, cursor)
+                }
+                Some(View::FormatRuns { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::FormatRuns, limit, cursor)
+                }
+                Some(View::PhysicalTables { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::PhysicalTables, limit, cursor)
+                }
                 Some(View::EntryRuns { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
                 }
@@ -228,6 +249,12 @@ impl Call {
                 }
                 Operation::EditStoryBlocks { anchor, edit } => {
                     session.preview_story_blocks(input.document, &anchor, edit)
+                }
+                Operation::EditRunFormat { anchor, edits } => {
+                    session.preview_run_format(input.document, &anchor, edits)
+                }
+                Operation::EditPartTables { anchor, edits } => {
+                    session.preview_part_tables(input.document, &anchor, edits)
                 }
                 Operation::NoOp {} => session.preview_noop(input.document),
             },
@@ -363,6 +390,11 @@ pub(crate) enum Edit {
         #[schemars(length(min = 1), inner(length(min = 1)))]
         rows: Vec<Vec<String>>,
     },
+    /// Insert a declared table with formatted, optionally nested cell contents.
+    InsertRichTable {
+        anchor: String,
+        table: Box<payloads::RichTableInput>,
+    },
     /// Replace the text of a supported direct run.
     RunText {
         /// Run anchor.
@@ -416,6 +448,21 @@ pub(crate) enum Edit {
         anchor: String,
         edit: blocks::BlockChange,
     },
+    /// Change a supported original main-story field.
+    Field {
+        anchor: String,
+        edit: fields::FieldChange,
+    },
+    /// Insert, replace or change a direct body inline.
+    Inline {
+        anchor: String,
+        edit: body_inlines::BodyInlineChange,
+    },
+    /// Change a direct body table in the ordinary mixed batch.
+    TableStructure {
+        anchor: String,
+        edit: tables::BodyTableEdit,
+    },
 }
 
 impl Edit {
@@ -425,13 +472,17 @@ impl Edit {
             | Self::InsertParagraph { anchor, .. }
             | Self::InsertRichParagraph { anchor, .. }
             | Self::InsertTable { anchor, .. }
+            | Self::InsertRichTable { anchor, .. }
             | Self::RunText { anchor, .. }
             | Self::RunRemove { anchor, .. }
             | Self::TextRange { anchor, .. }
             | Self::InsertText { anchor, .. }
             | Self::CellAlignment { anchor, .. }
             | Self::HeaderImage { anchor, .. }
-            | Self::Block { anchor, .. } => Some(anchor),
+            | Self::Block { anchor, .. }
+            | Self::Field { anchor, .. }
+            | Self::Inline { anchor, .. }
+            | Self::TableStructure { anchor, .. } => Some(anchor),
             Self::Resource { .. } => None,
         }
     }
@@ -442,13 +493,17 @@ impl Edit {
             | Self::InsertParagraph { .. }
             | Self::InsertRichParagraph { .. }
             | Self::InsertTable { .. }
+            | Self::InsertRichTable { .. }
             | Self::TextRange { .. }
             | Self::InsertText { .. } => "paragraph",
             Self::RunText { .. } | Self::RunRemove { .. } => "run",
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
             Self::Resource { .. } => unreachable!("resources have no anchor"),
-            Self::Block { .. } => unreachable!("block adapter resolves its own target"),
+            Self::Block { .. }
+            | Self::Field { .. }
+            | Self::Inline { .. }
+            | Self::TableStructure { .. } => unreachable!("domain adapter resolves its own target"),
         }
     }
 }
@@ -740,6 +795,7 @@ mod tests {
             ("insert-paragraph", &["text"][..]),
             ("insert-rich-paragraph", &["paragraph"][..]),
             ("insert-table", &["rows"][..]),
+            ("insert-rich-table", &["table"][..]),
             ("run-text", &["text"][..]),
             ("run-remove", &[][..]),
             ("text-range", &["start", "end", "text"][..]),
@@ -747,6 +803,9 @@ mod tests {
             ("cell-alignment", &["alignment"][..]),
             ("header-image", &["mode", "bytes"][..]),
             ("block", &["edit"][..]),
+            ("field", &["edit"][..]),
+            ("inline", &["edit"][..]),
+            ("table-structure", &["edit"][..]),
         ];
         assert_eq!(variants.len(), required.len() + 1);
         let resource = variants

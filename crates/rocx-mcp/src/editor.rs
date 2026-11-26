@@ -3,11 +3,11 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use rocx::editor::{
-    BlockEdit, BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, HeaderAnchor, HeaderEditMode,
-    HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedRowChild,
-    ImportedTableChild, InlineAnchor, ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion,
-    ResourceEdit, RunTextEdit, SectionStoryKind, TableAnchor, TableInsertion, TextInsertion,
-    TextRangeEdit,
+    BlockEdit, BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, FieldEdit, HeaderAnchor,
+    HeaderEditMode, HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode,
+    ImportedRowChild, ImportedTableChild, InlineAnchor, InlineEdit, ParagraphAlignmentEdit,
+    ParagraphAnchor, ParagraphInsertion, ResourceEdit, RunTextEdit, SectionStoryKind, TableAnchor,
+    TableInsertion, TextInsertion, TextRangeEdit,
 };
 use rocx::{
     Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph,
@@ -18,12 +18,17 @@ use serde_json::{Value, json};
 use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
 
 mod blocks;
+mod body_inlines;
+mod body_tables;
 mod entries;
+mod fields;
 mod layout;
 mod notes;
 mod resources;
 mod revisions;
+mod run_format;
 mod stories;
+mod tables;
 
 pub struct Snapshot {
     document: ImportedDocument,
@@ -109,19 +114,39 @@ impl Snapshot {
         let mut batch = Batch::default();
         for (index, mut edit) in edits.into_iter().enumerate() {
             let number = index + 1;
+            let locate = |e: String| {
+                if e.starts_with("wrong_anchor_type: ") {
+                    e
+                } else {
+                    format!("edit {number}: {e}")
+                }
+            };
             if let Edit::Resource { edit } = edit {
                 batch.resources.push(edit.into());
                 continue;
             }
             if let Edit::Block { anchor, edit } = edit {
-                let block = self.block_edit(&anchor, edit).map_err(|e| {
-                    if e.starts_with("wrong_anchor_type: ") {
-                        e
-                    } else {
-                        format!("edit {number}: {e}")
-                    }
-                })?;
-                batch.blocks.push(block);
+                batch
+                    .blocks
+                    .push(self.block_edit(&anchor, edit).map_err(locate)?);
+                continue;
+            }
+            if let Edit::Field { anchor, edit } = edit {
+                batch
+                    .fields
+                    .push(self.field_edit(&anchor, edit).map_err(locate)?);
+                continue;
+            }
+            if let Edit::Inline { anchor, edit } = edit {
+                batch
+                    .inline_edits
+                    .push(self.body_inline_edit(&anchor, edit).map_err(locate)?);
+                continue;
+            }
+            if let Edit::TableStructure { anchor, edit } = edit {
+                batch
+                    .structural
+                    .push(self.body_table_edit(&anchor, edit).map_err(locate)?);
                 continue;
             }
             let header_image = matches!(edit, Edit::HeaderImage { .. });
@@ -164,6 +189,9 @@ impl Snapshot {
                 text_insertions: &batch.text_insertions,
                 resources: &batch.resources,
                 blocks: &batch.blocks,
+                fields: &batch.fields,
+                inline_edits: &batch.inline_edits,
+                structural: &batch.structural,
                 ..EditBatch::default()
             })
             .map_err(|e| format!("preview: {e}"))?;
@@ -199,6 +227,9 @@ struct Batch {
     text_insertions: Vec<TextInsertion>,
     resources: Vec<ResourceEdit>,
     blocks: Vec<BlockEdit>,
+    fields: Vec<FieldEdit>,
+    inline_edits: Vec<InlineEdit>,
+    structural: Vec<rocx::editor::TableStructureEdit>,
 }
 
 impl Batch {
@@ -226,6 +257,12 @@ impl Batch {
                 self.tables.push(TableInsertion {
                     target: target.clone(),
                     table: resolve_table(rows)?,
+                });
+            }
+            (Edit::InsertRichTable { table, .. }, Target::Paragraph(target)) => {
+                self.tables.push(TableInsertion {
+                    target: target.clone(),
+                    table: table.resolve()?,
                 });
             }
             (Edit::RunText { text, .. }, Target::Run(target)) => {

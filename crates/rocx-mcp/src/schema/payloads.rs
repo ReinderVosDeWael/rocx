@@ -9,11 +9,14 @@ use serde::Deserialize;
 
 mod format;
 mod inline;
+mod table;
 #[cfg(test)]
 mod tests;
 
 use format::ParagraphFormatInput;
+pub(crate) use format::RunFormatInput;
 pub(crate) use inline::InlineInput;
+pub(crate) use table::RichTableInput;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -51,11 +54,15 @@ pub(crate) enum BlockInput {
         /// Grid widths in twips, one per column.
         column_widths: Option<Vec<u32>>,
     },
+    RichTable {
+        table: Box<RichTableInput>,
+    },
 }
 
 impl BlockInput {
     pub(crate) fn resolve(self) -> Result<ResolvedBlock, String> {
         match self {
+            Self::RichTable { table } => table.resolve().map(ResolvedBlock::Table),
             Self::Paragraph { paragraph } => paragraph.resolve().map(ResolvedBlock::Paragraph),
             Self::Table {
                 rows,

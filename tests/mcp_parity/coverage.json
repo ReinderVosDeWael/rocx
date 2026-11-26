@@ -36,6 +36,17 @@
     "section-boundaries": "tests/mcp/test_blocks.py::test_section_lifecycle_matches_native",
     "rich-paragraph": "tests/mcp/test_stories.py::test_insert_rich_paragraph_native_bytes",
     "rich-story-blocks": "tests/mcp/test_stories.py::test_rich_story_blocks_native_bytes_and_preservation",
+    "body-inlines": "tests/mcp/test_body_inlines.py::test_body_inline_edits_match_native",
+    "field-discovery": "tests/mcp/test_fields.py::test_field_discovery",
+    "field-mixed": "tests/mcp/test_fields.py::test_fields_mixed_batch_matches_native_after_rejection",
+    "run-format": "tests/mcp/test_run_format.py::test_physical_run_format_native_bytes",
+    "run-format-discovery": "tests/mcp/test_run_format.py::test_run_format_discovery",
+    "run-format-catalog-errors": "tests/mcp/test_run_format.py::test_broken_unrelated_catalog_does_not_block_body",
+    "table-paging": "tests/mcp/test_physical_tables.py::test_physical_table_pagination_and_rejected_batches",
+    "table-geometry": "tests/mcp/test_physical_tables.py::test_physical_geometry_and_layout_native_bytes",
+    "table-owners": "tests/mcp/test_physical_tables.py::test_rich_physical_table_content_native_bytes",
+    "body-table-mixed": "tests/mcp/test_physical_tables.py::test_ordinary_body_table_mixed_whole_nodes_native_bytes",
+    "rich-table": "tests/mcp/test_rich_table.py::test_rich_table_declaration_matches_native",
     "lifetime": "tests/mcp/test_stdio.py::test_retained_selection_lifetime_and_exclusive_save",
     "capacity": "tests/mcp/test_stdio.py::test_capacity_rejects_without_eviction_and_close_releases"
   },
@@ -45,9 +56,9 @@
       "status": "covered", "positive": ["baseline-mixed", "discovery"], "negative": ["baseline-mixed", "lifetime"]
     },
     "EditBatch::tables": {
-      "scope": "direct body", "target": "paragraph after which to insert a resolved table", "mcp": "preview_edits.edits[kind=insert-table]",
-      "status": "partial", "gap": "Only a rectangular matrix of plain cell text; no rich resolved table payload.",
-      "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "scope": "direct body", "target": "paragraph after which to insert a resolved table", "mcp": "preview_edits.edits[kind=insert-table|insert-rich-table]",
+      "status": "partial", "gap": "Rich and nested cells and modeled properties are transported, but row/cell control wrappers and additional inline payloads remain unsupported.",
+      "positive": ["baseline-mixed", "rich-table"], "negative": ["baseline-mixed", "rich-table"]
     },
     "EditBatch::header_images": {
       "scope": "logical section slot, shared physical part or section-local fork", "target": "header/footer slot anchor", "mcp": "preview_edits.edits[kind=header-image]",
@@ -85,12 +96,14 @@
       "positive": ["block-discovery", "block-mixed", "section-boundaries"], "negative": ["block-discovery", "block-mixed", "section-boundaries"]
     },
     "EditBatch::inline_edits": {
-      "scope": "ordinary body batch", "target": "inline or drawing occurrence anchor", "mcp": "preview_edits.edits (planned inline operations)",
-      "status": "planned", "gap": "No rich inline declarations, property/format patches, link edits or drawing edits.", "positive": [], "negative": []
+      "scope": "ordinary body batch", "target": "inline or drawing occurrence anchor", "mcp": "preview_edits.edits[kind=inline]",
+      "status": "partial", "gap": "Insert/replace, hyperlink properties/removal and direct formatting are available; drawing edits and some resolved inline types remain open.",
+      "positive": ["body-inlines", "run-format-discovery"], "negative": ["body-inlines"]
     },
     "EditBatch::structural": {
-      "scope": "direct body tables", "target": "table, physical row/cell, or logical column", "mcp": "preview_edits.edits (planned structural table operations)",
-      "status": "planned", "gap": "Cell alignment is a distinct slice; no structural operations or rich cell/table declarations.", "positive": [], "negative": []
+      "scope": "direct body tables", "target": "table, physical row/cell, or logical column", "mcp": "preview_edits.edits[kind=table-structure]",
+      "status": "partial", "gap": "All table variants are transported; not all resolved replacements, donor fields and protection combinations are qualified.",
+      "positive": ["body-table-mixed", "table-geometry", "table-owners"], "negative": ["body-table-mixed", "table-paging"]
     },
     "EditBatch::styles": {
       "scope": "relationship-selected styles", "target": "style ID, anchor, property, or conditional region", "mcp": "preview_edits.edits (planned style operations)",
@@ -110,8 +123,9 @@
       "status": "planned", "gap": "No wrap, unwrap, definition, or choice mutations.", "positive": [], "negative": []
     },
     "EditBatch::fields": {
-      "scope": "main story, including balanced field spans", "target": "paragraph anchor and original field inline index or insertion site", "mcp": "preview_edits.edits (planned field operations)",
-      "status": "planned", "gap": "No field insertion, instruction/flag patch, replacement or removal.", "positive": [], "negative": []
+      "scope": "main story, including balanced field spans", "target": "original field anchor or direct inline insertion site", "mcp": "preview_edits.edits[kind=field]; kind=inline for insertion",
+      "status": "partial", "gap": "All field edit actions are transported; replacement and cached display declarations do not represent every supported native inline payload.",
+      "positive": ["field-discovery", "field-mixed", "body-inlines"], "negative": ["field-discovery", "field-mixed", "body-inlines"]
     },
     "EditBatch::paired_ranges": {
       "scope": "main story, including cross-paragraph ranges", "target": "bookmark or comment ID and original inline endpoints", "mcp": "preview_edits.edits (planned paired range operations)",
@@ -127,8 +141,7 @@
     },
     "EditPreview::inline_changes": {
       "scope": "retained preview", "target": "original block and inline indices", "mcp": "preview_edits.changes.inline_changes",
-      "status": "partial", "gap": "Empty report is qualified; general inline edits that populate it remain unimplemented.",
-      "positive": ["empty-batch"], "negative": ["empty-batch"]
+      "status": "covered", "positive": ["empty-batch", "body-inlines", "field-mixed"], "negative": ["empty-batch", "body-inlines", "field-mixed"]
     },
     "EditPreview::run_removals": {
       "scope": "retained preview", "target": "original block/run coordinates and removed text", "mcp": "preview_edits.changes.run_removals",
@@ -188,8 +201,9 @@
       "positive": ["baseline-mixed", "baseline-created", "body-scalar-edits"], "negative": ["lifetime"]
     },
     "ImportedDocument::inline_at": {
-      "scope": "snapshot-local inline identity", "target": "issued inline anchor", "mcp": "inspect_document (planned inline detail view)",
-      "status": "planned", "gap": "Compact inspection emits some run anchors but cannot request a typed node by anchor.", "positive": [], "negative": []
+      "scope": "snapshot-local inline identity", "target": "issued inline anchor", "mcp": "inspect_document.view[kind=body-inlines|format-runs]",
+      "status": "partial", "gap": "Some native properties are projected, but there is no generic typed node lookup by anchor across all owner contexts.",
+      "positive": ["body-inlines", "run-format"], "negative": ["body-inlines", "run-format"]
     },
     "ImportedDocument::preview_edits": {
       "scope": "ordinary mixed batch against original snapshot", "target": "18 slices and change report", "mcp": "preview_edits.edits; preview_edits.operation[kind=no-op] for an empty batch",
@@ -256,12 +270,14 @@
     "ImportedDocument::preview_with_inlines": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus inline edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "inline_edits"],
-      "status": "partial", "gap": "Inline slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Body inline edits work with the original slices, but drawing actions and full declaration coverage remain open.",
+      "positive": ["baseline-mixed", "body-inlines"], "negative": ["baseline-mixed", "body-inlines"]
     },
     "ImportedDocument::preview_with_table_structure": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus direct table structure edits", "mcp": "preview_edits.edits",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "structural"],
-      "status": "partial", "gap": "Structural slice not implemented; inherits baseline limits.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "partial", "gap": "Mixed body table structure is transported; not all donor fields and resolved payloads are qualified.",
+      "positive": ["baseline-mixed", "body-table-mixed"], "negative": ["baseline-mixed", "body-table-mixed"]
     },
     "ImportedDocument::preview_with_styles": {
       "scope": "ordinary mixed batch", "target": "original seven slices plus style edits", "mcp": "preview_edits.edits",
@@ -305,16 +321,18 @@
       "positive": ["layout-discovery", "layout-bytes"], "negative": ["layout-rejection"]
     },
     "ImportedDocument::edit_run_format": {
-      "scope": "one physical body, header/footer or ordinary note/comment part", "target": "run anchors including hyperlink children and physical cell runs", "mcp": "preview_edits.operation (planned physical run formatting)",
-      "status": "planned", "gap": "No physical run format transaction, modeled patches, or byte-only result.", "positive": [], "negative": []
+      "scope": "one physical body, header/footer or ordinary note/comment part", "target": "run anchors including hyperlink children and body cell runs", "mcp": "preview_edits.operation[kind=edit-run-format]",
+      "status": "covered", "positive": ["run-format", "run-format-discovery", "run-format-catalog-errors"], "negative": ["run-format", "run-format-discovery"]
     },
     "ImportedDocument::part_tables": {
-      "scope": "all physical owners, optionally filtered to one body, story or note/comment part", "target": "nested and direct physical tables with paths/anchors", "mcp": "inspect_document (planned physical tables view)",
-      "status": "planned", "gap": "Compact direct-body cell view does not expose physical table identities.", "positive": [], "negative": []
+      "scope": "physical owners including body, headers/footers and entry stories", "target": "nested and direct physical tables with paths/anchors", "mcp": "inspect_document.view[kind=physical-tables]",
+      "status": "partial", "gap": "The aggregated page delivers native readback but cannot query a specified owner independently of malformed unrelated catalogs.",
+      "positive": ["table-paging", "table-owners"], "negative": ["table-paging"]
     },
     "ImportedDocument::edit_part_tables": {
-      "scope": "one physical body, story or note/comment part", "target": "owner-local table anchors and physical/logical coordinates", "mcp": "preview_edits.operation (planned physical table editing)",
-      "status": "planned", "gap": "No scoped table batch or byte-only result.", "positive": [], "negative": []
+      "scope": "one physical body, story or note/comment part", "target": "owner-local table anchors and physical/logical coordinates", "mcp": "preview_edits.operation[kind=edit-part-tables]",
+      "status": "partial", "gap": "Geometry, layout, cell contents and property copy/clear are qualified; not every native donor field or supported resolved cell payload is qualified.",
+      "positive": ["table-geometry", "table-owners"], "negative": ["table-paging"]
     },
     "ImportedDocument::edit_story_reference": {
       "scope": "one logical section story slot", "target": "section, header/footer kind, and slot variant", "mcp": "preview_edits.operation[kind=edit-story-reference]",
@@ -348,18 +366,20 @@
       "positive": ["note-sites", "note-reference-bytes", "note-catalog-scope"], "negative": ["note-reference-rejection"]
     },
     "ImportedDocument::field_at": {
-      "scope": "main story", "target": "paragraph anchor and original field inline index", "mcp": "inspect_document (planned field detail view)",
-      "status": "planned", "gap": "No typed field instructions, flags, or cache.", "positive": [], "negative": []
+      "scope": "main story", "target": "original field coordinates and stored instruction, form, flags and span count", "mcp": "inspect_document.view[kind=fields]",
+      "status": "covered", "positive": ["field-discovery", "field-mixed"], "negative": ["field-mixed"]
     },
     "ImportedDocument::patch_field": {
-      "scope": "main story", "target": "one field identified by paragraph anchor and original inline index", "mcp": "preview_edits.edits (planned field patch)",
+      "scope": "main story", "target": "one field identified by paragraph anchor and original inline index", "mcp": "preview_edits.edits[kind=field]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["fields"],
-      "status": "planned", "gap": "Field slice not implemented; convenience API returns only bytes.", "positive": [], "negative": []
+      "status": "partial", "gap": "All patch actions are transported; their shared field slice is not fully qualified across payload and guard combinations.",
+      "positive": ["field-mixed"], "negative": ["field-mixed"]
     },
     "ImportedDocument::replace_field": {
-      "scope": "main story", "target": "one field, optional resolved replacement; omission removes", "mcp": "preview_edits.edits (planned field replace or remove)",
+      "scope": "main story", "target": "one field, optional resolved replacement; omission removes", "mcp": "preview_edits.edits[kind=field]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["fields"],
-      "status": "planned", "gap": "Field slice not implemented; convenience API returns only bytes.", "positive": [], "negative": []
+      "status": "partial", "gap": "Replacement and removal are transported but replacement payload coverage is incomplete.",
+      "positive": ["field-mixed"], "negative": ["field-mixed"]
     },
     "ImportedDocument::body_range_markers": {
       "scope": "main story range boundaries and references", "target": "bookmark/comment IDs and original marker sites", "mcp": "inspect_document (planned range marker view)",
