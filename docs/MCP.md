@@ -60,6 +60,14 @@ physical table-cell vertical alignment, and image insertion in a default or
 first-page header. For a header image, specify `shared` to edit its shared
 part or `section-local` to limit the change to the selected section.
 
+To override archive read budgets for one open, pass, for example,
+`{"path":"input.docx","limits":{"max_parts":"100","max_expanded_bytes":"16777216"}}`.
+Supply `max_parts`, `max_part_bytes` and `max_expanded_bytes` as unsigned
+decimal strings without leading zeroes; strings preserve exact 64-bit byte
+counts. Omitted fields use native defaults: 10,000 ZIP members, 64 MiB for
+one expanded member, and 256 MiB total expanded bytes. These are import
+budgets, not limits on compressed file size or on retained previews.
+
 ### Edit part of a paragraph
 
 Use the **paragraph** anchor and count Unicode scalar values in its original
@@ -128,6 +136,99 @@ reserved note markers, rich content and threaded comments. Entry cursors and
 anchors are valid only for the document that issued them. After reopening a
 saved copy, inspect it again.
 
+### Create or change a note reference
+
+Call `inspect_document` with `view:{"kind":"note-references"}`. The
+`note_references` page distinguishes `insertion-candidate` runs from direct
+`reference` runs. Reference records include `note_kind` and the original
+string `id`. Use the site anchor from this page, not the entry anchor from
+the `entries` view.
+
+```json
+{
+  "document": "<document>",
+  "operation": {
+    "kind": "edit-note-reference",
+    "anchor": "<insertion candidate anchor>",
+    "note_kind": "footnote",
+    "edit": {"kind":"create","id":42,"text":"Source citation."}
+  }
+}
+```
+
+`create` and `attach` insert after a candidate run. `create` adds a new
+definition (and creates the note part if necessary); `attach` uses an existing
+unused definition. With a reference anchor, use `detach` to leave its
+definition in place, `delete` to remove both when the definition is discardable,
+`retarget` to point to an unused definition, or `renumber` to change both IDs.
+`attach`, `retarget`, and `renumber` take `id` as an unsigned 32-bit integer;
+for a stored ID like `"007"`, supply `7`. Set `note_kind` to `footnote` or
+`endnote`. The server uses the related part, but cannot select a relocated
+part with no entries. A successful preview has `changes: null`.
+
+### Change direct paragraph or section layout
+
+Call `inspect_document` with `view:{"kind":"layout"}`. Each `layout` row
+identifies a direct paragraph by its body index or a section by its section
+index. Its `layout` object contains only modeled direct values, not computed
+formatting.
+
+```json
+{
+  "document": "<document>",
+  "operation": {
+    "kind": "edit-layout",
+    "edits": [
+      {"anchor":"<paragraph anchor from layout>","field":"firstLineIndent","value":-240},
+      {"anchor":"<section anchor from layout>","field":"marginLeft","value":1440}
+    ]
+  }
+}
+```
+
+Use the lower camel case field names and the
+[native layout values and units](EDITOR-PARITY.md#direct-paragraph-and-section-layout).
+Each edit requires a `value`. Pass `null` to clear that field, `false` for
+an explicit off flag, or omit the edit to leave the field alone. Paragraph
+and section changes can share one layout transaction, but cannot be combined
+with an ordinary batch in the same preview.
+
+### Propose and review tracked changes
+
+Use compact inspection for proposal anchors. Send a standalone
+`edit-revision` operation, for example:
+
+```json
+{
+  "document": "<document>",
+  "operation": {
+    "kind":"edit-revision",
+    "anchor":"<direct body run anchor>",
+    "edit":{"kind":"replace-text","text":"Revised wording","author":"Editorial team"}
+  }
+}
+```
+
+| Proposal edit | Target and extra arguments |
+| --- | --- |
+| `insert-text-after`, `replace-text` | Direct body run; `text`. |
+| `delete-text` | Direct body run. |
+| `move-text` | Source run; `paired_anchor` on the operation for the destination run, `name` and required `date` on the edit. |
+| `set-bold` | Direct body run; `bold` boolean. |
+| `insert-paragraph-before` | Direct body paragraph; `text`. |
+| `delete-paragraph` | Direct body paragraph. |
+
+All proposals need `author`. Other proposals may omit `date`; if supplied,
+use a UTC timestamp such as `"2030-02-03T04:05:06Z"`.
+Save and reopen the proposed copy, then call `inspect_document` with
+`view:{"kind":"revisions"}`. Pending revisions list literal metadata and
+original inline paths. Use the returned anchor with `review` for eligible
+inline wrappers or run property changes and `review-paragraph` for an eligible
+paragraph mark. Set `action` to `accept` or `reject`. Paired move review
+requires both wrapper anchors; pass the second as `operation.paired_anchor`.
+Some nested revisions are read-only; the core checks anchors, pairing,
+protected ranges and paragraph boundaries before staging any changes.
+
 ### Save or continue editing
 
 Every preview starts from the opened or created document. Put edits that
@@ -135,6 +236,9 @@ should apply together in one batch, using anchors from inspection of that
 document. A rejected batch leaves earlier previews and anchors usable.
 To continue editing a saved result, open that copy and inspect it for new
 anchors. Changes to the source file on disk do not alter a live snapshot.
+To stage the native empty-batch result, use `operation:{"kind":"no-op"}`.
+This returns a retained preview with empty change arrays. It preserves
+package payloads but does not promise the source ZIP's exact encoding.
 
 `save_copy` writes the selected preview's retained bytes and returns their
 SHA-256 as `output_snapshot`. It refuses an existing destination. Choose

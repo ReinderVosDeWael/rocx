@@ -17,6 +17,9 @@ use serde_json::{Value, json};
 use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
 
 mod entries;
+mod layout;
+mod notes;
+mod revisions;
 
 pub struct Snapshot {
     document: ImportedDocument,
@@ -53,8 +56,13 @@ struct Inspection {
 
 impl Snapshot {
     pub fn open(bytes: &[u8]) -> Result<Self, String> {
+        Self::open_with_limits(bytes, rocx::opc::ReadLimits::default())
+    }
+
+    pub fn open_with_limits(bytes: &[u8], limits: rocx::opc::ReadLimits) -> Result<Self, String> {
         Ok(Self {
-            document: ImportedDocument::open(bytes).map_err(|e| e.to_string())?,
+            document: ImportedDocument::open_with_limits(bytes, limits)
+                .map_err(|e| e.to_string())?,
             inspection: OnceLock::new(),
         })
     }
@@ -130,9 +138,23 @@ impl Snapshot {
                 ..EditBatch::default()
             })
             .map_err(|e| format!("preview: {e}"))?;
-        let bytes = preview.to_docx().map_err(|e| e.to_string())?;
-        Ok((bytes, report(&preview)))
+        encode_preview(&preview)
     }
+
+    pub fn preview_noop(&self) -> Result<(Vec<u8>, Value), String> {
+        let preview = self
+            .document
+            .preview_edits(EditBatch::default())
+            .map_err(|e| e.to_string())?;
+        encode_preview(&preview)
+    }
+}
+
+fn encode_preview(preview: &EditPreview) -> Result<(Vec<u8>, Value), String> {
+    Ok((
+        preview.to_docx().map_err(|e| e.to_string())?,
+        report(preview),
+    ))
 }
 
 #[derive(Default)]
@@ -299,6 +321,8 @@ fn report(preview: &EditPreview) -> Value {
             "target": change.after_body_index, "rows": change.rows, "columns": change.columns,
         })),
         "paragraph_insertions": preview.paragraph_insertions(),
+        "block_changes": preview.block_changes(),
+        "inline_changes": preview.inline_changes(),
         "header_images": records(preview.header_changes(), |change| {
             let mode = match change.mode {
                 HeaderEditMode::Shared => "shared",

@@ -1,4 +1,8 @@
 mod entries;
+pub(crate) mod layout;
+mod limits;
+pub(crate) mod notes;
+pub(crate) mod revisions;
 
 use rmcp::{
     handler::server::common::schema_for_input,
@@ -8,7 +12,7 @@ use rmcp::{
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-use crate::session::Session;
+use crate::session::{PageView, Session};
 use entries::{Operation, View};
 
 #[derive(Clone, Copy)]
@@ -55,6 +59,7 @@ impl ToolKind {
             Self::Open => (
                 "Open a DOCX on the server host. Relative paths use the server launch directory. \
                  Returns a fresh document handle and the source SHA-256. The source is never modified. \
+                 Optional limits override individual native import budgets as decimal strings. \
                  Example result: {\"document\":\"<document>\",\"snapshot\":\"<sha256>\"}.",
                 schema_for_input::<Open>(),
             ),
@@ -65,7 +70,10 @@ impl ToolKind {
                   projection, with null meaning none are advertised. It is not edit permission: \
                   preview_edits validates the actual target and batch. Omit view for this compact \
                   result. Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
-                  definitions with entry anchors. The page limit defaults to 25 (range 1–100); \
+                  definitions with entry anchors, note-references for direct body note sites and \
+                  tracked revisions with {\"kind\":\"revisions\"}, or direct paragraph and section \
+                  properties with {\"kind\":\"layout\"}. \
+                  The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
                   {\"document\":\"<document>\",\"body\":[\
@@ -79,7 +87,8 @@ impl ToolKind {
                  from inspect_document; edit-entry requires an entry definition anchor from the \
                  entries view. Returns a fresh preview handle and output SHA-256 without writing \
                  a file or invalidating earlier previews. Ordinary batches return a change report; \
-                 edit-entry returns changes: null. Example scoped operation: {\"kind\":\"edit-entry\",\
+                 revision previews return the native report projection, while entry and note \
+                 reference edits return changes: null. Example scoped operation: {\"kind\":\"edit-entry\",\
                  \"anchor\":\"<entry anchor>\",\"edit\":{\"kind\":\"comment-initials\",\"value\":null}}.",
                 schema_for_input::<Preview>(),
             ),
@@ -156,11 +165,20 @@ impl Call {
     pub(crate) fn dispatch(self, session: &mut Session) -> Result<Value, String> {
         match self {
             Self::Create(input) => session.create_document(input.paragraphs),
-            Self::Open(input) => session.open_document(input.path),
+            Self::Open(input) => session.open_document(input.path, input.limits.map(Into::into)),
             Self::Inspect(input) => match input.view {
                 None => session.inspect_document(input.document),
                 Some(View::Entries { limit, cursor }) => {
-                    session.inspect_entries(input.document, limit, cursor)
+                    session.inspect_page(input.document, PageView::Entries, limit, cursor)
+                }
+                Some(View::Layout { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::Layout, limit, cursor)
+                }
+                Some(View::NoteReferences { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::NoteReferences, limit, cursor)
+                }
+                Some(View::Revisions { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::Revisions, limit, cursor)
                 }
             },
             Self::Preview(Preview::Ordinary(input)) => {
@@ -170,6 +188,18 @@ impl Call {
                 Operation::EditEntry { anchor, edit } => {
                     session.preview_entry(input.document, anchor, edit.into())
                 }
+                Operation::EditNoteReference {
+                    anchor,
+                    note_kind,
+                    edit,
+                } => session.preview_note_reference(input.document, anchor, note_kind, edit),
+                Operation::EditRevision {
+                    anchor,
+                    paired_anchor,
+                    edit,
+                } => session.preview_revision(input.document, anchor, paired_anchor, edit),
+                Operation::EditLayout { edits } => session.preview_layout(input.document, edits),
+                Operation::NoOp {} => session.preview_noop(input.document),
             },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
             Self::Close(input) => session.close_document(input.document),
@@ -190,6 +220,10 @@ pub(crate) struct Create {
 pub(crate) struct Open {
     /// Source DOCX path on the server host.
     path: String,
+    /// Per-open archive read budgets. Omitted members use native defaults.
+    #[serde(default, deserialize_with = "entries::present")]
+    #[schemars(with = "limits::ImportLimits", skip_serializing_if = "Option::is_none")]
+    limits: Option<limits::ImportLimits>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -514,8 +548,10 @@ mod tests {
             };
             assert_eq!(document, "doc");
             assert_eq!(
-                view.as_ref()
-                    .map(|View::Entries { limit, cursor }| (*limit, cursor.as_deref())),
+                view.as_ref().and_then(|view| match view {
+                    View::Entries { limit, cursor } => Some((*limit, cursor.as_deref())),
+                    _ => None,
+                }),
                 expected
             );
         }

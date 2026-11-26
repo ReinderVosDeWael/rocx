@@ -20,9 +20,17 @@ paragraphs, rejection/retry and equality with the native saved package.
 The next inspection slice adds a paged `entries` view and an owner-scoped
 `edit-entry` operation for the native `EntryEdit` variants. An entry page
 projects block text and opaque markers; it does not expose the full typed
-inline tree. Entry definitions are separate from body note references:
-`edit_entry_inlines` and `edit_note_reference` remain follow-ups, as does the
-broader inspection and physical-owner work in the table below.
+inline tree. The scoped `edit-note-reference` operation is separate from
+entry definitions; the note body-site view advertises candidate insertion
+runs and original lexical reference IDs. Relocated note parts with zero
+entries cannot yet be identified through the public entry catalog, and
+`edit_entry_inlines` remains open.
+
+The same bounded paging model now supports direct paragraph/section
+`layout` and pending `revisions`. Scoped previews delegate respectively to
+native layout transactions and the six revision proposals/review methods.
+Open supports per-request `ReadLimits`, and `no-op` stages the native empty
+batch without changing the established nonempty `edits` request.
 
 ## What counts as parity?
 

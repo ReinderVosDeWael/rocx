@@ -8,7 +8,7 @@ export ROCX_MCP_BINARY="$PWD/target/mcp-acceptance-install/bin/rocx-mcp"
 export ROCX_MCP_ORACLE="$PWD/target/mcp-acceptance/debug/examples/mcp_byte_oracle"
 export ROCX_SCHEMA_DIR="$PWD/target/mcp-acceptance-schemas"
 cargo install --locked --path crates/rocx-mcp --root "$PWD/target/mcp-acceptance-install"
-cargo build --locked -p rocx-mcp --example mcp_byte_oracle --target-dir "$PWD/target/mcp-acceptance"
+cargo build --locked -p rocx-mcp --examples --target-dir "$PWD/target/mcp-acceptance"
 uv run --no-project --with-requirements tests/mcp/requirements.txt \
   python tools/validate_ooxml.py --download-schemas
 uv run --no-project --with-requirements tests/mcp/requirements.txt \
@@ -24,6 +24,8 @@ full saved packages, then independently inspect DOCX semantics, protected part
 payloads, header relationships, and Transitional schema/OPC validity.
 For newly authored documents, the oracle receives the observed clock timestamp
 as a render input; neither ZIP is normalized or rewritten before comparison.
+The note-reference, layout and revision suites locate their independent
+native oracle binaries beside `ROCX_MCP_ORACLE`.
 
 Entry-story coverage (`test_stdio.py`):
 
@@ -40,3 +42,17 @@ Entry-story coverage (`test_stdio.py`):
 - `test_entry_rejection_retry_and_foreign_handles` rejects invalid payloads,
   mixed scopes, live-note deletion, destructive edits, and wrong-owner handles
   before retrying with the original anchor.
+
+Additional scoped and import coverage:
+
+- `test_notes.py` compares all six note-reference edits with Rust, including
+  first-part creation, relocated and reserved-only parts, and rejected
+  ineligible or foreign anchors.
+- `test_revisions.py` compares all six proposal/review methods with Rust and
+  independently checks Word markup, paired move IDs, both review dispositions
+  and read-only nested evidence.
+- `test_layout.py` checks every field name in discovery and compares a mixed
+  paragraph/section transaction and a no-op with Rust. It tests clear, set,
+  conflict, invalid target and unchanged package parts separately.
+- `test_limits.py` compares the exact and just-under archive budgets with
+  Rust and verifies native empty-batch preview bytes and retention.

@@ -276,8 +276,31 @@ fn main() {
         [command, output, source] if command == "inspect-entries" => {
             (output, inspect_entries(Path::new(source)))
         }
+        [command, output, source] if command == "no-op" => {
+            let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+            (
+                output,
+                doc.preview_edits(EditBatch::default())
+                    .unwrap()
+                    .to_docx()
+                    .unwrap(),
+            )
+        }
+        [command, output, source, count, member, total] if command == "open-with-limits" => {
+            let limits = rocx::opc::ReadLimits {
+                max_parts: count.parse().unwrap(),
+                max_part_bytes: member.parse().unwrap(),
+                max_expanded_bytes: total.parse().unwrap(),
+            };
+            let input = fs::read(source).unwrap();
+            let result = match ImportedDocument::open_with_limits(&input, limits) {
+                Ok(doc) => serde_json::json!({"blocks": doc.body().len()}),
+                Err(error) => serde_json::json!({"error": error.to_string()}),
+            };
+            (output, serde_json::to_vec(&result).unwrap())
+        }
         _ => panic!(
-            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | scalar OUTPUT SOURCE | entry OUTPUT SOURCE CASE | inspect-entries OUTPUT SOURCE"
+            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | scalar OUTPUT SOURCE | entry OUTPUT SOURCE CASE | inspect-entries OUTPUT SOURCE | no-op OUTPUT SOURCE | open-with-limits OUTPUT SOURCE COUNT MEMBER TOTAL"
         ),
     };
     fs::write(output, bytes).unwrap();
