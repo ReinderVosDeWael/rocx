@@ -5,9 +5,9 @@ use std::sync::OnceLock;
 use rocx::editor::{
     BlockEdit, BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, FieldEdit, HeaderAnchor,
     HeaderEditMode, HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode,
-    ImportedRowChild, ImportedTableChild, InlineAnchor, InlineEdit, ParagraphAlignmentEdit,
-    ParagraphAnchor, ParagraphInsertion, ResourceEdit, RunTextEdit, SectionStoryKind, TableAnchor,
-    TableInsertion, TextInsertion, TextRangeEdit,
+    ImportedRowChild, ImportedTableChild, InlineAnchor, InlineEdit, PairedRangeEdit,
+    ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion, ResourceEdit, RunTextEdit,
+    SectionStoryKind, TableAnchor, TableInsertion, TextInsertion, TextRangeEdit,
 };
 use rocx::{
     Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph,
@@ -24,6 +24,7 @@ mod entries;
 mod fields;
 mod layout;
 mod notes;
+mod paired_ranges;
 mod resources;
 mod revisions;
 mod run_format;
@@ -143,6 +144,18 @@ impl Snapshot {
                     .push(self.body_inline_edit(&anchor, edit).map_err(locate)?);
                 continue;
             }
+            if let Edit::PairedRange {
+                id,
+                bookmark,
+                endpoints,
+            } = edit
+            {
+                batch.paired_ranges.push(
+                    self.paired_range_edit(id, bookmark, endpoints)
+                        .map_err(locate)?,
+                );
+                continue;
+            }
             if let Edit::TableStructure { anchor, edit } = edit {
                 batch
                     .structural
@@ -191,6 +204,7 @@ impl Snapshot {
                 blocks: &batch.blocks,
                 fields: &batch.fields,
                 inline_edits: &batch.inline_edits,
+                paired_ranges: &batch.paired_ranges,
                 structural: &batch.structural,
                 ..EditBatch::default()
             })
@@ -229,6 +243,7 @@ struct Batch {
     blocks: Vec<BlockEdit>,
     fields: Vec<FieldEdit>,
     inline_edits: Vec<InlineEdit>,
+    paired_ranges: Vec<PairedRangeEdit>,
     structural: Vec<rocx::editor::TableStructureEdit>,
 }
 

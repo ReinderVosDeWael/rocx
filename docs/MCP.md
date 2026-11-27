@@ -271,6 +271,31 @@ or explicit `null`, `cache` with an inline `children` list, `replace` with a
 field `inline` declaration, or `remove`. Rust validates the original span,
 cached content, and overlap with the rest of the batch.
 
+### Move, add or remove a bookmark or comment range
+
+Use `view:{"kind":"range-markers"}` to page through the original direct
+body markers and comment references. Each `range_markers` row gives its
+zero-based `body_index` and `inline_index`, `kind`, and stored `id` and
+`name` strings (or `null` if absent). IDs are shown as stored, so `"+007"`
+is edited with the numeric ID `7`. A row describes a physical marker, not
+necessarily a valid or editable pair.
+
+In the ordinary `edits` array, use inclusive endpoint anchors from
+`body-inlines`. The endpoints may be the same inline or in different
+paragraphs, and both refer to the original snapshot:
+
+```json
+{"kind":"paired-range","id":7,"bookmark":"OldPlace",
+ "endpoints":{"first":"<first inline anchor>","last":"<last inline anchor>"}}
+```
+
+For a bookmark, use its exact existing name when moving or removing it.
+Omit `bookmark` for a comment range; the numeric ID must identify one
+existing comment definition (see `entries`). Omit `endpoints` to remove the
+markers. For a comment this also removes the body reference, not the
+definition. Neither optional field accepts explicit `null`. The editor
+rejects ambiguous pairs, protected endpoints, and unsafe removals.
+
 ### Format runs in one physical part
 
 Use `view:{"kind":"format-runs"}`. A run row has a physical `owner` anchor,

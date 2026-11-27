@@ -312,10 +312,11 @@ async def test_discovery(launch):
             "insert-rich-paragraph": {"paragraph"}, "field": {"edit"}, "inline": {"edit"},
             "insert-rich-table": {"table"},
             "table-structure": {"edit"},
+            "paired-range": {"id"},
         }
         assert len(variants) == len(expected) and kinds.keys() == expected.keys()
         for kind, variant_schema in kinds.items():
-            anchor = set() if kind == "resource" else {"anchor"}
+            anchor = set() if kind in {"resource", "paired-range"} else {"anchor"}
             assert set(variant_schema["required"]) == {"kind"} | anchor | expected[kind]
             assert variant_schema["additionalProperties"] is False
             if anchor:

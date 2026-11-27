@@ -91,12 +91,19 @@ edits, plus single-owner transactions for physical run formatting and
 nested/direct tables. Reuse a rich, recursive table declaration for insertion,
 cell contents and eligible donor properties. Direct-body table geometry and
 whole-node edits run in the ordinary batch; physical owners retain native
-scope restrictions.
+scope restrictions. [PR #80](https://github.com/ReinderVosDeWael/rocx/pull/80)
+merged after hosted qualification.
 
-Next: discover paired bookmark/comment markers and structured control sites
-and qualify their original-coordinate transactions. Continue with drawing
-and chart actions, style and numbering resources, then reconcile the remaining
-payload and owner coverage against the compiled ledger.
+The paired-range increment adds paged bookmark/comment marker discovery and
+ordinary create/move/remove edits using two original body-inline anchors.
+Comment ranges operate on existing definitions without modifying them.
+The saved lifecycle outputs match direct Rust bytes, and a live OpenCode
+client saved and paged through a cross-paragraph bookmark.
+
+Next: discover structured control sites and qualify their original-coordinate
+transactions. Continue with drawing and chart actions, style and numbering
+resources, then reconcile the remaining payload and owner coverage against the
+compiled ledger.
 
 ## 0.4.0 release
 
