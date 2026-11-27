@@ -25,6 +25,8 @@ CASES = {
     "create": ("endnote", 0, CREATE),
     "first-part": ("footnote", 0, CREATE),
     "empty-owner": ("footnote", 0, CREATE),
+    "relocated-empty-footnote": ("footnote", 0, CREATE),
+    "relocated-empty-endnote": ("endnote", 0, CREATE),
     "reserved-only": ("endnote", 0, CREATE),
     "attach": ("footnote", 3, dict(kind="attach")),
     "detach": ("footnote", 4, dict(kind="detach")),
@@ -63,9 +65,10 @@ def make_source(path, case="create", invalid_comments=False):
         if case == "first-part" and kind == "footnote":
             continue
         plural = f"{kind}s"
-        empty = case == "empty-owner" and kind == "footnote"
+        conventional_empty = case == "empty-owner" and kind == "footnote"
+        empty = conventional_empty or case == f"relocated-empty-{kind}"
         reserved_only = case == "reserved-only" and kind == "endnote"
-        owner = f"word/{plural}.xml" if empty else f"word/notes/{plural}.xml"
+        owner = f"word/{plural}.xml" if conventional_empty else f"word/notes/{plural}.xml"
         root = w(plural)
         if not empty:
             separator = w(kind, id="-1", type="separator")
@@ -211,6 +214,9 @@ def assert_package_delta(source, output, case, kind):
         f"word/{plural}.xml" if case in ("first-part", "empty-owner")
         else f"word/notes/{plural}.xml"
     )
+    if case == f"relocated-empty-{kind}":
+        assert f"word/{plural}.xml" not in original
+        assert len(ElementTree.fromstring(original[owner])) == 0
     added = {owner} if case == "first-part" else set()
     assert set(edited) == set(original) | added
     changed = {"word/document.xml"}
@@ -222,6 +228,7 @@ def assert_package_delta(source, output, case, kind):
 
     assert references(edited, kind) == {
         "create": ["13", "007"], "first-part": ["13"], "empty-owner": ["13"],
+        "relocated-empty-footnote": ["13"], "relocated-empty-endnote": ["13"],
         "reserved-only": ["13"], "attach": ["8", "007"], "retarget": ["8"],
         "detach": [], "delete": [], "renumber": ["12"],
     }[case]

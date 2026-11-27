@@ -1,4 +1,4 @@
-//! Edit independent SDK acceptance fixtures through native Rust, not MCP.
+//! Inspect and edit independent SDK acceptance fixtures through native Rust, not MCP.
 use std::{env, fs, path::Path};
 
 use rocx::Alignment;
@@ -6,6 +6,65 @@ use rocx::editor::{
     BodyBlock, CustomValue, DefaultField, DefaultTab, DefaultValue, EditBatch, ImportedDocument,
     MetadataField, ResourceEdit, TextInsertion,
 };
+use serde_json::{Value, json};
+
+fn inspect(doc: &ImportedDocument, query: &str, fields: &[std::ffi::OsString]) -> Value {
+    fn outcome<T>(result: rocx::Result<T>, project: impl FnOnce(T) -> Value) -> Value {
+        match result {
+            Ok(value) => json!({ "value": project(value) }),
+            Err(error) => json!({ "error": error.to_string() }),
+        }
+    }
+
+    match query {
+        "metadata" => fields
+            .iter()
+            .map(|field| {
+                let key = field.to_str().unwrap();
+                let value = doc.metadata_field(key.parse::<MetadataField>().unwrap());
+                (key.to_owned(), outcome(value, |value| json!(value)))
+            })
+            .collect::<serde_json::Map<_, _>>()
+            .into(),
+        "default-alignment" => outcome(doc.default_alignment(), |value| {
+            json!(value.map(|alignment| match alignment {
+                Alignment::Left => "left",
+                Alignment::Center => "center",
+                Alignment::Right => "right",
+                Alignment::Justify => "justify",
+                Alignment::Distribute => "distribute",
+                Alignment::JustifyMedium => "justify-medium",
+                Alignment::JustifyHigh => "justify-high",
+                Alignment::JustifyLow => "justify-low",
+                Alignment::ThaiJustify => "thai-justify",
+            }))
+        }),
+        "document-defaults" => outcome(doc.document_defaults(), |values| {
+            values
+                .into_iter()
+                .map(|(field, value)| {
+                    let value = match value {
+                        DefaultValue::Bool(value) => json!(value),
+                        DefaultValue::Integer(value) => json!(value),
+                        DefaultValue::Text(value) => json!(value),
+                        DefaultValue::Tabs(tabs) => json!(
+                            tabs.into_iter()
+                                .map(|tab| json!({
+                                    "position_twips": tab.position_twips,
+                                    "alignment": tab.alignment,
+                                    "leader": tab.leader,
+                                }))
+                                .collect::<Vec<_>>()
+                        ),
+                    };
+                    (field.key().to_owned(), value)
+                })
+                .collect::<serde_json::Map<_, _>>()
+                .into()
+        }),
+        _ => panic!("unknown inspection: {query}"),
+    }
+}
 
 fn edit(source: &Path, case: &str) -> Vec<u8> {
     let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
@@ -98,8 +157,17 @@ fn edit(source: &Path, case: &str) -> Vec<u8> {
 
 fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
-    let [output, source, case] = args.as_slice() else {
-        panic!("usage: mcp_resource_oracle OUTPUT SOURCE mixed|direct");
-    };
-    fs::write(output, edit(Path::new(source), case.to_str().unwrap())).unwrap();
+    match args.as_slice() {
+        [command, source, query, fields @ ..] if command == "inspect" => {
+            let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+            println!("{}", inspect(&doc, query.to_str().unwrap(), fields));
+        }
+        [output, source, case] => {
+            fs::write(output, edit(Path::new(source), case.to_str().unwrap())).unwrap();
+        }
+        _ => panic!(
+            "usage: mcp_resource_oracle OUTPUT SOURCE mixed|direct \
+             or mcp_resource_oracle inspect SOURCE QUERY [FIELD ...]"
+        ),
+    }
 }

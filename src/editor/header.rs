@@ -318,6 +318,34 @@ impl ImportedDocument {
             .collect())
     }
 
+    /// Linkable parts of one kind that do not occupy a section slot.
+    #[cfg(feature = "mcp-bridge")]
+    pub(super) fn linkable_story_parts(&self, kind: SectionStoryKind) -> Result<Vec<String>> {
+        let root = self.package.word(&self.main)?;
+        let slots = section_slots(&root)?;
+        let sections = story_sections(&self.package, &self.main, &slots, kind)?;
+        let referenced: std::collections::BTreeSet<_> = sections
+            .iter()
+            .flat_map(|section| section.effective.iter().flatten())
+            .map(|reference| reference.part.as_str())
+            .collect();
+        let mut parts = std::collections::BTreeSet::new();
+        for (id, _) in self.package.relationships(&self.main, kind.as_str())? {
+            // Native Link stops as soon as its target is found. A bad unused
+            // relationship prevents links to later targets, not earlier ones.
+            let Ok(related) = self.package.related(&self.main, &format!("#{id}")) else {
+                break;
+            };
+            if let Some((_, part)) = related
+                && !referenced.contains(part.as_str())
+                && valid_story_part(&self.package, kind, &part).unwrap_or(false)
+            {
+                parts.insert(part);
+            }
+        }
+        Ok(parts.into_iter().collect())
+    }
+
     fn inspect_stories(
         &self,
         selection: &[(SectionStoryKind, &[HeaderFooterType])],
@@ -450,6 +478,14 @@ impl ImportedDocument {
         }
         Ok(HeaderBatch { sections, targets })
     }
+}
+
+fn valid_story_part(package: &Package, kind: SectionStoryKind, part: &str) -> Result<bool> {
+    let (_, root, mime) = kind.part_type();
+    Ok(
+        package.content_type_for(part)?.as_deref() == Some(mime)
+            && package.word(part)?.name == root,
+    )
 }
 
 fn header_source(sections: &[SectionStoryRefs], index: usize, variant: usize) -> Result<&StoryRef> {

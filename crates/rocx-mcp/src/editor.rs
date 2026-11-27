@@ -10,13 +10,17 @@ use rocx::editor::{
     SectionStoryKind, TableAnchor, TableInsertion, TextInsertion, TextRangeEdit,
 };
 use rocx::{
-    Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph,
-    ResolvedTable, Section, Table, TableCell, TableRow, VerticalAlignment,
+    Alignment, BreakType, Component, Document, HeaderFooterType, Paragraph, ResolvedTable, Section,
+    Table, TableCell, TableRow, VerticalAlignment,
 };
 use serde_json::{Value, json};
 
-use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
+use crate::{
+    diagnostics::ToolError,
+    schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment},
+};
 
+mod block_readback;
 mod blocks;
 mod body_inlines;
 mod body_tables;
@@ -33,10 +37,13 @@ mod run_format;
 mod stories;
 mod styles;
 mod tables;
+pub(crate) use body_inlines::InlineHandles;
+pub(crate) use tables::{PhysicalTableScope, PhysicalTableTarget};
 
 pub struct Snapshot {
     document: ImportedDocument,
-    inspection: OnceLock<Result<Inspection, String>>,
+    body_inspection: OnceLock<Inspection>,
+    header_inspection: OnceLock<Result<Inspection, String>>,
     story_controls: OnceLock<Result<Vec<rocx::editor::ImportedControl>, String>>,
     styles: OnceLock<Result<Option<rocx::editor::ImportedStyles>, String>>,
     numbering: OnceLock<Result<rocx::editor::ImportedNumberingCatalog, String>>,
@@ -65,21 +72,20 @@ impl Target {
 }
 
 struct Inspection {
-    body: Vec<Value>,
-    headers: Vec<Value>,
+    rows: Vec<Value>,
     anchors: BTreeMap<String, Target>,
 }
 
 impl Snapshot {
-    pub fn open(bytes: &[u8]) -> Result<Self, String> {
+    pub fn open(bytes: &[u8]) -> rocx::Result<Self> {
         Self::open_with_limits(bytes, rocx::opc::ReadLimits::default())
     }
 
-    pub fn open_with_limits(bytes: &[u8], limits: rocx::opc::ReadLimits) -> Result<Self, String> {
+    pub fn open_with_limits(bytes: &[u8], limits: rocx::opc::ReadLimits) -> rocx::Result<Self> {
         Ok(Self {
-            document: ImportedDocument::open_with_limits(bytes, limits)
-                .map_err(|e| e.to_string())?,
-            inspection: OnceLock::new(),
+            document: ImportedDocument::open_with_limits(bytes, limits)?,
+            body_inspection: OnceLock::new(),
+            header_inspection: OnceLock::new(),
             story_controls: OnceLock::new(),
             styles: OnceLock::new(),
             numbering: OnceLock::new(),
@@ -87,21 +93,42 @@ impl Snapshot {
     }
 
     pub fn inspect(&self) -> Result<Value, String> {
-        let inspection = self
-            .inspection
-            .get_or_init(|| inspect(&self.document))
+        let headers = self
+            .header_inspection
+            .get_or_init(|| inspect_headers(&self.document))
             .as_ref()
             .map_err(Clone::clone)?;
-        Ok(json!({"body": inspection.body, "headers": inspection.headers}))
+        Ok(json!({"body": self.body_inspection().rows, "headers": headers.rows}))
+    }
+
+    pub fn inspect_body(&self) -> Value {
+        json!({"body": self.body_inspection().rows})
+    }
+
+    fn body_inspection(&self) -> &Inspection {
+        self.body_inspection
+            .get_or_init(|| inspect_body(&self.document))
     }
 
     fn issued_inspection(&self) -> Option<&Inspection> {
-        self.inspection.get()?.as_ref().ok()
+        self.body_inspection.get()
+    }
+
+    fn issued_target(&self, anchor: &str) -> Option<&Target> {
+        self.issued_inspection()
+            .and_then(|body| body.anchors.get(anchor))
+            .or_else(|| {
+                self.header_inspection
+                    .get()?
+                    .as_ref()
+                    .ok()?
+                    .anchors
+                    .get(anchor)
+            })
     }
 
     pub fn has_issued_anchor(&self, anchor: &str) -> bool {
-        self.issued_inspection()
-            .is_some_and(|inspection| inspection.anchors.contains_key(anchor))
+        self.issued_target(anchor).is_some()
     }
 
     pub fn create(mut paragraphs: Vec<String>) -> Result<Vec<u8>, String> {
@@ -117,7 +144,48 @@ impl Snapshot {
             .map_err(|e| e.to_string())
     }
 
-    pub fn preview(&self, edits: Vec<Edit>) -> Result<(Vec<u8>, Value), String> {
+    pub fn preview(&self, edits: Vec<Edit>) -> Result<(Vec<u8>, Value), ToolError> {
+        const HINT: &str = "revise the edits and retry";
+        let batch = self.prepare_batch(edits).map_err(|error| {
+            if error.starts_with("wrong_anchor_type:") {
+                ToolError::from(error)
+            } else {
+                ToolError::from(format!("rejected_batch: {error}; {HINT}"))
+            }
+        })?;
+        let preview = self
+            .document
+            .preview_edits(EditBatch {
+                alignments: &batch.alignments,
+                tables: &batch.tables,
+                header_images: &batch.header_images,
+                run_text: &batch.run_text,
+                paragraphs: &batch.paragraphs,
+                cells: &batch.cells,
+                run_removals: &batch.run_removals,
+                ranges: &batch.ranges,
+                text_insertions: &batch.text_insertions,
+                resources: &batch.resources,
+                blocks: &batch.blocks,
+                fields: &batch.fields,
+                inline_edits: &batch.inline_edits,
+                paired_ranges: &batch.paired_ranges,
+                controls: &batch.controls,
+                styles: &batch.styles,
+                wrappers: &batch.wrappers,
+                structural: &batch.structural,
+            })
+            .map_err(|error| {
+                ToolError::native("rejected_batch", error, |error| {
+                    format!("preview: {error}; {HINT}")
+                })
+            })?;
+        encode_preview(&preview).map_err(|error| {
+            ToolError::native("rejected_batch", error, |error| format!("{error}; {HINT}"))
+        })
+    }
+
+    fn prepare_batch(&self, edits: Vec<Edit>) -> Result<Batch, String> {
         if edits.is_empty() {
             return Err("edits must not be empty".into());
         }
@@ -196,7 +264,7 @@ impl Snapshot {
                 .flatten();
             let target = story_target
                 .as_ref()
-                .or_else(|| self.issued_inspection()?.anchors.get(local))
+                .or_else(|| self.issued_target(local))
                 .ok_or_else(|| {
                     if header_image && local.starts_with("story-") {
                         format!("wrong_anchor_type: edit {number}: expected an existing story slot")
@@ -215,30 +283,7 @@ impl Snapshot {
                 .map_err(|e| format!("edit {number}: {e}"))?;
         }
 
-        let preview = self
-            .document
-            .preview_edits(EditBatch {
-                alignments: &batch.alignments,
-                tables: &batch.tables,
-                header_images: &batch.header_images,
-                run_text: &batch.run_text,
-                paragraphs: &batch.paragraphs,
-                cells: &batch.cells,
-                run_removals: &batch.run_removals,
-                ranges: &batch.ranges,
-                text_insertions: &batch.text_insertions,
-                resources: &batch.resources,
-                blocks: &batch.blocks,
-                fields: &batch.fields,
-                inline_edits: &batch.inline_edits,
-                paired_ranges: &batch.paired_ranges,
-                controls: &batch.controls,
-                styles: &batch.styles,
-                wrappers: &batch.wrappers,
-                structural: &batch.structural,
-            })
-            .map_err(|e| format!("preview: {e}"))?;
-        encode_preview(&preview)
+        Ok(batch)
     }
 
     pub fn preview_noop(&self) -> Result<(Vec<u8>, Value), String> {
@@ -246,15 +291,12 @@ impl Snapshot {
             .document
             .preview_edits(EditBatch::default())
             .map_err(|e| e.to_string())?;
-        encode_preview(&preview)
+        encode_preview(&preview).map_err(|e| e.to_string())
     }
 }
 
-fn encode_preview(preview: &EditPreview) -> Result<(Vec<u8>, Value), String> {
-    Ok((
-        preview.to_docx().map_err(|e| e.to_string())?,
-        report(preview),
-    ))
+fn encode_preview(preview: &EditPreview) -> rocx::Result<(Vec<u8>, Value)> {
+    Ok((preview.to_docx()?, report(preview)))
 }
 
 #[derive(Default)]
@@ -352,14 +394,16 @@ impl Batch {
                     alignment: alignment.into(),
                 });
             }
-            (Edit::HeaderImage { mode, bytes, .. }, Target::Header(target)) => {
+            (
+                Edit::HeaderImage {
+                    mode, bytes, image, ..
+                },
+                Target::Header(target),
+            ) => {
                 self.header_images.push(HeaderImageEdit {
                     target: target.clone(),
                     mode: mode.into(),
-                    image: resolve(ImageRun::new(bytes))?
-                        .image()
-                        .ok_or("expected image")?
-                        .clone(),
+                    image: stories::resolve_story_image(bytes, image.map(|image| *image))?,
                 });
             }
             _ => unreachable!("target kind validated before adding edit"),
@@ -500,7 +544,7 @@ fn scalar_length(inlines: &[ImportedInlineNode]) -> Option<usize> {
     })
 }
 
-fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
+fn inspect_body(document: &ImportedDocument) -> Inspection {
     let mut anchors = BTreeMap::new();
     let body = document
         .body()
@@ -533,12 +577,14 @@ fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
                         Some(value)
                     })
                     .collect();
-                json!({
+                let mut value = json!({
                     "type": "paragraph", "index": index, "anchor": anchor,
                     "text": paragraph.text, "alignment_xml": paragraph.alignment_xml,
                     "has_opaque_content": paragraph.has_opaque_content, "runs": runs,
                     "scalar_length": scalar_length(&paragraph.inline_structure),
-                })
+                });
+                block_readback::paragraph_fields(paragraph, &mut value);
+                value
             }
             BodyBlock::Table(table) => {
                 let mut cells = Vec::new();
@@ -579,6 +625,14 @@ fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
         })
         .collect();
 
+    Inspection {
+        rows: body,
+        anchors,
+    }
+}
+
+fn inspect_headers(document: &ImportedDocument) -> Result<Inspection, String> {
+    let mut anchors = BTreeMap::new();
     let stories = document.stories().map_err(|e| e.to_string())?;
     let mut uses = BTreeMap::new();
     // Count even-header aliases too: shared edits can affect those slots even
@@ -610,8 +664,7 @@ fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
         })
         .collect();
     Ok(Inspection {
-        body,
-        headers,
+        rows: headers,
         anchors,
     })
 }
@@ -686,7 +739,7 @@ mod tests {
                 ])
                 .into(),
                 table("existing").into(),
-                Paragraph::from_children(vec![ImageRun::new(IMAGE.to_vec()).into()]).into(),
+                Paragraph::from_children(vec![rocx::ImageRun::new(IMAGE.to_vec()).into()]).into(),
             ])
             .into(),
         ]);
@@ -711,6 +764,7 @@ mod tests {
             snapshot
                 .preview(vec![alignment(), alignment()])
                 .unwrap_err()
+                .message
                 .contains("multiple alignment edits")
         );
         for invalid in [
@@ -733,7 +787,8 @@ mod tests {
                     anchor: anchor(first),
                 }])
                 .unwrap_err()
-                .starts_with("wrong_anchor_type: ")
+                .category
+                == "wrong_anchor_type"
         );
 
         let (bytes, changes) = snapshot
@@ -959,7 +1014,7 @@ mod tests {
                 },
             ])
             .unwrap_err();
-        assert!(err.contains("outside fields and ranges"), "{err}");
+        assert!(err.message.contains("outside fields and ranges"), "{err:?}");
         assert_eq!(snapshot.inspect().unwrap(), inspection);
         let (retry, _) = snapshot.preview(vec![safe_edit()]).unwrap();
         let output = open(&retry).inspect().unwrap();
@@ -1008,7 +1063,8 @@ mod tests {
                 .preview(vec![Edit::HeaderImage {
                     anchor: anchor(&inherited["anchor"]),
                     mode,
-                    bytes: IMAGE.to_vec(),
+                    bytes: Some(IMAGE.to_vec()),
+                    image: None,
                 }])
                 .unwrap();
             let change = &changes["header_images"][0];

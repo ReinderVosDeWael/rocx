@@ -145,6 +145,27 @@ after removing an earlier one. Continue with typed inline discovery in
 header/footer and table-cell paragraphs, then reconcile remaining payload and
 owner coverage against the compiled ledger.
 
+Continue #72 in parallel: qualify typed inline discovery for physical
+stories and cells. The first audit found mappings for all 18 batch slices and
+all public `ImportedDocument` methods; it did not establish parity. Prioritize
+resolved declaration fields, independently discoverable body and table
+targets, empty relocated note owners, and relinking eligible story parts
+after their last slot reference is removed. Then qualify full typed readback,
+native diagnostics, and reports. Compare each increment with direct Rust
+through the installed stdio client. Reconcile the ledger before declaring
+parity; a transport mapping alone is not qualification.
+The [parity closure gate](MCP-EDITOR-PARITY.md#delivery-slices) still
+requires the integrated evidence on `main`.
+
+The paired-range increment merged in [PR #81](https://github.com/ReinderVosDeWael/rocx/pull/81).
+The controls, drawings, entry-inline, style and numbering increments merged in
+[PR #87](https://github.com/ReinderVosDeWael/rocx/pull/87) after hosted checks.
+The follow-up working tree adds physical inline views, richer declaration
+inputs, relinking unused story parts and selecting relocated empty note
+owners. It also expands direct-Rust evidence for layout, styles, resources,
+entry edits and the nine mixed-preview report arrays. Keep focused test
+results separate from the integrated gate.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.

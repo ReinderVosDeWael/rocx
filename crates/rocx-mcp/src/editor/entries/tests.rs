@@ -13,13 +13,18 @@ fn pages_preserve_source_order_lexical_ids_and_distinct_owners() {
         json!({
             "kind": "footnote", "part_name": "word/notes/footnotes.xml", "id": "-1",
             "note_type": "separator", "author": null, "date": null, "initials": null,
-            "blocks": [{"index": 0, "type": "paragraph", "text": "", "has_opaque_content": true}],
+            "blocks": [{
+                "index": 0, "type": "paragraph", "text": "", "has_opaque_content": true,
+                "inline_items": [{"kind": "opaque", "name": "w:separator"}],
+            }],
         })
     );
     assert_eq!(
         footnotes[1]["blocks"],
         json!([
-            {"index": 0, "type": "paragraph", "text": "footnote 007", "has_opaque_content": true},
+            {"index": 0, "type": "paragraph", "text": "footnote 007", "has_opaque_content": true,
+                "inline_items": [{"kind": "opaque", "name": "w:footnoteRef"},
+                                 {"kind": "text", "text": "footnote 007"}]},
         ])
     );
     let (remaining, next) = snapshot.entry_page(next.unwrap(), usize::MAX).unwrap();

@@ -1,12 +1,12 @@
-//! Direct core byte oracle for the independent fixtures in `tests/mcp`.
+//! Direct core byte and report oracle for the independent fixtures in `tests/mcp`.
 use rocx::{
     Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph, Section,
     Table, TableCell, TableRow, VerticalAlignment,
     editor::{
-        BodyBlock, CellAlignmentEdit, EditBatch, EntryEdit, HeaderEditMode, HeaderImageEdit,
-        ImportedDocument, ImportedInline, ImportedInlineNode, ImportedParagraph,
-        ImportedStoryBlock, ParagraphAlignmentEdit, ParagraphInsertion, RunTextEdit,
-        TableInsertion, TextInsertion, TextRangeEdit,
+        BlockEdit, BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, EntryEdit, HeaderEditMode,
+        HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedParagraph,
+        ImportedStoryBlock, InlineAction, InlineEdit, ParagraphAlignmentEdit, ParagraphInsertion,
+        RunTextEdit, TableInsertion, TextInsertion, TextRangeEdit,
     },
 };
 use std::{fs, future::Future, path::Path, task::Poll};
@@ -20,7 +20,7 @@ fn resolve_now<T>(future: impl Future<Output = T>) -> T {
     }
 }
 
-fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> Vec<u8> {
+fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> EditPreview {
     let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
     let paragraph = |index| -> &ImportedParagraph {
         let BodyBlock::Paragraph(p) = &doc.body()[index] else {
@@ -28,13 +28,15 @@ fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> Vec<u8> {
         };
         p
     };
-    let title = paragraph(0);
-    let tail = paragraph(3);
-    let ImportedInlineNode::Run(title_run) = &title.inline_structure[0] else {
-        panic!("expected fixture title run");
+    let run = |body, inline: usize| {
+        let ImportedInlineNode::Run(run) = &paragraph(body).inline_structure[inline] else {
+            panic!("expected fixture run");
+        };
+        run.anchor.clone()
     };
-    let ImportedInlineNode::Run(drop_run) = &tail.inline_structure[1] else {
-        panic!("expected fixture drop run");
+    let bold = |body, inline| InlineEdit {
+        target: run(body, inline),
+        action: InlineAction::SetBold(true),
     };
     let BodyBlock::Table(table) = &doc.body()[4] else {
         panic!("expected fixture table");
@@ -59,12 +61,18 @@ fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> Vec<u8> {
         .into(),
     ]);
     doc.preview_edits(EditBatch {
-        alignments: &[ParagraphAlignmentEdit {
-            target: title.anchor.clone(),
-            alignment: Alignment::Center,
-        }],
+        alignments: &[
+            ParagraphAlignmentEdit {
+                target: paragraph(0).anchor.clone(),
+                alignment: Alignment::Center,
+            },
+            ParagraphAlignmentEdit {
+                target: paragraph(7).anchor.clone(),
+                alignment: Alignment::Right,
+            },
+        ],
         paragraphs: &[ParagraphInsertion {
-            target: tail.anchor.clone(),
+            target: paragraph(3).anchor.clone(),
             paragraph: resolve_now(Paragraph::new("Inserted & placed").resolve())
                 .unwrap()
                 .unwrap(),
@@ -73,17 +81,37 @@ fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> Vec<u8> {
             target: paragraph(1).anchor.clone(),
             table: resolve_now(inserted_table.resolve()).unwrap().unwrap(),
         }],
-        run_text: &[RunTextEdit {
-            target: title_run.anchor.clone(),
-            text: " Edited ".into(),
-        }],
-        run_removals: std::slice::from_ref(&drop_run.anchor),
-        cells: &[CellAlignmentEdit {
-            target: table.anchor.clone(),
-            row_index: 0,
-            cell_index: 1,
-            alignment: VerticalAlignment::Bottom,
-        }],
+        run_text: &[
+            RunTextEdit {
+                target: run(0, 0),
+                text: " Edited ".into(),
+            },
+            RunTextEdit {
+                target: run(7, 0),
+                text: "Unchanged".into(),
+            },
+        ],
+        run_removals: &[run(3, 1)],
+        cells: &[
+            CellAlignmentEdit {
+                target: table.anchor.clone(),
+                row_index: 0,
+                cell_index: 1,
+                alignment: VerticalAlignment::Bottom,
+            },
+            CellAlignmentEdit {
+                target: table.anchor.clone(),
+                row_index: 0,
+                cell_index: 0,
+                alignment: VerticalAlignment::Top,
+            },
+        ],
+        blocks: &[
+            BlockEdit::Remove(paragraph(6).anchor.clone()),
+            BlockEdit::Remove(paragraph(5).anchor.clone()),
+            BlockEdit::KeepWithNext(paragraph(2).anchor.clone(), true),
+        ],
+        inline_edits: &[bold(3, 0), bold(1, 0), bold(7, 1)],
         header_images: &[HeaderImageEdit {
             target: header.anchor.unwrap(),
             image: resolve_now(ImageRun::new(fs::read(png).unwrap()).resolve())
@@ -97,8 +125,52 @@ fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> Vec<u8> {
         ..EditBatch::default()
     })
     .unwrap()
-    .to_docx()
-    .unwrap()
+}
+
+// Use only the public native getters; never call the MCP report projector.
+fn mixed_report(preview: &EditPreview) -> serde_json::Value {
+    use serde_json::{Value, json};
+
+    fn records<T>(items: &[T], record: impl FnMut(&T) -> Value) -> Vec<Value> {
+        items.iter().map(record).collect()
+    }
+
+    json!({
+        "changes": records(preview.changes(), |c| json!({
+            "target": c.body_index, "before": c.before, "after": format!("{:?}", c.after),
+        })),
+        "table_insertions": records(preview.insertions(), |c| json!({
+            "target": c.after_body_index, "rows": c.rows, "columns": c.columns,
+        })),
+        "paragraph_insertions": preview.paragraph_insertions(),
+        "block_changes": preview.block_changes(),
+        "inline_changes": preview.inline_changes(),
+        "header_images": records(preview.header_changes(), |c| json!({
+            "source_part": c.source_part, "output_part": c.output_part,
+            "mode": match c.mode {
+                HeaderEditMode::Shared => "shared",
+                HeaderEditMode::SectionLocal => "section-local",
+            },
+            "affected_sections": c.affected_sections, "restored_section": c.restored_section,
+        })),
+        "run_text": records(preview.run_text_changes(), |c| json!({
+            "target": c.body_index, "inline_index": c.inline_index,
+            "before": c.before, "after": c.after,
+        })),
+        "run_removals": records(preview.run_removals(), |c| json!({
+            "target": c.body_index, "inline_index": c.inline_index, "before": c.before,
+        })),
+        "cell_alignments": records(preview.cell_alignment_changes(), |c| json!({
+            "target": c.body_index, "row_index": c.row_index, "cell_index": c.cell_index,
+            "before": c.before,
+            "after": match c.after {
+                VerticalAlignment::Top => "top",
+                VerticalAlignment::Center => "center",
+                VerticalAlignment::Bottom => "bottom",
+                VerticalAlignment::Both => "both",
+            },
+        })),
+    })
 }
 
 fn scalar(source: &Path) -> Vec<u8> {
@@ -215,9 +287,35 @@ fn inspect_entries(source: &Path) -> Vec<u8> {
                                 _ => None,
                             })
                             .collect();
+                        let ordered: Vec<_> = items
+                            .iter()
+                            .map(|item| match item {
+                                ImportedInline::Text(text) => json!({"kind": "text", "text": text}),
+                                ImportedInline::Tab => json!({"kind": "tab"}),
+                                ImportedInline::Break(kind) => json!({
+                                    "kind": "break", "break_type": match kind {
+                                        BreakType::Line => "line",
+                                        BreakType::TextWrapping => "text-wrapping",
+                                        BreakType::Page => "page",
+                                        BreakType::Column => "column",
+                                    }
+                                }),
+                                ImportedInline::NoteReference { kind, id } => json!({
+                                    "kind": "note-reference", "note_kind": match kind {
+                                        rocx::NoteKind::Footnote => "footnote",
+                                        rocx::NoteKind::Endnote => "endnote",
+                                    }, "id": id,
+                                }),
+                                ImportedInline::Opaque(name) => {
+                                    json!({"kind": "opaque", "name": name})
+                                }
+                                _ => panic!("unaccounted-for native inline item"),
+                            })
+                            .collect();
                         json!({
                             "index": index, "type": "paragraph", "text": text_items.concat(),
                             "has_opaque_content": text_items.len() != items.len(),
+                            "inline_items": ordered,
                         })
                     }
                     ImportedStoryBlock::Opaque(name) => {
@@ -337,7 +435,9 @@ fn main() {
                 "section-local" => HeaderEditMode::SectionLocal,
                 _ => panic!("invalid header mode"),
             };
-            (output, mixed(Path::new(source), Path::new(png), mode))
+            let preview = mixed(Path::new(source), Path::new(png), mode);
+            println!("{}", mixed_report(&preview));
+            (output, preview.to_docx().unwrap())
         }
         [command, output, source, png, slot, mode] if command == "story-image" => (
             output,

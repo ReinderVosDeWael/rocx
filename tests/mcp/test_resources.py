@@ -1,5 +1,6 @@
 """Direct document defaults and package properties through installed MCP."""
 
+import json
 import subprocess
 
 import docx
@@ -12,7 +13,9 @@ from jsonschema.validators import validator_for
 from lxml import etree
 import pytest
 
-from test_stdio import anyio_backend, call, digest, executable, failure, launch, parts, validate
+from test_stdio import (
+    anyio_backend, assert_tool_failure, call, digest, executable, failure, launch, parts, validate,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -26,7 +29,14 @@ CP = "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
 VT = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
 
 
-def make_source(path, *, duplicate_description=False):
+def word_defaults(document):
+    defaults = document.part.part_related_by(RT.STYLES).element.find(qn("w:docDefaults"))
+    run = defaults.find(f"{qn('w:rPrDefault')}/{qn('w:rPr')}")
+    paragraph = defaults.find(f"{qn('w:pPrDefault')}/{qn('w:pPr')}")
+    return run, paragraph
+
+
+def build_source(*, duplicate_description=False):
     document = docx.Document()
     document.add_paragraph("Body text")
     document.sections[0].header.paragraphs[0].text = "Keep this header"
@@ -45,9 +55,8 @@ def make_source(path, *, duplicate_description=False):
 
     styles = document.part.part_related_by(RT.STYLES)
     styles.partname = PackURI(f"/{STYLES}")
-    defaults = styles.element.find(qn("w:docDefaults"))
-    defaults.find(f"{qn('w:rPrDefault')}/{qn('w:rPr')}").append(OxmlElement("w:b"))
-    paragraph = defaults.find(f"{qn('w:pPrDefault')}/{qn('w:pPr')}")
+    run, paragraph = word_defaults(document)
+    run.append(OxmlElement("w:b"))
     alignment = OxmlElement("w:jc")
     alignment.set(qn("w:val"), "center")
     paragraph.append(alignment)
@@ -79,6 +88,11 @@ def make_source(path, *, duplicate_description=False):
         ),
         RT.CUSTOM_PROPERTIES,
     )
+    return document
+
+
+def make_source(path, **kwargs):
+    document = build_source(**kwargs)
     document.save(path)
     return path.read_bytes()
 
@@ -96,10 +110,162 @@ def resource_query(kind, **selector):
     return dict(kind="resource-value", query=dict(kind=kind, **selector))
 
 
-def oracle(output, source, case):
+def resource_oracle(*args, cwd):
     binary = executable("ROCX_MCP_ORACLE").with_name("mcp_resource_oracle")
-    subprocess.run([binary, output, source, case], check=True, cwd=output.parent, timeout=20)
+    return subprocess.run([binary, *args], check=True, cwd=cwd, timeout=20, stdout=subprocess.PIPE)
+
+
+def oracle(output, source, case):
+    resource_oracle(output, source, case, cwd=output.parent)
     return output.read_bytes()
+
+
+def native_read(source, kind, *fields):
+    return json.loads(resource_oracle("inspect", source, kind, *fields, cwd=source.parent).stdout)
+
+
+async def assert_readback(client, document, query, native, expected, *, error=False):
+    arguments = dict(document=document, view=query)
+    if error:
+        assert expected in native["error"], query
+        result = await client.call_tool("inspect_document", arguments)
+        assert_tool_failure(result, "inspection_failed")
+        assert result.structuredContent["message"] == native["error"], query
+    else:
+        result = await call(client, "inspect_document", **arguments)
+        assert result["document"] == document
+        # JSON equality preserves the distinction between numbers and booleans.
+        assert json.dumps(result["value"], sort_keys=True) == json.dumps(
+            native["value"], sort_keys=True,
+        ) == json.dumps(expected, sort_keys=True), query
+
+
+CORE_FIELDS = [
+    ("title", "dc:title", "A title & subject"),
+    ("subject", "dc:subject", "A different subject"),
+    ("creator", "dc:creator", "Créatrice 😀"),
+    ("description", "dc:description", "A description"),
+    ("keywords", "cp:keywords", "one; two"),
+    ("category", "cp:category", "Review"),
+    ("version", "cp:version", "07.02"),
+    ("created", "dcterms:created", "2024-02-29T04:05:06+02:00"),
+    ("modified", "dcterms:modified", "2025-06-03T04:05:06Z"),
+    ("lastPrinted", "cp:lastPrinted", "2025-02-03T04:05:06Z"),
+    ("lastModifiedBy", "cp:lastModifiedBy", "Editor"),
+    ("revision", "cp:revision", "0007"),
+    ("identifier", "dc:identifier", "urn:example:report"),
+    ("language", "dc:language", "fr-CA"),
+    ("contentStatus", "cp:contentStatus", ""),
+]
+EXTENDED_FIELDS = [
+    ("company", "Company", "Example & Co."),
+    ("manager", "Manager", "Manager 😀"),
+]
+
+
+def populate_metadata(document):
+    expected = {}
+    core = document.part.package.part_related_by(RT.CORE_PROPERTIES)
+    core.partname = PackURI("/docProps/resources/core.xml")
+    for field, tag, text in CORE_FIELDS:
+        node = core.element.find(qn(tag))
+        if node is None:
+            node = OxmlElement(tag)
+            core.element.append(node)
+        node.text = expected[field] = text
+    extended = document.part.package.part_related_by(RT.EXTENDED_PROPERTIES)
+    extended.partname = PackURI("/docProps/resources/app.xml")
+    props = etree.fromstring(extended.blob)
+    for field, tag, text in EXTENDED_FIELDS:
+        name = f"{{{EXT}}}{tag}"
+        node = props.find(name)
+        if node is None:
+            node = etree.SubElement(props, name)
+        node.text = expected[field] = text
+    extended._blob = etree.tostring(props)
+    return dict(expected, comments=expected["description"])
+
+
+def populate_defaults(document):
+    run, paragraph = word_defaults(document)
+    run.clear()
+    paragraph.clear()
+    settings = document.part.part_related_by(RT.SETTINGS).element
+    expected = {}
+
+    def add(parent, tag, **attributes):
+        node = parent.find(qn(f"w:{tag}"))
+        if node is None:
+            node = OxmlElement(f"w:{tag}")
+            parent.append(node)
+        for attr, (field, value) in attributes.items():
+            expected[field] = value
+            if value is True and attr == "val":
+                continue  # No w:val on a standalone toggle means true.
+            text = "off" if value is False else "on" if value is True else str(value)
+            node.set(qn(f"w:{attr}"), text)
+        return node
+
+    def toggles(parent, *properties):
+        for index, (tag, field) in enumerate(properties):
+            add(parent, tag, val=(field, index % 2 == 0))
+
+    toggles(run, ("b", "bold"), ("i", "italic"), ("bCs", "boldCs"), ("iCs", "italicCs"),
+            ("rtl", "runRtl"), ("cs", "complexScript"), ("caps", "caps"),
+            ("smallCaps", "smallCaps"), ("strike", "strike"), ("snapToGrid", "runSnapToGrid"))
+    add(run, "rFonts", ascii=("fontAscii", "Liberation Serif"), hAnsi=("fontHAnsi", "Carlito"),
+        eastAsia=("fontEastAsia", "MS Mincho"), cs=("fontCs", "Arial"),
+        asciiTheme=("fontAsciiTheme", "majorAscii"), hAnsiTheme=("fontHAnsiTheme", "minorHAnsi"),
+        eastAsiaTheme=("fontEastAsiaTheme", "majorEastAsia"), cstheme=("fontCsTheme", "minorBidi"))
+    add(run, "sz", val=("sizeHalfPoints", 23))
+    add(run, "szCs", val=("sizeCsHalfPoints", 31))
+    add(run, "lang", val=("language", "en-GB"), eastAsia=("languageEastAsia", "ja-JP"),
+        bidi=("languageBidi", "ar-SA"))
+    add(run, "u", val=("underline", "wave"))
+    add(run, "vertAlign", val=("verticalAlign", "subscript"))
+    add(run, "color", val=("runColor", "ab23CD"), themeColor=("colorTheme", "accent4"),
+        themeTint=("colorTint", "a2"), themeShade=("colorShade", "B3"))
+
+    toggles(paragraph, ("bidi", "paragraphBidi"), ("keepLines", "keepTogether"),
+            ("keepNext", "keepWithNext"), ("pageBreakBefore", "pageBreakBefore"),
+            ("widowControl", "widowControl"), ("suppressLineNumbers", "suppressLineNumbers"),
+            ("contextualSpacing", "contextualSpacing"), ("mirrorIndents", "mirrorIndents"),
+            ("snapToGrid", "paragraphSnapToGrid"))
+    add(paragraph, "spacing", before=("beforeTwips", 201), after=("afterTwips", 203),
+        beforeLines=("beforeLines", 104), afterLines=("afterLines", 105),
+        beforeAutospacing=("beforeAutoSpacing", False), afterAutospacing=("afterAutoSpacing", True),
+        line=("line", 247), lineRule=("lineRule", "exact"))
+    add(paragraph, "ind", left=("leftTwips", -301), right=("rightTwips", 302),
+        start=("startTwips", 303), end=("endTwips", -304), firstLine=("firstLineTwips", 305),
+        hanging=("hangingTwips", 306), leftChars=("leftChars", 107), rightChars=("rightChars", -108),
+        startChars=("startChars", 109), endChars=("endChars", -110),
+        firstLineChars=("firstLineChars", 111), hangingChars=("hangingChars", 112))
+    add(paragraph, "jc", val=("justification", "both"))
+    tabs = add(paragraph, "tabs")
+    expected["tabStops"] = [
+        dict(position_twips=720, alignment="decimal", leader="dot"),
+        dict(position_twips=-240, alignment="left", leader=None),
+    ]
+    for tab in expected["tabStops"]:
+        node = OxmlElement("w:tab")
+        node.set(qn("w:pos"), str(tab["position_twips"]))
+        node.set(qn("w:val"), tab["alignment"])
+        if tab["leader"] is not None:
+            node.set(qn("w:leader"), tab["leader"])
+        tabs.append(node)
+
+    toggles(settings, ("mirrorMargins", "mirrorMargins"), ("gutterAtTop", "gutterAtTop"),
+            ("trackRevisions", "trackRevisions"))
+    for kind, (position, fmt, start, restart) in [
+        ("footnote", ("beneathText", "lowerRoman", 3, "eachPage")),
+        ("endnote", ("sectEnd", "upperLetter", 7, "eachSect")),
+    ]:
+        note = add(settings, f"{kind}Pr")
+        add(note, "pos", val=(f"{kind}Position", position))
+        add(note, "numFmt", val=(f"{kind}Format", fmt))
+        add(note, "numStart", val=(f"{kind}Start", start))
+        add(note, "numRestart", val=(f"{kind}Restart", restart))
+    return expected
 
 
 TABS = [
@@ -182,17 +348,16 @@ async def test_resource_discovery(launch):
 async def test_resource_value_queries_isolate_malformed_metadata(launch, tmp_path):
     source = tmp_path / "duplicate.docx"
     make_source(source, duplicate_description=True)
+    native = native_read(source, "metadata", "description", "comments", "title", "identifier")
     async with launch() as client:
         document = (await call(client, "open_document", path=source.name))["document"]
         await failure(client, "inspect_document", "inspection_failed", document=document,
                       view=dict(kind="resources"))
-        for query in [
-            resource_query("metadata", field="description"),
-            resource_query("metadata", field="comments"),
-            resource_query("custom-property", name="LegacyNumber"),
-        ]:
-            await failure(client, "inspect_document", "inspection_failed", document=document,
-                          view=query)
+        for field in ("description", "comments"):
+            await assert_readback(client, document, resource_query("metadata", field=field),
+                                  native[field], "ambiguous dc:description", error=True)
+        await failure(client, "inspect_document", "inspection_failed", document=document,
+                      view=resource_query("custom-property", name="LegacyNumber"))
         await failure(client, "inspect_document", "invalid_input", document=document,
                       view=resource_query("default-alignment", extra=True))
 
@@ -203,14 +368,89 @@ async def test_resource_value_queries_isolate_malformed_metadata(launch, tmp_pat
             return result["value"]
 
         # Title shares the malformed description's physical part.
-        assert await value("metadata", field="title") == "Initial title"
-        assert await value("metadata", field="identifier") is None
+        for field, expected in [("title", "Initial title"), ("identifier", None)]:
+            await assert_readback(client, document, resource_query("metadata", field=field),
+                                  native[field], expected)
         assert await value("custom-property", name="Reviewed") == "pending"
         assert await value("custom-property", name="Disabled") is False
         assert await value("custom-property", name="Blank") == ""
         assert await value("custom-property", name="blank") is None
         assert await value("default-alignment") == "center"
         assert (await value("document-defaults"))["bold"] is True
+
+
+async def test_all_modeled_metadata_and_defaults_match_native(launch, tmp_path):
+    fixture = build_source()
+    metadata = populate_metadata(fixture)
+    defaults = populate_defaults(fixture)
+    source = tmp_path / "all-resource-values.docx"
+    fixture.save(source)
+
+    native_metadata = native_read(source, "metadata", *metadata)
+    native_defaults = native_read(source, "document-defaults")
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        for field, expected in metadata.items():
+            await assert_readback(client, document, resource_query("metadata", field=field),
+                                  native_metadata[field], expected)
+        await assert_readback(client, document, resource_query("document-defaults"),
+                              native_defaults, defaults)
+
+
+async def test_direct_and_legacy_alignment_readback_match_native(launch, tmp_path):
+    cases = [
+        ("left", "left", None, None),
+        ("center", "center", None, None),
+        ("right", "right", None, None),
+        ("both", "justify", None, None),
+        ("distribute", "distribute", None, None),
+        ("mediumKashida", "justify-medium", None, None),
+        ("highKashida", "justify-high", None, None),
+        ("lowKashida", "justify-low", None, None),
+        ("thaiDistribute", "thai-justify", None, None),
+        *((token, None, "unsupported default alignment", None)
+          for token in ("start", "end", "numTab")),
+        (None, None, None, None),
+        ("unknown", None, "unsupported default alignment", "invalid or unsupported document default"),
+        ("", None, "missing w:val", "invalid or unsupported document default"),
+        ("annotated", None, "annotated resource property", None),
+        ("duplicate", None, "ambiguous w:jc", "ambiguous w:jc"),
+    ]
+    async with launch() as client:
+        for index, (token, legacy, legacy_error, defaults_error) in enumerate(cases):
+            fixture = build_source()
+            _, paragraph = word_defaults(fixture)
+            jc = paragraph.find(qn("w:jc"))
+            direct = token
+            if token is None:
+                paragraph.remove(jc)
+            elif token == "":
+                del jc.attrib[qn("w:val")]
+            elif token == "annotated":
+                jc.set("{urn:fixture}annotation", "retain")
+                direct = "center"
+            elif token == "duplicate":
+                paragraph.append(OxmlElement("w:jc"))
+            else:
+                jc.set(qn("w:val"), token)
+            source = tmp_path / f"alignment-{index}.docx"
+            fixture.save(source)
+
+            document = (await call(client, "open_document", path=source.name))["document"]
+            await assert_readback(client, document, resource_query("default-alignment"),
+                                  native_read(source, "default-alignment"),
+                                  legacy_error or legacy, error=legacy_error is not None)
+            native = native_read(source, "document-defaults")
+            if defaults_error:
+                await assert_readback(client, document, resource_query("document-defaults"),
+                                      native, defaults_error, error=True)
+            else:
+                # Check this leaf independently; the full map is qualified separately.
+                assert native["value"].get("justification") == direct
+                assert ("justification" in native["value"]) == (direct is not None)
+                await assert_readback(client, document, resource_query("document-defaults"),
+                                      native, native["value"])
+            await call(client, "close_document", document=document)
 
 
 async def test_mixed_resource_batch_native_bytes_and_preservation(launch, tmp_path):

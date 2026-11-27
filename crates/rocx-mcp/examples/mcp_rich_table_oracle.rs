@@ -49,7 +49,12 @@ fn main() {
             .with_cant_split(false)
             .with_height(RowHeight::AtLeast(12.0)),
     );
-    let table = Table::new(vec![row.into()]).with_properties(
+    let empty_row = TableRow::new(vec![]).with_properties(
+        TableRowProperties::default()
+            .with_cant_split(true)
+            .with_height(RowHeight::Exact(14.0)),
+    );
+    let table = Table::new(vec![empty_row.into(), row.into()]).with_properties(
         TableProperties::default()
             .with_column_widths(vec![1440, 1800])
             .with_layout(TableLayout::Fixed)

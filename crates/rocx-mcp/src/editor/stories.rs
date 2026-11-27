@@ -1,17 +1,54 @@
 use std::collections::BTreeMap;
 
 use rocx::editor::{
-    HeaderAnchor, ImportedInline, ImportedInlineNode, ImportedRun, ImportedStory,
+    HeaderAnchor, ImportedHeader, ImportedInline, ImportedInlineNode, ImportedRun, ImportedStory,
     ImportedStoryBlock, InlineAnchor, RunTextEdit, SectionStoryKind, StoryReferenceEdit,
+    mcp_bridge::linkable_story_parts,
 };
-use rocx::{HeaderFooterType, Paragraph, ResolvedBlock};
+use rocx::{HeaderFooterType, ImageData, ImageRun, Paragraph, ResolvedBlock, ResolvedInline};
 use serde_json::{Value, json};
 
-use super::{Snapshot, projected_run_text, resolve};
-use crate::schema::{
-    payloads::BlockInput,
-    stories::{StoryBlockChange, StoryReferenceChange, StoryTextChange},
+use super::{
+    Snapshot,
+    block_readback::inline_items,
+    body_inlines::{InlineHandles, typed_inline_page},
+    projected_run_text, resolve,
 };
+use crate::schema::{
+    payloads::{BlockInput, resolve_component},
+    stories::{StoryBlockChange, StoryImageInput, StoryReferenceChange, StoryTextChange},
+};
+
+pub(super) fn resolve_story_image(
+    bytes: Option<Vec<u8>>,
+    image: Option<StoryImageInput>,
+) -> Result<rocx::ResolvedImage, String> {
+    let run = match (bytes, image) {
+        (Some(bytes), None) => ImageRun::new(bytes),
+        (
+            None,
+            Some(StoryImageInput {
+                bytes,
+                source_name,
+                transformation,
+                alt_text,
+            }),
+        ) => {
+            let data = match source_name {
+                Some(source_name) => ImageData::NamedBytes { bytes, source_name },
+                None => ImageData::Bytes(bytes),
+            };
+            ImageRun::new(data)
+                .with_transformation(transformation.map(Into::into))
+                .with_alt_text(alt_text.map(Into::into))
+        }
+        _ => return Err("supply exactly one of bytes and image".into()),
+    };
+    match resolve_component(run)? {
+        ResolvedInline::Image { image, .. } => Ok(image),
+        _ => Err("expected image".into()),
+    }
+}
 
 const KINDS: [SectionStoryKind; 2] = [SectionStoryKind::Header, SectionStoryKind::Footer];
 const VARIANTS: [HeaderFooterType; 3] = [
@@ -63,17 +100,52 @@ struct Stories {
 
 impl Stories {
     fn owner(&self, local: &str) -> Result<(usize, &ImportedStory), String> {
-        let index = anchor_index(local, "story-owner:")
+        let index = Snapshot::story_owner_index(local)
             .ok_or("wrong_anchor_type: expected a physical story owner")?;
+        Ok((index, self.owner_at(index)?))
+    }
+
+    fn owner_at(&self, index: usize) -> Result<&ImportedStory, String> {
         self.slots
             .get(&index)
             .filter(|story| self.owners.get(&story.part_name) == Some(&index))
-            .map(|story| (index, story))
             .ok_or_else(|| "unknown physical story owner".into())
     }
 }
 
 impl Snapshot {
+    pub fn story_owner_index(local: &str) -> Option<usize> {
+        anchor_index(local, "story-owner:")
+    }
+
+    // The session only passes canonical owner indices issued by `story_page`.
+    pub fn story_inline_page(
+        &self,
+        owner_index: usize,
+        block_index: usize,
+        start: usize,
+        limit: usize,
+        handles: &mut InlineHandles<'_>,
+    ) -> Result<(Vec<Value>, Option<usize>), String> {
+        let missing = "block_index does not identify a direct story paragraph";
+        let slot = Slot::at(owner_index);
+        if slot.kind == SectionStoryKind::Header && slot.variant == HeaderFooterType::Default {
+            let headers = self.document.default_headers().map_err(|e| e.to_string())?;
+            let header = headers
+                .iter()
+                .find(|header| header.section_index == slot.section)
+                .ok_or("missing default header for selected story")?;
+            let nodes = header.inline_structure(block_index).ok_or(missing)?;
+            let source = story_inline_source(&header.part_name, block_index);
+            return Ok(typed_inline_page(nodes, start, limit, &source, handles));
+        }
+        let stories = self.stories()?;
+        let story = stories.owner_at(owner_index)?;
+        let nodes = story.inline_structure(block_index).ok_or(missing)?;
+        let source = story_inline_source(&story.part_name, block_index);
+        Ok(typed_inline_page(nodes, start, limit, &source, handles))
+    }
+
     fn stories(&self) -> Result<Stories, String> {
         let mut slots = BTreeMap::new();
         let mut owners = BTreeMap::new();
@@ -126,6 +198,53 @@ impl Snapshot {
             })
             .collect();
         Ok((rows, (end < len).then_some(end)))
+    }
+
+    pub fn default_header_page(
+        &self,
+        start: usize,
+        limit: usize,
+        handles: &mut InlineHandles<'_>,
+    ) -> Result<(Vec<Value>, Option<usize>), String> {
+        let headers = self.document.default_headers().map_err(|e| e.to_string())?;
+        let end = start.saturating_add(limit).min(headers.len());
+        let rows = (start..end)
+            .map(|index| {
+                let header = &headers[index];
+                json!({
+                    "section_index": header.section_index,
+                    "part_name": header.part_name,
+                    "inherited": header.inherited,
+                    "blocks": default_header_blocks(header, handles),
+                })
+            })
+            .collect();
+        Ok((rows, (end < headers.len()).then_some(end)))
+    }
+
+    pub fn linkable_story_page(
+        &self,
+        kind: SectionStoryKind,
+        start: usize,
+        limit: usize,
+    ) -> Result<(Vec<Value>, Option<usize>), String> {
+        let parts = self.unreferenced_story_parts(kind)?;
+        let end = start.saturating_add(limit).min(parts.len());
+        let rows = (start..end)
+            .map(|index| {
+                let kind = kind.as_str();
+                json!({
+                    "anchor": format!("linkable-story-owner:{kind}:{index}"),
+                    "kind": kind,
+                    "part_name": parts[index],
+                })
+            })
+            .collect();
+        Ok((rows, (end < parts.len()).then_some(end)))
+    }
+
+    fn unreferenced_story_parts(&self, kind: SectionStoryKind) -> Result<Vec<String>, String> {
+        linkable_story_parts(&self.document, kind).map_err(|e| e.to_string())
     }
 
     fn story_slot_count(&self) -> Result<usize, String> {
@@ -184,18 +303,37 @@ impl Snapshot {
                     .collect::<Result<_, _>>()?,
             ),
             StoryReferenceChange::Link { anchor } => {
-                let stories = self.stories()?;
-                let (_, source) = stories.owner(&anchor)?;
-                if source.kind != slot.kind {
-                    return Err("expected a same-kind physical story owner".into());
-                }
-                StoryReferenceEdit::Link(source.part_name.clone())
+                StoryReferenceEdit::Link(self.story_link_part(slot.kind, &anchor)?)
             }
             StoryReferenceChange::Remove {} => StoryReferenceEdit::Remove,
         };
         self.document
             .edit_story_reference(slot.section, slot.kind, slot.variant, edit)
             .map_err(|e| e.to_string())
+    }
+
+    fn story_link_part(&self, kind: SectionStoryKind, anchor: &str) -> Result<String, String> {
+        let wrong_kind = "expected a same-kind physical story owner";
+        if let Some(candidate) = anchor.strip_prefix("linkable-story-owner:") {
+            let (source_kind, index) = candidate
+                .split_once(':')
+                .and_then(|(kind, index)| Some((kind, index_number(index)?)))
+                .ok_or("unknown linkable story owner")?;
+            if source_kind != kind.as_str() {
+                return Err(wrong_kind.into());
+            }
+            return self
+                .unreferenced_story_parts(kind)?
+                .into_iter()
+                .nth(index)
+                .ok_or_else(|| "unknown linkable story owner".into());
+        }
+        let stories = self.stories()?;
+        let (_, source) = stories.owner(anchor)?;
+        if source.kind != kind {
+            return Err(wrong_kind.into());
+        }
+        Ok(source.part_name.clone())
     }
 
     pub fn edit_story_blocks(
@@ -226,6 +364,36 @@ fn index_number(digits: &str) -> Option<usize> {
 
 fn anchor_index(local: &str, prefix: &str) -> Option<usize> {
     index_number(local.strip_prefix(prefix)?)
+}
+
+fn story_inline_source(part: &str, block: usize) -> String {
+    // Frame the lexical package part name before appending numeric coordinates.
+    format!("inline:story:{}:{part}:{block}", part.len())
+}
+
+fn default_header_blocks(header: &ImportedHeader, handles: &mut InlineHandles<'_>) -> Vec<Value> {
+    header
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| match block {
+            ImportedStoryBlock::Paragraph(items) => {
+                let (text, has_opaque_content) = projected_run_text(items);
+                let nodes = header.inline_structure(index).unwrap_or_default();
+                let source = story_inline_source(&header.part_name, index);
+                let (inlines, _) = typed_inline_page(nodes, 0, nodes.len(), &source, handles);
+                json!({
+                    "type": "paragraph", "index": index, "text": text,
+                    "has_opaque_content": has_opaque_content,
+                    "inline_items": inline_items(items), "inlines": inlines,
+                })
+            }
+            ImportedStoryBlock::Opaque(name) => {
+                json!({"type": "opaque", "index": index, "name": name})
+            }
+            _ => json!({"type": "opaque", "index": index, "name": "unknown"}),
+        })
+        .collect()
 }
 
 fn story_blocks(story: &ImportedStory, owner: usize) -> Vec<Value> {
@@ -260,6 +428,7 @@ fn story_blocks(story: &ImportedStory, owner: usize) -> Vec<Value> {
                 json!({
                     "type": "paragraph", "index": index, "text": text,
                     "has_opaque_content": opaque, "inlines": inlines,
+                    "inline_items": inline_items(items),
                 })
             }
             ImportedStoryBlock::Opaque(name) => {

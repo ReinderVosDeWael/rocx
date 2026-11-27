@@ -163,8 +163,8 @@ definition in place, `delete` to remove both when the definition is discardable,
 `retarget` to point to an unused definition, or `renumber` to change both IDs.
 `attach`, `retarget`, and `renumber` take `id` as an unsigned 32-bit integer;
 for a stored ID like `"007"`, supply `7`. Set `note_kind` to `footnote` or
-`endnote`. The server uses the related part, but cannot select a relocated
-part with no entries. A successful preview has `changes: null`.
+`endnote`. The server uses the relationship-selected part even when it is
+relocated and has no entries. A successful preview has `changes: null`.
 
 ### Change direct paragraph or section layout
 
@@ -239,11 +239,14 @@ The declaration accepts `text`, `tab`, `break`, `image`, `hyperlink`,
 `fraction`, and `field` inlines. For a hyperlink, pass `target` as
 `{"kind":"url","url":"https://example.org"}` or
 `{"kind":"bookmark","name":"Bookmark1"}`, plus its displayed `children`.
-Images take encoded `bytes`, not paths. A table block uses `kind:"table"`,
-rectangular plain-text `rows`, and optional `column_widths` in twips. See
-tool discovery for the typed members. Authoring annotations, nested and
-formatted table cells, and some native inline types are not yet available
-in these declarations.
+Images take encoded `bytes`, not paths. Optional `source_name` sets named
+image metadata. Tabs, breaks, and inline images accept `format`; hyperlinks
+accept `tooltip` and `history`, where `false` is distinct from omission.
+A plain table block uses `kind:"table"`, rectangular text `rows`, and
+optional `column_widths` in twips. `rich-table` accepts nested blocks and
+modeled table, row, and cell formatting. A rich row may be empty if another
+row establishes the grid. The native editor validates each declaration for
+its edit scope; general authoring annotations are not fragment inputs.
 
 ### Change a field or a direct body inline
 
@@ -256,6 +259,13 @@ inline's anchor in the ordinary `edits` array:
   "kind":"insert-after","inline":{"kind":"field","instruction":{"kind":"page"}}
 }}
 ```
+
+The `inline_handle` is for readback, not editing. Pass it to
+`view:{"kind":"inline-at","inline_handle":"<handle>"}` to retrieve a typed
+node, including an addressable child of a hyperlink or revision. Handles
+belong to the open snapshot and are distinct from edit anchors. The
+`entry-inlines`, `story-inlines`, and `table-cell-inlines` views issue the
+same kind of read handles.
 
 `replace` takes the same `inline` declaration. On an eligible hyperlink,
 `remove-hyperlink` removes the wrapper and its displayed runs;
@@ -270,6 +280,28 @@ Use `instruction` with a string `value`, `dirty` or `locked` with a boolean
 or explicit `null`, `cache` with an inline `children` list, `replace` with a
 field `inline` declaration, or `remove`. Rust validates the original span,
 cached content, and overlap with the rest of the batch.
+
+### Inspect inlines in a header, footer, or table cell
+
+For an existing header or footer, take `owner.anchor` from `stories`, not
+the logical slot's `anchor`. Shared or inherited slots for the same part
+use the same owner. To read one direct paragraph, pass
+`view:{"kind":"story-inlines","anchor":"<owner>","block_index":0}`.
+
+For a direct body table cell, take the table anchor from `body-tables`:
+
+```json
+{"kind":"table-cell-inlines","anchor":"<table>","row_index":0,
+ "cell_index":0,"block_index":0,"limit":25}
+```
+
+Rows and cells use physical indices, not logical grid columns. Block
+indices include opaque blocks, such as a nested table in a cell. Select a
+paragraph block. Both views return ordered `inlines` and a `next_cursor`
+bound to the same original paragraph. Runs expose ordered text, tabs,
+breaks, note references, and opaque item names, plus direct formatting and
+modeled drawing or revision data where available. Use the existing
+`format-runs` view to discover editable run anchors.
 
 ### Change a drawing, chart, or fraction
 
@@ -440,12 +472,24 @@ action under `edit.action`.
 
 Use `view:{"kind":"body-tables"}` for direct body tables in an ordinary
 `table-structure` edit. Use `view:{"kind":"physical-tables"}` to find nested
-tables or tables in header/footer/note/comment parts. For a physical
+tables or tables in header/footer/note/comment parts. To avoid unrelated
+catalogs, set `scope` to `{"kind":"main"}` for the main part, or to
+`{"kind":"story","anchor":"<story owner>"}` for an inspected header or
+footer. Use `{"kind":"entry","anchor":"<entry owner>"}` to limit the
+result to the note/comment part identified by `entry-runs` or `entry-inlines`.
+The native entry query still validates the catalogs it uses. Cursors stay
+with their original scope. For a physical
 transaction, use `operation.kind:"edit-part-tables"` with the physical owner
 `anchor` and `edits`, each with that owner's table `anchor` and an `edit`.
 The physical view's `path` describes original XML element positions; it is
 not an edit handle. Results retain direct XML property values and original
 grid widths.
+
+The `body-tables` `children` tree preserves ordered row/cell siblings and
+opaque blocks. Use the original filtered `rows`/`cells` indices for table
+edits. The body-only `view:{"kind":"body"}` returns body paragraphs and
+tables even when an unrelated story cannot be inspected; its edit anchors
+have the same coordinates as the compact view.
 
 Both forms support `layout`, row/cell/column insertion and removal,
 `replace-cell` with `blocks`, and `set-property`/`clear-property`. Property
@@ -462,7 +506,9 @@ to insert a new body table. Supply `rows`, each with `cells`, each with
 Use `{"kind":"rich-table","table":{...}}` as a block to nest a table in a
 cell or supply one to a section or story edit. Grid widths are in twips,
 row heights and margins in points, and border sizes in eighth-points.
-Row and cell control-wrapper declarations are not exposed here.
+The native editor does not accept row or cell control wrappers in table
+fragments. Use the separate control wrapping transaction on an eligible
+existing table site.
 
 ### Propose and review tracked changes
 
@@ -509,18 +555,29 @@ and `variant` (`default`, `first` or `even`). The `owner` is `null` for a
 missing slot. When several slots share a package part, their physical owner
 anchor and run anchors match; their slot anchors are still distinct.
 
+For effective default headers only, use `view:{"kind":"default-headers"}`.
+This independent native reader omits sections without a default header and
+can still return valid default headers when an unrelated footer or
+first-page header is malformed. Its paragraph blocks contain typed inlines
+and read handles usable with `inline-at`.
+
 - Use the slot anchor of an existing part with the ordinary `header-image`
   edit, including for footers. `shared` changes all aliases that use the
   part; `section-local` only changes the selected section slot.
+  Pass either `bytes` or `image`. The latter takes `bytes` and optional
+  `source_name`, `transformation`, and `alt_text`. Story image insertion is
+  inline-only; Rust rejects a floating position.
 - Use `operation:{"kind":"edit-story-text","anchor":"<owner anchor>","edits":[{"anchor":"<run anchor>","text":"Updated"}]}`
   to edit eligible direct text runs in one physical part. Hyperlink-child
   runs are visible but not targets of this operation.
 - Use `operation:{"kind":"edit-story-reference","anchor":"<slot anchor>","edit":{"kind":"create","paragraphs":["New footer"]}}`
   to create an explicit reference from a missing or inherited slot.
   Use `edit:{"kind":"link","anchor":"<owner anchor>"}` to link to an
-  inspected physical part of the same kind. Use `edit:{"kind":"remove"}` to
-  remove an explicit reference and resume inheritance, without deleting the
-  package part.
+  inspected physical part of the same kind. To find related but unused
+  parts, call `view:{"kind":"linkable-stories","story_kind":"footer"}` (or
+  `"header"`) and use a returned anchor. Use `edit:{"kind":"remove"}` to
+  remove an explicit reference and resume inheritance without deleting the
+  package part, so the part remains available for relinking.
 - Use `create-rich` with `blocks` instead of plain `paragraphs` to author
   formatted content when creating a story. To splice an existing story, use
   `operation:{"kind":"edit-story-blocks","anchor":"<slot anchor>","edit":{"mode":"section-local","index":0,"remove":0,"blocks":[...]}}`.

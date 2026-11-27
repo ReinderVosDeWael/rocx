@@ -24,7 +24,11 @@ use rmcp::{
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-use crate::session::{PageView, Session};
+use crate::{
+    diagnostics::ToolError,
+    session::{InlineSelector, PageView, Session},
+};
+pub(crate) use entries::PhysicalTableSelector;
 use entries::{Operation, View};
 
 #[derive(Clone, Copy)]
@@ -81,14 +85,18 @@ impl ToolKind {
                  A paragraph's scalar_length describes Unicode scalar coordinates for its plain-text \
                   projection, with null meaning none are advertised. It is not edit permission: \
                   preview_edits validates the actual target and batch. Omit view for this compact \
-                  result. Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
+                   result or use {\"kind\":\"body\"} for body anchors without reading story parts. \
+                   Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
                   definitions with entry anchors, note-references for direct body note sites and \
                   tracked revisions with {\"kind\":\"revisions\"}, or direct paragraph and section \
                   properties with {\"kind\":\"layout\"}. Use {\"kind\":\"sections\"} for native \
                   body ranges and boundary anchors, {\"kind\":\"stories\"} for all six \
-                  header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
+                   header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
+                   Use {\"kind\":\"linkable-stories\",\"story_kind\":\"header\"} (or \"footer\") \
+                   for related parts with no effective slot and their link source anchors. \
                   Use fields, range-markers and body-inlines for original inline sites, format-runs for \
-                  physical run targets, and body-tables or physical-tables for table edits. \
+                   physical run targets, and body-tables or physical-tables for table edits. \
+                   Physical-tables accepts a main, story, or entry scope; omit scope for all owners. \
                   Use controls and control-sites for main-story content control edits, or \
                   story-controls for read-only physical story controls. \
                   Body-inlines describes drawings; chart-series reads the series at one \
@@ -186,12 +194,15 @@ pub(crate) enum Call {
 }
 
 impl Call {
-    pub(crate) fn dispatch(self, session: &mut Session) -> Result<Value, String> {
-        match self {
+    pub(crate) fn dispatch(self, session: &mut Session) -> Result<Value, ToolError> {
+        let legacy = match self {
             Self::Create(input) => session.create_document(input.paragraphs),
-            Self::Open(input) => session.open_document(input.path, input.limits.map(Into::into)),
+            Self::Open(input) => {
+                return session.open_document(input.path, input.limits.map(Into::into));
+            }
             Self::Inspect(input) => match input.view {
                 None => session.inspect_document(input.document),
+                Some(View::Body) => session.inspect_body(input.document),
                 Some(View::Entries { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::Entries, limit, cursor)
                 }
@@ -207,6 +218,51 @@ impl Call {
                 Some(View::Stories { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::Stories, limit, cursor)
                 }
+                Some(View::DefaultHeaders { limit, cursor }) => {
+                    session.inspect_page(input.document, PageView::DefaultHeaders, limit, cursor)
+                }
+                Some(View::LinkableStories {
+                    story_kind,
+                    limit,
+                    cursor,
+                }) => session.inspect_page(
+                    input.document,
+                    PageView::LinkableStories(story_kind.into()),
+                    limit,
+                    cursor,
+                ),
+                Some(View::StoryInlines {
+                    anchor,
+                    block_index,
+                    limit,
+                    cursor,
+                }) => session.inspect_inline_page(
+                    input.document,
+                    InlineSelector::Story {
+                        anchor: &anchor,
+                        block: block_index,
+                    },
+                    limit,
+                    cursor,
+                ),
+                Some(View::TableCellInlines {
+                    anchor,
+                    row_index,
+                    cell_index,
+                    block_index,
+                    limit,
+                    cursor,
+                }) => session.inspect_inline_page(
+                    input.document,
+                    InlineSelector::TableCell {
+                        anchor: &anchor,
+                        row: row_index,
+                        cell: cell_index,
+                        block: block_index,
+                    },
+                    limit,
+                    cursor,
+                ),
                 Some(View::Sections { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::Sections, limit, cursor)
                 }
@@ -215,6 +271,9 @@ impl Call {
                 }
                 Some(View::BodyInlines { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
+                }
+                Some(View::InlineAt { inline_handle }) => {
+                    session.inspect_inline_at(input.document, inline_handle)
                 }
                 Some(View::ChartSeries { anchor }) => {
                     session.inspect_chart_series(input.document, anchor)
@@ -237,9 +296,11 @@ impl Call {
                 Some(View::FormatRuns { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::FormatRuns, limit, cursor)
                 }
-                Some(View::PhysicalTables { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::PhysicalTables, limit, cursor)
-                }
+                Some(View::PhysicalTables {
+                    scope,
+                    limit,
+                    cursor,
+                }) => session.inspect_physical_table_page(input.document, scope, limit, cursor),
                 Some(View::EntryRuns { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
                 }
@@ -282,7 +343,7 @@ impl Call {
                 }
             },
             Self::Preview(Preview::Ordinary(input)) => {
-                session.preview_edits(input.document, input.edits)
+                return session.preview_edits(input.document, input.edits);
             }
             Self::Preview(Preview::Scoped(input)) => match input.operation {
                 Operation::EditEntry { anchor, edit } => {
@@ -297,7 +358,7 @@ impl Call {
                     anchor,
                     paired_anchor,
                     edit,
-                } => session.preview_revision(input.document, anchor, paired_anchor, edit),
+                } => return session.preview_revision(input.document, anchor, paired_anchor, edit),
                 Operation::EditLayout { edits } => session.preview_layout(input.document, edits),
                 Operation::EditStoryText { anchor, edits } => {
                     session.preview_story_text(input.document, &anchor, edits)
@@ -321,7 +382,8 @@ impl Call {
             },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
             Self::Close(input) => session.close_document(input.document),
-        }
+        };
+        legacy.map_err(ToolError::from)
     }
 }
 
@@ -495,12 +557,22 @@ pub(crate) enum Edit {
         alignment: CellAlignment,
     },
     /// Append an inline image to an existing header or footer slot.
+    #[schemars(transform = stories::require_image_payload)]
     HeaderImage {
         /// Slot anchor from compact inspection or the stories view.
         anchor: String,
         mode: HeaderMode,
-        /// Complete encoded image as byte values.
-        bytes: Vec<u8>,
+        /// Shorthand for an encoded image with intrinsic dimensions and default metadata.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(with = "Vec<u8>", skip_serializing_if = "Option::is_none")]
+        bytes: Option<Vec<u8>>,
+        /// Rich inline image declaration. Supply this or `bytes`, not both.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(
+            with = "stories::StoryImageInput",
+            skip_serializing_if = "Option::is_none"
+        )]
+        image: Option<Box<stories::StoryImageInput>>,
     },
     /// Set or clear a named document property or direct default in the ordinary batch.
     Resource { edit: resources::ResourceChange },
@@ -655,6 +727,40 @@ mod tests {
             ToolKind::Preview,
             json!({"document": "doc", "edits": edits}),
         )
+    }
+
+    #[test]
+    fn physical_inline_views_advertise_bounded_paragraph_selectors() {
+        let inspect = ToolKind::Inspect.definition().input_schema;
+        let variants = inspect["properties"]["view"]["oneOf"].as_array().unwrap();
+        for (kind, indices) in [
+            ("story-inlines", &["block_index"][..]),
+            (
+                "table-cell-inlines",
+                &["row_index", "cell_index", "block_index"][..],
+            ),
+        ] {
+            let view = variants
+                .iter()
+                .find(|view| view["properties"]["kind"]["const"] == kind)
+                .unwrap();
+            assert_eq!(view["additionalProperties"], false);
+            let required = view["required"].as_array().unwrap();
+            assert_eq!(required.len(), indices.len() + 2);
+            for field in ["kind", "anchor"]
+                .into_iter()
+                .chain(indices.iter().copied())
+            {
+                assert!(required.contains(&json!(field)), "{kind} requires {field}");
+            }
+            for field in indices {
+                assert_eq!(view["properties"][*field]["type"], "integer");
+                assert_eq!(view["properties"][*field]["minimum"], 0);
+            }
+            assert_eq!(view["properties"]["limit"]["minimum"], 1);
+            assert_eq!(view["properties"]["limit"]["maximum"], 100);
+            assert_eq!(view["properties"]["cursor"]["type"], "string");
+        }
     }
 
     #[test]
@@ -900,7 +1006,7 @@ mod tests {
             ("text-range", &["start", "end", "text"][..]),
             ("insert-text", &["offset", "text"][..]),
             ("cell-alignment", &["alignment"][..]),
-            ("header-image", &["mode", "bytes"][..]),
+            ("header-image", &["mode"][..]),
             ("block", &["edit"][..]),
             ("field", &["edit"][..]),
             ("inline", &["edit"][..]),
@@ -940,6 +1046,10 @@ mod tests {
                 assert_eq!(variant["properties"][field]["minimum"], 0);
             }
             if kind == "header-image" {
+                assert_eq!(
+                    variant["oneOf"],
+                    json!([{"required": ["bytes"]}, {"required": ["image"]}])
+                );
                 let byte = &variant["properties"]["bytes"]["items"];
                 assert_eq!(byte["type"], "integer");
                 assert_eq!(byte["minimum"], 0);

@@ -1,5 +1,5 @@
 use rmcp::schemars::{self, JsonSchema};
-use rocx::editor::EntryEdit;
+use rocx::editor::{EntryEdit, SectionStoryKind};
 use serde::{Deserialize, Deserializer};
 
 use super::{
@@ -38,6 +38,22 @@ fn entry_limit<'de, D: Deserializer<'de>>(deserializer: D) -> Result<usize, D::E
         )));
     }
     Ok(limit)
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub(super) enum LinkableStoryKind {
+    Header,
+    Footer,
+}
+
+impl From<LinkableStoryKind> for SectionStoryKind {
+    fn from(kind: LinkableStoryKind) -> Self {
+        match kind {
+            LinkableStoryKind::Header => Self::Header,
+            LinkableStoryKind::Footer => Self::Footer,
+        }
+    }
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -91,6 +107,57 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Page through effective default headers without reading other header or footer bodies.
+    DefaultHeaders {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through related header or footer parts with no effective slot.
+    /// Use an issued owner anchor as the source of an edit-story-reference link.
+    LinkableStories {
+        story_kind: LinkableStoryKind,
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        /// Opaque next-page cursor for this document and story kind.
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect typed inlines in one direct header/footer paragraph.
+    StoryInlines {
+        /// Physical owner anchor from the `stories` view (not a section slot anchor).
+        anchor: String,
+        /// Original zero-based index in the story's `blocks`, including opaque blocks.
+        block_index: usize,
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect typed inlines in one direct body table-cell paragraph.
+    TableCellInlines {
+        /// Table anchor from the `body-tables` view.
+        anchor: String,
+        /// Zero-based index in the table's `rows` (physical rows, not opaque siblings).
+        row_index: usize,
+        /// Zero-based index in the row's `cells` (physical cells, not grid columns).
+        cell_index: usize,
+        /// Original zero-based index in the cell's blocks, including opaque blocks.
+        block_index: usize,
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
     /// Page through native section boundaries and direct section properties.
     Sections {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
@@ -109,7 +176,7 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
-    /// Inspect direct body inlines and original node anchors.
+    /// Inspect typed direct body inlines, readback handles, and original edit anchors.
     BodyInlines {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
@@ -120,6 +187,8 @@ pub(super) enum View {
     },
     /// Read one native single-series column chart at an original body-inlines anchor.
     ChartSeries { anchor: String },
+    /// Resolve a read-only handle issued by an inline view of this open snapshot.
+    InlineAt { inline_handle: String },
     /// Inspect physical bookmark markers, comment markers and comment references in direct body paragraphs.
     RangeMarkers {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
@@ -176,6 +245,13 @@ pub(super) enum View {
     },
     /// Inspect top-level and nested physical tables and their owners.
     PhysicalTables {
+        /// Omit for the aggregate catalog, or select one physical owner.
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(
+            with = "PhysicalTableSelector",
+            skip_serializing_if = "Option::is_none"
+        )]
+        scope: Option<PhysicalTableSelector>,
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
         limit: usize,
@@ -192,7 +268,7 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
-    /// Page through direct inlines, including pictures, in physical note and comment entries.
+    /// Page through typed note/comment inlines with readback handles and eligible edit anchors.
     EntryInlines {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
@@ -249,6 +325,25 @@ pub(super) enum View {
     },
     /// Inspect one resource via its independent native accessor.
     ResourceValue { query: ResourceQuery },
+    /// Inspect compact body blocks and their edit anchors without reading headers or footers.
+    Body,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum PhysicalTableSelector {
+    /// Read only the actual main document part.
+    Main,
+    /// Read one physical header/footer owner without reading entry catalogs.
+    Story {
+        /// Physical owner anchor from the `stories` view (not a section slot anchor).
+        anchor: String,
+    },
+    /// Read one physical footnote, endnote, or comment part using native catalog validation.
+    Entry {
+        /// Physical owner anchor from `entry-runs` or `entry-inlines` (not an individual entry).
+        anchor: String,
+    },
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -298,6 +393,7 @@ pub(super) enum Operation {
     EditStoryReference {
         /// Logical slot anchor from the stories view.
         anchor: String,
+        /// To link, use a same-kind owner anchor from stories or linkable-stories.
         edit: StoryReferenceChange,
     },
     /// Splice original blocks in an existing header/footer slot.

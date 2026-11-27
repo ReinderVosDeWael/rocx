@@ -4,7 +4,10 @@ use rocx::editor::{ImportedInline, ImportedInlineNode, InlineAnchor, InlineEdit}
 use serde_json::{Value, json};
 
 use super::{index_of, is_candidate};
-use crate::editor::{Snapshot, body_inlines::project};
+use crate::editor::{
+    Snapshot,
+    body_inlines::{InlineHandles, project},
+};
 use crate::schema::entry_inlines::EntryInlineChange;
 
 const OWNER: &str = "entry-inline-owner:";
@@ -40,6 +43,7 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
+        handles: &mut InlineHandles<'_>,
     ) -> Result<(Vec<Value>, Option<usize>), String> {
         let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
         let mut owners = BTreeMap::new();
@@ -64,7 +68,7 @@ impl Snapshot {
             .by_ref()
             .take(limit)
             .map(|(i, entry, block, inline, node)| {
-                let mut row = project(node);
+                let mut row = project(node, &format!("inline:entry:{i}:{block}:{inline}"), handles);
                 row["entry_kind"] = json!(entry.kind.as_str());
                 row["entry_index"] = json!(i);
                 row["id"] = json!(entry.id);

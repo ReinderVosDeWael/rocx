@@ -17,9 +17,12 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "tests/mcp_parity"
 CURATED_OWNERS = {"ImportedDocument", "EditBatch", "EditPreview"}
-STATUS = {"planned", "partial", "covered"}
+STATUS = {"planned", "partial", "covered", "excluded"}
 REQUIRED = {"scope", "target", "mcp", "status", "positive", "negative"}
-OPTIONAL = {"gap", "alias_of", "batch_slices"}
+OPTIONAL = {"gap", "alias_of", "batch_slices", "decision"}
+ISSUE_DECISION = re.compile(
+    r"https://github\.com/ReinderVosDeWael/rocx/issues/72#issuecomment-\d+\Z"
+)
 
 
 class InvalidLedger(ValueError):
@@ -145,13 +148,18 @@ def validate(surface, ledger, root=ROOT):
             errors.append(f"{key}: {status} row must explain its gap")
         if status == "covered" and "gap" in row:
             errors.append(f"{key}: covered row must not declare a gap")
+        if status == "excluded":
+            if not (isinstance(row.get("decision"), str) and ISSUE_DECISION.fullmatch(row["decision"])):
+                errors.append(f"{key}: excluded row needs a decision linked to a comment on #72")
+        elif "decision" in row:
+            errors.append(f"{key}: only excluded rows can record a scope decision")
         for direction in ("positive", "negative"):
             try:
                 refs = string_set(row[direction], f"{key} {direction}")
             except InvalidLedger as exc:
                 errors.append(str(exc))
                 continue
-            if not refs and status != "planned":
+            if not refs and status in {"partial", "covered"}:
                 errors.append(f"{key}: {status} row needs {direction} fixtures")
             for ref in sorted(refs - fixtures.keys()):
                 errors.append(f"{key}: unknown {direction} fixture {ref}")
@@ -192,21 +200,38 @@ def validate(surface, ledger, root=ROOT):
         raise InvalidLedger("\n".join(errors))
 
 
+def require_complete(ledger):
+    """Fail the closure gate for an internally consistent but unfinished ledger."""
+    remaining = [
+        f"{sum(row['status'] == status for row in ledger['rows'].values())} {status} rows"
+        for status in ("partial", "planned")
+        if any(row["status"] == status for row in ledger["rows"].values())
+    ]
+    if ledger["unverified_symbols"]:
+        remaining.append(f"{len(ledger['unverified_symbols'])} unverified Rust symbols")
+    if remaining:
+        raise InvalidLedger("MCP parity closure blocked: " + ", ".join(remaining))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--surface", type=Path, default=INVENTORY / "surface.json")
     parser.add_argument("--coverage", type=Path, default=INVENTORY / "coverage.json")
+    parser.add_argument("--require-complete", action="store_true",
+                        help="also reject outstanding coverage obligations")
     args = parser.parse_args()
     try:
         surface = read_json(args.surface)
         ledger = read_json(args.coverage)
         validate(surface, ledger)
+        if args.require_complete:
+            require_complete(ledger)
     except InvalidLedger as exc:
         print(exc, file=sys.stderr)
         return 1
     counts = " / ".join(
         f"{sum(row['status'] == status for row in ledger['rows'].values())} {status}"
-        for status in ("covered", "partial", "planned")
+        for status in ("covered", "partial", "planned", "excluded")
     )
     print(f"MCP parity ledger valid: {counts}; "
           f"{len(ledger['unverified_symbols'])} unverified Rust symbols")

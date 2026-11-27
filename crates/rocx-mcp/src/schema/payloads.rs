@@ -14,6 +14,7 @@ mod table;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use drawing::{AltText, Transform};
 pub(crate) use format::{
     LineHeightInput, ParagraphFormatInput, RunFormatInput, RunLanguageInput, TabStopInput,
 };

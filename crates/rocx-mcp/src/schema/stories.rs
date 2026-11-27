@@ -1,7 +1,30 @@
-use rmcp::schemars::{self, JsonSchema};
+use rmcp::schemars::{self, JsonSchema, Schema};
 use serde::Deserialize;
+use serde_json::json;
 
-use crate::schema::{HeaderMode, payloads::BlockInput};
+use crate::schema::{
+    HeaderMode,
+    payloads::{AltText, BlockInput, Transform},
+};
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StoryImageInput {
+    /// Complete encoded image as byte values, not a file path or URL.
+    pub(crate) bytes: Vec<u8>,
+    /// Source image name stored on the picture. No filesystem access.
+    pub(crate) source_name: Option<String>,
+    /// Dimensions, crop, rotation and flips. Omit the floating anchor: this operation is inline-only.
+    pub(crate) transformation: Option<Transform>,
+    pub(crate) alt_text: Option<AltText>,
+}
+
+pub(super) fn require_image_payload(schema: &mut Schema) {
+    schema.insert(
+        "oneOf".into(),
+        json!([{"required": ["bytes"]}, {"required": ["image"]}]),
+    );
+}
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

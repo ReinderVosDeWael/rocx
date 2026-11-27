@@ -9,11 +9,15 @@
     "entry-paging": "tests/mcp/test_stdio.py::test_entry_paging_native_inspection_and_identity",
     "entry-scoped-bytes": "tests/mcp/test_stdio.py::test_entry_scoped_native_bytes_and_preservation",
     "entry-rejection": "tests/mcp/test_stdio.py::test_entry_rejection_retry_and_foreign_handles",
+    "entry-edit-parity": "tests/mcp/test_entry_edit_parity.py::test_entry_edit_native_bytes_and_preservation",
+    "entry-edit-guards": "tests/mcp/test_entry_edit_parity.py::test_entry_edit_guard_diagnostics_and_retry",
     "import-budgets": "tests/mcp/test_limits.py::test_import_budgets_match_native_reader",
     "empty-batch": "tests/mcp/test_limits.py::test_empty_native_batch_has_an_explicit_retained_preview",
     "layout-discovery": "tests/mcp/test_layout.py::test_layout_discovery",
     "layout-bytes": "tests/mcp/test_layout.py::test_layout_pages_mixed_transaction_and_native_bytes",
     "layout-rejection": "tests/mcp/test_layout.py::test_layout_rejects_conflicts_and_mismatches_then_allows_retry",
+    "layout-all-fields": "tests/mcp/test_layout.py::test_layout_all_native_field_groups_set_and_clear",
+    "layout-native-guards": "tests/mcp/test_layout.py::test_layout_guards_and_equivalent_imported_values_preserve_payloads",
     "note-sites": "tests/mcp/test_notes.py::test_note_reference_paging_and_indices",
     "note-reference-bytes": "tests/mcp/test_notes.py::test_note_reference_native_bytes_and_preservation",
     "note-reference-rejection": "tests/mcp/test_notes.py::test_note_reference_rejection_and_retry",
@@ -24,7 +28,9 @@
     "story-paging": "tests/mcp/test_stories.py::test_story_slot_pages_include_missing_and_share_owner_across_aliases",
     "story-text": "tests/mcp/test_stories.py::test_story_text_scoped_targets_and_native_bytes",
     "story-reference": "tests/mcp/test_stories.py::test_story_reference_lifecycle_and_native_bytes",
+    "story-relink": "tests/mcp/test_linkable_stories.py::test_relink_story_without_effective_slot",
     "story-images": "tests/mcp/test_story_images.py::test_story_image_all_slots_from_paged_anchors",
+    "story-image-declaration": "tests/mcp/test_story_images.py::test_story_image_schema_and_inline_only_boundary",
     "story-image-rejection": "tests/mcp/test_story_images.py::test_story_image_rejects_missing_slot_and_physical_owner",
     "entry-runs": "tests/mcp/test_entry_runs.py::test_entry_story_text_in_one_physical_owner",
     "entry-inline-discovery": "tests/mcp/test_entry_inlines.py::test_entry_inline_discovery",
@@ -32,15 +38,30 @@
     "style-discovery": "tests/mcp/test_styles.py::test_style_discovery",
     "style-bytes": "tests/mcp/test_styles.py::test_styles_native_mixed_and_retarget",
     "style-catalog": "tests/mcp/test_styles.py::test_styles_absence_and_duplicate_ids",
+    "style-regions": "tests/mcp/test_styles.py::test_table_style_region_lifecycle",
+    "style-region-guard": "tests/mcp/test_styles.py::test_table_style_region_clear_guard",
+    "style-paragraph-format": "tests/mcp/test_styles.py::test_paragraph_style_format",
+    "style-unrecognized-kind": "tests/mcp/test_styles.py::test_style_catalog_unrecognized_kind",
+    "style-malformed-catalog": "tests/mcp/test_styles.py::test_malformed_style_part",
     "numbering-discovery": "tests/mcp/test_numbering.py::test_numbering_discovery",
     "numbering-bytes": "tests/mcp/test_numbering.py::test_numbering_native_lifecycle",
     "numbering-reader-scope": "tests/mcp/test_numbering.py::test_numbering_independent_readers_ignore_bad_style_catalog",
     "numbering-first-part": "tests/mcp/test_numbering.py::test_numbering_creates_part_with_reciprocal_style_link",
+    "numbering-alias-opacity": "tests/mcp/test_numbering.py::test_numbering_level_free_alias_and_opaque_readback",
     "physical-numbering-discovery": "tests/mcp/test_physical_numbering.py::test_physical_numbering_discovery",
     "physical-numbering-bytes": "tests/mcp/test_physical_numbering.py::test_physical_numbering_mixed_native_bytes",
     "physical-numbering-owner-errors": "tests/mcp/test_physical_numbering.py::test_physical_numbering_isolates_unavailable_rows",
+    "physical-inline-discovery": "tests/mcp/test_physical_inlines.py::test_physical_inline_selector_discovery",
+    "physical-inline-readback": "tests/mcp/test_physical_inlines.py::test_physical_inline_pages_match_native",
+    "typed-inline-lookup": "tests/mcp/test_inline_at.py::test_inline_at_across_sources_and_nested_nodes",
+    "typed-default-headers": "tests/mcp/test_default_headers.py::test_native_default_headers",
+    "default-header-cursors": "tests/mcp/test_default_headers.py::test_default_headers_schema_and_cursor_scope",
+    "typed-body-readback": "tests/mcp/test_block_readback.py::test_body_paragraph_projection",
+    "ordered-table-story-blocks": "tests/mcp/test_block_readback.py::test_table_and_story_block_projection",
     "resource-discovery": "tests/mcp/test_resources.py::test_resource_discovery",
     "resource-query": "tests/mcp/test_resources.py::test_resource_value_queries_isolate_malformed_metadata",
+    "resource-modeled-readback": "tests/mcp/test_resources.py::test_all_modeled_metadata_and_defaults_match_native",
+    "resource-alignment-readback": "tests/mcp/test_resources.py::test_direct_and_legacy_alignment_readback_match_native",
     "resource-mixed": "tests/mcp/test_resources.py::test_mixed_resource_batch_native_bytes_and_preservation",
     "resource-retry": "tests/mcp/test_resources.py::test_resource_only_rejection_and_retry_without_inspection",
     "block-discovery": "tests/mcp/test_blocks.py::test_block_discovery",
@@ -49,6 +70,7 @@
     "rich-paragraph": "tests/mcp/test_stories.py::test_insert_rich_paragraph_native_bytes",
     "rich-story-blocks": "tests/mcp/test_stories.py::test_rich_story_blocks_native_bytes_and_preservation",
     "body-inlines": "tests/mcp/test_body_inlines.py::test_body_inline_edits_match_native",
+    "inline-declaration": "tests/mcp/test_inline_payload_parity.py::test_inline_payload_native_bytes",
     "field-discovery": "tests/mcp/test_fields.py::test_field_discovery",
     "field-mixed": "tests/mcp/test_fields.py::test_fields_mixed_batch_matches_native_after_rejection",
     "range-discovery": "tests/mcp/test_ranges.py::test_paired_range_discovery",
@@ -57,6 +79,8 @@
     "control-discovery": "tests/mcp/test_controls.py::test_control_discovery",
     "control-lifecycle": "tests/mcp/test_controls.py::test_control_lifecycle",
     "control-guards": "tests/mcp/test_controls.py::test_control_native_guards",
+    "control-wrapper-variants": "tests/mcp/test_controls.py::test_control_wrapper_variants_native_bytes",
+    "story-control-readback": "tests/mcp/test_controls.py::test_story_control_typed_findings",
     "drawing-discovery": "tests/mcp/test_drawings.py::test_drawing_discovery",
     "drawing-bytes": "tests/mcp/test_drawings.py::test_drawings_native_bytes_and_chart_fork",
     "run-format": "tests/mcp/test_run_format.py::test_physical_run_format_native_bytes",
@@ -65,25 +89,144 @@
     "table-paging": "tests/mcp/test_physical_tables.py::test_physical_table_pagination_and_rejected_batches",
     "table-geometry": "tests/mcp/test_physical_tables.py::test_physical_geometry_and_layout_native_bytes",
     "table-owners": "tests/mcp/test_physical_tables.py::test_rich_physical_table_content_native_bytes",
+    "catalog-body-isolation": "tests/mcp/test_catalog_isolation.py::test_body_and_main_tables_ignore_malformed_header",
+    "catalog-story-table-isolation": "tests/mcp/test_catalog_isolation.py::test_story_tables_ignore_malformed_entries",
+    "catalog-entry-table-scope": "tests/mcp/test_catalog_isolation.py::test_entry_table_scopes_match_native",
     "body-table-mixed": "tests/mcp/test_physical_tables.py::test_ordinary_body_table_mixed_whole_nodes_native_bytes",
     "rich-table": "tests/mcp/test_rich_table.py::test_rich_table_declaration_matches_native",
     "lifetime": "tests/mcp/test_stdio.py::test_retained_selection_lifetime_and_exclusive_save",
     "capacity": "tests/mcp/test_stdio.py::test_capacity_rejects_without_eviction_and_close_releases"
   },
   "rows": {
+    "rocx::editor::AlignmentChange": {
+      "scope": "native mixed preview report", "target": "native AlignmentChange report record", "mcp": "preview_edits.changes.changes[]",
+      "status": "partial", "gap": "Only a left-to-center change is compared; other alignment and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::AlignmentChange::body_index": {
+      "scope": "native mixed preview report", "target": "original body index", "mcp": "preview_edits.changes.changes[].target",
+      "status": "partial", "gap": "Only a left-to-center change is compared; other alignment and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::AlignmentChange::before": {
+      "scope": "native mixed preview report", "target": "native before value", "mcp": "preview_edits.changes.changes[].before",
+      "status": "partial", "gap": "Only a left-to-center change is compared; other alignment and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::AlignmentChange::after": {
+      "scope": "native mixed preview report", "target": "native after value", "mcp": "preview_edits.changes.changes[].after",
+      "status": "partial", "gap": "Only a left-to-center change is compared; other alignment and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::CellAlignmentChange": {
+      "scope": "native mixed preview report", "target": "native CellAlignmentChange report record", "mcp": "preview_edits.changes.cell_alignments[]",
+      "status": "partial", "gap": "Only a center-to-bottom change is compared; other vertical alignments and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::CellAlignmentChange::body_index": {
+      "scope": "native mixed preview report", "target": "original body index", "mcp": "preview_edits.changes.cell_alignments[].target",
+      "status": "partial", "gap": "Only a center-to-bottom change is compared; other vertical alignments and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::CellAlignmentChange::row_index": {
+      "scope": "native mixed preview report", "target": "original physical row index", "mcp": "preview_edits.changes.cell_alignments[].row_index",
+      "status": "partial", "gap": "Only a center-to-bottom change is compared; other vertical alignments and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::CellAlignmentChange::cell_index": {
+      "scope": "native mixed preview report", "target": "original physical cell index", "mcp": "preview_edits.changes.cell_alignments[].cell_index",
+      "status": "partial", "gap": "Only a center-to-bottom change is compared; other vertical alignments and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::CellAlignmentChange::before": {
+      "scope": "native mixed preview report", "target": "native before value", "mcp": "preview_edits.changes.cell_alignments[].before",
+      "status": "partial", "gap": "Only a center-to-bottom change is compared; other vertical alignments and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::CellAlignmentChange::after": {
+      "scope": "native mixed preview report", "target": "native after value", "mcp": "preview_edits.changes.cell_alignments[].after",
+      "status": "partial", "gap": "Only a center-to-bottom change is compared; other vertical alignments and absent-before cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::HeaderImageChange": {
+      "scope": "native mixed preview report", "target": "native HeaderImageChange report record", "mcp": "preview_edits.changes.header_images[]",
+      "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "story-image-rejection", "lifetime"]
+    },
+    "rocx::editor::HeaderImageChange::source_part": {
+      "scope": "native mixed preview report", "target": "source physical part name", "mcp": "preview_edits.changes.header_images[].source_part",
+      "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "story-image-rejection", "lifetime"]
+    },
+    "rocx::editor::HeaderImageChange::output_part": {
+      "scope": "native mixed preview report", "target": "output physical part name", "mcp": "preview_edits.changes.header_images[].output_part",
+      "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "story-image-rejection", "lifetime"]
+    },
+    "rocx::editor::HeaderImageChange::affected_sections": {
+      "scope": "native mixed preview report", "target": "indices of sections whose story content changes", "mcp": "preview_edits.changes.header_images[].affected_sections",
+      "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "story-image-rejection", "lifetime"]
+    },
+    "rocx::editor::HeaderImageChange::restored_section": {
+      "scope": "native mixed preview report", "target": "optional following section restored to its previous story", "mcp": "preview_edits.changes.header_images[].restored_section",
+      "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "story-image-rejection", "lifetime"]
+    },
+    "rocx::editor::HeaderImageChange::mode": {
+      "scope": "native mixed preview report", "target": "shared or section-local edit mode", "mcp": "preview_edits.changes.header_images[].mode",
+      "status": "covered", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "story-image-rejection", "lifetime"]
+    },
+    "rocx::editor::RunRemovalChange": {
+      "scope": "native mixed preview report", "target": "native RunRemovalChange report record", "mcp": "preview_edits.changes.run_removals[]",
+      "status": "partial", "gap": "Only one removed text run is compared; other eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunRemovalChange::body_index": {
+      "scope": "native mixed preview report", "target": "original body index", "mcp": "preview_edits.changes.run_removals[].target",
+      "status": "partial", "gap": "Only one removed text run is compared; other eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunRemovalChange::inline_index": {
+      "scope": "native mixed preview report", "target": "original inline index", "mcp": "preview_edits.changes.run_removals[].inline_index",
+      "status": "partial", "gap": "Only one removed text run is compared; other eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunRemovalChange::before": {
+      "scope": "native mixed preview report", "target": "native before value", "mcp": "preview_edits.changes.run_removals[].before",
+      "status": "partial", "gap": "Only one removed text run is compared; other eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunTextChange": {
+      "scope": "native mixed preview report", "target": "native RunTextChange report record", "mcp": "preview_edits.changes.run_text[]",
+      "status": "partial", "gap": "Only one changed text run is compared; other text and eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunTextChange::body_index": {
+      "scope": "native mixed preview report", "target": "original body index", "mcp": "preview_edits.changes.run_text[].target",
+      "status": "partial", "gap": "Only one changed text run is compared; other text and eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunTextChange::inline_index": {
+      "scope": "native mixed preview report", "target": "original inline index", "mcp": "preview_edits.changes.run_text[].inline_index",
+      "status": "partial", "gap": "Only one changed text run is compared; other text and eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunTextChange::before": {
+      "scope": "native mixed preview report", "target": "native before value", "mcp": "preview_edits.changes.run_text[].before",
+      "status": "partial", "gap": "Only one changed text run is compared; other text and eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::RunTextChange::after": {
+      "scope": "native mixed preview report", "target": "native after value", "mcp": "preview_edits.changes.run_text[].after",
+      "status": "partial", "gap": "Only one changed text run is compared; other text and eligible run cases lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::TableInsertionChange": {
+      "scope": "native mixed preview report", "target": "native TableInsertionChange report record", "mcp": "preview_edits.changes.table_insertions[]",
+      "status": "partial", "gap": "Only the baseline table dimensions and insertion position are compared; other table shapes and positions lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::TableInsertionChange::after_body_index": {
+      "scope": "native mixed preview report", "target": "original body index after which the table is inserted", "mcp": "preview_edits.changes.table_insertions[].target",
+      "status": "partial", "gap": "Only the baseline table dimensions and insertion position are compared; other table shapes and positions lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::TableInsertionChange::rows": {
+      "scope": "native mixed preview report", "target": "inserted table row count", "mcp": "preview_edits.changes.table_insertions[].rows",
+      "status": "partial", "gap": "Only the baseline table dimensions and insertion position are compared; other table shapes and positions lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
+    "rocx::editor::TableInsertionChange::columns": {
+      "scope": "native mixed preview report", "target": "inserted table column count", "mcp": "preview_edits.changes.table_insertions[].columns",
+      "status": "partial", "gap": "Only the baseline table dimensions and insertion position are compared; other table shapes and positions lack native report comparisons.", "positive": ["baseline-mixed"], "negative": ["baseline-mixed", "lifetime"]
+    },
     "EditBatch::alignments": {
       "scope": "direct body", "target": "paragraph anchor", "mcp": "preview_edits.edits[kind=alignment]",
       "status": "covered", "positive": ["baseline-mixed", "discovery"], "negative": ["baseline-mixed", "lifetime"]
     },
     "EditBatch::tables": {
       "scope": "direct body", "target": "paragraph after which to insert a resolved table", "mcp": "preview_edits.edits[kind=insert-table|insert-rich-table]",
-      "status": "partial", "gap": "Rich and nested cells and modeled properties are transported, but row/cell control wrappers and additional inline payloads remain unsupported.",
+      "status": "partial", "gap": "Rich and nested cells, empty rows within a nonempty grid, and modeled properties have evidence. Additional inline declaration fields remain to be qualified; native rejects row/cell control wrappers in table fragments.",
       "positive": ["baseline-mixed", "rich-table"], "negative": ["baseline-mixed", "rich-table"]
     },
     "EditBatch::header_images": {
       "scope": "logical section slot, shared physical part or section-local fork", "target": "header/footer slot anchor", "mcp": "preview_edits.edits[kind=header-image]",
-      "status": "partial", "gap": "All six story slots are supported in both modes, but only the default image declaration from encoded bytes is represented.",
-      "positive": ["baseline-mixed", "story-images"], "negative": ["baseline-mixed", "story-image-rejection"]
+      "status": "covered",
+      "positive": ["baseline-mixed", "story-images"], "negative": ["baseline-mixed", "story-image-rejection", "story-image-declaration"]
     },
     "EditBatch::run_text": {
       "scope": "direct body", "target": "eligible direct run anchor", "mcp": "preview_edits.edits[kind=run-text]",
@@ -127,8 +270,8 @@
     },
     "EditBatch::styles": {
       "scope": "relationship-selected styles", "target": "style anchor, property, or conditional region", "mcp": "preview_edits.edits[kind=style]",
-      "status": "partial", "gap": "All seven variants are transported and byte-tested; not every modeled property, conditional region or guard has installed evidence.",
-      "positive": ["style-bytes", "style-catalog"], "negative": ["style-discovery", "style-bytes", "style-catalog"]
+      "status": "partial", "gap": "All seven variants and all 13 conditional regions have byte evidence. Some modeled property tokens and guards still need installed evidence.",
+      "positive": ["style-bytes", "style-catalog", "style-regions", "style-paragraph-format"], "negative": ["style-discovery", "style-bytes", "style-catalog", "style-region-guard"]
     },
     "EditBatch::resources": {
       "scope": "package resources and paragraph assignments", "target": "metadata, defaults, numbering definitions/overrides or original body/cell/story paragraph", "mcp": "preview_edits.edits[kind=resource]",
@@ -219,17 +362,16 @@
     },
     "ImportedDocument::body": {
       "scope": "direct body", "target": "ordered original body blocks with typed nested values", "mcp": "inspect_document.body",
-      "status": "partial", "gap": "Compact projection only; missing rich paragraph/inline values, nested tables and full direct properties.",
-      "positive": ["baseline-mixed", "baseline-created", "body-scalar-edits"], "negative": ["lifetime"]
+      "status": "covered",
+      "positive": ["typed-body-readback", "ordered-table-story-blocks", "typed-inline-lookup", "catalog-body-isolation"], "negative": ["lifetime", "catalog-body-isolation"]
     },
     "ImportedDocument::inline_at": {
-      "scope": "snapshot-local inline identity", "target": "issued inline anchor", "mcp": "inspect_document.view[kind=body-inlines|format-runs]",
-      "status": "partial", "gap": "Some native properties are projected, but there is no generic typed node lookup by anchor across all owner contexts.",
-      "positive": ["body-inlines", "run-format"], "negative": ["body-inlines", "run-format"]
+      "scope": "snapshot-local inline identity", "target": "issued read-only inline handle", "mcp": "inspect_document.view[kind=inline-at]",
+      "status": "covered", "positive": ["typed-inline-lookup", "physical-inline-readback"], "negative": ["typed-inline-lookup"]
     },
     "ImportedDocument::preview_edits": {
       "scope": "ordinary mixed batch against original snapshot", "target": "18 slices and change report", "mcp": "preview_edits.edits; preview_edits.operation[kind=no-op] for an empty batch",
-      "status": "partial", "gap": "Not all batch slices, payloads, owners or nonempty reports are qualified.",
+      "status": "partial", "gap": "All nine ordinary report arrays have native comparison. Some batch payload and guard combinations remain unqualified.",
       "positive": ["baseline-mixed", "body-scalar-edits", "empty-batch"], "negative": ["baseline-mixed", "body-scalar-edits", "lifetime", "capacity"]
     },
     "ImportedDocument::preview": {
@@ -322,25 +464,25 @@
       "status": "covered", "positive": ["layout-bytes", "section-boundaries"], "negative": ["block-discovery", "section-boundaries"]
     },
     "ImportedDocument::default_headers": {
-      "scope": "logical section default header", "target": "effective default header blocks and inlines", "mcp": "inspect_document.headers[variant=default]; inspect_document.view[kind=stories]",
-      "status": "partial", "gap": "The stories view projects ordered blocks and nested runs, but not all typed inline payloads.",
-      "positive": ["baseline-mixed", "story-paging"], "negative": ["lifetime"]
+      "scope": "logical section default header", "target": "effective default header blocks and inlines", "mcp": "inspect_document.view[kind=default-headers]",
+      "status": "covered",
+      "positive": ["typed-default-headers", "typed-inline-lookup"], "negative": ["typed-default-headers", "default-header-cursors"]
     },
     "ImportedDocument::stories": {
       "scope": "logical section slots and effective physical parts", "target": "all six header/footer slots with typed blocks and inlines", "mcp": "inspect_document.view[kind=stories]",
-      "status": "partial", "gap": "All slots and shared owners are discovered, including missing slots. Story block and inline projections omit rich values.",
-      "positive": ["story-paging", "story-images"], "negative": ["story-paging", "story-image-rejection"]
+      "status": "covered",
+      "positive": ["story-paging", "story-images", "ordered-table-story-blocks", "physical-inline-readback"], "negative": ["story-paging", "physical-inline-readback"]
     },
     "ImportedDocument::preview_header_image": {
       "scope": "one logical story slot", "target": "resolved image and shared/local mode", "mcp": "preview_edits.edits[kind=header-image] (single edit)",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["header_images"],
-      "status": "partial", "gap": "Same bytes and one report entry for all six slots, but resolved image declaration fields are not transported.",
-      "positive": ["baseline-mixed", "story-images"], "negative": ["baseline-mixed", "story-image-rejection"]
+      "status": "covered",
+      "positive": ["baseline-mixed", "story-images"], "negative": ["baseline-mixed", "story-image-rejection", "story-image-declaration"]
     },
     "ImportedDocument::preview_layout": {
       "scope": "separate direct paragraph/section layout transaction", "target": "paragraph or section anchor and typed direct property", "mcp": "preview_edits.operation[kind=edit-layout]",
-      "status": "partial", "gap": "All field names and value shapes are transported, but installed byte parity exercises only a subset of native fields and owner guards.",
-      "positive": ["layout-discovery", "layout-bytes"], "negative": ["layout-rejection"]
+      "status": "covered",
+      "positive": ["layout-discovery", "layout-bytes", "layout-all-fields", "layout-native-guards"], "negative": ["layout-rejection", "layout-native-guards"]
     },
     "ImportedDocument::edit_run_format": {
       "scope": "one physical body, header/footer or ordinary note/comment part", "target": "run anchors including hyperlink children and body cell runs", "mcp": "preview_edits.operation[kind=edit-run-format]",
@@ -348,8 +490,8 @@
     },
     "ImportedDocument::part_tables": {
       "scope": "physical owners including body, headers/footers and entry stories", "target": "nested and direct physical tables with paths/anchors", "mcp": "inspect_document.view[kind=physical-tables]",
-      "status": "partial", "gap": "The aggregated page delivers native readback but cannot query a specified owner independently of malformed unrelated catalogs.",
-      "positive": ["table-paging", "table-owners"], "negative": ["table-paging"]
+      "status": "covered",
+      "positive": ["table-paging", "table-owners", "catalog-body-isolation", "catalog-story-table-isolation", "catalog-entry-table-scope"], "negative": ["table-paging", "catalog-body-isolation", "catalog-story-table-isolation", "catalog-entry-table-scope"]
     },
     "ImportedDocument::edit_part_tables": {
       "scope": "one physical body, story or note/comment part", "target": "owner-local table anchors and physical/logical coordinates", "mcp": "preview_edits.operation[kind=edit-part-tables]",
@@ -358,8 +500,8 @@
     },
     "ImportedDocument::edit_story_reference": {
       "scope": "one logical section story slot", "target": "section, header/footer kind, and slot variant", "mcp": "preview_edits.operation[kind=edit-story-reference]",
-      "status": "partial", "gap": "Both plain and supported rich blocks are accepted for create. Link is limited to physical parts exposed by an effective slot, not every related part.",
-      "positive": ["story-reference", "rich-story-blocks"], "negative": ["story-reference"]
+      "status": "partial", "gap": "Link supports eligible parts with and without effective slots. Rich creation payloads and logical slot discovery with malformed unrelated stories still need qualification.",
+      "positive": ["story-reference", "story-relink", "rich-story-blocks"], "negative": ["story-reference", "story-relink"]
     },
     "ImportedDocument::edit_story_blocks": {
       "scope": "one logical story slot with shared/local intent", "target": "slot anchor, original block gap, removal count and resolved blocks", "mcp": "preview_edits.operation[kind=edit-story-blocks]",
@@ -372,11 +514,11 @@
     },
     "ImportedDocument::entry_stories": {
       "scope": "relationship-selected footnote, endnote and comment parts, including special notes", "target": "source-order definitions, stored metadata and projected blocks; snapshot-owned candidate edit anchors", "mcp": "inspect_document.view[kind=entries] (limit, cursor) → entries, next_cursor",
-      "status": "partial", "gap": "All three kinds and special notes are listed, but paragraphs are projected as text and an opaque-content flag rather than typed inline values. Special notes have no edit anchor; an issued anchor does not guarantee operation eligibility.", "positive": ["entry-discovery", "entry-paging", "entry-scoped-bytes"], "negative": ["entry-discovery", "entry-paging"]
+      "status": "covered", "positive": ["entry-discovery", "entry-paging", "typed-inline-lookup", "entry-scoped-bytes"], "negative": ["entry-discovery", "entry-paging"]
     },
     "ImportedDocument::edit_entry": {
       "scope": "one ordinary note or base comment definition in its physical owner; standalone byte-only result", "target": "issued entry anchor supplies the physical owner and original ID lexeme to Rust for decimal identity validation; edits use original block indices or base comment metadata", "mcp": "preview_edits.operation[kind=edit-entry] (anchor, edit), changes=null; save_copy(document, preview, output)",
-      "status": "partial", "gap": "All seven variants are transported and byte-tested. Installed paragraph successes cover note examples only; discardable deletion is tested only on a footnote. Native protected field/range boundaries, duplicate decimal identities in one owner and extended comment rejection lack installed evidence.", "positive": ["entry-discovery", "entry-scoped-bytes", "entry-rejection"], "negative": ["entry-discovery", "entry-scoped-bytes", "entry-rejection"]
+      "status": "partial", "gap": "All seven variants are transported and byte-tested, including comment paragraph edits and unused endnote deletion. Native protected field boundaries, duplicate decimal identities in one owner and extended comment rejection still need installed evidence.", "positive": ["entry-discovery", "entry-scoped-bytes", "entry-edit-parity"], "negative": ["entry-discovery", "entry-rejection", "entry-edit-guards"]
     },
     "ImportedDocument::edit_entry_inlines": {
       "scope": "one physical ordinary note/comment part", "target": "owner-local direct entry inline anchors", "mcp": "preview_edits.operation[kind=edit-entry-inlines]",
@@ -385,7 +527,7 @@
     },
     "ImportedDocument::edit_note_reference": {
       "scope": "main-document reference sites and their note definitions", "target": "reference anchor or insertion site, note kind and note ID", "mcp": "inspect_document.view[kind=note-references]; preview_edits.operation[kind=edit-note-reference]",
-      "status": "partial", "gap": "All six variants are transported; a relocated owner with zero entries has no discoverable part name in the native entry catalog.",
+      "status": "covered",
       "positive": ["note-sites", "note-reference-bytes", "note-catalog-scope"], "negative": ["note-reference-rejection"]
     },
     "ImportedDocument::field_at": {
@@ -415,8 +557,8 @@
     },
     "ImportedDocument::styles": {
       "scope": "relationship-selected styles part", "target": "stored style metadata and native direct property XML", "mcp": "inspect_document.view[kind=styles]",
-      "status": "partial", "gap": "Known types, property XML, relocated and missing parts are qualified; malformed or unsupported source kinds lack installed evidence.",
-      "positive": ["style-bytes", "style-catalog"], "negative": ["style-discovery", "style-bytes"]
+      "status": "covered",
+      "positive": ["style-bytes", "style-catalog", "style-unrecognized-kind"], "negative": ["style-discovery", "style-bytes", "style-malformed-catalog"]
     },
     "ImportedDocument::style_anchor": {
       "scope": "relationship-selected styles part", "target": "unique stored style ID resolved to a snapshot anchor", "mcp": "inspect_document.view[kind=styles]",
@@ -424,18 +566,18 @@
     },
     "ImportedDocument::document_defaults": {
       "scope": "relationship-selected defaults/settings parts", "target": "typed direct stored default fields", "mcp": "inspect_document.view[kind=resource-value].query[kind=document-defaults]",
-      "status": "partial", "gap": "Native default fields are projected, but not every modeled field has installed evidence.",
-      "positive": ["resource-query", "resource-mixed"], "negative": ["resource-discovery", "resource-retry"]
+      "status": "covered",
+      "positive": ["resource-modeled-readback", "resource-query", "resource-mixed"], "negative": ["resource-discovery", "resource-alignment-readback"]
     },
     "ImportedDocument::default_alignment": {
       "scope": "relationship-selected defaults part", "target": "direct default paragraph alignment", "mcp": "inspect_document.view[kind=resource-value].query[kind=default-alignment]",
-      "status": "partial", "gap": "Independent native query is supported; installed inspection does not yet qualify every token and legacy read error.",
-      "positive": ["resource-query", "resource-mixed"], "negative": ["resource-discovery", "resource-retry"]
+      "status": "covered",
+      "positive": ["resource-query", "resource-alignment-readback"], "negative": ["resource-discovery", "resource-alignment-readback"]
     },
     "ImportedDocument::metadata_field": {
       "scope": "relationship-selected core and extended properties", "target": "named typed scalar field", "mcp": "inspect_document.view[kind=resource-value].query[kind=metadata]",
-      "status": "partial", "gap": "Independent native lookup is supported; not every core and extended field has an installed readback fixture.",
-      "positive": ["resource-query", "resource-mixed"], "negative": ["resource-query", "resource-retry"]
+      "status": "covered",
+      "positive": ["resource-modeled-readback", "resource-query", "resource-mixed"], "negative": ["resource-query", "resource-retry"]
     },
     "ImportedDocument::core_title": {
       "scope": "relationship-selected core properties", "target": "Title metadata field", "mcp": "inspect_document.view[kind=resource-value].query[kind=metadata,field=title]",
@@ -453,8 +595,8 @@
     },
     "ImportedDocument::numbering_catalog": {
       "scope": "relationship-selected numbering part", "target": "abstract/concrete definitions and modeled level/override payloads", "mcp": "inspect_document.view[kind=numbering-abstracts|numbering-instances]",
-      "status": "partial", "gap": "Native serialization, rich levels and reciprocal links are qualified; installed evidence still lacks level-free aliases and opaque level readback.",
-      "positive": ["numbering-bytes", "numbering-first-part"], "negative": ["numbering-discovery", "numbering-reader-scope"]
+      "status": "covered",
+      "positive": ["numbering-bytes", "numbering-first-part", "numbering-alias-opacity"], "negative": ["numbering-discovery", "numbering-reader-scope", "numbering-alias-opacity"]
     },
     "ImportedDocument::abstract_starts": {
       "scope": "relationship-selected numbering part", "target": "stored starts by abstract ID and level", "mcp": "inspect_document.view[kind=resource-value].query[kind=abstract-starts]",
@@ -486,8 +628,8 @@
     },
     "ImportedDocument::story_controls": {
       "scope": "physical story owners", "target": "typed read-only control metadata and owner identities", "mcp": "inspect_document.view[kind=story-controls]",
-      "status": "partial", "gap": "Qualified for shared footer and comment owners; relocated owners and other entry kinds lack installed evidence.",
-      "positive": ["control-lifecycle"], "negative": ["control-discovery"]
+      "status": "covered",
+      "positive": ["control-lifecycle", "story-control-readback"], "negative": ["control-discovery", "story-control-readback"]
     },
     "ImportedDocument::controls": {
       "scope": "main story", "target": "controls with native contexts, anchors and properties", "mcp": "inspect_document.view[kind=controls]",
@@ -507,20 +649,20 @@
     "ImportedDocument::preview_unwrap_control": {
       "scope": "main story", "target": "one eligible control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=unwrap]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "partial", "gap": "Installed byte evidence covers block unwrap only.",
-      "positive": ["control-lifecycle"], "negative": ["control-lifecycle", "control-guards"]
+      "status": "partial", "gap": "Block, inline, row and cell unwrap have byte evidence; the shared wrapper batch slice remains partial.",
+      "positive": ["control-lifecycle", "control-wrapper-variants"], "negative": ["control-lifecycle", "control-guards", "control-wrapper-variants"]
     },
     "ImportedDocument::preview_replace_control": {
       "scope": "main story", "target": "control anchor and complete replacement definition", "mcp": "preview_edits.edits[kind=control].edit[kind=define]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "partial", "gap": "Transport covers all modeled definition variants; installed byte evidence exercises a plain definition only.",
-      "positive": ["control-lifecycle"], "negative": ["control-discovery"]
+      "status": "partial", "gap": "Plain, rich and drop-down definition variants have byte evidence; the shared wrapper batch slice remains partial.",
+      "positive": ["control-lifecycle", "control-wrapper-variants"], "negative": ["control-discovery", "control-wrapper-variants"]
     },
     "ImportedDocument::preview_control_choice": {
       "scope": "main story", "target": "control anchor, selected value and optional list items", "mcp": "preview_edits.edits[kind=control].edit[kind=choice]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "partial", "gap": "Installed byte evidence covers choice with list replacement; selection retaining the original list and a choice no-op lack installed evidence.",
-      "positive": ["control-lifecycle"], "negative": ["control-discovery", "control-lifecycle"]
+      "status": "partial", "gap": "Choice with list replacement, retained list and repeated-selection no-op have byte evidence; the shared wrapper batch slice remains partial.",
+      "positive": ["control-lifecycle", "control-wrapper-variants"], "negative": ["control-discovery", "control-lifecycle", "control-wrapper-variants"]
     },
     "ImportedDocument::preview_tracked_text": {
       "scope": "separate main-story revision proposal", "target": "direct run anchor, action, author and optional date", "mcp": "preview_edits.operation[kind=edit-revision].edit[kind=insert-text-after|replace-text|delete-text]",
@@ -549,18 +691,18 @@
     "rocx::editor::HeaderImagePreview::change": {
       "scope": "single-slot image preview", "target": "one logical slot change record", "mcp": "preview_edits.changes.header_images[0]",
       "alias_of": "EditPreview::header_changes",
-      "status": "partial", "gap": "Only supported header slots and image shorthand; installed test does not assert the output-part field.",
-      "positive": ["baseline-mixed"], "negative": ["baseline-mixed"]
+      "status": "covered",
+      "positive": ["baseline-mixed", "story-images"], "negative": ["story-image-rejection", "story-image-declaration"]
     },
     "rocx::editor::HeaderImagePreview::to_docx": {
       "scope": "single-slot image preview", "target": "exact staged image-edit DOCX bytes", "mcp": "save_copy(document, preview, output)",
       "alias_of": "EditPreview::to_docx",
-      "status": "partial", "gap": "Save supports the encoded preview; full story-slot and resolved image inputs remain gaps.",
-      "positive": ["baseline-mixed"], "negative": ["lifetime"]
+      "status": "covered",
+      "positive": ["baseline-mixed", "story-images"], "negative": ["lifetime"]
     },
     "rocx::editor::EntryEdit": {
       "scope": "standalone edit to one ordinary entry definition", "target": "seven edit kinds; no note reference sites", "mcp": "preview_edits.operation[kind=edit-entry].edit",
-      "status": "partial", "gap": "All variants have exact saved-byte evidence on representative inputs; native paragraph edits on comments and additional protection cases are not qualified.", "positive": ["entry-discovery", "entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+      "status": "covered", "positive": ["entry-discovery", "entry-scoped-bytes", "entry-edit-parity"], "negative": ["entry-discovery", "entry-rejection", "entry-edit-guards"]
     },
     "rocx::editor::EntryEdit::CommentAuthor": {
       "scope": "base comment", "target": "set author", "mcp": "preview_edits.operation.edit[kind=comment-author]",
@@ -588,11 +730,11 @@
     },
     "rocx::editor::EntryEdit::DeleteUnusedNote": {
       "scope": "discardable, unreferenced ordinary note definition", "target": "one footnote or endnote; no reference or comment mutation", "mcp": "preview_edits.operation.edit[kind=delete-unused-note]",
-      "status": "partial", "gap": "Unused footnote deletion and live footnote rejection are tested; discardability rejection and successful endnote deletion lack installed evidence.", "positive": ["entry-scoped-bytes"], "negative": ["entry-rejection"]
+      "status": "covered", "positive": ["entry-scoped-bytes", "entry-edit-parity"], "negative": ["entry-rejection", "entry-edit-guards"]
     },
     "rocx::editor::EntryEdit::InsertParagraph": {
       "scope": "one ordinary entry", "target": "insert a plain paragraph at an eligible original block gap", "mcp": "preview_edits.operation.edit[kind=insert-paragraph]",
-      "status": "partial", "gap": "Endnote append and out-of-bounds rejection are tested; interior and comment insertion and native range-boundary checks lack installed evidence.", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+      "status": "covered", "positive": ["entry-scoped-bytes", "entry-edit-parity"], "negative": ["entry-discovery", "entry-rejection", "entry-edit-guards"]
     },
     "rocx::editor::EntryEdit::InsertParagraph::index": {
       "scope": "one ordinary entry", "target": "zero-based original block gap, including append", "mcp": "preview_edits.operation.edit[kind=insert-paragraph].index",
@@ -604,7 +746,7 @@
     },
     "rocx::editor::EntryEdit::RemoveParagraph": {
       "scope": "one ordinary entry", "target": "remove an eligible original paragraph without removing the last block or protected mark", "mcp": "preview_edits.operation.edit[kind=remove-paragraph]",
-      "status": "partial", "gap": "Endnote tail removal and rejection on a first note paragraph and an opaque comment block are tested; successful comment removal and last-block protection lack installed evidence.", "positive": ["entry-scoped-bytes"], "negative": ["entry-discovery", "entry-rejection"]
+      "status": "covered", "positive": ["entry-scoped-bytes", "entry-edit-parity"], "negative": ["entry-discovery", "entry-rejection", "entry-edit-guards"]
     },
     "rocx::editor::EntryEdit::RemoveParagraph::0": {
       "scope": "one ordinary entry", "target": "zero-based original block index, counting non-paragraph blocks", "mcp": "preview_edits.operation.edit[kind=remove-paragraph].index",
@@ -612,7 +754,7 @@
     },
     "rocx::editor::EntryEdit::ReplaceParagraph": {
       "scope": "one ordinary entry", "target": "replace an eligible original paragraph while retaining supported initial note or comment marks", "mcp": "preview_edits.operation.edit[kind=replace-paragraph]",
-      "status": "partial", "gap": "First footnote paragraph replacement preserves its mark; comment replacement, retention of a supported first-block style and rich-content rejection lack installed evidence.", "positive": ["entry-scoped-bytes", "entry-rejection"], "negative": ["entry-discovery", "entry-scoped-bytes"]
+      "status": "covered", "positive": ["entry-scoped-bytes", "entry-edit-parity"], "negative": ["entry-discovery", "entry-scoped-bytes", "entry-edit-guards"]
     },
     "rocx::editor::EntryEdit::ReplaceParagraph::index": {
       "scope": "one ordinary entry", "target": "zero-based original block index, counting non-paragraph blocks", "mcp": "preview_edits.operation.edit[kind=replace-paragraph].index",
@@ -644,7 +786,7 @@
     },
     "rocx::editor::ImportedEntry": {
       "scope": "one footnote, endnote or comment definition", "target": "stored entry identity and metadata with ordered blocks", "mcp": "inspect_document.entries[]",
-      "status": "partial", "gap": "Stored fields are transported; blocks are projected and typed inline structure is not transported.", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging"]
+      "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes", "typed-inline-lookup"], "negative": ["entry-paging"]
     },
     "rocx::editor::ImportedEntry::author": {
       "scope": "entry definition readback", "target": "optional stored author; null when absent", "mcp": "inspect_document.entries[].author",
@@ -652,7 +794,7 @@
     },
     "rocx::editor::ImportedEntry::blocks": {
       "scope": "one footnote, endnote or comment", "target": "ordered physical entry blocks, including non-paragraph blocks", "mcp": "inspect_document.entries[].blocks",
-      "status": "partial", "gap": "Opaque block names are transported, but paragraphs expose projected text and an opaque-content flag instead of their ImportedInline values.", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging", "entry-rejection"]
+      "status": "covered", "positive": ["entry-paging", "entry-scoped-bytes"], "negative": ["entry-paging", "entry-rejection"]
     },
     "rocx::editor::ImportedEntry::date": {
       "scope": "entry definition readback", "target": "optional stored date string; null when absent", "mcp": "inspect_document.entries[].date",
@@ -680,20 +822,23 @@
     },
     "rocx::editor::ImportedEntry::inline_structure": {
       "scope": "one footnote, endnote or comment", "target": "typed inline structure at an original entry block index", "mcp": "inspect_document.view[kind=entry-inlines]",
-      "status": "partial", "gap": "The view addresses supported direct nodes and projects hyperlink children and pictures; flattened text and opaque indicators do not represent every native run item.",
-      "positive": ["entry-inline-bytes"], "negative": ["entry-inline-discovery", "entry-inline-bytes"]
+      "status": "covered",
+      "positive": ["entry-inline-bytes", "typed-inline-lookup"], "negative": ["entry-inline-discovery", "typed-inline-lookup"]
     },
     "rocx::editor::ImportedHeader::inline_structure": {
-      "scope": "effective default header", "target": "typed inline structure at an original header block index", "mcp": "inspect_document (planned physical header inline view)",
-      "status": "planned", "gap": "The compact header projection provides slot data, not inlines.", "positive": [], "negative": []
+      "scope": "effective default header", "target": "typed inline structure at an original header block index", "mcp": "inspect_document.view[kind=default-headers|story-inlines]",
+      "status": "covered",
+      "positive": ["typed-default-headers", "physical-inline-readback", "typed-inline-lookup"], "negative": ["default-header-cursors", "physical-inline-readback"]
     },
     "rocx::editor::ImportedStory::inline_structure": {
-      "scope": "effective header/footer part", "target": "typed inline structure at an original story block index", "mcp": "inspect_document (planned physical story inline view)",
-      "status": "planned", "gap": "No typed story inline readback.", "positive": [], "negative": []
+      "scope": "effective header/footer part", "target": "typed inline structure at an original story block index", "mcp": "inspect_document.view[kind=story-inlines]",
+      "status": "covered",
+      "positive": ["physical-inline-discovery", "physical-inline-readback", "typed-inline-lookup"], "negative": ["physical-inline-readback", "typed-inline-lookup"]
     },
     "rocx::editor::ImportedTableCell::inline_structure": {
-      "scope": "physical table cell", "target": "typed inline structure at an original cell block index", "mcp": "inspect_document (planned cell inline view)",
-      "status": "planned", "gap": "The compact cell projection provides cell coordinates, not inlines.", "positive": [], "negative": []
+      "scope": "direct body table cell", "target": "typed inline structure at an original cell block index", "mcp": "inspect_document.view[kind=table-cell-inlines]",
+      "status": "covered",
+      "positive": ["physical-inline-discovery", "physical-inline-readback", "typed-inline-lookup"], "negative": ["physical-inline-readback", "typed-inline-lookup"]
     },
     "rocx::editor::TextRangeEdit": {
       "scope": "direct body", "target": "original plain paragraph, scalar bounds and replacement or deletion", "mcp": "preview_edits.edits[kind=text-range]",
@@ -1697,10 +1842,6 @@
     "rocx::editor::AbstractStart::abstract_id",
     "rocx::editor::AbstractStart::level",
     "rocx::editor::AbstractStart::start",
-    "rocx::editor::AlignmentChange",
-    "rocx::editor::AlignmentChange::after",
-    "rocx::editor::AlignmentChange::before",
-    "rocx::editor::AlignmentChange::body_index",
     "rocx::editor::BlockEdit",
     "rocx::editor::BlockEdit::KeepWithNext",
     "rocx::editor::BlockEdit::KeepWithNext::0",
@@ -1738,12 +1879,6 @@
     "rocx::editor::BodyBlock::Paragraph::0",
     "rocx::editor::BodyBlock::Table",
     "rocx::editor::BodyBlock::Table::0",
-    "rocx::editor::CellAlignmentChange",
-    "rocx::editor::CellAlignmentChange::after",
-    "rocx::editor::CellAlignmentChange::before",
-    "rocx::editor::CellAlignmentChange::body_index",
-    "rocx::editor::CellAlignmentChange::cell_index",
-    "rocx::editor::CellAlignmentChange::row_index",
     "rocx::editor::CellAlignmentEdit",
     "rocx::editor::CellAlignmentEdit::alignment",
     "rocx::editor::CellAlignmentEdit::cell_index",
@@ -1908,12 +2043,6 @@
     "rocx::editor::HeaderEditMode",
     "rocx::editor::HeaderEditMode::SectionLocal",
     "rocx::editor::HeaderEditMode::Shared",
-    "rocx::editor::HeaderImageChange",
-    "rocx::editor::HeaderImageChange::affected_sections",
-    "rocx::editor::HeaderImageChange::mode",
-    "rocx::editor::HeaderImageChange::output_part",
-    "rocx::editor::HeaderImageChange::restored_section",
-    "rocx::editor::HeaderImageChange::source_part",
     "rocx::editor::HeaderImageEdit",
     "rocx::editor::HeaderImageEdit::image",
     "rocx::editor::HeaderImageEdit::mode",
@@ -2371,15 +2500,6 @@
     "rocx::editor::RunFormatField::Underline",
     "rocx::editor::RunFormatField::VerticalAlignment",
     "rocx::editor::RunFormatField::parse",
-    "rocx::editor::RunRemovalChange",
-    "rocx::editor::RunRemovalChange::before",
-    "rocx::editor::RunRemovalChange::body_index",
-    "rocx::editor::RunRemovalChange::inline_index",
-    "rocx::editor::RunTextChange",
-    "rocx::editor::RunTextChange::after",
-    "rocx::editor::RunTextChange::before",
-    "rocx::editor::RunTextChange::body_index",
-    "rocx::editor::RunTextChange::inline_index",
     "rocx::editor::RunTextEdit",
     "rocx::editor::RunTextEdit::target",
     "rocx::editor::RunTextEdit::text",
@@ -2446,10 +2566,6 @@
     "rocx::editor::TableInsertion",
     "rocx::editor::TableInsertion::table",
     "rocx::editor::TableInsertion::target",
-    "rocx::editor::TableInsertionChange",
-    "rocx::editor::TableInsertionChange::after_body_index",
-    "rocx::editor::TableInsertionChange::columns",
-    "rocx::editor::TableInsertionChange::rows",
     "rocx::editor::TableOperation",
     "rocx::editor::TableOperation::InsertCell",
     "rocx::editor::TableOperation::InsertCell::cell",

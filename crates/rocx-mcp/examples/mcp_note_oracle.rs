@@ -15,8 +15,9 @@ fn main() {
         text: "New note 😀 & tail".into(),
     };
     let (owner, inline_index, edit) = match case.as_str() {
-        "create" | "reserved-only" => (endnotes, 0, create()),
+        "create" | "reserved-only" | "relocated-empty-endnote" => (endnotes, 0, create()),
         "first-part" | "empty-owner" => ("word/footnotes.xml", 0, create()),
+        "relocated-empty-footnote" => (footnotes, 0, create()),
         "attach" => (footnotes, 3, Attach(8)),
         "detach" => (footnotes, 4, Detach),
         "delete" => (footnotes, 4, Delete),

@@ -433,7 +433,7 @@ fn underline_name(value: Underline) -> &'static str {
     }
 }
 
-fn format_value(format: &RunFormat) -> Value {
+pub(super) fn format_value(format: &RunFormat) -> Value {
     let color = match format.color {
         Some(Color::Auto) => json!("auto"),
         Some(Color::Rgb(rgb)) => json!(rgb),

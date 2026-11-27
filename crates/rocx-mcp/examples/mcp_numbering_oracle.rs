@@ -138,6 +138,16 @@ fn main() -> rocx::Result<()> {
             N::RemoveInstance { num_id: 90 },
             paragraph(None),
         ],
+        "assign-alias" => vec![paragraph(Some(NumberingReference { id: 713, level: 0 }))],
+        "reject-alias-level" | "reject-opaque-level" => vec![N::AbstractLevel {
+            abstract_id: if action == "reject-alias-level" {
+                711
+            } else {
+                710
+            },
+            level: 0,
+            value: Some(Box::new(simple(0, 1))),
+        }],
         "create-part" => {
             styles.push(StyleEdit::Add(
                 NumberingStyleDefinition {
@@ -173,7 +183,18 @@ fn main() -> rocx::Result<()> {
         run_text: &run_text,
         styles: &styles,
         ..Default::default()
-    })?;
+    });
+    if matches!(
+        action.as_str(),
+        "reject-alias-level" | "reject-opaque-level"
+    ) {
+        let Err(error) = preview else {
+            panic!("native numbering guard accepted {action}")
+        };
+        std::fs::write(output, error.to_string()).unwrap();
+        return Ok(());
+    }
+    let preview = preview?;
     std::fs::write(output, preview.to_docx()?).unwrap();
     Ok(())
 }
