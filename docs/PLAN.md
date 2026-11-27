@@ -226,9 +226,11 @@ table with wide spanning cells. Story discovery no longer depends on
 unrelated section layout; link sources can include referenced parts even
 when an unrelated story is malformed. Flat tables now qualify 48 levels
 with 1,024 grid columns per level. Keep zero-column fragments rejected:
-the core can emit a nested cellless row, but Word documents that shape
-as corrupt ([#91](https://github.com/ReinderVosDeWael/rocx/issues/91)).
-A zero-column property donor is supported because it is not rendered.
+Word documents cellless rows as corrupt
+([#91](https://github.com/ReinderVosDeWael/rocx/issues/91)).
+Validate the column count recursively in the native fragment renderer, not
+when resolving a property donor. Verify native and MCP rejection and compare
+saved previews for a nested table whose nonempty grid pads an empty row.
 Continue qualifying exact payload and helper equivalences,
 keeping native restrictions and resolving wire mismatches before
 promoting their ledger rows.

@@ -366,45 +366,61 @@ async def test_zero_column_donor_copies_only_property_and_is_not_a_fragment(laun
 
 async def test_zero_column_nested_control_table_is_not_transportable(launch, source):
     fixture = docx.Document(source)
-    paragraph = fixture.add_paragraph("Original control")._p
+    original_control = fixture.add_paragraph("Original control")._p
     wrapper, props, content = map(OxmlElement, ["w:sdt", "w:sdtPr", "w:sdtContent"])
     props.append(OxmlElement("w:richText"))
     wrapper.extend([props, content])
-    paragraph.addprevious(wrapper)
-    content.append(paragraph)
+    original_control.addprevious(wrapper)
+    content.append(original_control)
     fixture.save(source)
 
     native = source.with_name("zero-column-control-native.docx")
     oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_flat_table_oracle")
     subprocess.run([oracle, source, native, "zero-column-control"], check=True, timeout=20)
-    validate(native)  # Transitional XSD alone does not enforce Word's minimum row content.
-    root = ElementTree.fromstring(parts(native)["word/document.xml"])
+    original, updated = parts(source), parts(native)
+    assert original.keys() == updated.keys()
+    assert {name for name in original if original[name] != updated[name]} == {"word/document.xml"}
+    validate(native)
+    root = ElementTree.fromstring(updated["word/document.xml"])
     outer = root.find(f".//{qn('w:sdtContent')}/{qn('w:tbl')}")
     inner = outer.find(f"./{qn('w:tr')}/{qn('w:tc')}/{qn('w:tbl')}")
-    assert list(inner.find(qn("w:tblGrid"))) == []
-    row, = inner.findall(qn("w:tr"))
     # MS-OI29500's note on Part 1 §17.4.78: Word treats a row without a
     # non-property child as corrupt, even when the package passes XSD.
-    assert all(child.tag == qn("w:trPr") for child in row)
+    assert len(inner.find(qn("w:tblGrid")).findall(qn("w:gridCol"))) == 1
+    supplied, padded = inner.findall(qn("w:tr"))
+    assert [t.text for t in supplied.iter(qn("w:t"))] == ["Nested cell"]
+    cell, = padded.findall(qn("w:tc"))
+    assert cell.find(qn("w:p")) is not None and not list(cell.iter(qn("w:t")))
 
     empty = {"rows": [{"cells": []}]}
     outer = node(reference(1))
     outer["properties"] = {"column_widths": [1440]}
-    flat = {"nodes": [outer, empty]}
+    invalid = {"nodes": [outer, node(reference(2)), empty]}
+    inner = node(paragraph("Nested cell"))
+    inner["rows"].append({"cells": []})
+    valid = {"nodes": [outer, inner]}
     async with launch() as client:
         document, _ = await open_source(client, source)
         control, = (await call(client, "inspect_document", document=document,
                                view={"kind": "controls"}))["controls"]
         validator = await preview_validator(client)
-        for table in (empty, {"nodes": [empty]}, recursive(flat), flat):
-            request = dict(document=document, edits=[dict(kind="control", edit=dict(
+
+        def request(table):
+            return dict(edits=[dict(kind="control", edit=dict(
                 kind="replace-blocks", anchor=control["anchor"],
                 blocks=[dict(kind="rich-table", table=table)],
             ))])
-            validator.validate(request)
-            result = await client.call_tool("preview_edits", request)
+
+        for table in (empty, {"nodes": [empty]}, recursive(invalid), invalid):
+            args = dict(document=document, **request(table))
+            validator.validate(args)
+            result = await client.call_tool("preview_edits", args)
             assert_tool_failure(result, "rejected_batch")
             assert "at least one row with cells" in result.structuredContent["message"]
+        for index, table in enumerate((recursive(valid), valid)):
+            output = source.with_name(f"padded-{index}.docx")
+            await save(client, document, request(table), output)
+            assert output.read_bytes() == native.read_bytes()
 
 
 def test_raw_json_recursion_limit_is_unchanged(source):
