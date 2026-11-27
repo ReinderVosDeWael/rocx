@@ -164,6 +164,14 @@ fn main() {
         "remove" => doc
             .edit_story_reference(1, Footer, Default, StoryReferenceEdit::Remove)
             .unwrap(),
+        "relink" => doc
+            .edit_story_reference(
+                1,
+                Footer,
+                Default,
+                StoryReferenceEdit::Link("word/footer2.xml".into()),
+            )
+            .unwrap(),
         _ => panic!("unknown story oracle case: {case:?}"),
     };
     fs::write(output, bytes).unwrap();

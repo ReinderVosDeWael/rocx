@@ -123,9 +123,7 @@ impl ImportedDocument {
                 }
                 let id =
                     found.ok_or_else(|| unsupported("no existing same-kind story relationship"))?;
-                if package.content_type_for(&part)?.as_deref() != Some(kind.part_type().2)
-                    || package.word(&part)?.name != kind.part_type().1
-                {
+                if !super::valid_story_part(&package, kind, &part)? {
                     return Err(unsupported("invalid target story part"));
                 }
                 set_story_reference(body, kind, slot, v, &id)?;

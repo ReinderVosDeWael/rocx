@@ -1,4 +1,4 @@
-use rocx::editor::{BodyBlock, EntryKind, ImportedInline, ImportedInlineNode, ImportedRun};
+use rocx::editor::{BodyBlock, ImportedInline, ImportedInlineNode, ImportedRun, mcp_bridge};
 use serde_json::{Value, json};
 
 use super::Snapshot;
@@ -78,25 +78,17 @@ impl Snapshot {
         candidate(inline).ok_or("unknown local note-reference anchor")?;
 
         let (kind, conventional_owner) = match kind {
-            NoteKind::Footnote => (EntryKind::Footnote, "word/footnotes.xml"),
-            NoteKind::Endnote => (EntryKind::Endnote, "word/endnotes.xml"),
+            NoteKind::Footnote => (rocx::NoteKind::Footnote, "word/footnotes.xml"),
+            NoteKind::Endnote => (rocx::NoteKind::Endnote, "word/endnotes.xml"),
         };
-        // Include reserved entries: any entry identifies the selected owner.
-        // The public API cannot reveal a relocated owner with zero entries.
-        // The conventional path lets the native editor handle first-part creation;
-        // it will still reject an unrelated part occupying that path.
-        let owner = match self.document.entry_stories() {
-            Ok(entries) => entries
-                .iter()
-                .find(|entry| entry.kind == kind)
-                .map_or(conventional_owner, |entry| entry.part_name.as_str()),
-            // Creation of a first part has its own native guard path. An
-            // unrelated invalid entry catalog must not preempt that path.
-            Err(_) if matches!(edit, NoteChange::Create { .. }) => conventional_owner,
-            Err(error) => return Err(error.to_string()),
-        };
+        let owner = mcp_bridge::note_owner(&self.document, kind).map_err(|e| e.to_string())?;
+        // Only the native editor can authorize first-part creation.
         self.document
-            .edit_note_reference(owner, &run.anchor, edit.into())
+            .edit_note_reference(
+                owner.as_deref().unwrap_or(conventional_owner),
+                &run.anchor,
+                edit.into(),
+            )
             .map_err(|e| e.to_string())
     }
 }

@@ -7,7 +7,7 @@ use rocx::editor::{
 use serde_json::{Value, json};
 
 use super::{Snapshot, projected_run_text, report};
-use crate::schema::revisions::RevisionChange;
+use crate::{diagnostics::ScopedEditError, schema::revisions::RevisionChange};
 
 impl Snapshot {
     pub fn revision_page(
@@ -57,7 +57,7 @@ impl Snapshot {
         local: &str,
         paired: Option<&str>,
         edit: RevisionChange,
-    ) -> Result<(Vec<u8>, Value), String> {
+    ) -> Result<(Vec<u8>, Value), ScopedEditError> {
         use RevisionChange::*;
         if paired.is_some() && !matches!(edit, MoveText { .. } | Review { .. }) {
             return Err("paired_anchor is only allowed for a move or paired move review".into());
@@ -129,12 +129,8 @@ impl Snapshot {
                     .ok_or_else(|| wrong_type("a pending paragraph mark"))?;
                 doc.preview_paragraph_revision(&paragraph.anchor, action.into())
             }
-        }
-        .map_err(|e| e.to_string())?;
-        Ok((
-            preview.to_docx().map_err(|e| e.to_string())?,
-            report(&preview),
-        ))
+        }?;
+        Ok((preview.to_docx()?, report(&preview)))
     }
 
     fn paragraph(&self, index: &str) -> Option<&ImportedParagraph> {
@@ -151,14 +147,14 @@ impl Snapshot {
             .get(inline.parse::<usize>().ok()?)
     }
 
-    fn proposal_paragraph(&self, local: &str) -> Result<&ImportedParagraph, String> {
+    fn proposal_paragraph(&self, local: &str) -> Result<&ImportedParagraph, ScopedEditError> {
         local
             .strip_prefix("paragraph:")
             .and_then(|index| self.paragraph(index))
             .ok_or_else(|| wrong_type("a direct body paragraph"))
     }
 
-    fn proposal_run(&self, local: &str) -> Result<&InlineAnchor, String> {
+    fn proposal_run(&self, local: &str) -> Result<&InlineAnchor, ScopedEditError> {
         match local
             .strip_prefix("run:")
             .and_then(|coords| self.direct_inline(coords))
@@ -168,7 +164,7 @@ impl Snapshot {
         }
     }
 
-    fn review_inline(&self, local: &str) -> Result<(&InlineAnchor, bool), String> {
+    fn review_inline(&self, local: &str) -> Result<(&InlineAnchor, bool), ScopedEditError> {
         let coords = local
             .strip_prefix("revision-inline:")
             .or_else(|| local.strip_prefix("run:"))
@@ -188,8 +184,8 @@ impl Snapshot {
     }
 }
 
-fn wrong_type(expected: &str) -> String {
-    format!("wrong_anchor_type: revision operation expects {expected}")
+fn wrong_type(expected: &str) -> ScopedEditError {
+    ScopedEditError::WrongAnchorType(format!("revision operation expects {expected}"))
 }
 
 enum Revision<'a> {

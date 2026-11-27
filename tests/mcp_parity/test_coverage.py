@@ -23,6 +23,34 @@ class CoverageLedgerTests(unittest.TestCase):
     def test_checked_in_inventory_is_consistent(self):
         validate(self.surface, self.ledger)
 
+    def test_closure_requires_no_unfinished_or_unverified_rows(self):
+        ledger = {"rows": {}, "unverified_symbols": []}
+        CHECK.require_complete(ledger)
+        ledger["rows"]["pending"] = {"status": "planned"}
+        ledger["rows"]["under_test"] = {"status": "partial"}
+        ledger["unverified_symbols"].append("unreviewed")
+        with self.assertRaisesRegex(
+            InvalidLedger, "1 partial rows, 1 planned rows, 1 unverified Rust symbols",
+        ):
+            CHECK.require_complete(ledger)
+        ledger["rows"]["pending"]["status"] = "covered"
+        ledger["rows"]["under_test"]["status"] = "covered"
+        with self.assertRaisesRegex(InvalidLedger, "1 unverified Rust symbols"):
+            CHECK.require_complete(ledger)
+        ledger["unverified_symbols"].clear()
+        CHECK.require_complete(ledger)
+
+    def test_exclusion_requires_a_tracked_scope_decision(self):
+        row = self.ledger["rows"]["rocx::editor::TextInsertion::position"]
+        row.update(status="excluded", gap="Example scope decision.", positive=[], negative=[])
+        with self.assertRaisesRegex(InvalidLedger, "excluded row needs a decision linked"):
+            validate(self.surface, self.ledger)
+        row["decision"] = "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-1"
+        validate(self.surface, self.ledger)
+        self.ledger["rows"]["EditBatch::ranges"]["decision"] = row["decision"]
+        with self.assertRaisesRegex(InvalidLedger, "only excluded rows can record a scope decision"):
+            validate(self.surface, self.ledger)
+
     def test_added_method_or_slice_requires_a_curated_mapping(self):
         for symbol, kind in [
             ("ImportedDocument::unmapped_method", "method"),

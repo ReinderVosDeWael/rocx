@@ -6,7 +6,7 @@ use rocx::editor::{
 };
 use serde_json::{Value, json};
 
-use super::{Snapshot, projected_run_text};
+use super::{Snapshot, block_readback::inline_items, projected_run_text};
 use crate::schema::stories::StoryTextChange;
 
 mod inlines;
@@ -179,6 +179,7 @@ fn entry_value(index: usize, entry: &ImportedEntry) -> Value {
                 json!({
                     "index": index, "type": "paragraph",
                     "text": text, "has_opaque_content": opaque,
+                    "inline_items": inline_items(items),
                 })
             }
             ImportedStoryBlock::Opaque(name) => {

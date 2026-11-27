@@ -29,6 +29,9 @@ pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
 mod layout;
+#[cfg(feature = "mcp-bridge")]
+#[doc(hidden)]
+pub mod mcp_bridge;
 pub(crate) use insertion::BoundaryState;
 pub use layout::{LayoutBorder, LayoutEdit, LayoutField, LayoutTab, LayoutValue};
 mod fields;

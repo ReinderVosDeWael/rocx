@@ -157,7 +157,7 @@ pub(crate) struct RichTableInput {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct RowInput {
-    #[schemars(length(min = 1))]
+    /// An empty row is padded to the grid established by the other rows.
     cells: Vec<CellInput>,
     properties: Option<RowProperties>,
 }
@@ -171,10 +171,8 @@ struct CellInput {
 
 impl RichTableInput {
     pub(crate) fn resolve(self) -> Result<ResolvedTable, String> {
-        if self.rows.is_empty() || self.rows.iter().any(|row| row.cells.is_empty()) {
-            return Err(
-                "a rich table requires at least one row and at least one cell per row".into(),
-            );
+        if self.rows.iter().all(|row| row.cells.is_empty()) {
+            return Err("a rich table requires at least one row with cells".into());
         }
         let rows: Vec<Value<TableRow>> = self
             .rows

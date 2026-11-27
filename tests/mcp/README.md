@@ -91,6 +91,9 @@ Additional scoped and import coverage:
 - `test_physical_numbering.py` checks native numbering in body cells, shared
   headers and footers, and ordinary note/comment entries, including package
   preservation and address stability when an earlier table is removed.
+- `test_physical_inlines.py` compares typed paragraph readback in a shared
+  header and footer and in body table cells with direct Rust inspection. It
+  also checks pagination, original indices, and anchor/cursor owner errors.
 - `test_physical_tables.py` distinguishes ordinary body table anchors from
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent

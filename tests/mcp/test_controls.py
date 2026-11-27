@@ -1,8 +1,10 @@
 """Snapshot-bound content controls over installed MCP stdio."""
 
+import json
 import subprocess
 
 import docx
+from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml.ns import qn
 from jsonschema.validators import validator_for
 from lxml import etree
@@ -10,7 +12,10 @@ import pytest
 
 from test_fields import opened, simple, word
 from test_ranges import inspect, saved
-from test_stdio import anyio_backend, call, executable, failure, launch, parts, validate
+from test_stdio import (
+    anyio_backend, assert_tool_failure, call, executable, failure, launch, make_entry_source,
+    parts, validate,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -60,6 +65,12 @@ def make_source(path):
 
 def change(action, **fields):
     return dict(kind="control", edit=dict(kind=action, **fields))
+
+
+def native(source, action, output):
+    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_control_oracle")
+    subprocess.run([oracle, source, action, output], check=True, timeout=20, cwd=source.parent)
+    return output.read_bytes()
 
 
 async def test_control_discovery(launch):
@@ -176,11 +187,9 @@ async def test_control_lifecycle(launch, tmp_path):
         assert rows[2]["selected"] == "Gamma"
         assert (rows[4]["id"], rows[4]["kind"], rows[4]["multi_line"]) == ("42", "text", "0")
 
-    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_control_oracle")
     for action, path in outputs.items():
         expected = tmp_path / f"native-{action}.docx"
-        subprocess.run([oracle, source, action, expected], check=True, timeout=20, cwd=tmp_path)
-        assert path.read_bytes() == expected.read_bytes()
+        assert path.read_bytes() == native(source, action, expected)
         old, new = parts(source), parts(path)
         assert old.keys() == new.keys()
         assert {name for name in old if old[name] != new[name]} == {"word/document.xml"}
@@ -208,6 +217,181 @@ async def test_control_lifecycle(launch, tmp_path):
     assert control_xpath("block", "w:sdtContent//w:t/text()") == ["new block"]
     assert source.read_bytes() == original
     validate(source, *outputs.values())
+
+
+def make_wrapper_variants(path):
+    doc = docx.Document()
+    doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    paragraph = doc.add_paragraph("before ")
+    run = paragraph.add_run("promoted inline")
+    run.italic = True
+    wrap(run._r, "inline", word("richText"))
+    paragraph.add_run(" after")
+    # Row and cell targets live in separate original body blocks.
+    table = doc.add_table(2, 1)
+    table.cell(0, 0).text = "promoted row"
+    table.cell(1, 0).text = "next row"
+    wrap(table.rows[0]._tr, "row", word("richText"))
+    table = doc.add_table(1, 2)
+    table.cell(0, 0).text = "promoted cell"
+    table.cell(0, 1).text = "next cell"
+    wrap(table.cell(0, 0)._tc, "cell", word("richText"))
+    plain = wrap(doc.add_paragraph("keep this cache")._p, "plain", word("id", val="+042"),
+                 word("text", multiLine="1"))
+    plain.find(qn("w:sdtPr")).insert(0, word("alias", val="Old alias"))
+    wrap(doc.add_paragraph("First label")._p, "define-choice", word("richText"))
+    combo = word("comboBox", lastValue="combo-code")
+    combo.append(word("listItem", displayText="Combo label", value="combo-code"))
+    for tag, prop, text in [
+        ("combo", combo, "Combo label"),
+        ("date", word("date", fullDate="2026-11-27T00:00:00Z"), "2026-11-27"),
+        ("picture", word("picture"), ""),
+        ("opaque", word("group"), "group payload"),
+        ("implicit", None, "no explicit type"),
+    ]:
+        wrap(doc.add_paragraph(text)._p, tag, *([prop] if prop is not None else []))
+    doc.sections[0].header.paragraphs[0].text = "untouched header"
+    doc.save(path)
+
+
+async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
+    source = tmp_path / "variants.docx"
+    make_wrapper_variants(source)
+    original = source.read_bytes()
+    items = [dict(display_text="First label", value="one"),
+             dict(display_text="Second label", value="two")]
+
+    async def findings(client, document, path):
+        controls = (await inspect(client, document, "controls"))["controls"]
+        expected = json.loads(native(path, "inspect", tmp_path / "native-controls.json"))
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in controls] == expected["controls"]
+        assert len({row["anchor"] for row in controls}) == len(controls)
+        return {row["tag"]: row for row in controls}
+
+    async def preview(client, document, path, name, action, edits):
+        result = await call(client, "preview_edits", document=document, edits=edits)
+        output = tmp_path / f"{name}.docx"
+        await saved(client, document, result, output)
+        assert output.read_bytes() == native(path, action, tmp_path / f"native-{name}.docx")
+        return output
+
+    async with launch() as client:
+        document = await opened(client, source)
+        rows = await findings(client, document, source)
+        assert [(row["context"], row["kind"]) for row in rows.values()] == [
+            ("inline", "richText"), ("row", "richText"), ("cell", "richText"),
+            ("block", "text"), ("block", "richText"), ("block", "comboBox"),
+            ("block", "date"), ("block", "picture"), ("block", "opaque"),
+            ("block", "richText"),
+        ]
+        assert rows["combo"]["selected"] == "combo-code"
+        assert rows["combo"]["choices"] == [dict(display_text="Combo label", value="combo-code")]
+
+        def edit(target, action, **fields):
+            return change(action, anchor=rows[target]["anchor"], **fields)
+
+        dropdown = dict(kind="drop-down", items=items, selected="one")
+        for invalid, diagnostic in [
+            (edit("row", "define", text=dict(kind="plain", multi_line=True)),
+             "row and cell controls require rich text"),
+            (edit("cell", "define", text=dropdown), "row and cell controls require rich text"),
+            (edit("define-choice", "define", text={**dropdown, "selected": "two"}),
+             "selected choice must match cached text"),
+            (edit("define-choice", "define", id=42, text=dict(kind="rich")),
+             "duplicate content control ID"),
+            (edit("combo", "choice", selected="combo-code"), "expected block or inline drop-down control"),
+            (edit("opaque", "unwrap"), "opaque or ambiguous control properties"),
+        ]:
+            result = await client.call_tool("preview_edits", dict(
+                document=document, edits=[edit("inline", "unwrap"), invalid],
+            ))
+            assert_tool_failure(result, "rejected_batch")
+            assert diagnostic in result.structuredContent["message"]
+        assert await findings(client, document, source) == rows
+
+        defined = await preview(client, document, source, "defined", "promote-and-define", [
+            *(edit(tag, "unwrap") for tag in ("inline", "row", "cell")),
+            edit("plain", "define", tag="rich", lock="unlocked", text=dict(kind="rich")),
+            edit("define-choice", "define", tag="dropdown", id=43, text=dropdown),
+        ])
+        document = await opened(client, defined)
+        rows = await findings(client, document, defined)
+        assert list(rows) == ["rich", "dropdown", "combo", "date", "picture", "opaque", "implicit"]
+        assert {key: rows["rich"][key] for key in ("kind", "lock", "alias", "id", "multi_line")} == {
+            "kind": "richText", "lock": "unlocked", "alias": None, "id": None, "multi_line": None,
+        }
+        assert (rows["dropdown"]["kind"], rows["dropdown"]["id"], rows["dropdown"]["selected"],
+                rows["dropdown"]["choices"]) == ("dropDownList", "43", "one", items)
+        selected = await preview(client, document, defined, "selected", "select", [
+            edit("dropdown", "choice", selected="two"),
+        ])
+        document = await opened(client, selected)
+        rows = await findings(client, document, selected)
+        assert (rows["dropdown"]["selected"], rows["dropdown"]["choices"]) == ("two", items)
+        noop = await preview(client, document, selected, "noop", "select", [
+            edit("dropdown", "choice", selected="two"),
+        ])
+
+    readback = docx.Document(defined)
+    paragraph = readback.paragraphs[0]
+    assert [run.text for run in paragraph.runs] == ["before ", "promoted inline", " after"]
+    assert paragraph.runs[1].italic
+    assert [[cell.text for cell in row.cells] for row in readback.tables[0].rows] == [
+        ["promoted row"], ["next row"],
+    ]
+    assert [cell.text for cell in readback.tables[1].rows[0].cells] == ["promoted cell", "next cell"]
+
+    ns = {"w": qn("w:p").split("}")[0][1:]}
+    for path, cache, value in [(defined, "First label", "one"), (selected, "Second label", "two")]:
+        root = etree.fromstring(parts(path)["word/document.xml"])
+        dropdown, = root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='dropdown']", namespaces=ns)
+        assert dropdown.xpath("w:sdtContent//w:t/text()", namespaces=ns) == [cache]
+        choices, = dropdown.xpath("w:sdtPr/w:dropDownList", namespaces=ns)
+        assert choices.get(qn("w:lastValue")) == value
+        assert [dict(display_text=i.get(qn("w:displayText")), value=i.get(qn("w:value")))
+                for i in choices] == items
+        assert root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='rich']/w:sdtContent//w:t/text()",
+                          namespaces=ns) == ["keep this cache"]
+    for before, after in [(source, defined), (defined, selected)]:
+        old, new = parts(before), parts(after)
+        assert old.keys() == new.keys()
+        assert {name for name in old if old[name] != new[name]} == {"word/document.xml"}
+    assert noop.read_bytes() == selected.read_bytes()
+    assert source.read_bytes() == original
+    validate(source, defined, selected, noop)
+
+
+async def test_story_control_typed_findings(launch, tmp_path):
+    source = tmp_path / "relocated.docx"
+    make_entry_source(source)
+    doc = docx.Document(source)
+    header = doc.sections[0].header.paragraphs[0]
+    wrap(header.add_run("header payload")._r, "header", word("richText"))
+    doc.add_section()  # Shares the same effective header.
+    for kind, reltype in [("footnote", RELATIONSHIP_TYPE.FOOTNOTES),
+                          ("endnote", RELATIONSHIP_TYPE.ENDNOTES)]:
+        part = doc.part.part_related_by(reltype)
+        root = etree.fromstring(part.blob)
+        entry, = [node for node in root if node.get(qn("w:id")) == "007"]
+        run = entry.find(qn("w:p")).findall(qn("w:r"))[1]
+        wrap(run, kind, word("text", multiLine="true"))
+        part._blob = etree.tostring(root, encoding="UTF-8", xml_declaration=True)
+    doc.save(source)
+    expected = json.loads(native(source, "inspect", tmp_path / "story-findings.json"))
+
+    async with launch() as client:
+        document = await opened(client, source)
+        first = await inspect(client, document, "story-controls", limit=1)
+        tail = await inspect(client, document, "story-controls", cursor=first["next_cursor"])
+        assert tail["next_cursor"] is None
+        rows = first["story_controls"] + tail["story_controls"]
+        assert rows == expected["story_controls"]
+        assert {(r["tag"], r["owner_part"], r["entry_id"], r["entry_index"], r["multi_line"])
+                for r in rows} == {
+            ("header", "word/header1.xml", None, None, None),
+            ("footnote", "word/notes/footnotes.xml", "007", 1, "true"),
+            ("endnote", "word/notes/endnotes.xml", "007", 1, "true"),
+        }
 
 
 async def test_control_native_guards(launch, tmp_path):

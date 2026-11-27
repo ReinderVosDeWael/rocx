@@ -35,6 +35,8 @@ crate-type = ["rlib", "cdylib"]
 # Enables integration tests requiring an external Python + python-docx install.
 python-tests = []
 python-bindings = ["dep:pyo3"]
+# Internal workspace transport bridge, not part of the supported editor API.
+mcp-bridge = []
 
 [dependencies]
 pyo3 = { version = "0.30", optional = true, features = ["abi3-py312"] }

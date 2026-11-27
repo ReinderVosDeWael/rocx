@@ -80,6 +80,15 @@ inventing edits over opaque XML is outside this editor milestone. If a
 supported editor value lacks a portable representation, it is a **gap**
 until represented or explicitly adjudicated on #72.
 
+The editor's fragment validators, not the broader authoring API, set the
+declaration boundary. For example, `ResolvedTable` can carry row/cell controls,
+but the native editor rejects them in replacement fragments. It also rejects
+resolved paragraph numbering and comment annotations in fragments, and limits
+fields and drawings to specific inline edit scopes. This does not exclude
+the separate native transactions for paragraph numbering, wrapping controls,
+paired ranges, note references, or revision proposals. Qualify those operations
+against their own native contracts.
+
 ## Wire and implementation decisions
 
 - Preserve the current six calls and their existing valid inputs, outputs,

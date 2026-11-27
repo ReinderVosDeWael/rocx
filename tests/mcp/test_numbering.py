@@ -1,6 +1,7 @@
 """Native list definitions, overrides, and direct body numbering over MCP."""
 
 import json
+from runpy import run_path
 import subprocess
 from zipfile import ZipFile
 
@@ -13,7 +14,9 @@ import pytest
 
 from test_fields import opened
 from test_ranges import inspect, saved
-from test_stdio import anyio_backend, call, executable, failure, launch, parts, validate
+from test_stdio import (
+    ROOT, anyio_backend, assert_tool_failure, call, executable, failure, launch, parts, validate,
+)
 
 pytestmark = pytest.mark.anyio
 NUMBERS = "resources/lists.xml"
@@ -240,6 +243,71 @@ async def test_numbering_independent_readers_ignore_bad_style_catalog(launch, tm
                           view=dict(kind=kind))
         assert await value(client, document, "abstract-starts")
         assert await value(client, document, "numbering-instances")
+
+
+@pytest.mark.parametrize("opaque", [False, True], ids=["modeled", "opaque"])
+async def test_numbering_level_free_alias_and_opaque_readback(launch, tmp_path, opaque):
+    fixture = run_path(str(ROOT / "tests/fixtures/generate_numbering_catalog.py"))
+    source = tmp_path / "linked.docx"
+    source.write_bytes(fixture["source"]("opaque" if opaque else None))
+    expected = tmp_path / "catalog.json"
+    native(source, "inspect", expected)
+    catalog = json.loads(expected.read_bytes())
+
+    async with launch() as client:
+        document = await opened(client, source)
+        observed = await catalogs(client, document)
+        assert observed == catalog
+        abstracts = {row["abstract_id"]: row for row in observed["abstracts"]}
+        instances = {row["num_id"]: row for row in observed["instances"]}
+        assert abstracts[711] == dict(abstract_id=711, num_style_link="FixtureList", levels=[])
+        assert abstracts[710]["style_link"] == "FixtureList"
+        assert instances[712]["style_ids"] == ["FixtureList"]
+        assert instances[713] == dict(num_id=713, abstract_id=711, style_ids=[],
+                                      start_overrides=[], level_overrides=[])
+        owner_level, = abstracts[710]["levels"]
+        override, = instances[712]["level_overrides"]
+        assert owner_level["has_opaque_content"] is opaque
+        assert override["has_opaque_content"] is False
+        assert owner_level["label_format"]["bold"] is False
+        assert owner_level["format"] == "lowerRoman"
+
+        body = (await call(client, "inspect_document", document=document))["body"]
+        anchor = body[0]["anchor"]
+        guards = [("reject-alias-level", 711, "inherited abstract has no direct editable level")]
+        if opaque:
+            guards.append(("reject-opaque-level", 710, "cannot discard unmodeled abstract level markup"))
+        for command, abstract_id, reason in guards:
+            diagnostic = tmp_path / f"{command}.txt"
+            native(source, command, diagnostic)
+            native_message = diagnostic.read_text()
+            assert reason in native_message
+            rejected = await client.call_tool("preview_edits", {
+                "document": document,
+                "edits": [edit("abstract-level", abstract_id=abstract_id, level=0, value=level(0))],
+            })
+            assert_tool_failure(rejected, "rejected_batch")
+            if rejected.structuredContent is not None:
+                message = rejected.structuredContent["message"]
+            else:
+                message = rejected.content[0].text
+            assert native_message in message
+
+        assignment = dict(id=713, level=0)
+        output = await preview(client, document, source, "assign-alias", [
+            edit("paragraph", anchor=anchor, value=assignment),
+        ])
+        reopened = await opened(client, output)
+        new_body = (await call(client, "inspect_document", document=reopened))["body"]
+        stored = await inspect(client, reopened, "paragraph-numbering", anchor=new_body[0]["anchor"])
+        assert stored["value"] == assignment
+        assert await catalogs(client, reopened) == catalog
+
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {name for name in before if before[name] != after[name]} == {"word/document.xml"}
+    assert docx.Document(output).paragraphs[0]._p.xpath("w:pPr/w:numPr/w:numId/@w:val") == ["713"]
+    validate(source, output)
 
 
 async def test_numbering_creates_part_with_reciprocal_style_link(launch, tmp_path):

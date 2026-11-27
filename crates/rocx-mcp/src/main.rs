@@ -1,3 +1,4 @@
+mod diagnostics;
 mod editor;
 mod schema;
 mod session;
@@ -13,7 +14,7 @@ use rmcp::{
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use crate::{schema::ToolKind, session::Session};
+use crate::{diagnostics::ToolError, schema::ToolKind, session::Session};
 
 #[derive(Default)]
 struct RocxServer {
@@ -76,9 +77,8 @@ impl ServerHandler for RocxServer {
     }
 }
 
-fn session_error(tool: ToolKind, error: &str) -> CallToolResult {
-    let (category, message) = error.split_once(": ").unwrap_or(("session_error", error));
-    let action = match category {
+fn session_error(tool: ToolKind, error: &ToolError) -> CallToolResult {
+    let action = match error.category.as_str() {
         "invalid_document" => "Open or create a document in this session.",
         "invalid_anchor" | "wrong_anchor_type" => {
             "Inspect the document again and use an anchor of the required type."
@@ -102,11 +102,7 @@ fn session_error(tool: ToolKind, error: &str) -> CallToolResult {
         "invalid_paragraphs" => "Check the supplied paragraph text.",
         _ => "Check the request and session state before retrying.",
     };
-    CallToolResult::structured_error(json!({
-        "category": category,
-        "message": message,
-        "action": action
-    }))
+    CallToolResult::structured_error(error.response(action))
 }
 
 #[tokio::main(worker_threads = 2)]
@@ -128,7 +124,7 @@ mod tests {
         for error in ["invalid_cursor", "wrong_owner"] {
             let result = session_error(
                 ToolKind::Inspect,
-                &format!("{error}: inspect entries again"),
+                &format!("{error}: inspect entries again").into(),
             );
             let content = result.structured_content.unwrap();
             assert_eq!(result.is_error, Some(true));
@@ -136,9 +132,12 @@ mod tests {
             let action = content["action"].as_str().unwrap();
             assert!(action.contains("next_cursor") && action.contains("restart"));
         }
-        let content = session_error(ToolKind::Preview, "wrong_owner: foreign anchor")
-            .structured_content
-            .unwrap();
+        let content = session_error(
+            ToolKind::Preview,
+            &String::from("wrong_owner: foreign anchor").into(),
+        )
+        .structured_content
+        .unwrap();
         assert_eq!(
             content["action"],
             "Use anchors and previews belonging to the selected document."
