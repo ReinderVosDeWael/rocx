@@ -40,6 +40,7 @@ pub(crate) enum ToolKind {
     Search,
     Preview,
     Save,
+    SaveInPlace,
     Close,
 }
 
@@ -51,6 +52,7 @@ impl ToolKind {
         Self::Search,
         Self::Preview,
         Self::Save,
+        Self::SaveInPlace,
         Self::Close,
     ];
 
@@ -62,6 +64,7 @@ impl ToolKind {
             Self::Search => "search_document",
             Self::Preview => "preview_edits",
             Self::Save => "save_copy",
+            Self::SaveInPlace => "save_in_place",
             Self::Close => "close_document",
         }
     }
@@ -78,7 +81,7 @@ impl ToolKind {
             ),
             Self::Open => (
                 "Open a DOCX on the server host. Relative paths use the server launch directory. \
-                 Returns a fresh document handle and the source SHA-256. The source is never modified. \
+                 Returns a fresh document handle and the source SHA-256 without modifying the file. \
                  Optional limits override individual native import budgets as decimal strings. \
                  Example result: {\"document\":\"<document>\",\"snapshot\":\"<sha256>\"}.",
                 schema_for_input::<Open>(),
@@ -146,6 +149,14 @@ impl ToolKind {
                  {\"output\":\"copy.docx\",\"output_snapshot\":\"<sha256>\"}.",
                 schema_for_input::<Save>(),
             ),
+            Self::SaveInPlace => (
+                "Explicitly replace the source file opened by this document handle with the selected \
+                 preview's retained bytes. Refuses in-memory documents, symbolic-link sources, and \
+                 sources that no longer match the opened SHA-256. Reopen after saving to edit the \
+                 new contents. Example result: \
+                 {\"output\":\"/path/source.docx\",\"output_snapshot\":\"<sha256>\"}.",
+                schema_for_input::<SaveInPlace>(),
+            ),
             Self::Close => (
                 "Close the document and release its snapshot, anchors, and previews. \
                  Example acknowledgment: {\"closed\":\"<document>\"}.",
@@ -196,6 +207,7 @@ impl ToolKind {
                 Ok(Call::Preview(Preview::Ordinary(input)))
             }
             Self::Save => parse(arguments).map(Call::Save),
+            Self::SaveInPlace => parse(arguments).map(Call::SaveInPlace),
             Self::Close => parse(arguments).map(Call::Close),
         }
     }
@@ -212,6 +224,7 @@ pub(crate) enum Call {
     Search(Search),
     Preview(Preview),
     Save(Save),
+    SaveInPlace(SaveInPlace),
     Close(Document),
 }
 
@@ -284,6 +297,7 @@ impl Call {
                 Operation::NoOp {} => return session.preview_noop(input.document),
             },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
+            Self::SaveInPlace(input) => session.save_in_place(input.document, input.preview),
             Self::Close(input) => session.close_document(input.document),
         };
         legacy.map_err(ToolError::from)
@@ -513,6 +527,15 @@ pub(crate) struct Save {
     preview: String,
     /// Path of the new DOCX copy. Must not exist.
     output: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SaveInPlace {
+    /// An opaque live document handle from open_document.
+    document: String,
+    /// An opaque preview handle from preview_edits for the selected document.
+    preview: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -1062,6 +1085,7 @@ mod tests {
                 "search_document",
                 "preview_edits",
                 "save_copy",
+                "save_in_place",
                 "close_document"
             ]
         );
