@@ -18,14 +18,15 @@ pub(crate) mod tables;
 
 use rmcp::{
     handler::server::common::schema_for_input,
-    model::{JsonObject, Tool},
+    model::{JsonObject, Tool, ToolAnnotations},
     schemars::{self, JsonSchema, Schema},
 };
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 use crate::{
     diagnostics::ToolError,
+    search::MAX_QUERY_SCALARS,
     session::{InlineSelector, PageView, Session},
 };
 pub(crate) use entries::PhysicalTableSelector;
@@ -36,18 +37,22 @@ pub(crate) enum ToolKind {
     Create,
     Open,
     Inspect,
+    Search,
     Preview,
     Save,
+    SaveInPlace,
     Close,
 }
 
 impl ToolKind {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::Create,
         Self::Open,
         Self::Inspect,
+        Self::Search,
         Self::Preview,
         Self::Save,
+        Self::SaveInPlace,
         Self::Close,
     ];
 
@@ -56,8 +61,10 @@ impl ToolKind {
             Self::Create => "create_document",
             Self::Open => "open_document",
             Self::Inspect => "inspect_document",
+            Self::Search => "search_document",
             Self::Preview => "preview_edits",
             Self::Save => "save_copy",
+            Self::SaveInPlace => "save_in_place",
             Self::Close => "close_document",
         }
     }
@@ -74,7 +81,7 @@ impl ToolKind {
             ),
             Self::Open => (
                 "Open a DOCX on the server host. Relative paths use the server launch directory. \
-                 Returns a fresh document handle and the source SHA-256. The source is never modified. \
+                 Returns a fresh document handle and the source SHA-256 without modifying the file. \
                  Optional limits override individual native import budgets as decimal strings. \
                  Example result: {\"document\":\"<document>\",\"snapshot\":\"<sha256>\"}.",
                 schema_for_input::<Open>(),
@@ -114,6 +121,16 @@ impl ToolKind {
                   \"scalar_length\":7}],\"headers\":[]}.",
                 schema_for_input::<Inspect>(),
             ),
+            Self::Search => (
+                "Find literal, case-sensitive text in direct main-body paragraphs of an open \
+                 snapshot. Matches can span formatted runs, but not paragraphs. Searches the \
+                 compact body text projection, not rendered Word text or other stories. Returns \
+                 ordered hits with body indices, scalar offsets and bounded snippets, or an \
+                 empty hits list on a miss. Example: {\"document\":\"<document>\",\
+                 \"query\":\"Quarterly report\",\"limit\":10}. Pass next_cursor as cursor \
+                 with the same document and query to continue.",
+                schema_for_input::<Search>(),
+            ),
             Self::Preview => (
                 "Validate and encode edits against the original snapshot. Pass exactly one of \
                  edits (an ordered ordinary batch) or operation (a single scoped edit). Use anchors \
@@ -132,17 +149,30 @@ impl ToolKind {
                  {\"output\":\"copy.docx\",\"output_snapshot\":\"<sha256>\"}.",
                 schema_for_input::<Save>(),
             ),
+            Self::SaveInPlace => (
+                "Explicitly replace the source file opened by this document handle with the selected \
+                 preview's retained bytes. Refuses in-memory documents, symbolic-link sources, and \
+                 sources that no longer match the opened SHA-256. Reopen after saving to edit the \
+                 new contents. Example result: \
+                 {\"output\":\"/path/source.docx\",\"output_snapshot\":\"<sha256>\"}.",
+                schema_for_input::<SaveInPlace>(),
+            ),
             Self::Close => (
                 "Close the document and release its snapshot, anchors, and previews. \
                  Example acknowledgment: {\"closed\":\"<document>\"}.",
                 schema_for_input::<Document>(),
             ),
         };
-        Tool::new(
+        let tool = Tool::new(
             self.name(),
             description,
             schema.expect("tool arguments are object schemas"),
-        )
+        );
+        if matches!(self, Self::Search) {
+            tool.with_annotations(ToolAnnotations::new().read_only(true).open_world(false))
+        } else {
+            tool
+        }
     }
 
     pub(crate) fn parse(self, arguments: JsonObject) -> Result<Call, String> {
@@ -151,6 +181,7 @@ impl ToolKind {
             Self::Create => parse(arguments).map(Call::Create),
             Self::Open => parse(arguments).map(Call::Open),
             Self::Inspect => parse(arguments).map(Call::Inspect),
+            Self::Search => parse(arguments).map(Call::Search),
             Self::Preview => {
                 if arguments.get("operation").is_some() {
                     if arguments.get("edits").is_some() {
@@ -176,6 +207,7 @@ impl ToolKind {
                 Ok(Call::Preview(Preview::Ordinary(input)))
             }
             Self::Save => parse(arguments).map(Call::Save),
+            Self::SaveInPlace => parse(arguments).map(Call::SaveInPlace),
             Self::Close => parse(arguments).map(Call::Close),
         }
     }
@@ -189,8 +221,10 @@ pub(crate) enum Call {
     Create(Create),
     Open(Open),
     Inspect(Inspect),
+    Search(Search),
     Preview(Preview),
     Save(Save),
+    SaveInPlace(SaveInPlace),
     Close(Document),
 }
 
@@ -202,6 +236,14 @@ impl Call {
                 return session.open_document(input.path, input.limits.map(Into::into));
             }
             Self::Inspect(input) => return dispatch_inspection(input, session),
+            Self::Search(input) => {
+                return session.search_document(
+                    input.document,
+                    &input.query,
+                    input.limit,
+                    input.cursor.as_deref(),
+                );
+            }
             Self::Preview(Preview::Ordinary(input)) => {
                 return session.preview_edits(input.document, input.edits);
             }
@@ -255,6 +297,7 @@ impl Call {
                 Operation::NoOp {} => return session.preview_noop(input.document),
             },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
+            Self::SaveInPlace(input) => session.save_in_place(input.document, input.preview),
             Self::Close(input) => session.close_document(input.document),
         };
         legacy.map_err(ToolError::from)
@@ -444,6 +487,39 @@ pub(crate) struct Inspect {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct Search {
+    /// An opaque live document handle from create_document or open_document.
+    document: String,
+    /// Literal case-sensitive text (1–128 Unicode scalar values).
+    #[serde(deserialize_with = "search_query")]
+    #[schemars(length(min = 1, max = MAX_QUERY_SCALARS))]
+    query: String,
+    /// Maximum hits per page; defaults to 25.
+    #[serde(default = "entries::default_limit", deserialize_with = "search_limit")]
+    #[schemars(range(min = entries::MIN_LIMIT, max = entries::MAX_LIMIT))]
+    limit: usize,
+    /// Opaque next_cursor from this document and exact query. Omit to start at the beginning.
+    #[serde(default, deserialize_with = "entries::present")]
+    #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+    cursor: Option<String>,
+}
+
+fn search_query<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let query = String::deserialize(deserializer)?;
+    if query.is_empty() || query.chars().take(MAX_QUERY_SCALARS + 1).count() > MAX_QUERY_SCALARS {
+        return Err(serde::de::Error::custom(format_args!(
+            "query must contain between 1 and {MAX_QUERY_SCALARS} Unicode scalar values"
+        )));
+    }
+    Ok(query)
+}
+
+fn search_limit<'de, D: Deserializer<'de>>(deserializer: D) -> Result<usize, D::Error> {
+    entries::page_limit(deserializer, "search")
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Save {
     /// The live owner of the preview.
     document: String,
@@ -451,6 +527,15 @@ pub(crate) struct Save {
     preview: String,
     /// Path of the new DOCX copy. Must not exist.
     output: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SaveInPlace {
+    /// An opaque live document handle from open_document.
+    document: String,
+    /// An opaque preview handle from preview_edits for the selected document.
+    preview: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -989,7 +1074,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_has_six_strict_tools_and_discriminated_edits() {
+    fn discovery_has_seven_strict_tools_and_discriminated_edits() {
         let tools = ToolKind::ALL.map(ToolKind::definition);
         assert_eq!(
             tools.each_ref().map(|tool| tool.name.as_ref()),
@@ -997,8 +1082,10 @@ mod tests {
                 "create_document",
                 "open_document",
                 "inspect_document",
+                "search_document",
                 "preview_edits",
                 "save_copy",
+                "save_in_place",
                 "close_document"
             ]
         );
@@ -1010,7 +1097,7 @@ mod tests {
                     .as_ref()
                     .is_some_and(|text| text.contains("Example"))
         }));
-        let edits = &tools[3].input_schema["properties"]["edits"];
+        let edits = &tools[4].input_schema["properties"]["edits"];
         assert_eq!(edits["minItems"], 1);
         let variants = edits["items"]["oneOf"].as_array().unwrap();
         let required = [

@@ -160,6 +160,15 @@ impl Snapshot {
         json!({"body": self.body_inspection().rows})
     }
 
+    pub(crate) fn search_body(
+        &self,
+        query: &str,
+        limit: usize,
+        from: crate::search::Position,
+    ) -> (Vec<crate::search::Hit>, Option<crate::search::Position>) {
+        crate::search::find(self.document.body(), query, limit, from)
+    }
+
     fn body_inspection(&self) -> &Inspection {
         self.body_inspection
             .get_or_init(|| inspect_body(&self.document))

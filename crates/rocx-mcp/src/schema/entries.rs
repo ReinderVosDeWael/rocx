@@ -14,10 +14,10 @@ use super::{
     tables::PhysicalTableChange,
 };
 
-const MIN_LIMIT: usize = 1;
-const MAX_LIMIT: usize = 100;
+pub(super) const MIN_LIMIT: usize = 1;
+pub(super) const MAX_LIMIT: usize = 100;
 
-fn default_limit() -> usize {
+pub(super) fn default_limit() -> usize {
     25
 }
 
@@ -30,14 +30,21 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-fn entry_limit<'de, D: Deserializer<'de>>(deserializer: D) -> Result<usize, D::Error> {
+pub(super) fn page_limit<'de, D: Deserializer<'de>>(
+    deserializer: D,
+    label: &str,
+) -> Result<usize, D::Error> {
     let limit = usize::deserialize(deserializer)?;
     if !(MIN_LIMIT..=MAX_LIMIT).contains(&limit) {
         return Err(serde::de::Error::custom(format_args!(
-            "entry page limit must be between {MIN_LIMIT} and {MAX_LIMIT}"
+            "{label} page limit must be between {MIN_LIMIT} and {MAX_LIMIT}"
         )));
     }
     Ok(limit)
+}
+
+fn entry_limit<'de, D: Deserializer<'de>>(deserializer: D) -> Result<usize, D::Error> {
+    page_limit(deserializer, "entry")
 }
 
 #[derive(Deserialize, JsonSchema)]

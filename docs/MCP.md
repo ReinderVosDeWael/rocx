@@ -67,6 +67,46 @@ counts. Omitted fields use native defaults: 10,000 ZIP members, 64 MiB for
 one expanded member, and 256 MiB total expanded bytes. These are import
 budgets, not limits on compressed file size or on retained previews.
 
+### Find text without reading the entire body
+
+Call `search_document` on a live handle from `open_document` or
+`create_document`, for example:
+
+```json
+{"document":"<document>","query":"Quarterly report","limit":10}
+```
+
+Search uses the original snapshot, not a preview or the current file at the
+source path. It does not edit the snapshot, issue edit anchors, or write
+files. It matches literal, case-sensitive text (1–128 Unicode scalar values)
+without trimming or normalization. Matches can span differently formatted
+runs and ordinary hyperlinks, but not paragraphs. Only direct main-body
+paragraphs are searched; table cells, headers, footers, notes, comments, and
+paragraphs wrapped in a control or revision are not searched.
+
+This is the same text projection as the compact body view, not rendered
+Word text. It includes ordinary run and hyperlink text, tabs and line breaks.
+It does not search inside tracked-change or opaque inline wrappers. A match
+can join text on either side of content omitted from the projection.
+
+The `hits` list contains non-overlapping matches ordered by body position
+and then by position within each paragraph. Each hit has a zero-based
+`body_index` (the `index` in the compact body view), inclusive `start` and
+exclusive `end` Unicode scalar offsets in that paragraph's projected text,
+and a `snippet` with up to 24 context scalars on each side of the match.
+`snippet_start` is the scalar offset where that snippet begins. These search
+coordinates are not edit permission; use `inspect_document` for edit anchors.
+On a miss the list is empty, no document text is returned, and `next_cursor`
+is `null`.
+
+Each page returns at most `limit` hits (default 25, range 1–100). Pass
+`next_cursor` as `cursor` with the same document handle and exact query to
+continue, optionally changing `limit`. `next_cursor: null` means the search
+is exhausted. The server keeps up to 256 distinct search cursors per
+snapshot and discards the oldest on overflow; omit `cursor` to restart.
+Search uses the snapshot's existing import limits and adds no document size
+cap or scan cutoff.
+
 ### Edit part of a paragraph
 
 Use the **paragraph** anchor and count Unicode scalar values in its original
@@ -810,6 +850,18 @@ package payloads but does not promise the source ZIP's exact encoding.
 SHA-256 as `output_snapshot`. It refuses an existing destination. Choose
 another name and retry with the same preview. An I/O failure after creating
 the destination may leave a partial new copy.
+
+To update the file you opened, call `save_in_place` with `document` and
+`preview` (no output path). It checks that the source still matches the
+original SHA-256 and replaces it with the exact preview bytes using a temporary
+file in the same directory. It returns the canonical output path and
+`output_snapshot`. Missing or changed sources, files opened through a
+symbolic link at the filename, and in-memory documents are refused.
+
+The live handle still describes the original snapshot. Reopen the saved file
+to make further edits. Replacement does not update other hard links or
+preserve all filesystem metadata. The snapshot check is not a lock against
+other writers; close external editors before saving.
 
 One session can retain 16 documents and 64 previews (256 MiB of encoded
 preview bytes in total). A created document's initial preview counts toward

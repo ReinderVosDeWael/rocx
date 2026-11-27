@@ -23,6 +23,16 @@ check and the strict 699-page documentation build also passed. See the
 [installed acceptance instructions](../tests/mcp/README.md) for reproduction.
 The hosted checks passed, PR #71 merged to `main`, and #52 is closed.
 
+Local MCP follow-up [#84](https://github.com/ReinderVosDeWael/rocx/issues/84):
+add `save_in_place` for an explicitly selected preview of an opened file.
+Keep `save_copy` exclusive-create and qualify replacement and stale-source
+refusal through the installed stdio client. This is MCP file handling, not
+a new editor operation in the language bindings.
+Bring [PR #85](https://github.com/ReinderVosDeWael/rocx/pull/85) forward
+from its original base without dropping typed import diagnostics or the
+strict parity check added in #90. Qualify the integrated checkout before
+merging the PR.
+
 **In progress — [#72](https://github.com/ReinderVosDeWael/rocx/issues/72):**
 follow the [full MCP/Rust editor parity plan](MCP-EDITOR-PARITY.md). The first
 increment freezes the compiled editor surface, maps it to coverage obligations,
@@ -242,10 +252,24 @@ fixture evidence and run the unchanged strict gate in hosted MCP CI.
 The final diagnostic audit also checks native errors raised while
 resolving rich declarations, before applying an edit. Preserve their
 structured rule, path and detail without changing existing message text.
-The unchanged strict checker passes locally: 1,824 covered, 84
-explicitly excluded, and no partial, planned or unverified symbols.
-Require hosted qualification on the final PR head before merging, then
-verify the compiled inventory and strict ledger on `main`.
+The unchanged strict checker passed: 1,824 covered, 84 explicitly
+excluded, and no partial, planned or unverified symbols. PR #90
+merged as `9089bc3`; the inventory and strict ledger passed against
+the merged tree, and the hosted installed MCP jobs passed on `main`.
+
+### Parallel MCP follow-ups
+
+- [#86](https://github.com/ReinderVosDeWael/rocx/issues/86): implement
+  literal search in direct body paragraphs, with bounded snippets, paged
+  results, and installed-client coverage for sparse hits and split runs.
+  The candidate passed 318 fresh installed-client and ledger tests plus
+  23 subtests with OOXML validation; the strict parity ledger still passes.
+- [#84](https://github.com/ReinderVosDeWael/rocx/issues/84): bring
+  [PR #85](https://github.com/ReinderVosDeWael/rocx/pull/85) up to date
+  with `main` and requalify its guarded in-place save. Preserve
+  exclusive-create `save_copy` and reject stale or unsupported sources.
+
+These are separate MCP features; neither reopens the parity milestone.
 
 ## 0.5.0 release
 
