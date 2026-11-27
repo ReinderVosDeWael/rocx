@@ -95,6 +95,87 @@ async def opened(client, path):
     return (await call(client, "open_document", path=path.name))["document"]
 
 
+async def test_cache_inserts_missing_complex_field_separator(launch, tmp_path):
+    source, output, native = (tmp_path / name for name in ("source.docx", "saved.docx", "native.docx"))
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    paragraph = fixture.add_paragraph("before")
+    append_run(paragraph, word("fldChar", fldCharType="begin", dirty="on", fldLock="false"))
+    for fragment in (" PA", "GE "):
+        instruction = word("instrText", fragment)
+        instruction.set(qn("xml:space"), "preserve")
+        append_run(paragraph, instruction)
+    append_run(paragraph, word("fldChar", fldCharType="end"))
+    paragraph.add_run("after")
+    fixture.save(source)
+    original = source.read_bytes()
+
+    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_field_oracle")
+    native_guard = json.loads(subprocess.run(
+        [oracle, source, native, "cache-without-separator"],
+        check=True, cwd=tmp_path, timeout=20, capture_output=True,
+    ).stdout)
+    assert "duplicate cached field edit" in native_guard["message"]
+
+    async with launch() as client:
+        document = await opened(client, source)
+        inspection = await fields(client, document)
+        row, = inspection["fields"]
+        expected = dict(body_index=0, inline_index=1, complex=True, instruction=" PAGE ",
+                        dirty_xml="on", locked_xml="false", editable=True)
+        assert row == dict(expected, anchor=row["anchor"], inline_count=4)
+        cache = edit(row["anchor"], "cache", children=[text("new display")])
+        rejected = await client.call_tool("preview_edits", dict(document=document, edits=[cache, cache]))
+        assert_tool_failure(rejected, "rejected_batch")
+        diagnostic = rejected.structuredContent
+        assert diagnostic["message"] == f"preview: {native_guard['message']}; revise the edits and retry"
+        assert {key: diagnostic.get(key) for key in ("rule", "path")} == {
+            key: native_guard[key] for key in ("rule", "path")
+        }
+        assert await fields(client, document) == inspection
+        assert not output.exists()
+
+        preview = await call(client, "preview_edits", document=document, edits=[cache])
+        await call(client, "save_copy", document=document, preview=preview["preview"], output=output.name)
+        reopened = await opened(client, output)
+        saved, = (await fields(client, reopened))["fields"]
+        assert saved == dict(expected, anchor=saved["anchor"], inline_count=6)
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == native.read_bytes()
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {part for part in before if before[part] != after[part]} == {"word/document.xml"}
+
+    def ordered_leaves(package):
+        body = etree.fromstring(package["word/document.xml"]).find(qn("w:body"))
+        paragraph, = body.findall(qn("w:p"))
+        leaves = []
+        for run in paragraph:
+            assert run.tag == qn("w:r")
+            leaf, = run
+            leaves.append((leaf.tag, dict(leaf.attrib), leaf.text))
+        return leaves
+
+    original_leaves = [
+        (qn("w:t"), {}, "before"),
+        (qn("w:fldChar"), {qn("w:fldCharType"): "begin", qn("w:dirty"): "on", qn("w:fldLock"): "false"}, None),
+        (qn("w:instrText"), {qn("xml:space"): "preserve"}, " PA"),
+        (qn("w:instrText"), {qn("xml:space"): "preserve"}, "GE "),
+        (qn("w:fldChar"), {qn("w:fldCharType"): "end"}, None),
+        (qn("w:t"), {}, "after"),
+    ]
+    assert ordered_leaves(before) == original_leaves
+    assert ordered_leaves(after) == [
+        *original_leaves[:4],
+        (qn("w:fldChar"), {qn("w:fldCharType"): "separate"}, None),
+        (qn("w:t"), {qn("xml:space"): "preserve"}, "new display"),
+        *original_leaves[4:],
+    ]
+    assert docx.Document(output).paragraphs[0].text == "beforenew displayafter"
+    validate(source, output)
+
+
 async def test_instruction_variants_match_native(launch, tmp_path):
     source, output = tmp_path / "source.docx", tmp_path / "fields.docx"
     fixture = docx.Document()

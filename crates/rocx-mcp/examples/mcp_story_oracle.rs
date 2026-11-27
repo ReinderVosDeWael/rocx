@@ -1,7 +1,7 @@
 //! Direct native byte oracle for the independent MCP story fixture.
 use rocx::{
     Component, HeaderFooterType, Hyperlink, HyperlinkTarget, Paragraph, ParagraphFormat,
-    ResolvedBlock, RunFormat, TextRun,
+    ResolvedBlock, RunFormat, Table, TableCell, TableLayout, TableProperties, TableRow, TextRun,
     editor::{
         BodyBlock, EditBatch, HeaderEditMode, ImportedDocument, ImportedInlineNode, ImportedStory,
         ParagraphInsertion, RunTextEdit, SectionStoryKind, StoryReferenceEdit,
@@ -61,6 +61,20 @@ fn rich_paragraph() -> rocx::ResolvedParagraph {
     .unwrap()
 }
 
+fn rich_table() -> ResolvedBlock {
+    let cell = TableCell::new(vec![Paragraph::new("Footer table").into()]);
+    let table = Table::new(vec![TableRow::new(vec![cell.into()]).into()]).with_properties(
+        TableProperties::default()
+            .with_layout(TableLayout::Fixed)
+            .with_column_widths(vec![1440]),
+    );
+    ResolvedBlock::Table(
+        futures_executor::block_on(table.resolve())
+            .unwrap()
+            .unwrap(),
+    )
+}
+
 fn main() {
     let mut args = env::args_os().skip(1);
     let case = args.next().unwrap();
@@ -117,7 +131,10 @@ fn main() {
                 0,
                 Footer,
                 Even,
-                StoryReferenceEdit::Create(vec![ResolvedBlock::Paragraph(rich_paragraph())]),
+                StoryReferenceEdit::Create(vec![
+                    ResolvedBlock::Paragraph(rich_paragraph()),
+                    rich_table(),
+                ]),
             )
             .unwrap(),
         "rich-splice-shared" | "rich-splice-local" => {

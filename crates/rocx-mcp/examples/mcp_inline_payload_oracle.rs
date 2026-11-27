@@ -3,22 +3,46 @@ use rocx::editor::{
     BodyBlock, EditBatch, ImportedDocument, ImportedInlineNode, InlineAction, InlineEdit,
 };
 use rocx::{
-    AltText, BreakType, Component, Hyperlink, HyperlinkProperties, HyperlinkTarget, ImageData,
-    ImageRun, ImageTransformation, ResolvedInline, RunFormat,
+    AltText, BookmarkName, BreakType, Component, Hyperlink, HyperlinkProperties, HyperlinkTarget,
+    ImageData, ImageRun, ImageTransformation, ResolvedInline, RunFormat, TextRun,
 };
 
 fn main() -> rocx::Result<()> {
     let mut args = std::env::args_os().skip(1);
     let source = args.next().expect("source path");
     let output = args.next().expect("output path");
-    let rich = match args.next().as_deref().and_then(|arg| arg.to_str()) {
-        Some("rich") => true,
-        Some("legacy") => false,
-        _ => panic!("expected rich or legacy mode"),
-    };
+    let mode = args.next().expect("mode");
     let document = ImportedDocument::open(&std::fs::read(source)?)?;
     let BodyBlock::Paragraph(paragraph) = &document.body()[0] else {
         panic!("expected source paragraph")
+    };
+    if mode == "bookmark" {
+        let [ImportedInlineNode::Run(lead)] = paragraph.inline_structure.as_slice() else {
+            panic!("expected one source run")
+        };
+        let link = Hyperlink::new(
+            HyperlinkTarget::bookmark(BookmarkName::new("Destination")?),
+            vec![TextRun::new("Go to destination").into()],
+        )
+        .with_properties(HyperlinkProperties {
+            tooltip: Some("Jump <here> & return".into()),
+            history: Some(true),
+        });
+        let resolved = futures_executor::block_on(link.resolve())?.expect("unconditional link");
+        let preview = document.preview_edits(EditBatch {
+            inline_edits: &[InlineEdit {
+                target: lead.anchor.clone(),
+                action: InlineAction::InsertAfter(resolved),
+            }],
+            ..Default::default()
+        })?;
+        std::fs::write(output, preview.to_docx()?)?;
+        return Ok(());
+    }
+    let rich = match mode.to_str() {
+        Some("rich") => true,
+        Some("legacy") => false,
+        _ => panic!("expected rich, legacy or bookmark mode"),
     };
     let [ImportedInlineNode::Run(lead), ImportedInlineNode::Run(tail)] =
         paragraph.inline_structure.as_slice()

@@ -146,6 +146,48 @@ fn body_mixed(doc: &ImportedDocument) -> Vec<u8> {
     .unwrap()
 }
 
+fn body_replace_cell(doc: &ImportedDocument, duplicate: bool, output: &str) {
+    let table = doc
+        .body()
+        .iter()
+        .filter_map(|block| match block {
+            BodyBlock::Table(table) => Some(table),
+            _ => None,
+        })
+        .nth(1)
+        .unwrap();
+    let BodyBlock::Paragraph(tail) = doc.body().last().unwrap() else {
+        panic!("expected tail paragraph");
+    };
+    let ImportedInlineNode::Run(run) = &tail.inline_structure[0] else {
+        panic!("expected tail run");
+    };
+    let mut edits = vec![TableStructureEdit {
+        target: table.anchor.clone(),
+        operation: TableOperation::ReplaceCell {
+            row: 0,
+            cell: 0,
+            blocks: rich_blocks(),
+        },
+    }];
+    if duplicate {
+        edits.push(edits[0].clone());
+    }
+    let result = doc.preview_edits(EditBatch {
+        structural: &edits,
+        run_text: &[RunTextEdit {
+            target: run.anchor.clone(),
+            text: "Edited tail 😀".into(),
+        }],
+        ..EditBatch::default()
+    });
+    if duplicate {
+        fs::write(output, result.err().unwrap().to_string()).unwrap();
+    } else {
+        fs::write(output, result.unwrap().to_docx().unwrap()).unwrap();
+    }
+}
+
 fn property_donor() -> ResolvedTable {
     let color = [1, 2, 3];
     let cell = TableCell::new(vec![
@@ -472,6 +514,13 @@ fn main() {
     }
     if case == "body-mixed" {
         fs::write(output, body_mixed(&doc)).unwrap();
+        return;
+    }
+    if matches!(
+        case.as_str(),
+        "body-replace-cell" | "body-replace-cell-duplicate"
+    ) {
+        body_replace_cell(&doc, case.ends_with("-duplicate"), &output);
         return;
     }
     if case == "declaration-edges" {

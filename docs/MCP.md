@@ -549,8 +549,9 @@ each later node exactly once. Paragraph and plain table blocks remain
 available. A flat declaration allows up to 1,024 nodes, 84 table levels,
 and 16,384 row, cell, and block entries. Across the declaration, it may
 emit up to 65,536 grid columns and 16,384 physical cells, including padding.
-A spanning cell counts once. The native XML depth limit also applies
-when reopening the result. Every constructed table fragment (including
+a spanning cell counts once. A preview rejects an edit if the resulting
+Word part exceeds the native XML read depth; the containing story and
+cells contribute to that depth. Every constructed table fragment (including
 a nested one) requires at least one cell. A `set-property` donor must
 have at least one row, but its rows may contain no cells because only
 the selected property is copied.
@@ -792,8 +793,10 @@ should apply together in one batch, using anchors from inspection of that
 document. A rejected batch leaves earlier previews and anchors usable.
 Tool failures include `category`, `message`, and a suggested `action`.
 Where a native diagnostic is available, a failure can also include its
-stable `rule`, `path`, and unformatted `detail`. Those fields are optional;
-for example, filesystem errors may have no native editor diagnostic.
+stable `rule`, `path`, and unformatted `detail`. A native invalid XML text
+character also reports `character` and its zero-based UTF-8 `byte_offset`.
+Those fields are optional; for example, filesystem errors may have no native
+editor diagnostic.
 To continue editing a saved result, open that copy and inspect it for new
 anchors. Changes to the source file on disk do not alter a live snapshot.
 To stage the native empty-batch result, use `operation:{"kind":"no-op"}`.

@@ -1,5 +1,7 @@
 """Native editor diagnostics over the installed stdio transport."""
 
+import json
+import subprocess
 from zipfile import ZipFile
 
 import docx
@@ -8,7 +10,7 @@ from docx.oxml.ns import nsdecls, qn
 from lxml import etree
 import pytest
 
-from test_stdio import anyio_backend, call, launch, make_entry_source, parts  # noqa: F401
+from test_stdio import anyio_backend, call, executable, launch, make_entry_source, parts  # noqa: F401
 
 pytestmark = pytest.mark.anyio
 
@@ -261,6 +263,26 @@ async def test_revision_native_diagnostics_and_retry(launch, tmp_path):
             "detail": "revision author cannot be empty",
         }
 
+        native_file = tmp_path / "invalid-xml-author.json"
+        revision_oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_revision_oracle")
+        subprocess.run([revision_oracle, "invalid-xml-author", native_file, tmp_path / "source.docx"],
+                       check=True, timeout=20, cwd=tmp_path)
+        native = json.loads(native_file.read_bytes())
+        assert native == {
+            "character": "\0", "byte_offset": 6, "rule": "invalid_xml", "path": None,
+            "message": "invalid XML 1.0 character U+0000 at byte offset 6",
+        }
+        invalid_xml = await preview(author="é😀\0")
+        assert invalid_xml.isError
+        assert invalid_xml.structuredContent == {
+            "category": "rejected_batch",
+            "message": f"{native['message']}; {BATCH_HINT}",
+            "action": BATCH_ACTION,
+            "rule": native["rule"],
+            "character": native["character"],
+            "byte_offset": native["byte_offset"],
+        }
+
         multiline = await preview(text="First\nSecond")
         assert multiline.isError
         assert multiline.structuredContent == {
@@ -333,6 +355,8 @@ async def test_ordinary_batch_native_diagnostic_and_retry(launch, tmp_path):
 async def test_open_native_diagnostics_do_not_change_filesystem_errors(launch, tmp_path, absolute):
     write_source(tmp_path / "source.docx")
     (tmp_path / "malformed.docx").write_bytes(b"not a DOCX")
+    replace_part(tmp_path / "source.docx", tmp_path / "wrong-relationships.docx",
+                 "_rels/.rels", b'<Relationships xmlns="urn:wrong-package-relationships"/>')
     (tmp_path / "directory.docx").mkdir()
 
     def path(name):
@@ -360,6 +384,16 @@ async def test_open_native_diagnostics_do_not_change_filesystem_errors(launch, t
         assert malformed.structuredContent["category"] == "invalid_document_data"
         assert malformed.structuredContent["rule"] == "invalid_package"
         assert malformed.structuredContent["action"] == IMPORT_ACTION
+
+        relationship = await client.call_tool("open_document", dict(path=path("wrong-relationships.docx")))
+        assert relationship.isError
+        assert relationship.structuredContent == {
+            "category": "invalid_document_data",
+            "message": "wrong relationship-part namespace",
+            "action": IMPORT_ACTION,
+            "rule": "invalid_relationship",
+            "detail": "wrong relationship-part namespace",
+        }
 
         for name, prefix in (
             ("missing.docx", "cannot open source: "),

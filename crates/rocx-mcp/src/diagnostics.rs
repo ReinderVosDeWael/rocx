@@ -42,6 +42,10 @@ impl ToolError {
             if let Some(detail) = native_detail(error) {
                 response["detail"] = json!(detail);
             }
+            if let Some((character, byte_offset)) = xml_character(error) {
+                response["character"] = json!(character);
+                response["byte_offset"] = json!(byte_offset);
+            }
         }
         response
     }
@@ -71,6 +75,19 @@ fn native_detail(error: &Error) -> Option<&str> {
                     .downcast_ref::<Diagnostic>()
                     .map(|diagnostic| diagnostic.message.as_str())
             }),
+        _ => None,
+    }
+}
+
+fn xml_character(error: &Error) -> Option<(char, usize)> {
+    match error {
+        Error::InvalidXmlCharacter {
+            character,
+            byte_offset,
+        } => Some((*character, *byte_offset)),
+        Error::At { source, .. } => xml_character(source),
+        Error::Shared(source) => xml_character(source),
+        Error::Producer(source) => source.downcast_ref::<Error>().and_then(xml_character),
         _ => None,
     }
 }
@@ -148,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn native_error_without_path_or_detail_only_adds_rule() {
+    fn native_xml_error_preserves_character_and_byte_offset() {
         let error = Error::InvalidXmlCharacter {
             character: '\0',
             byte_offset: 0,
@@ -161,6 +178,8 @@ mod tests {
                 "message": "invalid XML 1.0 character U+0000 at byte offset 0",
                 "action": "Retry.",
                 "rule": "invalid_xml",
+                "character": "\0",
+                "byte_offset": 0,
             })
         );
     }

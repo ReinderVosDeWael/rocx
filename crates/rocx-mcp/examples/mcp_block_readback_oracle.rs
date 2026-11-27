@@ -138,9 +138,10 @@ fn block_readback(doc: &ImportedDocument, reopened: &ImportedDocument) -> rocx::
         BodyBlock::Paragraph(paragraph),
         BodyBlock::Paragraph(lexical),
         BodyBlock::Table(table),
+        BodyBlock::Opaque(opaque),
     ] = doc.body()
     else {
-        panic!("expected two body paragraphs and a table");
+        panic!("expected two body paragraphs, a table and an opaque block");
     };
     let paragraphs = [paragraph, lexical].map(|p| {
         let flags: BTreeMap<_, _> = p.flags.iter().map(|(flag, value)| (flag.name(), *value)).collect();
@@ -200,6 +201,7 @@ fn block_readback(doc: &ImportedDocument, reopened: &ImportedDocument) -> rocx::
         .collect();
     Ok(json!({
         "paragraphs":paragraphs, "sections":sections, "story":story,
+        "opaque_body_block":opaque,
         "table":{
             "layout":table.layout.map(|value| format!("{value:?}").to_ascii_lowercase()),
             "grid_widths":table.grid_widths, "properties":table.properties, "children":children,

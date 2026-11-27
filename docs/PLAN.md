@@ -198,12 +198,14 @@ operation boundaries and qualifying declaration, style/numbering, typed
 readback, lifecycle and report leaves. Do not claim full parity until the
 strict ledger passes.
 
-Integrated checkpoint: 298 installed-client and ledger tests plus 23
-subtests passed with OOXML validation. The 42 MCP Rust tests and strict
-Clippy passed on Rust 1.88 and stable; the compiled inventory still matches all 1,908
-symbols. Live OpenCode read the stored `" PAGE "` instruction at its original
-inline position and saved a dirty-flag edit; the package comparison found
-only `word/document.xml` changed. The strict closure check remains red.
+Integrated verification: 313 installed-client and ledger tests plus 23
+subtests passed with OOXML validation. The 43 MCP and 19 bridge-enabled
+core Rust tests and strict Clippy passed on Rust 1.88 and stable.
+The compiled inventory still matches
+all 1,908 symbols. Live OpenCode read the stored `" PAGE "` instruction at
+its original inline position and saved a dirty-flag edit; the package
+comparison found only `word/document.xml` changed. The strict closure
+check remains red.
 Follow-up fixtures matched direct Rust for adjacent floating-point chart
 values, a deep field cache with hundreds of sibling fields, and a deep
 table with wide spanning cells. Story discovery no longer depends on
@@ -211,10 +213,32 @@ unrelated section layout; link sources can include referenced parts even
 when an unrelated story is malformed. Flat tables now qualify 48 levels
 with 1,024 grid columns per level. Keep zero-column fragments rejected:
 the core can emit a nested cellless row, but Word documents that shape
-as corrupt. A zero-column property donor is supported because it is not
-rendered. Continue qualifying exact payload and helper equivalences,
+as corrupt ([#91](https://github.com/ReinderVosDeWael/rocx/issues/91)).
+A zero-column property donor is supported because it is not rendered.
+Continue qualifying exact payload and helper equivalences,
 keeping native restrictions and resolving wire mismatches before
 promoting their ledger rows.
+
+[Draft PR #90](https://github.com/ReinderVosDeWael/rocx/pull/90) carries
+the transport and evidence changes. Keep it separate from the technical
+closure decision; the strict ledger still has unresolved obligations.
+Review fixes preserve specific legacy declaration errors and reject rendered
+previews that would exceed the native XML read depth. The guard checks only
+changed, potentially over-depth Word parts. The 83-level body and 84-level
+header outputs still reopen and match native bytes; an 84-level body output
+and an insertion into an already-deep cell reject before retaining a preview.
+A live OpenCode call rejected the 84-level body edit, then saved and
+reopened the 83-level retry using the same original paragraph anchor.
+The compiled inventory also reaches standalone authoring and binding
+helpers, such as deferred producers, raw note/range constructors, and
+Python spelling helpers. Review those against the accepted editor API
+individually. Do not extend the existing rejected-fragment scope decision
+to unrelated symbols or change the strict gate to make closure pass.
+The current ledger has 53 partial rows and 96 unverified symbols. Some
+valid native field/table compositions exceed the documented flat transport
+budgets; dependent aliases inherit those gaps. The remaining symbols also
+include exact scope decisions and evidence obligations, not a count of
+missing editor features. Keep the strict check red until resolved.
 
 ## 0.4.0 release
 

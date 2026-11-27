@@ -1,7 +1,7 @@
 //! Direct Rust byte oracle for the independent body block fixture.
 use rocx::{
     Alignment, Component, Paragraph, ParagraphFormat, ResolvedBlock, ResolvedParagraph, RunFormat,
-    SectionType, TextRun,
+    SectionType, Table, TableCell, TableLayout, TableProperties, TableRow, TextRun,
     editor::{
         BlockEdit, BodyBlock, EditBatch, ImportedDocument, ImportedInlineNode, ImportedParagraph,
         ParagraphAnchor, ParagraphFlag, RunTextEdit, SectionFlag,
@@ -23,6 +23,20 @@ fn paragraph(text: &str, bold: bool, alignment: Option<Alignment>) -> ResolvedPa
     )
     .expect("resolve fixture paragraph")
     .expect("fixture paragraph is enabled")
+}
+
+fn section_table() -> ResolvedBlock {
+    let cell = TableCell::new(vec![Paragraph::new("new section table").into()]);
+    let table = Table::new(vec![TableRow::new(vec![cell.into()]).into()]).with_properties(
+        TableProperties::default()
+            .with_layout(TableLayout::Fixed)
+            .with_column_widths(vec![1440]),
+    );
+    ResolvedBlock::Table(
+        futures_executor::block_on(table.resolve())
+            .unwrap()
+            .unwrap(),
+    )
 }
 
 fn flags_and_types(anchor: impl Fn(usize) -> ParagraphAnchor) -> Vec<BlockEdit> {
@@ -84,11 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             vec![
                 BlockEdit::ReplaceSection(
                     anchor(5),
-                    vec![ResolvedBlock::Paragraph(paragraph(
-                        "new section",
-                        false,
-                        None,
-                    ))],
+                    vec![
+                        ResolvedBlock::Paragraph(paragraph("new section", false, None)),
+                        section_table(),
+                    ],
                 ),
                 BlockEdit::Remove(anchor(2)),
                 BlockEdit::Replace(

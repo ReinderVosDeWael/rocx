@@ -349,6 +349,8 @@ async def test_resource_value_queries_isolate_malformed_metadata(launch, tmp_pat
     source = tmp_path / "duplicate.docx"
     make_source(source, duplicate_description=True)
     native = native_read(source, "metadata", "description", "comments", "title", "identifier")
+    custom = {"Reviewed": "pending", "Disabled": False, "Blank": "", "blank": None}
+    native_custom = native_read(source, "custom-property", *custom, "LegacyNumber")
     async with launch() as client:
         document = (await call(client, "open_document", path=source.name))["document"]
         await failure(client, "inspect_document", "inspection_failed", document=document,
@@ -356,8 +358,9 @@ async def test_resource_value_queries_isolate_malformed_metadata(launch, tmp_pat
         for field in ("description", "comments"):
             await assert_readback(client, document, resource_query("metadata", field=field),
                                   native[field], "ambiguous dc:description", error=True)
-        await failure(client, "inspect_document", "inspection_failed", document=document,
-                      view=resource_query("custom-property", name="LegacyNumber"))
+        await assert_readback(client, document, resource_query("custom-property", name="LegacyNumber"),
+                              native_custom["LegacyNumber"], "unsupported custom property type",
+                              error=True)
         await failure(client, "inspect_document", "invalid_input", document=document,
                       view=resource_query("default-alignment", extra=True))
 
@@ -371,10 +374,9 @@ async def test_resource_value_queries_isolate_malformed_metadata(launch, tmp_pat
         for field, expected in [("title", "Initial title"), ("identifier", None)]:
             await assert_readback(client, document, resource_query("metadata", field=field),
                                   native[field], expected)
-        assert await value("custom-property", name="Reviewed") == "pending"
-        assert await value("custom-property", name="Disabled") is False
-        assert await value("custom-property", name="Blank") == ""
-        assert await value("custom-property", name="blank") is None
+        for name, expected in custom.items():
+            await assert_readback(client, document, resource_query("custom-property", name=name),
+                                  native_custom[name], expected)
         assert await value("default-alignment") == "center"
         assert (await value("document-defaults"))["bold"] is True
 
@@ -599,6 +601,41 @@ async def test_mixed_resource_batch_native_bytes_and_preservation(launch, tmp_pa
     assert etree.tostring(custom_before[1], method="c14n", exclusive=True) == etree.tostring(
         custom_after[1], method="c14n", exclusive=True,
     )
+    validate(source, output)
+
+
+async def test_legacy_resource_batch_native_bytes_and_retry(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    original = make_source(source)
+    output = tmp_path / "legacy.docx"
+    subject = "Résumé 世界 😀"
+    edits = [
+        resource("core-title", value=None),
+        resource("core-subject", value=subject),
+        resource("default-alignment", value=None),
+    ]
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        await failure(client, "preview_edits", "rejected_batch", document=document,
+                      edits=[*edits, resource("metadata", field="title", value="Duplicate")])
+        assert list(tmp_path.iterdir()) == [source]
+        preview = await call(client, "preview_edits", document=document, edits=edits)
+        saved = await call(client, "save_copy", document=document, preview=preview["preview"],
+                           output=output.name)
+
+        reopened = (await call(client, "open_document", path=output.name))["document"]
+        readback = await read_resources(client, reopened)
+        assert readback["metadata"]["title"] is None
+        assert readback["metadata"]["subject"] == subject
+        assert readback["default_alignment"] is None
+        assert "justification" not in readback["document_defaults"]
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == oracle(tmp_path / "native-legacy.docx", source, "legacy")
+    assert saved["output_snapshot"] == preview["output_snapshot"] == digest(output.read_bytes())
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {name for name in before if before[name] != after[name]} == {CORE, STYLES}
     validate(source, output)
 
 

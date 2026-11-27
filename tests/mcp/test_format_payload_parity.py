@@ -1,16 +1,19 @@
-"""Installed stdio parity for modeled run and paragraph declaration formats."""
+"""Installed stdio parity for formatted paragraph replacements and rich insertions."""
 
 from copy import deepcopy
 import subprocess
 
 import docx
 from docx.enum.style import WD_STYLE_TYPE
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
 from jsonschema.validators import validator_for
 import pytest
 
-from test_stdio import anyio_backend, call, digest, executable, failure, launch, parts, validate
+from test_stdio import (
+    anyio_backend, assert_tool_failure, call, digest, executable, failure, launch, parts, validate,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -244,4 +247,116 @@ async def test_declaration_format_fields_native_bytes_and_guards(launch, tmp_pat
     assert before.keys() == after.keys()
     assert {part for part in before if before[part] != after[part]} == {"word/document.xml"}
     check_docx(output)
+    validate(source, output)
+
+
+def write_insertion_source(path):
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    fixture.add_paragraph("Before")
+    for kind, text in [("bookmarkStart", "Range starts"), ("bookmarkEnd", "Range ends")]:
+        paragraph = fixture.add_paragraph(text)
+        marker = OxmlElement(f"w:{kind}")
+        marker.set(qn("w:id"), "7")
+        if kind == "bookmarkStart":
+            marker.set(qn("w:name"), "Spanned")
+            paragraph._p.insert(0, marker)
+        else:
+            paragraph._p.append(marker)
+    fixture.add_paragraph("Later original")
+    fixture.save(path)
+
+
+def insertion_payload():
+    tab = dict(kind="tab", format=dict(bold=True))
+    breaks = [dict(kind="break", type=kind, format=dict(italic=True))
+              for kind in ("line", "page", "column", "text-wrapping")]
+    return dict(
+        format=dict(alignment="center"),
+        inlines=[
+            text_run("Inserted 😀", bold=True),
+            tab, *breaks,
+            dict(kind="fraction", numerator="x + 1", denominator="2"),
+            dict(kind="hyperlink", target=dict(kind="url", url="https://example.org/insert"),
+                 tooltip="Insertion link", history=False,
+                 children=[text_run("link", underline="single"), tab, breaks[0]]),
+        ],
+    )
+
+
+def check_inserted_docx(output):
+    before, rich, start, end, empty, later = docx.Document(output).paragraphs
+    assert [p.text for p in (before, start, end, empty, later)] == [
+        "Before", "Range starts", "Range ends", "", "Later original",
+    ]
+    assert len(empty._p) == 0
+    assert attributes(start._p, "./w:bookmarkStart") == {"id": "7", "name": "Spanned"}
+    assert attributes(end._p, "./w:bookmarkEnd") == {"id": "7"}
+    assert attributes(later._p, "./w:pPr/w:jc") == {"val": "right"}
+    assert attributes(rich._p, "./w:pPr/w:jc") == {"val": "center"}
+    text, tab, *breaks = rich.runs
+    assert text.text == "Inserted 😀" and text.bold is True
+    assert tab.text == "\t" and tab.bold is True
+    assert [attributes(run._r, "./w:br") for run in breaks] == [
+        {"type": kind} for kind in ("textWrapping", "page", "column", "textWrapping")
+    ]
+    assert all(run.italic is True for run in breaks)
+    assert rich._p.xpath("./m:oMath/m:f/*/m:r/m:t/text()") == ["x + 1", "2"]
+    (link,) = rich.hyperlinks
+    assert link.url == "https://example.org/insert"
+    assert link._element.get(qn("w:tooltip")) == "Insertion link"
+    assert link._element.get(qn("w:history")) == "0"
+    link_text, link_tab, link_break = link.runs
+    assert link_text.text == "link" and link_text.underline is True
+    assert link_tab.text == "\t" and link_tab.bold is True
+    assert attributes(link_break._r, "./w:br") == {"type": "textWrapping"}
+    assert link_break.italic is True
+
+
+async def test_rich_paragraph_insert_native_bytes_original_coordinates_and_retry(launch, tmp_path):
+    source, output, native = (tmp_path / name for name in ("source.docx", "output.docx", "native.docx"))
+    write_insertion_source(source)
+    original = source.read_bytes()
+    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_format_payload_oracle")
+    subprocess.run([oracle, source, native, "insert"], check=True, cwd=tmp_path, timeout=20)
+
+    async with launch() as client:
+        (tool,) = [item for item in (await client.list_tools()).tools if item.name == "preview_edits"]
+        validator = validator_for(tool.inputSchema)(tool.inputSchema)
+        document = (await call(client, "open_document", path=source.name))["document"]
+        body = (await call(client, "inspect_document", document=document))["body"]
+        alignment = dict(kind="alignment", anchor=body[3]["anchor"], alignment="right")
+        empty = dict(kind="insert-rich-paragraph", anchor=body[2]["anchor"], paragraph=dict(inlines=[]))
+        rich = dict(kind="insert-rich-paragraph", anchor=body[0]["anchor"], paragraph=insertion_payload())
+        internal_link = deepcopy(rich)
+        internal_link["paragraph"]["inlines"][-1]["target"] = dict(kind="bookmark", name="Spanned")
+        for edits, message in [
+            ([alignment, dict(empty, anchor=body[1]["anchor"]), rich],
+             "paragraph insertion point is inside an active or ambiguous range"),
+            ([alignment, empty, internal_link], "unsupported inline content in an inserted paragraph"),
+        ]:
+            request = dict(document=document, edits=edits)
+            validator.validate(request)
+            result = await client.call_tool("preview_edits", request)
+            assert_tool_failure(result, "rejected_batch")
+            assert message in result.structuredContent["message"]
+
+        assert (await call(client, "inspect_document", document=document))["body"] == body
+        request = dict(document=document, edits=[alignment, empty, rich])
+        validator.validate(request)
+        preview = await call(client, "preview_edits", **request)
+        assert preview["changes"]["paragraph_insertions"] == [0, 2]
+        assert preview["changes"]["changes"] == [{"target": 3, "before": None, "after": "Right"}]
+        assert sum(map(len, preview["changes"].values())) == 3
+        saved = await call(client, "save_copy", document=document, preview=preview["preview"], output=output.name)
+        assert saved["output_snapshot"] == preview["output_snapshot"] == digest(output.read_bytes())
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == native.read_bytes()
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {part for part in before if before[part] != after[part]} == {
+        "word/document.xml", "word/_rels/document.xml.rels",
+    }
+    check_inserted_docx(output)
     validate(source, output)

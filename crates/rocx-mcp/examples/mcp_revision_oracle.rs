@@ -161,6 +161,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         fs::write(output, error.to_string())?;
         return Ok(());
     }
+    if operation == "invalid-xml-author" && rest.is_empty() {
+        let error = doc
+            .preview_tracked_text(
+                inline(&doc, 0, 0),
+                TrackedText::Replace("Updated".into()),
+                "é😀\0",
+                None,
+            )
+            .expect_err("invalid XML author must be rejected");
+        let rocx::Error::InvalidXmlCharacter {
+            character,
+            byte_offset,
+        } = &error
+        else {
+            panic!("expected the native XML character error, got {error:?}");
+        };
+        fs::write(
+            output,
+            serde_json::to_vec(&json!({
+                "character": character, "byte_offset": byte_offset,
+                "rule": error.rule().map(rocx::Rule::code),
+                "path": error.path(), "message": error.to_string(),
+            }))?,
+        )?;
+        return Ok(());
+    }
     let action = |value: &str| match value {
         "accept" => TextRevisionAction::Accept,
         "reject" => TextRevisionAction::Reject,

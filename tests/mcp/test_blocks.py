@@ -91,7 +91,9 @@ def check_package(source, output, mode, original):
     assert {name for name in before if before[name] != after[name]} == {"word/document.xml"}
     validate(source, output)
     independent = docx.Document(output)
-    assert independent.tables[0].cell(0, 0).text == "unchanged table"
+    assert [table.cell(0, 0).text for table in independent.tables] == (
+        ["new section table", "unchanged table"] if mode == "mixed" else ["unchanged table"]
+    )
     assert not independent.sections[0].header.is_linked_to_previous
     assert all(section.header.is_linked_to_previous for section in independent.sections[1:])
     assert all(section.header.paragraphs[0].text == "inherited header"
@@ -161,7 +163,15 @@ async def test_mixed_block_preview_rejects_overlap_then_matches_native(launch, t
                             paragraph=paragraph("new & bold", bold=True, alignment="center"))
         edits = [
             block(p(5), "replace-section",
-                  blocks=[dict(kind="paragraph", paragraph=paragraph("new section"))]),
+                  blocks=[
+                      dict(kind="paragraph", paragraph=paragraph("new section")),
+                      dict(kind="rich-table", table=dict(
+                          properties=dict(layout="fixed", column_widths=[1440]),
+                          rows=[dict(cells=[dict(blocks=[
+                              dict(kind="paragraph", paragraph=paragraph("new section table")),
+                          ])])],
+                      )),
+                  ]),
             block(p(2), "remove-paragraph"),
             replacement,
             block(p(0), "keep-with-next", value=False),
@@ -197,7 +207,7 @@ async def test_mixed_block_preview_rejects_overlap_then_matches_native(launch, t
                       view=dict(kind="sections", cursor=first["next_cursor"]))
         await failure(client, "preview_edits", "wrong_owner", document=reopened, edits=[replacement])
         changed = await sections(client, reopened)
-        assert ranges(changed) == [(0, 4), (4, 6), (6, 9)]
+        assert ranges(changed) == [(0, 4), (4, 7), (7, 10)]
         initial, _, final = changed["sections"]
         assert initial["flags"] == {}
         assert initial["section_type"] == initial["section_type_xml"] == "evenPage"
@@ -209,6 +219,8 @@ async def test_mixed_block_preview_rejects_overlap_then_matches_native(launch, t
         "keep", "new & bold", "edited original run", "", "new section", "",
         "section properties", "far section",
     ]
+    table = next(table for table in independent.tables if table.cell(0, 0).text == "new section table")
+    assert table.autofit is False and table.columns[0].width.twips == 1440
     keep, replacement = independent.paragraphs[:2]
     assert keep.paragraph_format.keep_with_next is False
     assert keep.paragraph_format.widow_control is None

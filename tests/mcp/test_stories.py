@@ -56,8 +56,16 @@ async def test_rich_story_blocks_native_bytes_and_preservation(launch, story_sou
         document = await open_document(client, story_source)
         rows, _ = await story_page(client, document)
         if case == "create-rich":
+            blocks.append(dict(kind="rich-table", table=dict(
+                properties=dict(layout="fixed", column_widths=[1440]),
+                rows=[dict(cells=[dict(blocks=[
+                    dict(kind="paragraph", paragraph=dict(inlines=[dict(kind="text", text="Footer table")])),
+                ])])],
+            )))
             operation = {"kind": "edit-story-reference", "anchor": rows[5]["anchor"],
                          "edit": {"kind": "create-rich", "blocks": blocks}}
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          operation={**operation, "anchor": rows[3]["anchor"]})
         elif case == "rich-splice-footer":
             operation = {"kind": "edit-story-blocks", "anchor": rows[9]["anchor"],
                          "edit": {"mode": "shared", "index": 0, "remove": 1, "blocks": blocks}}
@@ -84,7 +92,11 @@ async def test_rich_story_blocks_native_bytes_and_preservation(launch, story_sou
     assert story_source.read_bytes() == source
     document = docx.Document(output)
     if case == "create-rich":
-        assert_rich(document.sections[0].even_page_footer.paragraphs[0])
+        footer = document.sections[0].even_page_footer
+        assert_rich(footer.paragraphs[0])
+        table, = footer.tables
+        assert table.cell(0, 0).text == "Footer table" and table.autofit is False
+        assert table.columns[0].width.twips == 1440
     elif case == "rich-splice-footer":
         assert len(document.sections[1].footer.paragraphs) == 1
         assert_rich(document.sections[1].footer.paragraphs[0])

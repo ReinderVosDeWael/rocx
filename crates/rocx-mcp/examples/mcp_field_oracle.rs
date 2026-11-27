@@ -60,8 +60,47 @@ fn instruction_variants(document: &ImportedDocument) -> rocx::Result<Vec<u8>> {
         .to_docx()
 }
 
+fn cache_without_separator(document: &ImportedDocument) -> rocx::Result<Vec<u8>> {
+    let BodyBlock::Paragraph(paragraph) = &document.body()[0] else {
+        panic!("expected the separatorless field fixture paragraph");
+    };
+    let edit = FieldEdit {
+        target: paragraph.anchor.clone(),
+        inline_index: 1,
+        action: FieldAction::Cache(vec![text("new display")?]),
+    };
+    let rejected = match document.preview_edits(EditBatch {
+        fields: &[edit.clone(), edit.clone()],
+        ..Default::default()
+    }) {
+        Err(error) => error,
+        Ok(_) => panic!("expected native rejection of duplicate cache edits"),
+    };
+    println!(
+        "{}",
+        serde_json::json!({
+            "message": rejected.to_string(),
+            "rule": rejected.rule().map(rocx::Rule::code),
+            "path": rejected.path(),
+        })
+    );
+    document
+        .preview_edits(EditBatch {
+            fields: &[edit],
+            ..Default::default()
+        })?
+        .to_docx()
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if let [source, output, mode] = args.as_slice()
+        && mode == "cache-without-separator"
+    {
+        let document = ImportedDocument::open(&std::fs::read(source)?)?;
+        std::fs::write(output, cache_without_separator(&document)?)?;
+        return Ok(());
+    }
     if let [source, output, mode] = args.as_slice()
         && mode == "instruction-variants"
     {
@@ -99,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let [source, output] = args.as_slice() else {
         return Err(
-            "usage: mcp_field_oracle SOURCE OUTPUT [instruction-variants|inspect-fields]".into(),
+            "usage: mcp_field_oracle SOURCE OUTPUT [instruction-variants|inspect-fields|cache-without-separator]".into(),
         );
     };
     let document = ImportedDocument::open(&std::fs::read(source)?)?;

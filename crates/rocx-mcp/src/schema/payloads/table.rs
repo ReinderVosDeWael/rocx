@@ -1,3 +1,5 @@
+use std::fmt;
+
 use rmcp::schemars::{self, JsonSchema};
 use rocx::{
     BorderLine, BorderSide, CellBorder, CellBorderSide, CellMargins, CellTextDirection,
@@ -5,7 +7,12 @@ use rocx::{
     TableCellProperties, TableLayout, TableLook, TableProperties, TableRow, TableRowProperties,
     Value, VerticalMerge,
 };
-use serde::Deserialize;
+use serde::{
+    Deserialize, Deserializer,
+    de::{
+        DeserializeSeed, Error, IntoDeserializer, MapAccess, Visitor, value::MapAccessDeserializer,
+    },
+};
 
 use super::{BlockInput, ParagraphInput, resolve_component};
 use crate::schema::CellAlignment;
@@ -147,11 +154,80 @@ struct Margins {
     end: Option<f64>,
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[serde(untagged)]
+#[derive(JsonSchema)]
+#[schemars(untagged)]
 pub(crate) enum RichTableInput {
     Nested(TableInput<BlockInput>),
     Flat(FlatTableInput),
+}
+
+impl<'de> Deserialize<'de> for RichTableInput {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct TableVisitor;
+
+        impl<'de> Visitor<'de> for TableVisitor {
+            type Value = RichTableInput;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a rich table object with rows or nodes")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let first: String = map
+                    .next_key()?
+                    .ok_or_else(|| A::Error::missing_field("rows"))?;
+                let flat = match first.as_str() {
+                    "nodes" => true,
+                    "rows" | "properties" => false,
+                    _ => {
+                        return Err(A::Error::unknown_field(
+                            &first,
+                            &["rows", "properties", "nodes"],
+                        ));
+                    }
+                };
+                let input = MapAccessDeserializer::new(ReplayKey {
+                    first: Some(first),
+                    map,
+                });
+                if flat {
+                    FlatTableInput::deserialize(input).map(RichTableInput::Flat)
+                } else {
+                    TableInput::deserialize(input).map(RichTableInput::Nested)
+                }
+            }
+        }
+
+        deserializer.deserialize_map(TableVisitor)
+    }
+}
+
+// Replay the shape key into the selected struct, streaming all values through
+// its usual deserializer (including duplicate and unknown field checks).
+struct ReplayKey<A> {
+    first: Option<String>,
+    map: A,
+}
+
+impl<'de, A: MapAccess<'de>> MapAccess<'de> for ReplayKey<A> {
+    type Error = A::Error;
+
+    fn next_key_seed<K: DeserializeSeed<'de>>(
+        &mut self,
+        seed: K,
+    ) -> Result<Option<K::Value>, Self::Error> {
+        match self.first.take() {
+            Some(key) => seed.deserialize(key.into_deserializer()).map(Some),
+            None => self.map.next_key_seed(seed),
+        }
+    }
+
+    fn next_value_seed<V: DeserializeSeed<'de>>(
+        &mut self,
+        seed: V,
+    ) -> Result<V::Value, Self::Error> {
+        self.map.next_value_seed(seed)
+    }
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -456,5 +532,37 @@ impl RenderBudget {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn nested_table(block: Value) -> Value {
+        json!({"rows": [{"cells": [{"blocks": [block]}]}]})
+    }
+
+    #[test]
+    fn recursive_table_syntax_keeps_the_json_parser_boundary() {
+        // Seventeen enclosing table levels add seven JSON containers each.
+        // The leaf table adds six, plus two for the plain block and its rows.
+        for (rows, expected_ok) in [(json!([]), true), (json!([["cell"]]), false)] {
+            let mut table = nested_table(json!({"kind": "table", "rows": rows}));
+            for _ in 0..17 {
+                table = nested_table(json!({"kind": "rich-table", "table": table}));
+            }
+            match serde_json::from_str::<RichTableInput>(&table.to_string()) {
+                Ok(_) => assert!(expected_ok, "accepted 128 JSON containers"),
+                Err(error) => {
+                    assert!(!expected_ok, "rejected 127 JSON containers: {error}");
+                    assert!(
+                        error.to_string().contains("recursion limit exceeded"),
+                        "{error}"
+                    );
+                }
+            }
+        }
     }
 }

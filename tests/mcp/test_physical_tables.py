@@ -153,6 +153,7 @@ async def test_physical_table_discovery(launch):
 
     assert inspect.is_valid(dict(document="doc", view=dict(kind="body-tables", limit=1)))
     assert ordinary("remove-table")
+    assert ordinary("replace-cell", row=0, cell=0, blocks=RICH)
     assert ordinary("replace-node", site=dict(kind="table"), source=DONOR)
     assert ordinary("insert-column", column=0)
     assert not ordinary("remove-table", cell=0)
@@ -333,6 +334,70 @@ async def test_rich_physical_table_content_native_bytes(launch, table_source, tm
 
 def body_edit(table, kind, **payload):
     return dict(kind="table-structure", **edit(table, kind, **payload))
+
+
+async def test_ordinary_body_replace_cell_native_bytes_and_retry(launch, table_source, tmp_path):
+    source, output = tmp_path / "body.docx", tmp_path / "edited.docx"
+    fixture = docx.Document(table_source)
+    fixture.add_paragraph("Original tail")
+    fixture.save(source)
+    original = source.read_bytes()
+    async with launch() as client:
+        document = await open_document(client, source)
+        tables = await call(client, "inspect_document", document=document,
+                            view=dict(kind="body-tables"))
+        _, plain, _ = tables["body_tables"]
+        seen = await call(client, "inspect_document", document=document)
+        run = seen["body"][-1]["runs"][0]
+        replace = body_edit(plain, "replace-cell", row=0, cell=0, blocks=RICH)
+        run_edit = dict(kind="run-text", anchor=run["anchor"], text="Edited tail 😀")
+
+        native = native_oracle(source, tmp_path / "duplicate.txt",
+                               "body-replace-cell-duplicate", "body").decode()
+        rejected = await client.call_tool("preview_edits", dict(
+            document=document, edits=[replace, run_edit, replace],
+        ))
+        assert_tool_failure(rejected, "rejected_batch")
+        assert "duplicate cell replacement" in native
+        assert native in rejected.structuredContent["message"]
+
+        preview = await call(client, "preview_edits", document=document, edits=[replace, run_edit])
+        assert preview["changes"]["run_text"][0]["after"] == "Edited tail 😀"
+        saved = await call(client, "save_copy", document=document, preview=preview["preview"],
+                           output=output.name)
+        assert saved["output_snapshot"] == preview["output_snapshot"]
+
+    compare_native(source, output, "body-replace-cell", "body")
+    assert source.read_bytes() == original
+    before, after = parts(source), parts(output)
+    relationships = "word/_rels/relocated-main.xml.rels"
+    assert before.keys() == after.keys()
+    assert {name for name in before if before[name] != after[name]} == {MAIN, relationships}
+
+    independent = docx.Document(output)
+    plain = independent.tables[1]
+    cell = plain.cell(0, 0)
+    paragraph, trailing = cell.paragraphs
+    assert paragraph.text == "Rich 😀 link" and paragraph.runs[0].bold is True
+    assert trailing.text == "" and cell._tc[-1].tag == qn("w:p")
+    assert cell.tables[0].cell(0, 0).text == "nested payload"
+    assert cell.tables[0].columns[0].width.twips == 1440
+    assert cell.vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert [plain.cell(0, 1).text, *(sibling.text for sibling in plain.rows[1].cells)] == [
+        "plain 1", "plain 2", "plain 3",
+    ]
+    assert independent.paragraphs[0].text == "Body unchanged"
+    assert independent.paragraphs[-1].text == "Edited tail 😀"
+
+    (link,) = paragraph.hyperlinks
+    rel_id = link._element.get(qn("r:id"))
+    old_rels = [rel.attrib for rel in ElementTree.fromstring(before[relationships])]
+    new_rels = [rel.attrib for rel in ElementTree.fromstring(after[relationships])]
+    (added,) = [rel for rel in new_rels if rel not in old_rels]
+    assert [rel for rel in new_rels if rel != added] == old_rels
+    assert added == dict(Id=rel_id, Type=RELATIONSHIP_TYPE.HYPERLINK,
+                         Target=LINK, TargetMode="External")
+    validate(output)
 
 
 def body_donor(*texts):

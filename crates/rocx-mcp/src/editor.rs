@@ -142,7 +142,7 @@ impl Snapshot {
 
     pub fn open_with_limits(bytes: &[u8], limits: rocx::opc::ReadLimits) -> rocx::Result<Self> {
         Ok(Self {
-            document: ImportedDocument::open_with_limits(bytes, limits)?,
+            document: rocx::editor::mcp_bridge::open_with_word_depth_check(bytes, limits)?,
             body_inspection: OnceLock::new(),
             header_inspection: OnceLock::new(),
             story_controls: OnceLock::new(),

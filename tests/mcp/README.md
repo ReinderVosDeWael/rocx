@@ -13,7 +13,8 @@ trap 'exit 143' TERM
 export ROCX_MCP_BINARY="$scratch/install/bin/rocx-mcp"
 export ROCX_MCP_ORACLE="$PWD/target/debug/examples/mcp_byte_oracle"
 export ROCX_SCHEMA_DIR="$scratch/schemas"
-cargo install --locked --path crates/rocx-mcp --root "$scratch/install" --target-dir "$PWD/target"
+export CARGO_TARGET_DIR="$PWD/target"
+cargo install --locked --path crates/rocx-mcp --root "$scratch/install"
 cargo build --locked -p rocx-mcp --examples
 uv run --no-project --with-requirements tests/mcp/requirements.txt \
   python tools/validate_ooxml.py --download-schemas
@@ -121,3 +122,8 @@ Additional scoped and import coverage:
   readback of table, row and cell properties.
 - `test_flat_table.py` compares deep rich-table declarations with direct Rust,
   including body and header edits, topology guards and legacy compatibility.
+- `test_flat_table_depth.py` checks the depth of the resulting Word part,
+  including edits inside existing deep cells and preservation of unrelated
+  malformed parts.
+- `test_payload_errors.py` checks specific declaration errors and byte equality
+  between equivalent legacy and flat forms.

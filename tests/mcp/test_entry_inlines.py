@@ -72,6 +72,58 @@ async def preview(client, document, source, kind, command, op):
     return output
 
 
+async def test_direct_entry_run_replacement_native_bytes(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    original = make_entry_source(source)
+    owner_part = "word/notes/endnotes.xml"
+
+    async def first_paragraph(client, document):
+        page = await inspect(client, document, "entry-inlines", limit=100)
+        return [row for row in page["entry_inlines"]
+                if (row["entry_kind"], row["id"], row["block_index"]) == ("endnote", "007", 0)]
+
+    async with launch() as client:
+        document = await opened(client, source)
+        reference, text = await first_paragraph(client, document)
+        assert "anchor" not in reference
+        assert text["kind"] == "run" and "drawing" not in text
+        assert text["items"] == [dict(kind="text", text="endnote 007")]
+        assert text["owner"]["part_name"] == owner_part
+        owner = text["owner"]["anchor"]
+        replace = edit(text["anchor"], "replace", inline=dict(kind="tab", format=dict(bold=True)))
+        await failure(client, "preview_edits", "rejected_batch", document=document,
+                      operation=operation(owner, replace, replace))
+        output = await preview(client, document, source, "endnote", "replace-tab",
+                               operation(owner, replace))
+
+        reference, tab = await first_paragraph(client, await opened(client, output))
+        assert "anchor" not in reference
+        assert (tab["inline_index"], tab["kind"], tab["text"], tab["bold"]) == (1, "run", "\t", True)
+        assert tab["items"] == [dict(kind="tab")]
+
+    assert source.read_bytes() == original
+    assert_only_owner_changed(source, output, owner_part)
+    expected = etree.fromstring(parts(source)[owner_part])
+    note, = [note for note in expected if note.get(qn("w:id")) == "007"]
+    paragraph = note.find(qn("w:p"))
+    reference_run, text_run = paragraph.findall(qn("w:r"))
+    assert reference_run.find(qn("w:endnoteRef")) is not None
+    replacement = OxmlElement("w:r")
+    formatting = OxmlElement("w:rPr")
+    bold = OxmlElement("w:b")
+    bold.set(qn("w:val"), "1")
+    formatting.append(bold)
+    replacement.append(formatting)
+    replacement.append(OxmlElement("w:tab"))
+    paragraph.replace(text_run, replacement)
+    actual = etree.fromstring(parts(output)[owner_part])
+    # Ignore unused namespace declarations added by serialization.
+    assert etree.tostring(actual, method="c14n", exclusive=True) == etree.tostring(
+        expected, method="c14n", exclusive=True,
+    )
+    validate(source, output)
+
+
 async def test_entry_inline_discovery(launch):
     async with launch() as client:
         schemas = {tool.name: tool.inputSchema for tool in (await client.list_tools()).tools}

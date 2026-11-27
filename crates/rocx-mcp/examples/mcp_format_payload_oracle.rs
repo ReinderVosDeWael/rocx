@@ -1,8 +1,13 @@
-//! Direct Rust oracle for modeled run and paragraph formatting declarations.
+//! Direct Rust oracle for formatted paragraph replacement and rich paragraph insertion.
 use rocx::{
-    Alignment, Color, Component, LineHeight, Paragraph, ParagraphFormat, RunFormat, RunLanguage,
-    TabAlignment, TabLeader, TabStop, TextRun, ThemeColor, Underline,
-    editor::{BlockEdit, BodyBlock, EditBatch, ImportedDocument},
+    Alignment, BookmarkName, BreakType, Color, Component, Hyperlink, HyperlinkProperties,
+    HyperlinkTarget, InlineFraction, LineHeight, Paragraph, ParagraphFormat, ResolvedInline,
+    ResolvedParagraph, RunFormat, RunLanguage, TabAlignment, TabLeader, TabStop, TextRun,
+    ThemeColor, Underline,
+    editor::{
+        BlockEdit, BodyBlock, EditBatch, ImportedDocument, ParagraphAlignmentEdit,
+        ParagraphInsertion,
+    },
 };
 
 fn rich_runs() -> Vec<TextRun> {
@@ -136,10 +141,26 @@ fn rich_paragraph() -> ParagraphFormat {
 
 fn main() -> rocx::Result<()> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    let [source, output] = args.as_slice() else {
-        panic!("usage: mcp_format_payload_oracle SOURCE OUTPUT");
+    let (source, output, insertion) = match args.as_slice() {
+        [source, output] => (source, output, false),
+        [source, output, mode] if mode == "insert" => (source, output, true),
+        _ => panic!("usage: mcp_format_payload_oracle SOURCE OUTPUT [insert]"),
     };
     let document = ImportedDocument::open(&std::fs::read(source)?)?;
+    let bytes = if insertion {
+        insertion_bytes(&document)?
+    } else {
+        replacement_bytes(&document)?
+    };
+    std::fs::write(output, bytes)?;
+    Ok(())
+}
+
+fn resolve_paragraph(paragraph: Paragraph) -> rocx::Result<ResolvedParagraph> {
+    Ok(futures_executor::block_on(paragraph.resolve())?.expect("unconditional fixture paragraph"))
+}
+
+fn replacement_bytes(document: &ImportedDocument) -> rocx::Result<Vec<u8>> {
     let formats = [
         rich_paragraph(),
         ParagraphFormat {
@@ -176,12 +197,10 @@ fn main() -> rocx::Result<()> {
         } else {
             vec![TextRun::new(format!("Replacement {index}"))]
         };
-        let paragraph = futures_executor::block_on(
+        let paragraph = resolve_paragraph(
             Paragraph::from_children(runs.into_iter().map(Into::into).collect())
-                .with_format(format)
-                .resolve(),
-        )?
-        .expect("unconditional fixture paragraph");
+                .with_format(format),
+        )?;
         blocks.push(BlockEdit::Replace(
             original.anchor.clone(),
             Box::new(paragraph),
@@ -191,6 +210,106 @@ fn main() -> rocx::Result<()> {
         blocks: &blocks,
         ..Default::default()
     })?;
-    std::fs::write(output, preview.to_docx()?)?;
-    Ok(())
+    preview.to_docx()
+}
+
+fn insertion_payload(target: HyperlinkTarget) -> rocx::Result<ResolvedParagraph> {
+    let tab = || ResolvedInline::Tab {
+        format: RunFormat::default().with_bold(true),
+        comment: None,
+    };
+    let br = |kind| ResolvedInline::Break {
+        kind,
+        format: RunFormat::default().with_italic(true),
+        comment: None,
+    };
+    let link = Hyperlink::new(
+        target,
+        vec![
+            TextRun::new("link")
+                .with_format(RunFormat::default().with_underline(Underline::Single))
+                .into(),
+            tab().into(),
+            br(BreakType::Line).into(),
+        ],
+    )
+    .with_properties(
+        HyperlinkProperties::default()
+            .with_tooltip("Insertion link")
+            .with_history(false),
+    );
+    resolve_paragraph(
+        Paragraph::from_children(vec![
+            TextRun::new("Inserted 😀")
+                .with_format(RunFormat::default().with_bold(true))
+                .into(),
+            tab().into(),
+            br(BreakType::Line).into(),
+            br(BreakType::Page).into(),
+            br(BreakType::Column).into(),
+            br(BreakType::TextWrapping).into(),
+            InlineFraction::new("x + 1", "2").into(),
+            link.into(),
+        ])
+        .with_format(ParagraphFormat::default().with_alignment(Alignment::Center)),
+    )
+}
+
+fn insertion_bytes(document: &ImportedDocument) -> rocx::Result<Vec<u8>> {
+    let anchor = |index| {
+        let BodyBlock::Paragraph(paragraph) = &document.body()[index] else {
+            panic!("expected fixture paragraph at {index}");
+        };
+        paragraph.anchor.clone()
+    };
+    let paragraphs = [
+        ParagraphInsertion {
+            target: anchor(2),
+            paragraph: resolve_paragraph(Paragraph::from_children(vec![]))?,
+        },
+        ParagraphInsertion {
+            target: anchor(0),
+            paragraph: insertion_payload(HyperlinkTarget::external("https://example.org/insert")?)?,
+        },
+    ];
+    let alignments = [ParagraphAlignmentEdit {
+        target: anchor(3),
+        alignment: Alignment::Right,
+    }];
+    let batch = |paragraphs| EditBatch {
+        paragraphs,
+        alignments: &alignments,
+        ..Default::default()
+    };
+
+    let mut active_range = paragraphs.clone();
+    active_range[0].target = anchor(1);
+    let Err(error) = document.preview_edits(batch(&active_range)) else {
+        panic!("native insert accepted an active bookmark range");
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("paragraph insertion point is inside an active or ambiguous range")
+    );
+    let mut internal_link = paragraphs.clone();
+    internal_link[1].paragraph =
+        insertion_payload(HyperlinkTarget::bookmark(BookmarkName::new("Spanned")?))?;
+    let Err(error) = document.preview_edits(batch(&internal_link)) else {
+        panic!("native insert accepted an internal hyperlink");
+    };
+    assert_eq!(error.path(), Some("editor.paragraph"));
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported inline content in an inserted paragraph")
+    );
+
+    let preview = document.preview_edits(batch(&paragraphs))?;
+    assert_eq!(preview.paragraph_insertions(), &[0, 2]);
+    let [alignment] = preview.changes() else {
+        panic!("expected one alignment change");
+    };
+    assert_eq!(alignment.body_index, 3);
+    preview.to_docx()
 }

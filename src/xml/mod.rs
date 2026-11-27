@@ -195,23 +195,7 @@ impl Node {
         } else {
             std::str::from_utf8(bytes).map_err(|e| Error::Validation(e.to_string()))?
         };
-        let doc = roxmltree::Document::parse_with_options(
-            text,
-            roxmltree::ParsingOptions {
-                allow_dtd: false,
-                nodes_limit: 1_000_000,
-                entity_resolver: None,
-            },
-        )
-        .map_err(|e| Error::Validation(format!("invalid XML: {e}")))?;
-        if doc
-            .descendants()
-            .any(|n| n.ancestors().take(258).count() > 256)
-        {
-            return Err(Error::Validation(
-                "XML depth exceeds read limit (256)".into(),
-            ));
-        }
+        let doc = parse_with_read_budget(text)?;
         fn convert(n: roxmltree::Node<'_, '_>, source: &str) -> Node {
             let mut node = Node::new(Name::expanded(
                 n.tag_name().namespace(),
@@ -371,6 +355,37 @@ impl Node {
         out.push('>');
     }
 }
+
+pub(crate) const MAX_READ_DEPTH: usize = 256;
+
+fn parse_with_read_budget(text: &str) -> Result<roxmltree::Document<'_>> {
+    let doc = roxmltree::Document::parse_with_options(
+        text,
+        roxmltree::ParsingOptions {
+            allow_dtd: false,
+            nodes_limit: 1_000_000,
+            entity_resolver: None,
+        },
+    )
+    .map_err(|e| Error::Validation(format!("invalid XML: {e}")))?;
+    if doc
+        .descendants()
+        .any(|n| n.ancestors().take(MAX_READ_DEPTH + 1).count() > MAX_READ_DEPTH)
+    {
+        return Err(Error::Validation(format!(
+            "XML depth exceeds read limit ({MAX_READ_DEPTH})"
+        )));
+    }
+    Ok(doc)
+}
+
+/// Check native XML read budgets without rebuilding the editable tree.
+/// Emitted parts are always UTF-8, unlike original package inputs.
+pub(crate) fn check_emitted_read_budget(bytes: &[u8]) -> Result<()> {
+    let text = std::str::from_utf8(bytes).map_err(|e| Error::Validation(e.to_string()))?;
+    parse_with_read_budget(text).map(|_| ())
+}
+
 fn escape(out: &mut String, text: &str, attribute: bool) {
     for c in text.chars() {
         match c {

@@ -87,6 +87,9 @@ def block_source(tmp_path):
     header.add_table(1, 1, Inches(1))
     header.add_paragraph()
     terminal = document.sections[-1]._sectPr
+    opaque = word("customXml", element="unmodeled")
+    opaque.append(word("p"))
+    terminal.addprevious(opaque)
     first_section = word("sectPr")
     first_section.append(word("type", val="continuous"))
     first_section.append(word("titlePg", val="0"))
@@ -184,7 +187,10 @@ async def test_body_paragraph_projection(launch, block_source):
         document = opened["document"]
         body = (await inspect(client, document, "body"))["body"]
         assert (await call(client, "inspect_document", document=document))["body"] == body
-        paragraph, unknown, _ = body
+        paragraph, unknown, table, opaque = body
+        assert table["type"] == "table"
+        assert opaque == dict(type="opaque", index=3, name=native["opaque_body_block"])
+        assert opaque["name"] == "w:customXml"
         for index, (row, expected) in enumerate(zip(body[:2], native["paragraphs"], strict=True)):
             assert {key: row[key] for key in expected} == expected
             assert row["anchor"] == f"{document}/paragraph:{index}"
@@ -208,7 +214,7 @@ async def test_body_paragraph_projection(launch, block_source):
         for index, (section, expected) in enumerate(zip(sections, native["sections"], strict=True)):
             assert {key: section[key] for key in expected} == expected
             assert section["anchor"] == f"{document}/section:{index}"
-        assert [(row["body_start"], row["body_end"]) for row in sections] == [(0, 1), (1, 2), (2, 3)]
+        assert [(row["body_start"], row["body_end"]) for row in sections] == [(0, 1), (1, 2), (2, 4)]
         assert sections[0]["section_type"] == "continuous"
         assert sections[0]["flags"] == {"titlePage": False}
         assert sections[0]["layout"]["borderTop"] == dict(size=8, space=None, color="112233")

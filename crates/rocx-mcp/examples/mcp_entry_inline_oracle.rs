@@ -6,7 +6,7 @@ use rocx::editor::{
 use rocx::{
     AltText, ColumnChartProperties, ColumnChartRun, Component, Hyperlink, HyperlinkTarget,
     ImageAnchor, ImageCrop, ImageRun, ImageTransformation, ImageWrap, ImageWrapSide,
-    ShapeProperties, ShapeRun, TextRun,
+    ResolvedInline, RunFormat, ShapeProperties, ShapeRun, TextRun,
 };
 
 fn resolve<C: Component>(component: C) -> C::Resolved {
@@ -132,6 +132,13 @@ fn main() -> rocx::Result<()> {
                 ImageRun::new(png)
                     .with_alt_text(Some(AltText::default().with_description("Replacement"))),
             )),
+        )],
+        "replace-tab" => vec![edit(
+            text,
+            InlineAction::Replace(ResolvedInline::Tab {
+                format: RunFormat::default().with_bold(true),
+                comment: None,
+            }),
         )],
         "description" => vec![edit(text + 1, InlineAction::SetDrawingDescription(None))],
         "remove" => vec![edit(text + 1, InlineAction::RemoveObject)],
