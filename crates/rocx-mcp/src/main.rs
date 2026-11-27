@@ -1,6 +1,7 @@
 mod diagnostics;
 mod editor;
 mod schema;
+mod search;
 mod session;
 
 use rmcp::{
@@ -86,7 +87,13 @@ fn session_error(tool: ToolKind, error: &ToolError) -> CallToolResult {
         "invalid_inline_handle" => {
             "Inspect the document again and use an inline_handle from an inline view."
         }
+        "invalid_cursor" if matches!(tool, ToolKind::Search) => {
+            "Omit the cursor to restart, or use a next_cursor from the same document and query."
+        }
         "invalid_cursor" => "Omit the cursor to restart, or use a next_cursor from the same view.",
+        "wrong_owner" if matches!(tool, ToolKind::Search) => {
+            "Use a next_cursor issued for the selected document, or omit it to restart."
+        }
         "wrong_owner" if matches!(tool, ToolKind::Inspect) => {
             "Use an anchor, inline_handle, or next_cursor issued for the selected document. To restart a paged inspection, omit the cursor."
         }

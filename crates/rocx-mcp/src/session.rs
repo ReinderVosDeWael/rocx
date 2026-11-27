@@ -13,6 +13,7 @@ use crate::{
         stories::{StoryBlockChange, StoryReferenceChange, StoryTextChange},
         tables::PhysicalTableChange,
     },
+    search::{Cursors, query_key},
 };
 use rocx::editor::{InlineAnchor, SectionStoryKind};
 use rocx::opc::ReadLimits;
@@ -52,6 +53,7 @@ struct Document {
     story_parts: HashMap<usize, String>,
     physical_table_targets: BTreeMap<String, PhysicalTableTarget>,
     cursors: HashMap<String, (PageView, usize)>,
+    search_cursors: Cursors,
     source: Option<Source>,
     previews: HashMap<String, Preview>,
 }
@@ -325,6 +327,7 @@ impl Session {
                 story_parts: HashMap::new(),
                 physical_table_targets: BTreeMap::new(),
                 cursors: HashMap::new(),
+                search_cursors: Cursors::default(),
                 source,
                 previews,
             },
@@ -370,6 +373,24 @@ impl Session {
         scope_anchors(&mut result, &document, &mut |_| {});
         result["document"] = json!(document);
         Ok(result)
+    }
+
+    pub fn search_document(
+        &mut self,
+        document: String,
+        query: &str,
+        limit: usize,
+        cursor: Option<&str>,
+    ) -> Result<Value, ToolError> {
+        let doc = self
+            .documents
+            .get_mut(&document)
+            .ok_or_else(|| UNKNOWN.to_owned())?;
+        let key = query_key(query);
+        let from = doc.search_cursors.resume(&document, key, cursor)?;
+        let (hits, next) = doc.snapshot.search_body(query, limit, from);
+        let next_cursor = next.map(|position| doc.search_cursors.issue(&document, key, position));
+        Ok(json!({"document": document, "hits": hits, "next_cursor": next_cursor}))
     }
 
     pub fn inspect_resources(

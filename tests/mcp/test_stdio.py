@@ -37,6 +37,7 @@ EXPECTED_TOOLS = {
     "create_document": set(),
     "open_document": {"path"},
     "inspect_document": {"document"},
+    "search_document": {"document", "query"},
     "preview_edits": {"document"},
     "save_copy": {"document", "preview", "output"},
     "save_in_place": {"document", "preview"},

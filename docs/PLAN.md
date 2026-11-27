@@ -252,10 +252,24 @@ fixture evidence and run the unchanged strict gate in hosted MCP CI.
 The final diagnostic audit also checks native errors raised while
 resolving rich declarations, before applying an edit. Preserve their
 structured rule, path and detail without changing existing message text.
-The unchanged strict checker passes locally: 1,824 covered, 84
-explicitly excluded, and no partial, planned or unverified symbols.
-Require hosted qualification on the final PR head before merging, then
-verify the compiled inventory and strict ledger on `main`.
+The unchanged strict checker passed: 1,824 covered, 84 explicitly
+excluded, and no partial, planned or unverified symbols. PR #90
+merged as `9089bc3`; the inventory and strict ledger passed against
+the merged tree, and the hosted installed MCP jobs passed on `main`.
+
+### Parallel MCP follow-ups
+
+- [#86](https://github.com/ReinderVosDeWael/rocx/issues/86): implement
+  literal search in direct body paragraphs, with bounded snippets, paged
+  results, and installed-client coverage for sparse hits and split runs.
+  The candidate passed 318 fresh installed-client and ledger tests plus
+  23 subtests with OOXML validation; the strict parity ledger still passes.
+- [#84](https://github.com/ReinderVosDeWael/rocx/issues/84): bring
+  [PR #85](https://github.com/ReinderVosDeWael/rocx/pull/85) up to date
+  with `main` and requalify its guarded in-place save. Preserve
+  exclusive-create `save_copy` and reject stale or unsupported sources.
+
+These are separate MCP features; neither reopens the parity milestone.
 
 ## 0.4.0 release
 
