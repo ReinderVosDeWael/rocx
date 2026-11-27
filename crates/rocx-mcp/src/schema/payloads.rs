@@ -7,14 +7,16 @@ use rocx::{
 };
 use serde::Deserialize;
 
+mod drawing;
 mod format;
 mod inline;
 mod table;
 #[cfg(test)]
 mod tests;
 
-use format::ParagraphFormatInput;
-pub(crate) use format::RunFormatInput;
+pub(crate) use format::{
+    LineHeightInput, ParagraphFormatInput, RunFormatInput, RunLanguageInput, TabStopInput,
+};
 pub(crate) use inline::InlineInput;
 pub(crate) use table::RichTableInput;
 
@@ -92,7 +94,7 @@ impl BlockInput {
     }
 }
 
-fn resolve_component<C: Component>(component: C) -> Result<C::Resolved, String> {
+pub(crate) fn resolve_component<C: Component>(component: C) -> Result<C::Resolved, String> {
     futures_executor::block_on(component.resolve())
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "declaration produced no content".into())

@@ -100,10 +100,50 @@ Comment ranges operate on existing definitions without modifying them.
 The saved lifecycle outputs match direct Rust bytes, and a live OpenCode
 client saved and paged through a cross-paragraph bookmark.
 
-Next: discover structured control sites and qualify their original-coordinate
-transactions. Continue with drawing and chart actions, style and numbering
-resources, then reconcile the remaining payload and owner coverage against the
-compiled ledger.
+The content-control increment adds paged main-story controls and wrapping
+sites, read-only physical story controls, and ordinary patch, wrap, unwrap,
+definition, choice and content replacement edits. The Rust 1.88 installed
+binary passed 139 MCP and parity tests plus ten subtests. Saved previews
+matched direct Rust output for all four wrapping contexts and a mixed
+control batch; independent checks validated the packages and confirmed that
+only the main document part changed.
+
+The body-object increment exposes drawing and fraction readback, chart-series
+queries, direct-body drawing patches, image asset redirection, and object
+removal. Inline declarations now include modeled shapes, column charts, and
+picture transformation and accessibility. The Rust 1.88 installed binary
+passed 141 MCP and parity tests plus ten subtests. Native byte comparisons
+covered all ten property groups, shared chart forking, and occurrence-local
+image replacement.
+
+The entry-inline increment pages original note and comment inlines and
+previews native edits scoped to one physical part, including pictures,
+external hyperlinks, and direct formatting. Saved picture lifecycles and
+hyperlinks matched direct Rust bytes for comments and relocated footnotes and
+endnotes. Reference runs and unrelated parts were preserved. The Rust 1.88
+installed binary passed 145 MCP and parity tests plus ten subtests.
+
+The style increment adds paged catalog readback and the seven native style
+variants in ordinary previews, including missing catalog creation, conditional
+table regions, and guarded reference migration. Saved previews matched
+direct Rust bytes for mixed edits, catalog creation, clears, and retargeting.
+The Rust 1.88 installed binary passed 148 MCP and parity tests plus ten
+subtests.
+
+The numbering increment pages abstract and concrete catalogs, exposes their
+independent read scopes, and supports global definition and override edits
+with direct body assignments in the ordinary batch. Relocated-catalog
+lifecycle previews and first-part creation with a staged numbering style
+matched direct Rust bytes. The Rust 1.88 installed binary passed 152 MCP and
+parity tests plus ten subtests.
+
+The physical-numbering increment pages direct paragraphs in shared
+header/footer parts, note/comment entries, and direct body cells. Ordinary
+previews can target these paragraphs alongside staged lists. Assignment and
+cleanup batches matched direct Rust bytes, including a cell in a later table
+after removing an earlier one. Continue with typed inline discovery in
+header/footer and table-cell paragraphs, then reconcile remaining payload and
+owner coverage against the compiled ledger.
 
 ## 0.4.0 release
 

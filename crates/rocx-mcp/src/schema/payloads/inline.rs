@@ -1,12 +1,12 @@
 use rmcp::schemars::{self, JsonSchema};
 use rocx::{
-    BookmarkName, Break, BreakType, FieldForm, FieldInstruction, FieldProperties, Hyperlink,
-    HyperlinkTarget, ImageRun, InlineFraction, ResolvedField, ResolvedInline, RunFormat, Tab,
-    TextRun,
+    BookmarkName, Break, BreakType, ColumnChartProperties, ColumnChartRun, FieldForm,
+    FieldInstruction, FieldProperties, Hyperlink, HyperlinkTarget, ImageRun, InlineFraction,
+    ResolvedField, ResolvedInline, RunFormat, ShapeProperties, ShapeRun, Tab, TextRun,
 };
 use serde::Deserialize;
 
-use super::{format::RunFormatInput, resolve_component};
+use super::{drawing, format::RunFormatInput, resolve_component};
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -23,6 +23,21 @@ pub(crate) enum InlineInput {
     Image {
         /// Complete encoded image as byte values, not a file path or URL.
         bytes: Vec<u8>,
+        transformation: Option<drawing::Transform>,
+        alt_text: Option<drawing::AltText>,
+    },
+    Shape {
+        properties: Box<drawing::Shape>,
+    },
+    ColumnChart {
+        /// Dimensions in points.
+        width: f64,
+        height: f64,
+        /// Ordered labels and their corresponding finite values.
+        #[schemars(length(min = 1))]
+        categories: Vec<String>,
+        #[schemars(length(min = 1))]
+        values: Vec<f64>,
     },
     Hyperlink {
         target: LinkTargetInput,
@@ -55,7 +70,29 @@ impl InlineInput {
             }
             Self::Tab {} => resolve_component(Tab::default()),
             Self::Break { break_type } => resolve_component(Break::new(break_type.into())),
-            Self::Image { bytes } => resolve_component(ImageRun::new(bytes)),
+            Self::Image {
+                bytes,
+                transformation,
+                alt_text,
+            } => resolve_component(
+                ImageRun::new(bytes)
+                    .with_transformation(transformation.map(Into::into))
+                    .with_alt_text(alt_text.map(Into::into)),
+            ),
+            Self::Shape { properties } => {
+                resolve_component(ShapeRun::new(ShapeProperties::from(*properties)))
+            }
+            Self::ColumnChart {
+                width,
+                height,
+                categories,
+                values,
+            } => resolve_component(ColumnChartRun::new(ColumnChartProperties {
+                width,
+                height,
+                categories,
+                values,
+            })),
             Self::Hyperlink { target, children } => {
                 let target = target.resolve()?;
                 let children = children

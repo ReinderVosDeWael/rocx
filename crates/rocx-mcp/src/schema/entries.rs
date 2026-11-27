@@ -3,8 +3,10 @@ use rocx::editor::EntryEdit;
 use serde::{Deserialize, Deserializer};
 
 use super::{
+    entry_inlines::EntryInlineChange,
     layout::LayoutChange,
     notes::{NoteChange, NoteKind},
+    numbering::PhysicalNumberingScope,
     resources::ResourceQuery,
     revisions::RevisionChange,
     run_format::RunFormatChange,
@@ -116,8 +118,37 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Read one native single-series column chart at an original body-inlines anchor.
+    ChartSeries { anchor: String },
     /// Inspect physical bookmark markers, comment markers and comment references in direct body paragraphs.
     RangeMarkers {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect main-story content controls and their stored properties.
+    Controls {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect eligible original main-story sites for wrapping.
+    ControlSites {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect read-only controls in physical headers, footers and ordinary entries.
+    StoryControls {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
         limit: usize,
@@ -154,6 +185,54 @@ pub(super) enum View {
     },
     /// Page through direct runs in note and comment entries, by physical owner.
     EntryRuns {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through direct inlines, including pictures, in physical note and comment entries.
+    EntryInlines {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Inspect the relationship-selected styles catalog, in stored order.
+    Styles {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through native directly stored abstract numbering definitions.
+    NumberingAbstracts {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Page through native concrete instances and their modeled overrides.
+    NumberingInstances {
+        #[serde(default = "default_limit", deserialize_with = "entry_limit")]
+        #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
+        limit: usize,
+        #[serde(default, deserialize_with = "present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+    },
+    /// Read a direct body's stored list assignment at a compact paragraph anchor.
+    ParagraphNumbering { anchor: String },
+    /// Read direct numbering and issue anchors for physical story, entry, or body-cell paragraphs.
+    NumberingParagraphs {
+        scope: PhysicalNumberingScope,
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
         limit: usize,
@@ -207,6 +286,13 @@ pub(super) enum Operation {
         /// Physical owner anchor from the stories or entry-runs view.
         anchor: String,
         edits: Vec<StoryTextChange>,
+    },
+    /// Edit inlines in a single physical footnote, endnote, or comment part.
+    EditEntryInlines {
+        /// Physical owner anchor from the entry-inlines view.
+        anchor: String,
+        #[schemars(length(min = 1))]
+        edits: Vec<EntryInlineChange>,
     },
     /// Create, link or unlink an explicit story reference for a logical section slot.
     EditStoryReference {
