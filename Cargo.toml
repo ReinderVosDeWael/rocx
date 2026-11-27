@@ -11,6 +11,8 @@ homepage = "https://reindervosdewael.github.io/rocx/"
 documentation = "https://reindervosdewael.github.io/rocx/"
 exclude = [
     "/crates/rocx-mcp/",
+    "/crates/rocx-layout/",
+    "/docs/LAYOUT-PLAN.md",
     "/docs/MCP-PLAN.md",
     "/docs/MCP-EDITOR-PARITY.md",
     "/docs/PLAN.md",
@@ -23,7 +25,7 @@ exclude = [
 ]
 
 [workspace]
-members = ["crates/rocx-mcp"]
+members = ["crates/rocx-mcp", "crates/rocx-layout", "crates/rocx-layout/python"]
 default-members = ["."]
 exclude = ["javascript"]
 resolver = "3"
@@ -37,6 +39,8 @@ python-tests = []
 python-bindings = ["dep:pyo3"]
 # Internal workspace transport bridge, not part of the supported editor API.
 mcp-bridge = []
+# Internal source-profile inspection for the experimental layout workspace crate.
+layout-bridge = []
 
 [dependencies]
 pyo3 = { version = "0.30", optional = true, features = ["abi3-py312"] }

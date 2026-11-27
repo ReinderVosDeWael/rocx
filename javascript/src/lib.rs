@@ -1,4 +1,4 @@
-//! JavaScript authoring adapter. Resolution and DOCX generation stay in rocx.
+// JavaScript authoring adapter. Resolution and DOCX generation stay in rocx.
 use js_sys::{Error, JsString, Object, Reflect, Uint8Array};
 use rocx::{
     Alignment, AltText, Block, Break, BreakType, Document, Hyperlink, HyperlinkTarget, ImageRun,

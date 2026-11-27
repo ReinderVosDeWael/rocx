@@ -34,6 +34,38 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn paragraph_numbering_queries_keep_malformed_errors_local_to_the_target() {
+    let source = fixture_with_body(&format!(
+        r#"<w:document xmlns:w="{W}"><w:body>
+        <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr></w:p>
+        <w:p/><w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="007"/></w:numPr></w:pPr></w:p>
+        </w:body></w:document>"#
+    ));
+    let doc = ImportedDocument::open(&source).unwrap();
+    let target = |i| match &doc.body()[i] {
+        BodyBlock::Paragraph(p) => &p.anchor,
+        _ => unreachable!(),
+    };
+    assert!(
+        doc.paragraph_numbering(target(0))
+            .unwrap_err()
+            .to_string()
+            .contains("incomplete direct numbering reference")
+    );
+    assert_eq!(doc.paragraph_numbering(target(1)).unwrap(), None);
+    assert_eq!(
+        doc.paragraph_numbering(target(2)).unwrap(),
+        Some(rocx::NumberingReference { id: 7, level: 1 })
+    );
+    assert!(
+        ImportedDocument::open(&source)
+            .unwrap()
+            .paragraph_numbering(target(1))
+            .is_err()
+    );
+}
+
+#[test]
 fn section_lifecycle_guards_protected_gaps_and_opaque_donors() {
     use rocx::editor::BlockEdit;
     let make = |body: &str| {

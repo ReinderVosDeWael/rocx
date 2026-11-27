@@ -45,6 +45,27 @@ jobs:
       - if: steps.schemas.outputs.cache-hit != 'true'
         run: uv run --no-sync python tools/validate_ooxml.py --download-schemas
       - run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - name: Compare experimental layout Wasm against native geometry
+        if: matrix.node == '22'
+        run: |
+          set -eu
+          scratch=$(mktemp -d "$RUNNER_TEMP/layout.XXXXXXXX")
+          trap 'rm -rf "$scratch"' EXIT
+          manifest=javascript/experimental-layout/Cargo.toml
+          font=crates/rocx-layout/tests/fonts/DejaVuSans-subset.ttf
+          cargo fmt --manifest-path "$manifest" --check
+          cargo clippy --locked --manifest-path "$manifest" --target wasm32-unknown-unknown --target-dir target -- -D warnings
+          cargo build --locked --release --manifest-path "$manifest" --target wasm32-unknown-unknown --target-dir target
+          wasm-bindgen --target web --out-dir "$scratch/pkg" --out-name rocx target/wasm32-unknown-unknown/release/rocx_js_experimental_layout.wasm
+          echo '{"type":"module"}' > "$scratch/package.json"
+          cargo run --locked --quiet --manifest-path "$manifest" --target-dir target --example fixture -- "$font" > "$scratch/fixture.json"
+          node javascript/experimental-layout/test.mjs "$scratch/pkg/rocx.js" "$font" "$scratch/fixture.json"
+          node --test javascript/experimental-layout/demo/protocol.test.mjs
+          cp javascript/experimental-layout/types.mts "$scratch/"
+          npm --prefix "$scratch" exec --yes --package typescript@5.9.3 -- tsc --noEmit --strict --module nodenext --lib esnext,dom "$scratch/types.mts"
+      - name: Exercise the layout worker, page clicks and DOCX downloads in Firefox
+        if: matrix.node == '22'
+        run: .venv/bin/python tools/serve_layout_demo.py --smoke
       - run: cargo fmt --manifest-path javascript/Cargo.toml --check
       - run: cargo clippy --manifest-path javascript/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
       - id: packed

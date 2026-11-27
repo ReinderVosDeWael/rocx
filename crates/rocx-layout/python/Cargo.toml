@@ -1,0 +1,17 @@
+[package]
+name = "rocx-layout-python"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "LGPL-2.1-or-later"
+description = "Experimental Python adapter for rocx-layout"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kernel = { package = "rocx-layout", path = ".." }
+rocx = { path = "../../.." }
+pyo3 = { version = "0.30", features = ["abi3-py312"] }
+serde_json = "1"

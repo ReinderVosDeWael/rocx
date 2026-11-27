@@ -29,6 +29,9 @@ pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
 mod layout;
+#[cfg(feature = "layout-bridge")]
+#[doc(hidden)]
+pub mod layout_bridge;
 #[cfg(feature = "mcp-bridge")]
 #[doc(hidden)]
 pub mod mcp_bridge;
@@ -580,6 +583,9 @@ pub struct ImportedDocument {
     package: Package,
     main: String,
     body: Vec<BodyBlock>,
+    // Indexed by body slot. Malformed references fall back to the existing
+    // query-time diagnostic instead of failing document open.
+    direct_numbering: Vec<std::result::Result<Option<crate::NumberingReference>, ()>>,
     controls: Vec<ImportedControl>,
     control_sites: Vec<ControlSite>,
     snapshot: Arc<()>,
@@ -596,11 +602,19 @@ impl ImportedDocument {
     pub fn open_with_limits(bytes: &[u8], limits: ReadLimits) -> Result<Self> {
         let (package, main, root) = open_word_source(bytes, limits, false)?;
         let snapshot = Arc::new(());
+        let mut direct_numbering = Vec::new();
         let body = root
             .child("w:body")
             .ok_or_else(missing_body)?
             .elements()
             .filter(|node| node.name != "w:sectPr")
+            .inspect(|node| {
+                direct_numbering.push(if node.name == "w:p" {
+                    numbering::paragraph_reference(node).map_err(|_| ())
+                } else {
+                    Err(())
+                });
+            })
             .enumerate()
             .map(|(body_index, node)| match node.name.as_str() {
                 "w:p" => {
@@ -664,6 +678,7 @@ impl ImportedDocument {
             package,
             main,
             body,
+            direct_numbering,
             snapshot,
             default_header_inspection: OnceLock::new(),
             story_inspection: OnceLock::new(),
