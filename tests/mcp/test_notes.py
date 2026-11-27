@@ -1,5 +1,6 @@
 """Note reference lifecycle over the installed stdio binary."""
 
+import json
 import subprocess
 from xml.etree import ElementTree
 
@@ -14,7 +15,7 @@ from lxml import etree
 import pytest
 
 from test_stdio import (
-    anyio_backend, call, digest, executable, failure, launch, parts, validate,
+    anyio_backend, assert_tool_failure, call, digest, executable, failure, launch, parts, validate,
 )
 
 pytestmark = pytest.mark.anyio
@@ -103,7 +104,9 @@ def make_source(path, case="create", invalid_comments=False):
         ), RELATIONSHIP_TYPE.COMMENTS)
 
     source.add_table(1, 1).cell(0, 0).text = "not a direct body run"
-    source.add_paragraph("Keep tail").add_run().add_break()
+    tail = source.add_paragraph("Keep tail")
+    tail.add_run().add_break()
+    tail.add_run()._r.append(w("cr"))
     source.sections[0].header.paragraphs[0].text = "Keep header"
     source.save(path)
     return path.read_bytes()
@@ -126,6 +129,12 @@ def oracle_bytes(case, source, output):
     oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_note_oracle")
     subprocess.run([oracle, case, source, output], check=True, cwd=source.parent, timeout=20)
     return output.read_bytes()
+
+
+def assert_native_sites(result, source):
+    actual = [{k: v for k, v in row.items() if k != "anchor"} for row in rows(result)]
+    assert actual == json.loads(oracle_bytes("inspect", source, source.with_suffix(".sites.json")))
+    return actual
 
 
 async def test_note_reference_discovery(launch):
@@ -176,13 +185,14 @@ async def test_note_reference_paging_and_indices(launch, tmp_path):
         assert tail["next_cursor"] is full["next_cursor"] is None
         assert rows(full) == rows(first) + rows(second) + rows(tail)
         assert len({row["anchor"] for row in rows(full)}) == len(rows(full))
-        assert [{k: v for k, v in row.items() if k != "anchor"} for row in rows(full)] == [
+        assert assert_native_sites(full, source) == [
             dict(kind="insertion-candidate", body_index=0, inline_index=0),
             dict(kind="insertion-candidate", body_index=0, inline_index=3),
             dict(kind="reference", body_index=0, inline_index=4, note_kind="footnote", id="007"),
             dict(kind="reference", body_index=0, inline_index=5, note_kind="endnote", id="007"),
             dict(kind="insertion-candidate", body_index=2, inline_index=0),
             dict(kind="insertion-candidate", body_index=2, inline_index=1),
+            dict(kind="insertion-candidate", body_index=2, inline_index=2),
         ]
         other = (await call(client, "open_document", path=source.name))["document"]
         await failure(client, "inspect_document", "wrong_owner", document=other,
@@ -250,7 +260,7 @@ def assert_package_delta(source, output, case, kind):
         ]
 
     document = docx.Document(output)
-    assert [p.text for p in document.paragraphs] == ["Insert herenested link\t", "Keep tail\n"]
+    assert [p.text for p in document.paragraphs] == ["Insert herenested link\t", "Keep tail\n\n"]
     assert document.paragraphs[0].runs[0].bold is True
     assert document.paragraphs[0]._p.xpath("./w:r/w:sym/@w:char") == ["F041"]
     assert document.tables[0].cell(0, 0).text == "not a direct body run"
@@ -293,7 +303,7 @@ async def test_note_reference_native_bytes_and_preservation(launch, tmp_path, ca
         assert await page(client, document) == inspection
         reopened = (await call(client, "open_document", path=output.name))["document"]
         await failure(client, "preview_edits", "wrong_owner", document=reopened, operation=change)
-        updated = [r["id"] for r in rows(await page(client, reopened))
+        updated = [r["id"] for r in assert_native_sites(await page(client, reopened), output)
                    if r.get("note_kind") == kind]
         assert updated == references(parts(output), kind)
 
@@ -318,12 +328,17 @@ async def test_note_reference_rejection_and_retry(launch, tmp_path):
             (operation(insertion, "footnote", dict(CREATE, id=7)), "rejected_batch"),
             (operation(insertion, "footnote", dict(kind="attach", id=7)), "rejected_batch"),
             (operation(reference, "endnote", dict(kind="detach")), "rejected_batch"),
-            (operation(reference, "footnote", dict(kind="retarget", id=99)), "rejected_batch"),
             (operation(reference, "footnote", dict(kind="renumber", id=2**32)), "invalid_input"),
             (operation(definition, "footnote", dict(kind="delete")), "wrong_anchor_type"),
         ]:
             await failure(client, "preview_edits", category, document=document, operation=change)
         assert list(tmp_path.iterdir()) == [source]
+        result = await client.call_tool("preview_edits", dict(document=document, operation=operation(
+            reference, "footnote", dict(kind="retarget", id=99),
+        )))
+        assert_tool_failure(result, "rejected_batch")
+        error = oracle_bytes("missing-target", source, tmp_path / "native-error.txt").decode()
+        assert result.structuredContent["message"] == f"{error}; revise the operation and retry"
         assert await page(client, document) == seen
         draft = await call(client, "preview_edits", document=document,
                            operation=operation(reference, "footnote", dict(kind="retarget", id=8)))

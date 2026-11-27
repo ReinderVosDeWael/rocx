@@ -8,7 +8,7 @@ use serde_json::json;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let [source, action, output] = args.as_slice() else {
-        return Err("usage: mcp_range_oracle SOURCE inspect|move|remove|create OUTPUT".into());
+        return Err("usage: mcp_range_oracle SOURCE ACTION OUTPUT".into());
     };
     let document = ImportedDocument::open(&std::fs::read(source)?)?;
     if action == "inspect" {
@@ -26,6 +26,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
         std::fs::write(output, serde_json::to_vec(&rows)?)?;
+        return Ok(());
+    }
+    if action == "ambiguous" {
+        let error = document
+            .set_paired_range(49, Some("Range49"), None)
+            .expect_err("duplicate bookmark starts must be rejected");
+        println!("{}", json!(error.to_string()));
         return Ok(());
     }
     let anchor = |body_index: usize, inline_index: usize| -> InlineAnchor {

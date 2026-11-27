@@ -1,10 +1,10 @@
 //! Direct Rust byte oracle for the independently authored MCP field fixture.
 use rocx::{
-    Component, FieldForm, FieldInstruction, FieldProperties, Hyperlink, HyperlinkTarget,
-    ResolvedField, ResolvedInline, RunFormat, TextRun,
+    BookmarkName, Component, FieldForm, FieldInstruction, FieldProperties, Hyperlink,
+    HyperlinkTarget, ResolvedField, ResolvedInline, RunFormat, TextRun,
     editor::{
         BodyBlock, EditBatch, FieldAction, FieldEdit, FieldPatch, ImportedDocument,
-        ImportedInlineNode, ImportedParagraph, RunTextEdit,
+        ImportedInlineNode, ImportedParagraph, InlineAction, InlineEdit, RunTextEdit,
     },
 };
 
@@ -14,10 +14,93 @@ fn text(value: &str) -> Result<ResolvedInline, rocx::Error> {
     Ok(run)
 }
 
+fn instruction_variants(document: &ImportedDocument) -> rocx::Result<Vec<u8>> {
+    let instructions = [
+        FieldInstruction::Page,
+        FieldInstruction::NumPages,
+        FieldInstruction::Reference(BookmarkName::new("FieldTarget")?),
+        FieldInstruction::TableOfContents,
+        FieldInstruction::raw("  DOCVARIABLE Customer  ")?,
+    ];
+    let properties = [
+        (FieldForm::Simple, None, None),
+        (FieldForm::Complex, Some(false), Some(true)),
+        (FieldForm::Simple, Some(true), Some(false)),
+        (FieldForm::Complex, None, Some(false)),
+        (FieldForm::Simple, Some(false), None),
+    ];
+    let mut edits = Vec::new();
+    for (index, (instruction, (form, dirty, locked))) in
+        instructions.into_iter().zip(properties).enumerate()
+    {
+        let BodyBlock::Paragraph(paragraph) = &document.body()[index + 1] else {
+            panic!("expected field fixture paragraph");
+        };
+        let [ImportedInlineNode::Run(run)] = paragraph.inline_structure.as_slice() else {
+            panic!("expected a single run");
+        };
+        edits.push(InlineEdit {
+            target: run.anchor.clone(),
+            action: InlineAction::InsertAfter(ResolvedInline::Field(ResolvedField::new(
+                instruction,
+                vec![text(&format!("cached {index}"))?],
+                FieldProperties {
+                    form,
+                    dirty,
+                    locked,
+                },
+            )?)),
+        });
+    }
+    document
+        .preview_edits(EditBatch {
+            inline_edits: &edits,
+            ..Default::default()
+        })?
+        .to_docx()
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if let [source, output, mode] = args.as_slice()
+        && mode == "instruction-variants"
+    {
+        let document = ImportedDocument::open(&std::fs::read(source)?)?;
+        std::fs::write(output, instruction_variants(&document)?)?;
+        return Ok(());
+    }
+    if let [source, output, mode] = args.as_slice()
+        && mode == "inspect-fields"
+    {
+        let document = ImportedDocument::open(&std::fs::read(source)?)?;
+        let mut fields = Vec::new();
+        for (body, inline) in [(1, 1), (1, 2), (2, 1), (4, 3), (5, 0), (2, 0)] {
+            let BodyBlock::Paragraph(paragraph) = &document.body()[body] else {
+                panic!("expected fixture paragraph at {body}");
+            };
+            let value = match document.field_at(&paragraph.anchor, inline) {
+                Ok(field) => serde_json::json!({
+                    "complex": field.complex,
+                    "instruction": field.instruction,
+                    "dirty_xml": field.dirty_xml,
+                    "locked_xml": field.locked_xml,
+                    "inline_count": field.inline_count,
+                }),
+                Err(error) => serde_json::json!({
+                    "message": error.to_string(),
+                    "rule": error.rule().map(rocx::Rule::code),
+                    "path": error.path(),
+                }),
+            };
+            fields.push(value);
+        }
+        std::fs::write(output, serde_json::to_vec(&fields)?)?;
+        return Ok(());
+    }
     let [source, output] = args.as_slice() else {
-        return Err("usage: mcp_field_oracle SOURCE OUTPUT".into());
+        return Err(
+            "usage: mcp_field_oracle SOURCE OUTPUT [instruction-variants|inspect-fields]".into(),
+        );
     };
     let document = ImportedDocument::open(&std::fs::read(source)?)?;
     let paragraph = |index| -> &ImportedParagraph {

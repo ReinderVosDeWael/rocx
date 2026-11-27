@@ -1,5 +1,6 @@
 """Field discovery and ordinary mixed edits through the installed stdio client."""
 
+import json
 import subprocess
 
 import docx
@@ -9,7 +10,7 @@ from jsonschema.validators import validator_for
 from lxml import etree
 import pytest
 
-from test_stdio import anyio_backend, call, digest, executable, failure, launch, parts, validate
+from test_stdio import anyio_backend, assert_tool_failure, call, digest, executable, failure, launch, parts, validate
 
 pytestmark = pytest.mark.anyio
 
@@ -94,6 +95,72 @@ async def opened(client, path):
     return (await call(client, "open_document", path=path.name))["document"]
 
 
+async def test_instruction_variants_match_native(launch, tmp_path):
+    source, output = tmp_path / "source.docx", tmp_path / "fields.docx"
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    bookmark = fixture.add_paragraph("Bookmark text")
+    bookmark._p.insert(0, word("bookmarkStart", id="41", name="FieldTarget"))
+    bookmark._p.append(word("bookmarkEnd", id="41"))
+    for i in range(5):
+        fixture.add_paragraph(f"Field {i}: ")
+    fixture.save(source)
+    original = source.read_bytes()
+
+    instructions = [
+        (dict(kind="page"), {}, " PAGE ", None, None),
+        (dict(kind="num-pages"), dict(complex=True, dirty=False, locked=True),
+         " NUMPAGES ", "0", "1"),
+        (dict(kind="reference", name="FieldTarget"), dict(dirty=True, locked=False),
+         " REF FieldTarget ", "1", "0"),
+        (dict(kind="table-of-contents"), dict(complex=True, locked=False),
+         ' TOC \\o "1-3" \\h \\z \\u ', None, "0"),
+        (dict(kind="raw", text="  DOCVARIABLE Customer  "), dict(dirty=False),
+         "  DOCVARIABLE Customer  ", "0", None),
+    ]
+    async with launch() as client:
+        document = await opened(client, source)
+        view = await call(client, "inspect_document", document=document, view=dict(kind="body-inlines"))
+        targets = {row["body_index"]: row["anchor"] for row in view["body_inlines"]
+                   if row.get("text", "").startswith("Field ")}
+
+        def insert(index, instruction, **properties):
+            return dict(kind="inline", anchor=targets[index+1], edit=dict(
+                kind="insert-after", inline=dict(kind="field", instruction=instruction,
+                                                 children=[text(f"cached {index}")], **properties),
+            ))
+
+        for invalid in (dict(kind="reference", name=" "), dict(kind="raw", text="\0")):
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          edits=[insert(0, invalid)])
+        edits = [insert(i, instruction, **properties)
+                 for i, (instruction, properties, *_rest) in enumerate(instructions)]
+        preview = await call(client, "preview_edits", document=document, edits=edits)
+        await call(client, "save_copy", document=document, preview=preview["preview"], output=output.name)
+        reopened = await opened(client, output)
+        rows = (await fields(client, reopened))["fields"]
+        assert [(row["body_index"], row["instruction"], row["complex"],
+                 row["dirty_xml"], row["locked_xml"]) for row in rows] == [
+            (i+1, value, properties.get("complex", False), dirty, locked)
+            for i, (_, properties, value, dirty, locked) in enumerate(instructions)
+        ]
+
+    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_field_oracle")
+    native = tmp_path / "native.docx"
+    subprocess.run([oracle, source, native, "instruction-variants"],
+                   check=True, cwd=tmp_path, timeout=20)
+    assert source.read_bytes() == original
+    assert output.read_bytes() == native.read_bytes()
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {part for part in before if before[part] != after[part]} == {"word/document.xml"}
+    document = etree.fromstring(after["word/document.xml"])
+    assert document.xpath(
+        "//w:bookmarkStart/@w:name", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"},
+    ) == ["FieldTarget"]
+    validate(source, output)
+
+
 async def test_field_discovery(launch):
     async with launch() as client:
         schemas = {tool.name: tool.inputSchema for tool in (await client.list_tools()).tools}
@@ -103,6 +170,9 @@ async def test_field_discovery(launch):
     preview = validator_for(preview_schema)(preview_schema)
     assert inspect.is_valid(dict(document="doc", view=dict(kind="fields", limit=1, cursor="page")))
     assert not inspect.is_valid(dict(document="doc", view=dict(kind="fields", limit=101)))
+    assert inspect.is_valid(dict(document="doc", view=dict(kind="field-at", anchor="p", inline_index=0)))
+    assert not inspect.is_valid(dict(document="doc", view=dict(kind="field-at", anchor="p", inline_index=-1)))
+    assert not inspect.is_valid(dict(document="doc", view=dict(kind="field-at", anchor="p")))
     for kind, payload in [
         ("instruction", dict(value=" PAGE ")),
         ("dirty", dict(value=False)),
@@ -155,6 +225,47 @@ async def test_fields_mixed_batch_matches_native_after_rejection(launch, tmp_pat
         assert protected["editable"] is False and protected["complex"] is False
         assert protected["reason"] and "instruction" not in protected
 
+        def field_at(anchor, index):
+            return dict(kind="field-at", anchor=anchor, inline_index=index)
+
+        oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_field_oracle")
+        native = tmp_path / "native-fields.json"
+        subprocess.run([oracle, source, native, "inspect-fields"], check=True, cwd=tmp_path, timeout=20)
+        native_fields = json.loads(native.read_bytes())
+        native.unlink()
+        point_values = []
+        for row in (simple_row, replace_row, complex_row, remove_row):
+            result = await call(client, "inspect_document", document=document,
+                                view=field_at(body[row["body_index"]]["anchor"], row["inline_index"]))
+            assert result == dict(document=document, field={
+                key: row[key] for key in ("complex", "instruction", "dirty_xml", "locked_xml", "inline_count")
+            })
+            point_values.append(result["field"])
+        assert point_values == native_fields[:4]
+        for (body_index, inline_index), expected in zip(
+            [(protected["body_index"], protected["inline_index"]), (2, 0)], native_fields[4:],
+        ):
+            rejected = await client.call_tool("inspect_document", dict(
+                document=document, view=field_at(body[body_index]["anchor"], inline_index),
+            ))
+            assert_tool_failure(rejected, "inspection_failed")
+            data = rejected.structuredContent
+            assert {key: data.get(key) for key in expected} == expected
+            if body_index == protected["body_index"]:
+                assert {key: data[key] for key in protected["diagnostic"]} == protected["diagnostic"]
+        rejected_edit = await client.call_tool("preview_edits", dict(
+            document=document, edits=[edit(protected["anchor"], "remove")],
+        ))
+        assert_tool_failure(rejected_edit, "rejected_batch")
+        data = rejected_edit.structuredContent
+        assert data["message"] == f"edit 1: {native_fields[4]['message']}; revise the edits and retry"
+        assert {key: data[key] for key in protected["diagnostic"]} == protected["diagnostic"]
+        await failure(client, "inspect_document", "wrong_anchor_type", document=document,
+                      view=field_at(simple_row["anchor"], 0))
+        reopened_source = await opened(client, source)
+        await failure(client, "inspect_document", "wrong_owner", document=reopened_source,
+                      view=field_at(body[1]["anchor"], 1))
+
         a, b = simple_row["anchor"], complex_row["anchor"]
         change = edit(b, "instruction", value=" NUMPAGES ")
         edits = [
@@ -175,7 +286,6 @@ async def test_fields_mixed_batch_matches_native_after_rejection(launch, tmp_pat
         await failure(client, "preview_edits", "wrong_anchor_type", document=document,
                       edits=[edit(body[2]["anchor"], "remove")])
         for rejected in [
-            [edit(protected["anchor"], "remove")],
             [edit(a, "replace", inline=text("not a field"))],
             [*edits, change],
             [*edits, dict(kind="run-text", anchor=body[4]["runs"][0]["anchor"], text="overlap")],

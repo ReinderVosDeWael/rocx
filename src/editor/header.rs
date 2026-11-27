@@ -318,18 +318,33 @@ impl ImportedDocument {
             .collect())
     }
 
-    /// Linkable parts of one kind that do not occupy a section slot.
     #[cfg(feature = "mcp-bridge")]
-    pub(super) fn linkable_story_parts(&self, kind: SectionStoryKind) -> Result<Vec<String>> {
+    pub(super) fn story_section_count(&self) -> Result<usize> {
         let root = self.package.word(&self.main)?;
-        let slots = section_slots(&root)?;
-        let sections = story_sections(&self.package, &self.main, &slots, kind)?;
-        let referenced: std::collections::BTreeSet<_> = sections
-            .iter()
-            .flat_map(|section| section.effective.iter().flatten())
-            .map(|reference| reference.part.as_str())
-            .collect();
-        let mut parts = std::collections::BTreeSet::new();
+        Ok(section_slots(&root)?.len())
+    }
+
+    /// Linkable parts of one kind, optionally including effective references.
+    #[cfg(feature = "mcp-bridge")]
+    pub(super) fn linkable_story_parts(
+        &self,
+        kind: SectionStoryKind,
+        include_referenced: bool,
+    ) -> Result<Vec<String>> {
+        let mut seen = std::collections::BTreeSet::new();
+        if !include_referenced {
+            let root = self.package.word(&self.main)?;
+            let slots = section_slots(&root)?;
+            let sections = story_sections(&self.package, &self.main, &slots, kind)?;
+            seen.extend(sections.into_iter().flat_map(|section| {
+                section
+                    .effective
+                    .into_iter()
+                    .flatten()
+                    .map(|reference| reference.part)
+            }));
+        }
+        let mut parts = Vec::new();
         for (id, _) in self.package.relationships(&self.main, kind.as_str())? {
             // Native Link stops as soon as its target is found. A bad unused
             // relationship prevents links to later targets, not earlier ones.
@@ -337,13 +352,16 @@ impl ImportedDocument {
                 break;
             };
             if let Some((_, part)) = related
-                && !referenced.contains(part.as_str())
+                && seen.insert(part.clone())
                 && valid_story_part(&self.package, kind, &part).unwrap_or(false)
             {
-                parts.insert(part);
+                parts.push(part);
             }
         }
-        Ok(parts.into_iter().collect())
+        if !include_referenced {
+            parts.sort_unstable();
+        }
+        Ok(parts)
     }
 
     fn inspect_stories(

@@ -4,7 +4,7 @@ use rocx::{
 };
 use serde_json::{Value, json};
 
-use super::{Snapshot, Target};
+use super::{ReadError, Snapshot, cached_read};
 
 mod physical;
 
@@ -25,12 +25,8 @@ impl Snapshot {
         abstracts: bool,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let catalog = self
-            .numbering
-            .get_or_init(|| self.document.numbering_catalog().map_err(|e| e.to_string()))
-            .as_ref()
-            .map_err(Clone::clone)?;
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
+        let catalog = cached_read(&self.numbering, || self.document.numbering_catalog())?;
         let mut page = ImportedNumberingCatalog::default();
         let (key, len) = if abstracts {
             page.abstracts = window(&catalog.abstracts, start, limit);
@@ -48,22 +44,8 @@ impl Snapshot {
         Ok((rows, (end < len).then_some(end)))
     }
 
-    pub fn numbering_paragraph_anchor(&self, local: &str) -> Result<ParagraphAnchor, String> {
-        match self
-            .issued_inspection()
-            .and_then(|inspection| inspection.anchors.get(local))
-        {
-            Some(Target::Paragraph(anchor)) => Ok(anchor.clone()),
-            _ => Err("wrong_anchor_type: expected a compact body paragraph anchor".into()),
-        }
-    }
-
-    pub fn paragraph_numbering(&self, local: &str) -> Result<Value, String> {
-        let anchor = self.numbering_paragraph_anchor(local)?;
-        let value = self
-            .document
-            .paragraph_numbering(&anchor)
-            .map_err(|e| e.to_string())?;
+    pub fn paragraph_numbering(&self, anchor: &ParagraphAnchor) -> rocx::Result<Value> {
+        let value = self.document.paragraph_numbering(anchor)?;
         Ok(assignment_value(value))
     }
 }

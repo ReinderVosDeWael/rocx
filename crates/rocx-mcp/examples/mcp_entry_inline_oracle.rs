@@ -1,9 +1,12 @@
 //! Direct Rust oracle for scoped inline editing in physical entry parts.
 use rocx::editor::{
-    DrawingProperty, ImportedDocument, ImportedInlineNode, InlineAction, InlineEdit, RunToggle,
+    BodyBlock, DrawingProperty, EditBatch, ImportedDocument, ImportedInlineNode, InlineAction,
+    InlineEdit, RunToggle,
 };
 use rocx::{
-    AltText, Component, Hyperlink, HyperlinkTarget, ImageRun, ImageTransformation, TextRun,
+    AltText, ColumnChartProperties, ColumnChartRun, Component, Hyperlink, HyperlinkTarget,
+    ImageAnchor, ImageCrop, ImageRun, ImageTransformation, ImageWrap, ImageWrapSide,
+    ShapeProperties, ShapeRun, TextRun,
 };
 
 fn resolve<C: Component>(component: C) -> C::Resolved {
@@ -18,6 +21,40 @@ fn main() -> rocx::Result<()> {
     let kind = args.next().unwrap().into_string().unwrap();
     let command = args.next().unwrap().into_string().unwrap();
     let output = args.next().unwrap();
+    if command == "seed-drawings" {
+        let Some(BodyBlock::Paragraph(paragraph)) = doc.body().last() else {
+            panic!("expected a donor paragraph")
+        };
+        let insert = |index, inline| {
+            let ImportedInlineNode::Run(run) = &paragraph.inline_structure[index] else {
+                panic!("expected donor run")
+            };
+            InlineEdit {
+                target: run.anchor.clone(),
+                action: InlineAction::InsertAfter(inline),
+            }
+        };
+        let preview = doc.preview_edits(EditBatch {
+            inline_edits: &[
+                insert(
+                    0,
+                    resolve(ShapeRun::new(ShapeProperties::default().with_text("shape"))),
+                ),
+                insert(
+                    1,
+                    resolve(ColumnChartRun::new(ColumnChartProperties {
+                        width: 100.,
+                        height: 75.,
+                        categories: vec!["A".into()],
+                        values: vec![1.],
+                    })),
+                ),
+            ],
+            ..Default::default()
+        })?;
+        std::fs::write(output, preview.to_docx()?).unwrap();
+        return Ok(());
+    }
     let id = if kind == "comment" { "0" } else { "007" };
     let entry = doc
         .entry_stories()?
@@ -25,8 +62,9 @@ fn main() -> rocx::Result<()> {
         .find(|e| e.kind.as_str() == kind && e.id == id)
         .unwrap();
     let text = 1; // The first run is the note/comment reference mark.
+    let nodes = entry.inline_structure(0).unwrap();
     let edit = |index, action| {
-        let ImportedInlineNode::Run(run) = &entry.inline_structure(0).unwrap()[index] else {
+        let ImportedInlineNode::Run(run) = &nodes[index] else {
             panic!("expected fixture run")
         };
         InlineEdit {
@@ -57,6 +95,33 @@ fn main() -> rocx::Result<()> {
                 ),
             ),
         ],
+        "size" | "crop" | "accessibility" | "placement" => vec![edit(
+            text + 1,
+            InlineAction::PatchDrawing(
+                DrawingProperty::parse(&command).unwrap(),
+                resolve(
+                    ImageRun::new(jpeg)
+                        .with_transformation(Some(
+                            ImageTransformation::default()
+                                .with_width(30.)
+                                .with_height(20.)
+                                .with_crop(ImageCrop::default().with_left(15.))
+                                .with_anchor(
+                                    ImageAnchor::default()
+                                        .with_x(10.)
+                                        .with_wrap(ImageWrap::Square)
+                                        .with_wrap_side(ImageWrapSide::Left)
+                                        .with_allow_overlap(false),
+                                ),
+                        ))
+                        .with_alt_text(Some(
+                            AltText::default()
+                                .with_title("A title")
+                                .with_description("Accessible"),
+                        )),
+                ),
+            ),
+        )],
         "redirect" => vec![edit(
             text + 1,
             InlineAction::SetImageAsset(resolve(ImageRun::new(jpeg)).image().unwrap().clone()),
@@ -74,9 +139,31 @@ fn main() -> rocx::Result<()> {
             text,
             InlineAction::InsertAfter(resolve(Hyperlink::new(
                 HyperlinkTarget::external("https://example.test/entry")?,
-                vec![TextRun::new("entry link").into()],
+                vec![
+                    TextRun::new("first child").into(),
+                    TextRun::new("entry link").into(),
+                ],
             ))),
         )],
+        "format-link" => {
+            let ImportedInlineNode::Hyperlink(link) = &nodes[text + 1] else {
+                panic!("expected fixture hyperlink")
+            };
+            let ImportedInlineNode::Run(child) = &link.children[1] else {
+                panic!("expected fixture hyperlink child run")
+            };
+            vec![
+                edit(text, InlineAction::SetToggle(RunToggle::Italic, Some(true))),
+                InlineEdit {
+                    target: child.anchor.clone(),
+                    action: InlineAction::SetBold(true),
+                },
+            ]
+        }
+        "format-drawings" => vec![
+            edit(text + 1, InlineAction::SetBold(true)),
+            edit(text + 2, InlineAction::SetBold(true)),
+        ],
         _ => panic!("unknown oracle command"),
     };
     std::fs::write(output, doc.edit_entry_inlines(&entry.part_name, &edits)?).unwrap();

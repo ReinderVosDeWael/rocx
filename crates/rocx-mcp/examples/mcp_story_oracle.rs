@@ -3,30 +3,34 @@ use rocx::{
     Component, HeaderFooterType, Hyperlink, HyperlinkTarget, Paragraph, ParagraphFormat,
     ResolvedBlock, RunFormat, TextRun,
     editor::{
-        BodyBlock, EditBatch, HeaderEditMode, ImportedDocument, ImportedInlineNode,
+        BodyBlock, EditBatch, HeaderEditMode, ImportedDocument, ImportedInlineNode, ImportedStory,
         ParagraphInsertion, RunTextEdit, SectionStoryKind, StoryReferenceEdit,
     },
 };
 use std::{env, fs};
 
-fn story_text(doc: &ImportedDocument) -> Vec<u8> {
-    let stories = doc.stories().unwrap();
-    let source = stories
-        .iter()
-        .find(|story| {
-            story.section_index == 0
-                && story.kind == SectionStoryKind::Header
-                && story.variant == HeaderFooterType::Default
-        })
-        .unwrap();
+fn story_text(doc: &ImportedDocument, source: &ImportedStory) -> Vec<u8> {
     let ImportedInlineNode::Run(direct) = &source.inline_structure(0).unwrap()[0] else {
-        panic!("expected a direct run at the start of the header paragraph")
+        panic!("expected a direct run at the start of the story paragraph")
     };
     let edits = [RunTextEdit {
         target: direct.anchor.clone(),
         text: " Direct 😀 ".into(),
     }];
     doc.edit_story_text(&source.part_name, &edits).unwrap()
+}
+
+fn first_footer(doc: &ImportedDocument) -> ImportedStory {
+    doc.stories()
+        .unwrap()
+        .into_iter()
+        .find(|story| {
+            story.section_index == 1
+                && story.kind == SectionStoryKind::Footer
+                && story.variant == HeaderFooterType::First
+                && story.inherited
+        })
+        .unwrap()
 }
 
 fn rich_paragraph() -> rocx::ResolvedParagraph {
@@ -67,7 +71,32 @@ fn main() {
     use HeaderFooterType::{Default, Even};
     use SectionStoryKind::{Footer, Header};
     let bytes = match case.to_str().unwrap() {
-        "text" => story_text(&doc),
+        "text" => {
+            let story = doc
+                .stories()
+                .unwrap()
+                .into_iter()
+                .find(|story| {
+                    story.section_index == 0 && story.kind == Header && story.variant == Default
+                })
+                .unwrap();
+            story_text(&doc, &story)
+        }
+        "first-footer-text" => story_text(&doc, &first_footer(&doc)),
+        "first-footer-blocks" => {
+            let target = first_footer(&doc).anchor.unwrap();
+            let blocks = [ResolvedBlock::Paragraph(
+                futures_executor::block_on(Paragraph::new("New footer 😀").resolve())
+                    .unwrap()
+                    .unwrap(),
+            )];
+            let error = doc
+                .edit_story_blocks(&target, HeaderEditMode::SectionLocal, 1, 0, &blocks)
+                .unwrap_err();
+            assert!(error.to_string().contains("ambiguous section structure"));
+            doc.edit_story_blocks(&target, HeaderEditMode::Shared, 1, 0, &blocks)
+                .unwrap()
+        }
         "rich-insert" => {
             let BodyBlock::Paragraph(paragraph) = &doc.body()[0] else {
                 panic!("fixture must start with a paragraph");
@@ -167,6 +196,33 @@ fn main() {
         "link-default-only" => {
             let part = doc.default_headers().unwrap()[0].part_name.clone();
             doc.edit_story_reference(1, Header, Even, StoryReferenceEdit::Link(part))
+                .unwrap()
+        }
+        "link-first-only" => {
+            use HeaderFooterType::First;
+
+            let part = "word/header1.xml";
+            let guarded = doc
+                .edit_story_reference(0, Header, First, StoryReferenceEdit::Link(part.into()))
+                .unwrap_err();
+            assert!(
+                guarded
+                    .to_string()
+                    .contains("cannot change a revised section or opaque story reference")
+            );
+            let late = doc
+                .edit_story_reference(
+                    1,
+                    Header,
+                    Even,
+                    StoryReferenceEdit::Link("word/custom/late-header.xml".into()),
+                )
+                .unwrap_err();
+            assert!(
+                late.to_string()
+                    .contains("cannot have an external relationship")
+            );
+            doc.edit_story_reference(1, Header, Even, StoryReferenceEdit::Link(part.into()))
                 .unwrap()
         }
         "relink" => doc

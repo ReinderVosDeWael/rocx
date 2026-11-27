@@ -6,7 +6,7 @@ use rocx::editor::{
 };
 use serde_json::{Value, json};
 
-use super::{Snapshot, block_readback::inline_items, projected_run_text};
+use super::{ReadError, Snapshot, block_readback::inline_items, projected_run_text};
 use crate::{diagnostics::ScopedEditError, schema::stories::StoryTextChange};
 
 mod inlines;
@@ -16,11 +16,11 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         if limit == 0 {
             return Err("entry page limit must be positive".into());
         }
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+        let entries = self.document.entry_stories()?;
         let start = start.min(entries.len());
         let end = start.saturating_add(limit).min(entries.len());
         let page = entries[start..end]
@@ -48,8 +48,8 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
+        let entries = self.document.entry_stories()?;
         let mut owners = BTreeMap::new();
         for (index, entry) in entries.iter().enumerate() {
             owners.entry(entry.part_name.as_str()).or_insert(index);

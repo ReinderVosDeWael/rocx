@@ -1,10 +1,14 @@
-"""Native revision diagnostics over the installed stdio transport."""
+"""Native editor diagnostics over the installed stdio transport."""
+
+from zipfile import ZipFile
 
 import docx
-from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+from docx.oxml.ns import nsdecls, qn
+from lxml import etree
 import pytest
 
-from test_stdio import anyio_backend, call, launch, make_entry_source  # noqa: F401 (shared fixtures)
+from test_stdio import anyio_backend, call, launch, make_entry_source, parts  # noqa: F401
 
 pytestmark = pytest.mark.anyio
 
@@ -12,6 +16,7 @@ BATCH_ACTION = "Check the edit targets and values, then retry the batch."
 BATCH_HINT = "revise the operation and retry"
 IMPORT_ACTION = "Check that the input is a valid DOCX and fits the supplied import limits."
 IO_ACTION = "Check the server-host path and permissions before retrying."
+INSPECTION_ACTION = "Check that the input is a valid DOCX."
 
 
 def native_rejection(result, detail, hint=BATCH_HINT):
@@ -30,6 +35,202 @@ def write_source(path):
     source.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
     source.add_paragraph("Original")
     source.save(path)
+
+
+def replace_part(source, target, part, payload):
+    payloads = parts(source)
+    assert part in payloads
+    payloads[part] = payload
+    with ZipFile(target, "w") as archive:
+        for name, data in payloads.items():
+            archive.writestr(name, data)
+
+
+def inspection_diagnostic(detail, *, rule="unsupported_edit", path=None):
+    expected = {
+        "category": "inspection_failed",
+        "message": detail if path is None else f"{path}: {detail}",
+        "action": INSPECTION_ACTION,
+        "rule": rule,
+        "detail": detail,
+    }
+    if path is not None:
+        expected["path"] = path
+    return expected
+
+
+async def assert_inspection_error(client, document, expected, view=None):
+    args = dict(document=document)
+    if view is not None:
+        args["view"] = view
+    result = await client.call_tool("inspect_document", args)
+    assert result.isError
+    assert result.structuredContent == expected
+
+
+@pytest.mark.parametrize(
+    ("part", "detail", "views"),
+    [
+        ("word/settings.xml", "invalid settings root", [
+            dict(kind="resources"),
+            dict(kind="resource-value", query=dict(kind="document-defaults")),
+        ]),
+        ("word/numbering.xml", "invalid numbering root", [
+            dict(kind="numbering-abstracts", limit=1),
+            dict(kind="numbering-instances", limit=1),
+            dict(kind="resource-value", query=dict(kind="abstract-starts")),
+            dict(kind="resource-value", query=dict(kind="numbering-instances")),
+        ]),
+        ("word/styles.xml", "invalid styles root", [
+            dict(kind="styles", limit=1),
+            dict(kind="resource-value", query=dict(kind="document-defaults")),
+        ]),
+    ],
+    ids=["settings", "numbering", "styles"],
+)
+async def test_malformed_inspection_catalogs(launch, tmp_path, part, detail, views):
+    clean = tmp_path / "source.docx"
+    malformed = tmp_path / "malformed.docx"
+    write_source(clean)
+    replace_part(clean, malformed, part, etree.tostring(OxmlElement("w:p")))
+
+    async with launch() as client:
+        document = (await call(client, "open_document", path=malformed.name))["document"]
+        for view in views * 2:  # A cached native failure keeps the same diagnostic.
+            await assert_inspection_error(client, document, inspection_diagnostic(detail), view)
+        body = await call(client, "inspect_document", document=document, view=dict(kind="body"))
+        assert body["body"][0]["text"] == "Original"
+
+
+async def test_story_native_diagnostic_keeps_path_and_isolated_views(launch, tmp_path):
+    clean = tmp_path / "source.docx"
+    malformed = tmp_path / "malformed.docx"
+    write_source(clean)
+    fixture = docx.Document(clean)
+    fixture.sections[0].header.paragraphs[0].text = "Header text"
+    fixture.save(clean)
+    part = "word/header1.xml"
+    replace_part(clean, malformed, part, (
+        f'<w:hdr {nsdecls("w")} '
+        'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+        'mc:MustUnderstand="missing"><w:p/></w:hdr>'
+    ).encode())
+    expected = inspection_diagnostic(
+        'unbound prefix "missing" in mc:MustUnderstand',
+        rule="unsupported_profile", path=part,
+    )
+
+    async with launch() as client:
+        document = (await call(client, "open_document", path=malformed.name))["document"]
+        for view in (None, dict(kind="stories"), dict(kind="default-headers"),
+                     dict(kind="physical-tables"), None):
+            await assert_inspection_error(client, document, expected, view)
+        formats = await call(client, "inspect_document", document=document,
+                             view=dict(kind="format-runs"))
+        unavailable, = [row for row in formats["format_runs"] if row["kind"] == "unavailable"]
+        assert unavailable == {
+            "kind": "unavailable",
+            "catalog": "stories",
+            "error": expected["message"],
+            "diagnostic": {key: expected[key] for key in ("rule", "path", "detail")},
+        }
+        sections = await call(client, "inspect_document", document=document,
+                              view=dict(kind="sections"))
+        assert sections["sections"][0]["story_slots"]
+        body = await call(client, "inspect_document", document=document, view=dict(kind="body"))
+        assert body["body"][0]["text"] == "Original"
+
+
+async def test_malformed_entry_catalog_retains_diagnostic(launch, tmp_path):
+    clean = tmp_path / "entries.docx"
+    malformed = tmp_path / "malformed.docx"
+    make_entry_source(clean)
+    replace_part(clean, malformed, "word/notes/footnotes.xml", etree.tostring(OxmlElement("w:p")))
+    expected = inspection_diagnostic("invalid footnotes root")
+    async with launch() as client:
+        document = (await call(client, "open_document", path=malformed.name))["document"]
+        for view in (
+            dict(kind="entries"), dict(kind="entry-runs"), dict(kind="entry-inlines"),
+            dict(kind="numbering-paragraphs", scope="entries"),
+        ):
+            await assert_inspection_error(client, document, expected, view)
+
+
+async def test_inspection_native_rejection_is_distinct_from_anchor_and_wire_errors(launch, tmp_path):
+    write_source(tmp_path / "source.docx")
+    async with launch() as client:
+        document = (await call(client, "open_document", path="source.docx"))["document"]
+        inlines = await call(client, "inspect_document", document=document,
+                             view=dict(kind="body-inlines"))
+        run = inlines["body_inlines"][0]
+        await assert_inspection_error(client, document, inspection_diagnostic(
+            "expected a workbook-free, single-series column chart with indexed literal data",
+        ), dict(kind="chart-series", anchor=run["anchor"]))
+        body = await call(client, "inspect_document", document=document, view=dict(kind="body"))
+        await assert_inspection_error(client, document, {
+            "category": "wrong_anchor_type",
+            "message": "expected a compact body paragraph anchor",
+            "action": "Inspect the document again and use an anchor of the required type.",
+        }, dict(kind="paragraph-numbering", anchor=body["body"][0]["runs"][0]["anchor"]))
+        await assert_inspection_error(client, document, {
+            "category": "invalid_cursor",
+            "message": "restart the selected view",
+            "action": "Omit the cursor to restart, or use a next_cursor from the same view.",
+        }, dict(kind="styles", cursor="unknown"))
+        wire = await client.call_tool("inspect_document", dict(
+            document=document, view=dict(kind="paragraph-numbering"),
+        ))
+        assert wire.isError
+        assert set(wire.structuredContent) == {"category", "message", "action"}
+        assert wire.structuredContent["category"] == "invalid_input"
+        assert wire.structuredContent["action"] == (
+            "Use tools/list to check required fields and allowed values."
+        )
+        decoded = await call(client, "inspect_document", document=document, view=dict(
+            kind="inline-at", inline_handle=run["inline_handle"],
+        ))
+        assert decoded["inline"]["text"] == "Original"
+
+
+async def test_partial_readbacks_keep_native_diagnostics_without_failing(launch, tmp_path):
+    clean = tmp_path / "source.docx"
+    source = tmp_path / "partial.docx"
+    write_source(clean)
+    fixture = docx.Document(clean)
+    body = fixture.paragraphs[0]
+    body._p.append(OxmlElement("w:fldSimple"))  # Deliberately missing w:instr.
+    cell = fixture.add_table(1, 1).cell(0, 0).paragraphs[0]
+    cell.text = "Cell"
+    for paragraph in (body, cell):
+        paragraph._p.get_or_add_pPr().get_or_add_numPr().get_or_add_numId().val = 1
+    defaults = fixture.styles.element.find("w:docDefaults/w:pPrDefault/w:pPr", fixture.styles.element.nsmap)
+    defaults.get_or_add_jc().set(qn("w:val"), "start")
+    fixture.save(source)
+
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        resources = await call(client, "inspect_document", document=document,
+                               view=dict(kind="resources"))
+        assert resources["default_alignment"] is None
+        assert resources["default_alignment_error"] == "unsupported default alignment"
+        assert resources["default_alignment_diagnostic"] == {
+            "rule": "unsupported_edit", "detail": resources["default_alignment_error"],
+        }
+        fields = await call(client, "inspect_document", document=document, view=dict(kind="fields"))
+        field, = fields["fields"]
+        assert field["editable"] is False
+        assert field["diagnostic"] == {"rule": "unsupported_edit", "detail": field["reason"]}
+        numbering = await call(client, "inspect_document", document=document,
+                               view=dict(kind="numbering-paragraphs", scope="cells"))
+        paragraph, = numbering["paragraphs"]
+        detail = "incomplete direct numbering reference"
+        assert paragraph["unavailable"] == detail
+        assert paragraph["diagnostic"] == {"rule": "unsupported_edit", "detail": detail}
+        assert "anchor" not in paragraph
+        scoped = await call(client, "inspect_document", document=document, view=dict(kind="body"))
+        await assert_inspection_error(client, document, inspection_diagnostic(detail), dict(
+            kind="paragraph-numbering", anchor=scoped["body"][0]["anchor"],
+        ))
 
 
 async def test_revision_native_diagnostics_and_retry(launch, tmp_path):

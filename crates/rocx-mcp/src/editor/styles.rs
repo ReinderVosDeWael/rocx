@@ -9,15 +9,11 @@ use crate::schema::styles::StyleChange;
 const PREFIX: &str = "style:";
 
 impl Snapshot {
-    fn styles(&self) -> Result<Option<&ImportedStyles>, String> {
-        self.styles
-            .get_or_init(|| self.document.styles().map_err(|e| e.to_string()))
-            .as_ref()
-            .map(Option::as_ref)
-            .map_err(Clone::clone)
+    fn styles(&self) -> rocx::Result<Option<&ImportedStyles>> {
+        super::cached_read(&self.styles, || self.document.styles()).map(Option::as_ref)
     }
 
-    pub fn styles_part_name(&self) -> Result<Option<&str>, String> {
+    pub fn styles_part_name(&self) -> rocx::Result<Option<&str>> {
         Ok(self.styles()?.map(|catalog| catalog.part_name.as_str()))
     }
 
@@ -25,7 +21,7 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> rocx::Result<(Vec<Value>, Option<usize>)> {
         let Some(catalog) = self.styles()? else {
             return Ok((vec![], None));
         };

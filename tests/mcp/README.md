@@ -1,18 +1,24 @@
 # Installed stdio acceptance
 
-Run from the repository root with Rust 1.88 or stable, Python 3.12, and `uv`.
-Use a fresh install prefix (or remove your own previous prefix first):
+Run this as a shell script from the repository root with Rust 1.88 or
+stable, Python 3.12, and `uv`. Use a fresh install prefix and reuse the
+checkout's Cargo target:
 
 ```sh
-export ROCX_MCP_BINARY="$PWD/target/mcp-acceptance-install/bin/rocx-mcp"
-export ROCX_MCP_ORACLE="$PWD/target/mcp-acceptance/debug/examples/mcp_byte_oracle"
-export ROCX_SCHEMA_DIR="$PWD/target/mcp-acceptance-schemas"
-cargo install --locked --path crates/rocx-mcp --root "$PWD/target/mcp-acceptance-install"
-cargo build --locked -p rocx-mcp --examples --target-dir "$PWD/target/mcp-acceptance"
+set -eu
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/rocx-mcp-acceptance.XXXXXX")
+trap 'rm -r -- "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+export ROCX_MCP_BINARY="$scratch/install/bin/rocx-mcp"
+export ROCX_MCP_ORACLE="$PWD/target/debug/examples/mcp_byte_oracle"
+export ROCX_SCHEMA_DIR="$scratch/schemas"
+cargo install --locked --path crates/rocx-mcp --root "$scratch/install" --target-dir "$PWD/target"
+cargo build --locked -p rocx-mcp --examples
 uv run --no-project --with-requirements tests/mcp/requirements.txt \
   python tools/validate_ooxml.py --download-schemas
 uv run --no-project --with-requirements tests/mcp/requirements.txt \
-  pytest -q -p no:cacheprovider tests/mcp
+  pytest -q -p no:cacheprovider --basetemp "$scratch/pytest" tests/mcp tests/mcp_parity
 ```
 
 The Python MCP SDK (`mcp==1.27.0`) negotiates `2025-11-25` and supplies
@@ -68,7 +74,7 @@ Additional scoped and import coverage:
   insertion, section-local splices, eligible removals, and hyperlink
   relationship ownership.
 - `test_fields.py` and `test_body_inlines.py` compare original-coordinate
-  inline/field transactions and reports. `test_run_format.py` checks
+  field readback, inline/field transactions and reports. `test_run_format.py` checks
   owner-scoped formatting, aliases and all clear slots.
 - `test_ranges.py` checks lexical marker readback and cursor scope, then
   compares mixed cross-paragraph moves, removal and creation with Rust,
@@ -83,6 +89,7 @@ Additional scoped and import coverage:
 - `test_entry_inlines.py` checks entry-inline anchor scope, picture lifecycle,
   mixed direct formatting and local hyperlink allocation in comment and
   relocated note parts, comparing saved packages with direct Rust bytes.
+  It also checks hyperlink children and shape/chart runs in format-only edits.
 - `test_styles.py` checks the relocated and missing style catalogs, native
   style edits, staged paragraph style use, and guarded reference migration.
 - `test_numbering.py` checks the relocated numbering catalog and narrower
@@ -112,3 +119,5 @@ Additional scoped and import coverage:
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent
   readback of table, row and cell properties.
+- `test_flat_table.py` compares deep rich-table declarations with direct Rust,
+  including body and header edits, topology guards and legacy compatibility.

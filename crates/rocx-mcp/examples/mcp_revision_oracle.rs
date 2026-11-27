@@ -1,12 +1,13 @@
 //! Independent byte oracle: call the native revision API, without MCP handles.
 use std::{env, error::Error, fs};
 
-use rocx::TextRevisionAction;
 use rocx::editor::{
-    BodyBlock, ImportedDocument, ImportedInlineNode, ImportedParagraph, InlineAnchor,
-    TrackedParagraph, TrackedText,
+    BodyBlock, ImportedDocument, ImportedInline, ImportedInlineNode, ImportedParagraph,
+    ImportedPropertyRevision, ImportedRevision, ImportedRun, InlineAnchor, TrackedParagraph,
+    TrackedText,
 };
-use serde_json::json;
+use rocx::{BreakType, TextRevisionAction};
+use serde_json::{Value, json};
 
 const AUTHOR: &str = "Ada & Co.";
 const DATE: &str = "2030-02-03T04:05:06Z";
@@ -28,6 +29,108 @@ fn inline(doc: &ImportedDocument, body: usize, index: usize) -> &InlineAnchor {
     }
 }
 
+fn property(revision: &ImportedPropertyRevision, kind: &str) -> Value {
+    json!({"type": kind, "kind": revision.kind, "id": revision.id,
+           "author": revision.author, "date": revision.date})
+}
+
+fn run_value(run: &ImportedRun) -> Value {
+    let mut text = String::new();
+    let mut opaque = false;
+    let items: Vec<_> = run
+        .items
+        .iter()
+        .map(|item| {
+            match item {
+                ImportedInline::Text(value) => text.push_str(value),
+                ImportedInline::Tab => text.push('\t'),
+                ImportedInline::Break(BreakType::TextWrapping | BreakType::Line) => text.push('\n'),
+                _ => opaque = true,
+            }
+            match item {
+                ImportedInline::Text(text) => json!({"type": "text", "text": text}),
+                ImportedInline::Tab => json!({"type": "tab"}),
+                ImportedInline::Break(kind) => {
+                    json!({"type": "break", "kind": format!("{kind:?}")})
+                }
+                ImportedInline::NoteReference { kind, id } => {
+                    json!({"type": "note-reference", "kind": format!("{kind:?}"), "id": id})
+                }
+                ImportedInline::Opaque(name) => json!({"type": "opaque", "name": name}),
+                other => panic!("unqualified item: {other:?}"),
+            }
+        })
+        .collect();
+    json!({"type": "run", "text": text, "items": items, "bold": run.bold,
+           "has_opaque_content": opaque, "has_opaque_formatting": run.has_opaque_formatting})
+}
+
+fn wrapper(r: &ImportedRevision) -> Value {
+    json!({"type": "inline-wrapper", "kind": r.kind, "id": r.id,
+           "author": r.author, "date": r.date, "children": child_values(&r.children)})
+}
+
+fn child_values(children: &[ImportedInlineNode]) -> Vec<Value> {
+    children
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            let mut value = match node {
+                ImportedInlineNode::Run(run) => run_value(run),
+                ImportedInlineNode::Revision(r) => wrapper(r),
+                ImportedInlineNode::Hyperlink(link) => {
+                    json!({"type": "hyperlink", "children": child_values(&link.children)})
+                }
+                ImportedInlineNode::Fraction {
+                    numerator,
+                    denominator,
+                    ..
+                } => {
+                    json!({"type": "fraction", "numerator": numerator, "denominator": denominator})
+                }
+                ImportedInlineNode::Opaque(name) => json!({"type": "opaque", "name": name}),
+                other => panic!("unqualified child: {other:?}"),
+            };
+            value["inline_index"] = json!(i);
+            value
+        })
+        .collect()
+}
+
+fn revision_rows(
+    rows: &mut Vec<Value>,
+    body: usize,
+    prefix: &[usize],
+    children: &[ImportedInlineNode],
+) {
+    for (index, child) in children.iter().enumerate() {
+        let mut path = prefix.to_vec();
+        path.push(index);
+        let mut row = match child {
+            ImportedInlineNode::Revision(r) => wrapper(r),
+            ImportedInlineNode::Run(run) => {
+                let Some(r) = &run.property_revision else {
+                    continue;
+                };
+                let mut value = property(r, "run-properties");
+                value["run"] = run_value(run);
+                value
+            }
+            ImportedInlineNode::Hyperlink(link) => {
+                revision_rows(rows, body, &path, &link.children);
+                continue;
+            }
+            _ => continue,
+        };
+        row["body_index"] = json!(body);
+        row["inline_path"] = json!(path);
+        rows.push(row);
+        if let ImportedInlineNode::Revision(r) = child {
+            revision_rows(rows, body, &path, &r.children);
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().skip(1).collect();
     let [operation, output, source, rest @ ..] = args.as_slice() else {
@@ -41,29 +144,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                 continue;
             };
             if let Some(mark) = &paragraph.mark_revision {
-                rows.push(json!({
-                    "body_index": body, "inline_path": [], "kind": mark.kind,
-                    "id": mark.id, "author": mark.author, "date": mark.date,
-                }));
+                let mut value = property(mark, "paragraph-mark");
+                value["body_index"] = json!(body);
+                value["inline_path"] = json!([]);
+                rows.push(value);
             }
-            for (index, inline) in paragraph.inline_structure.iter().enumerate() {
-                let (kind, id, author, date) = match inline {
-                    ImportedInlineNode::Revision(r) => (r.kind, &r.id, &r.author, &r.date),
-                    ImportedInlineNode::Run(run) => {
-                        let Some(r) = &run.property_revision else {
-                            continue;
-                        };
-                        (r.kind, &r.id, &r.author, &r.date)
-                    }
-                    _ => continue,
-                };
-                rows.push(json!({
-                    "body_index": body, "inline_path": [index], "kind": kind,
-                    "id": id, "author": author, "date": date,
-                }));
-            }
+            revision_rows(&mut rows, body, &[], &paragraph.inline_structure);
         }
         fs::write(output, serde_json::to_vec(&rows)?)?;
+        return Ok(());
+    }
+    if operation == "opaque-review" && rest.is_empty() {
+        let error = doc
+            .preview_revision(inline(&doc, 1, 1), TextRevisionAction::Accept, None)
+            .expect_err("opaque revision must be rejected");
+        fs::write(output, error.to_string())?;
         return Ok(());
     }
     let action = |value: &str| match value {

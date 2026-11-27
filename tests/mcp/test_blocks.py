@@ -5,6 +5,7 @@ import subprocess
 import docx
 from docx.enum.section import WD_SECTION_START
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from jsonschema.validators import validator_for
 import pytest
@@ -215,6 +216,118 @@ async def test_mixed_block_preview_rejects_overlap_then_matches_native(launch, t
     assert replacement.runs[0].bold is True
     assert independent.sections[0].start_type == WD_SECTION_START.EVEN_PAGE
     assert not independent.sections[-1].different_first_page_header_footer
+
+
+PARAGRAPH_FLAGS = {
+    "keepWithNext": "keepNext",
+    "keepTogether": "keepLines",
+    "pageBreakBefore": "pageBreakBefore",
+    "widowControl": "widowControl",
+    "suppressLineNumbers": "suppressLineNumbers",
+    "bidi": "bidi",
+    "snapToGrid": "snapToGrid",
+    "contextualSpacing": "contextualSpacing",
+    "mirrorIndents": "mirrorIndents",
+}
+SECTION_FLAGS = {"titlePage": "titlePg", "bidi": "bidi", "rtlGutter": "rtlGutter"}
+SECTION_TYPES = ("nextPage", "nextColumn", "continuous", "evenPage", "oddPage", None)
+FLAG_VALUES = (True, False, None)
+
+
+def make_flag_source(path):
+    document = docx.Document()
+    document.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    document.sections[0].start_type = WD_SECTION_START.ODD_PAGE
+    document.sections[0].header.paragraphs[0].text = "inherited header"
+    leads = []
+    for index, token in enumerate(SECTION_TYPES):
+        if index:
+            document.add_section(WD_SECTION_START.CONTINUOUS if token == "oddPage"
+                                 else WD_SECTION_START.ODD_PAGE)
+        leads.append(document.add_paragraph(f"Section {index}"))
+    for index, lexeme in enumerate(("0", "1", "1")):
+        props = leads[index]._p.get_or_add_pPr()
+        section = document.sections[index]._sectPr
+        for fields, parent, successor in [
+            (PARAGRAPH_FLAGS, props, None),
+            (SECTION_FLAGS, section, section.find(qn("w:docGrid"))),
+        ]:
+            for name in fields.values():
+                node = OxmlElement(f"w:{name}")
+                node.set(qn("w:val"), lexeme)
+                if successor is None:
+                    parent.append(node)
+                else:
+                    successor.addprevious(node)
+    document.add_table(1, 1).cell(0, 0).text = "unchanged table"
+    document.save(path)
+    return path.read_bytes()
+
+
+def xml_value(parent, name):
+    nodes = parent.findall(qn(f"w:{name}"))
+    assert len(nodes) <= 1
+    return nodes[0].attrib[qn("w:val")] if nodes else None
+
+
+async def test_ordinary_block_flags_and_section_types_match_native(launch, tmp_path):
+    source, output = tmp_path / "source.docx", tmp_path / "flags-and-types.docx"
+    original = make_flag_source(source)
+    async with launch() as client:
+        document = await open_document(client, source)
+        body = (await call(client, "inspect_document", document=document))["body"]
+        inspection = await sections(client, document)
+        starts = [row["body_start"] for row in inspection["sections"]]
+        assert starts == list(range(0, 12, 2))
+        edits = [
+            block(body[start]["anchor"], kind, field=field, value=value)
+            for start, value in zip(starts[:3], FLAG_VALUES, strict=True)
+            for kind, fields in [("paragraph-flag", PARAGRAPH_FLAGS), ("section-flag", SECTION_FLAGS)]
+            for field in fields
+        ]
+        edits.extend(block(body[start]["anchor"], "section-type", value=token)
+                     for start, token in zip(starts, SECTION_TYPES, strict=True))
+        for invalid in [
+            block(body[0]["anchor"], "keep-with-next", value=False),  # Same field as keepWithNext.
+            block(body[1]["anchor"], "section-type", value="nextPage"),  # Not first in section.
+        ]:
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          edits=[*edits, invalid])
+        assert list(tmp_path.iterdir()) == [source]
+
+        draft = await call(client, "preview_edits", document=document, edits=edits)
+        expected_changes = [start for start in starts[:3]
+                            for _ in range(len(PARAGRAPH_FLAGS) + len(SECTION_FLAGS))]
+        assert draft["changes"]["block_changes"] == sorted([*expected_changes, *starts])
+        await save(client, document, draft, output)
+        assert await sections(client, document) == inspection
+        assert (await call(client, "inspect_document", document=document))["body"] == body
+
+        reopened = await open_document(client, output)
+        await failure(client, "preview_edits", "wrong_owner", document=reopened, edits=edits)
+        changed_body = (await call(client, "inspect_document", document=reopened))["body"]
+        changed = await sections(client, reopened)
+        assert ranges(changed) == ranges(inspection)
+        for index, (start, row, token) in enumerate(zip(starts, changed["sections"], SECTION_TYPES,
+                                                        strict=True)):
+            assert row["section_type"] == row["section_type_xml"] == token
+            value = FLAG_VALUES[index] if index < len(FLAG_VALUES) else None
+            assert row["flags"] == ({} if value is None else dict.fromkeys(SECTION_FLAGS, value))
+            assert changed_body[start]["flags"] == (
+                {} if value is None else dict.fromkeys(PARAGRAPH_FLAGS, value)
+            )
+
+    independent = check_package(source, output, "flags-and-types", original)
+    for index, (section, token) in enumerate(zip(independent.sections, SECTION_TYPES, strict=True)):
+        lead = independent.paragraphs[2 * index]
+        assert lead.text == f"Section {index}"
+        assert xml_value(section._sectPr, "type") == token
+        if index < len(FLAG_VALUES):
+            lexeme = ("1", "0", None)[index]
+            for parent, names in [(lead._p.pPr, PARAGRAPH_FLAGS), (section._sectPr, SECTION_FLAGS)]:
+                assert {name: xml_value(parent, name) for name in names.values()} == (
+                    dict.fromkeys(names.values(), lexeme)
+                )
 
 
 @pytest.mark.parametrize(

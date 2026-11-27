@@ -64,6 +64,13 @@ paragraphs. `inline-at` resolves an issued read-only handle, including eligible
 children, without granting edit access. The independent body/default-header
 readers and owner-scoped table selectors preserve native inspection scopes.
 
+`field-at` reads the native field at one original body inline position,
+including the stored flag spellings. Flat field and rich-table requests
+preserve deep native trees without raising JSON parser depth. The flat
+forms retain documented resource limits and reject cyclic, shared or
+disconnected references. Entry-inline edits support native format-only
+batches on eligible hyperlink children and direct shape/chart runs.
+
 ## What counts as parity?
 
 Start from the public `rocx::editor` API, especially `ImportedDocument`,

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use rocx::editor::{BlockEdit, BodyBlock, ParagraphAnchor, SectionAnchor};
 use serde_json::{Value, json};
 
-use super::Snapshot;
+use super::{ReadError, Snapshot};
 use crate::schema::blocks::{BlockChange, section_type_name};
 
 const SECTION: &str = "section:";
@@ -14,11 +14,11 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         if limit == 0 {
             return Err("section page limit must be positive".into());
         }
-        let sections = self.document.sections().map_err(|e| e.to_string())?;
+        let sections = self.document.sections()?;
         let start = start.min(sections.len());
         let end = start.saturating_add(limit).min(sections.len());
         let rows = (start..end)

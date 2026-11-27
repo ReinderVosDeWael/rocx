@@ -49,8 +49,9 @@ def make_source(path):
     wrap(paragraph._p, "unwrap", word("richText"))
     wrap(doc.add_paragraph("old block")._p, "block", word("richText"))
     wrap(doc.add_paragraph("existing cache")._p, "define", word("richText"))
-    wrap(doc.add_paragraph("locked payload")._p, "locked", word("lock", val="sdtContentLocked"),
-         word("richText"))
+    locked = wrap(doc.add_paragraph("locked payload")._p, "locked",
+                  word("lock", val="sdtContentLocked"), word("richText"))
+    locked.find(qn("w:sdtPr")).insert(0, word("alias", val="Locked & named"))
     doc.add_paragraph("block first").runs[0].bold = True
     doc.add_paragraph("block last")
     doc.add_table(1, 1).cell(0, 0).text = "table text"
@@ -135,9 +136,18 @@ async def test_control_lifecycle(launch, tmp_path):
         ]
         assert all("anchor" not in row for row in stories)
         sites = (await inspect(client, document, "control-sites"))["control_sites"]
+        expected = json.loads(native(source, "inspect", tmp_path / "native-readback.json"))
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in controls] == expected["controls"]
+        assert stories == expected["story_controls"]
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in sites] == expected["control_sites"]
+        first_page = await inspect(client, document, "control-sites", limit=4)
+        second_page = await inspect(client, document, "control-sites", cursor=first_page["next_cursor"])
+        assert first_page["control_sites"] + second_page["control_sites"] == sites
+        assert second_page["next_cursor"] is None
         sites = {(row["context"], row["text"]): row["anchor"] for row in sites}
         first, last = (sites["block", text] for text in ("block first", "block last"))
         body = (await call(client, "inspect_document", document=document))["body"]
+        assert [row for row in body if row["type"] == "content-control"] == expected["body_controls"]
         other = await opened(client, source)
         foreign = (await inspect(client, other, "control-sites"))["control_sites"][0]["anchor"]
         patch = change("patch", anchor=anchors["plain"], tag="patched", alias="New alias",
@@ -250,6 +260,8 @@ def make_wrapper_variants(path):
         ("implicit", None, "no explicit type"),
     ]:
         wrap(doc.add_paragraph(text)._p, tag, *([prop] if prop is not None else []))
+    for i in range(3):
+        wrap(doc.add_paragraph(f"lock cache {i}")._p, f"lock-{i}", word("richText"))
     doc.sections[0].header.paragraphs[0].text = "untouched header"
     doc.save(path)
 
@@ -283,6 +295,7 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
             ("block", "text"), ("block", "richText"), ("block", "comboBox"),
             ("block", "date"), ("block", "picture"), ("block", "opaque"),
             ("block", "richText"),
+            *[("block", "richText")] * 3,
         ]
         assert rows["combo"]["selected"] == "combo-code"
         assert rows["combo"]["choices"] == [dict(display_text="Combo label", value="combo-code")]
@@ -291,6 +304,26 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
             return change(action, anchor=rows[target]["anchor"], **fields)
 
         dropdown = dict(kind="drop-down", items=items, selected="one")
+        locked = await preview(client, document, source, "locks", "locks", [
+            edit(f"lock-{i}", "define", tag=f"lock-{i}", alias=f"Alias {i} & Café", lock=lock,
+                 text=dict(kind="plain", **multi_line))
+            for i, (lock, multi_line) in enumerate(
+                [("control", dict(multi_line=True)), ("content", {}), ("both", dict(multi_line=False))]
+            )
+        ])
+        locked_doc = await opened(client, locked)
+        locked_rows = await findings(client, locked_doc, locked)
+        assert [(locked_rows[f"lock-{i}"]["lock"], locked_rows[f"lock-{i}"]["multi_line"],
+                 locked_rows[f"lock-{i}"]["alias"]) for i in range(3)] == [
+            ("sdtLocked", "1", "Alias 0 & Café"), ("contentLocked", None, "Alias 1 & Café"),
+            ("sdtContentLocked", "0", "Alias 2 & Café"),
+        ]
+        result = await client.call_tool("preview_edits", dict(document=locked_doc, edits=[
+            change("define", anchor=locked_rows["lock-0"]["anchor"], text=dict(kind="rich")),
+        ]))
+        assert_tool_failure(result, "rejected_batch")
+        native_error = native(locked, "locked-define", tmp_path / "native-locked-error.txt").decode()
+        assert result.structuredContent["message"] == f"preview: {native_error}; revise the edits and retry"
         for invalid, diagnostic in [
             (edit("row", "define", text=dict(kind="plain", multi_line=True)),
              "row and cell controls require rich text"),
@@ -316,7 +349,10 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
         ])
         document = await opened(client, defined)
         rows = await findings(client, document, defined)
-        assert list(rows) == ["rich", "dropdown", "combo", "date", "picture", "opaque", "implicit"]
+        assert list(rows) == [
+            "rich", "dropdown", "combo", "date", "picture", "opaque", "implicit",
+            "lock-0", "lock-1", "lock-2",
+        ]
         assert {key: rows["rich"][key] for key in ("kind", "lock", "alias", "id", "multi_line")} == {
             "kind": "richText", "lock": "unlocked", "alias": None, "id": None, "multi_line": None,
         }
@@ -352,13 +388,13 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
                 for i in choices] == items
         assert root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='rich']/w:sdtContent//w:t/text()",
                           namespaces=ns) == ["keep this cache"]
-    for before, after in [(source, defined), (defined, selected)]:
+    for before, after in [(source, defined), (source, locked), (defined, selected)]:
         old, new = parts(before), parts(after)
         assert old.keys() == new.keys()
         assert {name for name in old if old[name] != new[name]} == {"word/document.xml"}
     assert noop.read_bytes() == selected.read_bytes()
     assert source.read_bytes() == original
-    validate(source, defined, selected, noop)
+    validate(source, defined, locked, selected, noop)
 
 
 async def test_story_control_typed_findings(launch, tmp_path):
@@ -410,6 +446,8 @@ async def test_control_native_guards(launch, tmp_path):
     async with launch() as client:
         document = await opened(client, source)
         rows = (await inspect(client, document, "controls"))["controls"]
+        expected = json.loads(native(source, "inspect", tmp_path / "native-guarded.json"))
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in rows] == expected["controls"]
         assert next(row for row in rows if row["tag"] == "bound")["bound"] is True
         anchors = {row["tag"]: row["anchor"] for row in rows}
         targets = (await inspect(client, document, "fields"))["fields"]

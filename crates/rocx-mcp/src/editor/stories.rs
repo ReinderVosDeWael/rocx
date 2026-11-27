@@ -3,13 +3,14 @@ use std::collections::BTreeMap;
 use rocx::editor::{
     HeaderAnchor, ImportedHeader, ImportedInline, ImportedInlineNode, ImportedRun, ImportedStory,
     ImportedStoryBlock, InlineAnchor, InlineEdit, RunTextEdit, SectionStoryKind,
-    StoryReferenceEdit, mcp_bridge::linkable_story_parts,
+    StoryReferenceEdit,
+    mcp_bridge::{all_linkable_story_parts, linkable_story_parts},
 };
 use rocx::{HeaderFooterType, ImageData, ImageRun, Paragraph, ResolvedBlock, ResolvedInline};
 use serde_json::{Value, json};
 
 use super::{
-    Snapshot,
+    ReadError, Snapshot,
     block_readback::inline_items,
     body_inlines::{InlineHandles, typed_inline_page},
     projected_run_text, resolve,
@@ -67,6 +68,8 @@ const DEFAULT_HEADER_SLOT: &str = "default-header-slot:";
 const DEFAULT_HEADER_OWNER: &str = "default-header-owner:";
 const DEFAULT_HEADER_TEXT: &str = "default-header-text:";
 const DEFAULT_HEADER_FORMAT: &str = "default-header-format:";
+const LINKABLE_STORY_OWNER: &str = "linkable-story-owner:";
+const ALL_LINKABLE_STORY_OWNER: &str = "linkable-story-owner-all:";
 
 #[derive(Clone, Copy)]
 struct Slot {
@@ -159,11 +162,11 @@ impl Snapshot {
         start: usize,
         limit: usize,
         handles: &mut InlineHandles<'_>,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         let missing = "block_index does not identify a direct story paragraph";
         let slot = Slot::at(owner_index);
         if slot.kind == SectionStoryKind::Header && slot.variant == HeaderFooterType::Default {
-            let headers = self.document.default_headers().map_err(|e| e.to_string())?;
+            let headers = self.document.default_headers()?;
             let header = headers
                 .iter()
                 .find(|header| header.section_index == slot.section)
@@ -172,7 +175,7 @@ impl Snapshot {
             let source = story_inline_source(&header.part_name, block_index);
             return Ok(typed_inline_page(nodes, start, limit, &source, handles));
         }
-        let stories = self.stories().map_err(|e| e.to_string())?;
+        let stories = self.stories()?;
         let story = stories.owner_at(owner_index)?;
         let nodes = story.inline_structure(block_index).ok_or(missing)?;
         let source = story_inline_source(&story.part_name, block_index);
@@ -195,12 +198,21 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         if limit == 0 {
             return Err("story page limit must be positive".into());
         }
-        let len = self.story_slot_count()?;
-        let stories = self.stories().map_err(|e| e.to_string())?;
+        let stories = self.stories()?;
+        // Once a slot has a reference, it remains populated (by inheritance
+        // or override) through the final section. Use that extent without
+        // validating unrelated section layout. A wholly empty view uses
+        // the same native boundary scan, without the section layout read.
+        let len = match stories.slots.last_key_value() {
+            Some((index, _)) => (Slot::at(*index).section + 1) * SLOTS_PER_SECTION,
+            None => {
+                rocx::editor::mcp_bridge::story_section_count(&self.document)? * SLOTS_PER_SECTION
+            }
+        };
         let end = start.saturating_add(limit).min(len);
         let rows = (start..end)
             .map(|index| {
@@ -238,8 +250,8 @@ impl Snapshot {
         start: usize,
         limit: usize,
         handles: &mut InlineHandles<'_>,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let headers = self.document.default_headers().map_err(|e| e.to_string())?;
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
+        let headers = self.document.default_headers()?;
         let end = start.saturating_add(limit).min(headers.len());
         let mut owners = BTreeMap::new();
         for (index, header) in headers[..end].iter().enumerate() {
@@ -343,18 +355,22 @@ impl Snapshot {
     pub fn linkable_story_page(
         &self,
         kind: SectionStoryKind,
+        include_referenced: bool,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let parts = self
-            .unreferenced_story_parts(kind)
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
+        let parts = self.linkable_story_parts(kind, include_referenced)?;
+        let prefix = if include_referenced {
+            ALL_LINKABLE_STORY_OWNER
+        } else {
+            LINKABLE_STORY_OWNER
+        };
         let end = start.saturating_add(limit).min(parts.len());
         let rows = (start..end)
             .map(|index| {
                 let kind = kind.as_str();
                 json!({
-                    "anchor": format!("linkable-story-owner:{kind}:{index}"),
+                    "anchor": format!("{prefix}{kind}:{index}"),
                     "kind": kind,
                     "part_name": parts[index],
                 })
@@ -363,15 +379,16 @@ impl Snapshot {
         Ok((rows, (end < parts.len()).then_some(end)))
     }
 
-    fn unreferenced_story_parts(&self, kind: SectionStoryKind) -> rocx::Result<Vec<String>> {
-        linkable_story_parts(&self.document, kind)
-    }
-
-    fn story_slot_count(&self) -> Result<usize, String> {
-        self.document
-            .sections()
-            .map(|sections| sections.len() * SLOTS_PER_SECTION)
-            .map_err(|e| e.to_string())
+    fn linkable_story_parts(
+        &self,
+        kind: SectionStoryKind,
+        include_referenced: bool,
+    ) -> rocx::Result<Vec<String>> {
+        if include_referenced {
+            all_linkable_story_parts(&self.document, kind)
+        } else {
+            linkable_story_parts(&self.document, kind)
+        }
     }
 
     // The session resolves only anchors issued to the caller for this snapshot.
@@ -448,7 +465,15 @@ impl Snapshot {
             }
             return Ok(self.default_header_owner(anchor)?.1.part_name);
         }
-        if let Some(candidate) = anchor.strip_prefix("linkable-story-owner:") {
+        let linkable = anchor
+            .strip_prefix(LINKABLE_STORY_OWNER)
+            .map(|candidate| (candidate, false))
+            .or_else(|| {
+                anchor
+                    .strip_prefix(ALL_LINKABLE_STORY_OWNER)
+                    .map(|candidate| (candidate, true))
+            });
+        if let Some((candidate, include_referenced)) = linkable {
             let (source_kind, index) = candidate
                 .split_once(':')
                 .and_then(|(kind, index)| Some((kind, index_number(index)?)))
@@ -457,7 +482,7 @@ impl Snapshot {
                 return Err(wrong_kind.into());
             }
             return self
-                .unreferenced_story_parts(kind)?
+                .linkable_story_parts(kind, include_referenced)?
                 .into_iter()
                 .nth(index)
                 .ok_or_else(|| "unknown linkable story owner".into());

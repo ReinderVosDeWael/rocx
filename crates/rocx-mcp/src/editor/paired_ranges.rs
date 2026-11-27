@@ -1,7 +1,7 @@
 use rocx::editor::PairedRangeEdit;
 use serde_json::{Value, json};
 
-use super::Snapshot;
+use super::{ReadError, Snapshot};
 use crate::schema::RangeEndpoints;
 
 impl Snapshot {
@@ -9,13 +9,8 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let mut markers = self
-            .document
-            .body_range_markers()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .skip(start);
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
+        let mut markers = self.document.body_range_markers()?.into_iter().skip(start);
         let rows: Vec<_> = markers
             .by_ref()
             .take(limit)

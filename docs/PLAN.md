@@ -187,6 +187,35 @@ A live OpenCode client set a paragraph's outline level through the
 paragraph-only view, and independent readback confirmed both original
 section-type elements were retained.
 
+Continue past [PR #89](https://github.com/ReinderVosDeWael/rocx/pull/89),
+which merged after hosted checks. The GitHub issue state is not the
+technical parity gate. The follow-up adds rich deep field caches,
+format-only entry hyperlink children and direct shape/chart runs, structured
+inspection diagnostics, point field readback, and a flat rich-table form for
+native depths beyond the JSON parser limit. The installed table comparisons
+matched native bytes at 83 body and 84 header table levels. Continue auditing
+operation boundaries and qualifying declaration, style/numbering, typed
+readback, lifecycle and report leaves. Do not claim full parity until the
+strict ledger passes.
+
+Integrated checkpoint: 298 installed-client and ledger tests plus 23
+subtests passed with OOXML validation. The 42 MCP Rust tests and strict
+Clippy passed on Rust 1.88 and stable; the compiled inventory still matches all 1,908
+symbols. Live OpenCode read the stored `" PAGE "` instruction at its original
+inline position and saved a dirty-flag edit; the package comparison found
+only `word/document.xml` changed. The strict closure check remains red.
+Follow-up fixtures matched direct Rust for adjacent floating-point chart
+values, a deep field cache with hundreds of sibling fields, and a deep
+table with wide spanning cells. Story discovery no longer depends on
+unrelated section layout; link sources can include referenced parts even
+when an unrelated story is malformed. Flat tables now qualify 48 levels
+with 1,024 grid columns per level. Keep zero-column fragments rejected:
+the core can emit a nested cellless row, but Word documents that shape
+as corrupt. A zero-column property donor is supported because it is not
+rendered. Continue qualifying exact payload and helper equivalences,
+keeping native restrictions and resolving wire mismatches before
+promoting their ledger rows.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.

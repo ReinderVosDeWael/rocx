@@ -1,9 +1,9 @@
 //! Direct Rust oracle for imported style editing.
 use rocx::editor::{BodyBlock, EditBatch, ImportedDocument, ParagraphInsertion, StyleEdit};
 use rocx::{
-    Alignment, CharacterStyleDefinition, Component, LineHeight, NumberingStyleDefinition,
+    Alignment, CharacterStyleDefinition, Color, Component, LineHeight, NumberingStyleDefinition,
     Paragraph, ParagraphFormat, ParagraphStyleDefinition, RunFormat, RunLanguage, TabAlignment,
-    TabLeader, TabStop, TableSectionFormat, TableStyleDefinition,
+    TabLeader, TabStop, TableSectionFormat, TableStyleDefinition, ThemeColor, Underline,
 };
 
 fn language() -> RunLanguage {
@@ -103,6 +103,34 @@ fn paragraph_style(mode: &str) -> ParagraphStyleDefinition {
     }
 }
 
+fn rich_paragraph_text(style: ParagraphStyleDefinition) -> ParagraphStyleDefinition {
+    style
+        .with_bold(false)
+        .with_italic(true)
+        .with_underline(true)
+        .with_font("Arial")
+        .with_font_size(11.5)
+        .with_color([10, 11, 12])
+        .with_language(language())
+        .with_bold_complex_script(true)
+        .with_italic_complex_script(false)
+        .with_size_complex_script(13.)
+        .with_rtl(false)
+        .with_complex_script(true)
+        .with_font_east_asia("MS Gothic")
+        .with_font_complex_script("Tahoma")
+}
+
+fn replacement_paragraph() -> ParagraphStyleDefinition {
+    rich_paragraph_text(ParagraphStyleDefinition {
+        name: "Destination".into(),
+        base_style: Some("Normal".into()),
+        next_paragraph_style: Some("Memo Style".into()),
+        linked_style: Some("Swap Style".into()),
+        ..paragraph_style("at-least")
+    })
+}
+
 fn inspect(doc: &ImportedDocument) -> serde_json::Value {
     use rocx::editor::StyleKind;
     use serde_json::json;
@@ -131,6 +159,109 @@ fn inspect(doc: &ImportedDocument) -> serde_json::Value {
     }
 }
 
+fn direct_fields() -> Vec<(&'static str, &'static str, &'static str)> {
+    let mut fields = vec![
+        ("MemoStyle", "basedOn", "Destination"),
+        ("MemoStyle", "next", "Destination"),
+        ("MemoStyle", "link", "SwapStyle"),
+        ("MemoStyle", "jc", "right"),
+        ("MemoStyle", "tab.-40.leader", "middleDot"),
+        ("MemoStyle", "tab.-40.val", "end"),
+        ("Destination", "ind.hanging", "80"),
+        ("Destination", "ind.hangingChars", "50"),
+    ];
+    fields.extend(
+        [
+            "b",
+            "i",
+            "bCs",
+            "iCs",
+            "rtl",
+            "cs",
+            "strike",
+            "caps",
+            "smallCaps",
+            "vanish",
+            "keepNext",
+            "keepLines",
+            "pageBreakBefore",
+            "widowControl",
+            "bidi",
+            "contextualSpacing",
+            "mirrorIndents",
+            "snapToGrid",
+            "suppressLineNumbers",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, key)| ("MemoStyle", key, if i % 2 == 0 { "0" } else { "1" })),
+    );
+    fields.extend(
+        [
+            ("rFonts.ascii", "Arial"),
+            ("rFonts.hAnsi", "Calibri"),
+            ("rFonts.eastAsia", "MS Gothic"),
+            ("rFonts.cs", "Tahoma"),
+            ("rFonts.asciiTheme", "majorAscii"),
+            ("rFonts.hAnsiTheme", "minorHAnsi"),
+            ("rFonts.eastAsiaTheme", "majorEastAsia"),
+            ("rFonts.cstheme", "minorBidi"),
+            ("lang.val", "en-GB"),
+            ("lang.eastAsia", "ja-JP"),
+            ("lang.bidi", "ar-SA"),
+            ("sz.val", "23"),
+            ("szCs.val", "27"),
+            ("vertAlign.val", "superscript"),
+            ("runSnapToGrid.val", "0"),
+            ("color.themeColor", "accent2"),
+            ("color.themeTint", "3A"),
+            ("color.themeShade", "C4"),
+            ("color.val", "012345"),
+            ("u.color", "654321"),
+            ("u.themeColor", "accent5"),
+            ("u.themeTint", "59"),
+            ("u.themeShade", "A6"),
+            ("u.val", "wavyDouble"),
+            ("spacing.before", "110"),
+            ("spacing.after", "40"),
+            ("spacing.beforeLines", "50"),
+            ("spacing.afterLines", "125"),
+            ("spacing.beforeAutospacing", "0"),
+            ("spacing.afterAutospacing", "1"),
+            ("spacing.line", "270"),
+            ("spacing.lineRule", "exact"),
+            ("ind.left", "144"),
+            ("ind.right", "288"),
+            ("ind.start", "-72"),
+            ("ind.end", "36"),
+            ("ind.leftChars", "100"),
+            ("ind.rightChars", "200"),
+            ("ind.startChars", "-50"),
+            ("ind.endChars", "25"),
+            ("ind.firstLine", "180"),
+            ("ind.firstLineChars", "75"),
+        ]
+        .into_iter()
+        .map(|(key, value)| ("MemoStyle", key, value)),
+    );
+    fields.extend(
+        [
+            ("shd.fill", "102030"),
+            ("shd.color", "405060"),
+            ("shd.themeColor", "accent1"),
+            ("shd.themeFill", "accent6"),
+            ("shd.themeTint", "33"),
+            ("shd.themeShade", "CC"),
+            ("shd.themeFillTint", "44"),
+            ("shd.themeFillShade", "BB"),
+            ("shd.val", "pct25"),
+        ]
+        .into_iter()
+        .map(|(key, value)| ("Matrix", key, value)),
+    );
+    fields
+}
+
 fn main() -> rocx::Result<()> {
     let mut args = std::env::args_os().skip(1);
     let doc = ImportedDocument::open(&std::fs::read(args.next().unwrap()).unwrap())?;
@@ -141,6 +272,12 @@ fn main() -> rocx::Result<()> {
     }
     let output = args.next().unwrap();
     let anchor = |id| doc.style_anchor(id).unwrap();
+    let field = |id, key: &str, value: Option<&str>| StyleEdit::Field {
+        target: anchor(id),
+        region: None,
+        field: key.into(),
+        value: value.map(str::to_owned),
+    };
     let region = TableSectionFormat::default()
         .with_bold(false)
         .with_italic(true)
@@ -262,13 +399,119 @@ fn main() -> rocx::Result<()> {
             format: None,
         }],
         "paragraph-format" => vec![StyleEdit::Add(paragraph_style(key).into())],
+        "replace-rich" => vec![
+            StyleEdit::Replace {
+                target: anchor("Destination"),
+                definition: replacement_paragraph().into(),
+            },
+            StyleEdit::Replace {
+                target: anchor("Spare"),
+                definition: TableStyleDefinition::default()
+                    .with_name("Spare")
+                    .with_base_style("Matrix")
+                    .with_whole_table(rich_region())
+                    .with_first_row(rich_region())
+                    .into(),
+            },
+        ],
+        "reject-line-spacing-conflict" => {
+            let mut definition = replacement_paragraph();
+            definition.line_spacing = Some(1.5);
+            if key == "add" {
+                definition.name = "Conflicting Paragraph".into();
+                vec![StyleEdit::Add(definition.into())]
+            } else {
+                assert_eq!(key, "replace");
+                vec![StyleEdit::Replace {
+                    target: anchor("Destination"),
+                    definition: definition.into(),
+                }]
+            }
+        }
+        "reject-replacement-identity" => vec![StyleEdit::Replace {
+            target: anchor("Destination"),
+            definition: replacement_paragraph()
+                .with_name("Renamed Paragraph")
+                .into(),
+        }],
+        "reject-live-replacement" => vec![StyleEdit::Replace {
+            target: anchor("MemoStyle"),
+            definition: replacement_paragraph()
+                .with_name("Memo Style")
+                .with_next_paragraph_style("Normal")
+                .into(),
+        }],
+        "style-definition-properties" => vec![
+            StyleEdit::Add(
+                CharacterStyleDefinition::default()
+                    .with_name("Editorial Character")
+                    .with_base_style("Default Paragraph Font")
+                    .with_linked_style("Memo Style")
+                    .with_format(
+                        RunFormat::default()
+                            .with_bold(true)
+                            .with_italic(false)
+                            .with_underline(Underline::Dash)
+                            .with_font("Georgia")
+                            .with_size(9.5)
+                            .with_color(Color::Theme {
+                                name: ThemeColor::Accent3,
+                                tint: None,
+                                shade: Some(0xA4),
+                            })
+                            .with_superscript(true)
+                            .with_strike(false)
+                            .with_all_caps(true)
+                            .with_small_caps(false)
+                            .with_snap_to_grid(false)
+                            .with_language(language())
+                            .with_bold_complex_script(false)
+                            .with_italic_complex_script(true)
+                            .with_size_complex_script(14.)
+                            .with_rtl(true)
+                            .with_complex_script(false)
+                            .with_font_east_asia("Yu Gothic")
+                            .with_font_complex_script("Tahoma"),
+                    )
+                    .into(),
+            ),
+            StyleEdit::Add(
+                rich_paragraph_text(
+                    ParagraphStyleDefinition::default()
+                        .with_name("Editorial Paragraph")
+                        .with_linked_style("Swap Style"),
+                )
+                .into(),
+            ),
+            StyleEdit::Add(
+                TableStyleDefinition::default()
+                    .with_name("Editorial Table")
+                    .with_base_style("Matrix")
+                    .into(),
+            ),
+        ],
+        "direct-fields-set" | "direct-fields-clear" => direct_fields()
+            .into_iter()
+            .map(|(id, key, value)| {
+                field(id, key, (action == "direct-fields-set").then_some(value))
+            })
+            .collect(),
+        "reject-style-cycle" => vec![field("Destination", "basedOn", Some("MemoStyle"))],
+        "reject-required-style-val" => vec![field("MemoStyle", "color.val", None)],
         _ => panic!("unknown oracle action"),
     };
     let preview = doc.preview_edits(EditBatch {
         styles: &styles,
         paragraphs: &paragraphs,
         ..Default::default()
-    })?;
-    std::fs::write(output, preview.to_docx()?).unwrap();
+    });
+    if action.starts_with("reject-") {
+        let Err(error) = preview else {
+            panic!("native style guard accepted {action}")
+        };
+        std::fs::write(output, error.to_string()).unwrap();
+    } else {
+        std::fs::write(output, preview?.to_docx()?).unwrap();
+    }
     Ok(())
 }

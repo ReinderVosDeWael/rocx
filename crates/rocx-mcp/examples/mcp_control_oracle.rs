@@ -61,7 +61,17 @@ fn main() -> rocx::Result<()> {
                 output,
                 json!({
                     "controls": findings(doc.controls()),
+                    "body_controls": doc.body().iter().enumerate().filter_map(|(index, block)| {
+                        let BodyBlock::ContentControl(control) = block else { return None; };
+                        Some(json!({
+                            "type": "content-control", "index": index, "tag": control.tag,
+                            "alias": control.alias, "lock": control.lock, "has_opaque_content": true,
+                        }))
+                    }).collect::<Vec<_>>(),
                     "story_controls": findings(&doc.story_controls()?),
+                    "control_sites": doc.control_sites().iter().map(|site| json!({
+                        "context": site.context.as_str(), "text": site.text,
+                    })).collect::<Vec<_>>(),
                 })
                 .to_string(),
             )
@@ -104,6 +114,40 @@ fn main() -> rocx::Result<()> {
             ..Default::default()
         })?,
         "select" => doc.preview_control_choice(&target(1), "two", None)?,
+        "locks" => {
+            let wrappers: Vec<_> = [
+                (ContentControlLock::ControlLocked, Some(true)),
+                (ContentControlLock::ContentLocked, None),
+                (ContentControlLock::ControlAndContentLocked, Some(false)),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(i, (lock, multi_line))| {
+                WrapperEdit::Define(
+                    target(i + 10),
+                    ContentControlProperties {
+                        id: None,
+                        tag: Some(format!("lock-{i}")),
+                        alias: Some(format!("Alias {i} & Café")),
+                        lock: Some(lock),
+                        text: ContentControlText::Plain { multi_line },
+                    },
+                )
+            })
+            .collect();
+            doc.preview_edits(EditBatch {
+                wrappers: &wrappers,
+                ..Default::default()
+            })?
+        }
+        "locked-define" => {
+            let control = &doc.controls()[10].anchor;
+            let error = doc
+                .preview_replace_control(control, &ContentControlProperties::default())
+                .expect_err("locked definition must be rejected");
+            std::fs::write(output, error.to_string()).unwrap();
+            return Ok(());
+        }
         "mixed" => {
             let BodyBlock::Paragraph(outside) = &doc.body()[10] else {
                 panic!("expected ordinary paragraph")

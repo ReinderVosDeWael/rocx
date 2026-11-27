@@ -276,7 +276,11 @@ with `null`. Inspection retains the stored history spelling.
 
 The `fields` view returns original coordinates, instruction text, simple
 versus complex form, raw `dirty_xml` and `locked_xml` values, and the span's
-inline count for a supported field. With its anchor, send an ordinary
+inline count for a supported field. To read one original inline position
+directly, use `view:{"kind":"field-at","anchor":"<body paragraph anchor>","inline_index":1}`.
+The response's `field` contains those five values. A position that does not
+start a supported field returns the native inspection error. For editing,
+use the anchor from the `fields` page in an ordinary
 `{"kind":"field","anchor":"<field anchor>","edit":{...}}`.
 Use `instruction` with a string `value`, `dirty` or `locked` with a boolean
 or explicit `null`, `cache` with an inline `children` list, `replace` with a
@@ -294,10 +298,11 @@ request does not need a deeply nested JSON object:
 ```
 
 Node `0` is the root. References point to later nodes, each used exactly
-once. Flat cache children can be fields, text, tabs, or breaks. The request
-is bounded to 256 field levels, 256 nodes and 1,024 child entries before
-native validation. The original `field` declaration remains available for
-richer cache content.
+once. Flat cache children can be fields, hyperlinks, text, tabs, or breaks.
+Hyperlink children can be text, tabs, or breaks, not fields. The request
+is bounded to 256 container levels, 16,384 nodes and 16,384 child entries, counting
+hyperlink children, before native validation. The original `field`
+declaration remains available for shallow trees.
 
 ### Inspect inlines in a header, footer, or table cell
 
@@ -374,7 +379,9 @@ in notes and comments use the separate entry operation below.
 Use `view:{"kind":"entry-inlines"}` to page through direct inlines in
 footnotes, endnotes, and comments. In `entry_inlines`, each row identifies
 its physical `owner`, entry (kind, original catalog index, and stored ID),
-block and inline indices, and native inline projection. Separator and
+block and inline indices, and native inline projection. A top-level
+revision row carries the stored revision identifier in `revision_id`;
+its `id` still identifies the entry. Separator and
 continuation notes and reference marks are inspectable but do not have inline
 edit anchors. The native editor still checks each issued target for protection
 and eligibility.
@@ -391,7 +398,10 @@ single `preview_edits.operation`:
 
 In one physical part you can insert or replace an eligible inline with
 text, a tab, break, external hyperlink, or embedded image, and format
-eligible direct runs. On pictures use `remove-object`, `image-asset`,
+eligible direct runs. Eligible hyperlink child runs have their own edit
+anchors, but a batch using any of those anchors must contain only `format`
+edits. Direct shape and chart runs in an imported entry likewise support
+format-only edits, not drawing changes. On pictures use `remove-object`, `image-asset`,
 `drawing-description` (including `null` to clear), or `drawing-property`
 with an image donor for `size`, `placement`, `crop`, `transform`, or
 `accessibility`. A new relationship belongs to the entry part, even when
@@ -531,6 +541,20 @@ The native editor does not accept row or cell control wrappers in table
 fragments. Use the separate control wrapping transaction on an eligible
 existing table site.
 
+For deep nesting, use `{"nodes":[...]}` instead of the recursive table
+declaration. Each node has the same `rows` and optional `properties`. Start
+with node `0`; put `{"kind":"table-ref","node":1}` in a cell's `blocks`
+where the nested table belongs. References must point forward and use
+each later node exactly once. Paragraph and plain table blocks remain
+available. A flat declaration allows up to 1,024 nodes, 84 table levels,
+and 16,384 row, cell, and block entries. Across the declaration, it may
+emit up to 65,536 grid columns and 16,384 physical cells, including padding.
+A spanning cell counts once. The native XML depth limit also applies
+when reopening the result. Every constructed table fragment (including
+a nested one) requires at least one cell. A `set-property` donor must
+have at least one row, but its rows may contain no cells because only
+the selected property is copied.
+
 ### Propose and review tracked changes
 
 Use compact inspection for proposal anchors. Send a standalone
@@ -560,7 +584,9 @@ All proposals need `author`. Other proposals may omit `date`; if supplied,
 use a UTC timestamp such as `"2030-02-03T04:05:06Z"`.
 Save and reopen the proposed copy, then call `inspect_document` with
 `view:{"kind":"revisions"}`. Pending revisions list literal metadata and
-original inline paths. Use the returned anchor with `review` for eligible
+original inline paths. For full typed child values, including formatting
+and hyperlink properties, read the original node through `body-inlines`
+and `inline-at`. Use the review anchor from `revisions` with `review` for eligible
 inline wrappers or run property changes and `review-paragraph` for an eligible
 paragraph mark. Set `action` to `accept` or `reject`. Paired move review
 requires both wrapper anchors; pass the second as `operation.paired_anchor`.
@@ -575,6 +601,8 @@ Each row has a slot `anchor`, `section_index`, `kind` (`header` or `footer`)
 and `variant` (`default`, `first` or `even`). The `owner` is `null` for a
 missing slot. When several slots share a package part, their physical owner
 anchor and run anchors match; their slot anchors are still distinct.
+Story discovery does not validate unrelated section layout. Shared edits
+can still succeed when a section-local edit must reject ambiguous layout.
 
 For effective default headers only, use `view:{"kind":"default-headers"}`.
 This independent native reader omits sections without a default header and
@@ -605,9 +633,11 @@ physical owner. Edit eligibility still follows native guards.
   inspected physical part of the same kind, including a default-header
   owner from `default-headers`. To find related but unused
   parts, call `view:{"kind":"linkable-stories","story_kind":"footer"}` (or
-  `"header"`) and use a returned anchor. Use `edit:{"kind":"remove"}` to
-  remove an explicit reference and resume inheritance without deleting the
-  package part, so the part remains available for relinking.
+  `"header"`) and use a returned anchor. Set `include_referenced:true` to
+  include parts already used by a slot, without inspecting stories of the
+  other kind. Cursors are scoped to the story kind and this option.
+  Use `edit:{"kind":"remove"}` to remove an explicit reference and resume
+  inheritance without deleting the part, so it remains available for relinking.
 - Use `create-rich` with `blocks` instead of plain `paragraphs` to author
   formatted content when creating a story. To splice an existing story, use
   `operation:{"kind":"edit-story-blocks","anchor":"<slot anchor>","edit":{"mode":"section-local","index":0,"remove":0,"blocks":[...]}}`.

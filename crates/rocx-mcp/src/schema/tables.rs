@@ -63,7 +63,8 @@ pub(crate) enum PhysicalTableEdit {
         site: PhysicalTableSite,
         /// Native field key from the corresponding properties map, or "width" for a grid column.
         field: String,
-        /// Donor declaration. The core copies only the selected direct property.
+        /// Donor declaration. The core copies only the selected direct property,
+        /// so the donor's rows may have no cells.
         source: Box<RichTableInput>,
     },
 }
@@ -177,7 +178,7 @@ impl PhysicalTableEdit {
             } => TableOperation::Property {
                 site: site.into(),
                 field,
-                source: Some(Box::new(source.resolve()?)),
+                source: Some(Box::new(source.resolve_donor()?)),
             },
         })
     }

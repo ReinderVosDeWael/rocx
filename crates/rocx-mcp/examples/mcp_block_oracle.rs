@@ -4,7 +4,7 @@ use rocx::{
     SectionType, TextRun,
     editor::{
         BlockEdit, BodyBlock, EditBatch, ImportedDocument, ImportedInlineNode, ImportedParagraph,
-        ParagraphFlag, RunTextEdit, SectionFlag,
+        ParagraphAnchor, ParagraphFlag, RunTextEdit, SectionFlag,
     },
 };
 
@@ -25,10 +25,42 @@ fn paragraph(text: &str, bold: bool, alignment: Option<Alignment>) -> ResolvedPa
     .expect("fixture paragraph is enabled")
 }
 
+fn flags_and_types(anchor: impl Fn(usize) -> ParagraphAnchor) -> Vec<BlockEdit> {
+    let mut blocks = Vec::new();
+    for (index, value) in [Some(true), Some(false), None].into_iter().enumerate() {
+        blocks.extend(
+            ParagraphFlag::ALL
+                .iter()
+                .map(|&flag| BlockEdit::ParagraphFlag(anchor(2 * index), flag, value)),
+        );
+        blocks.extend(
+            SectionFlag::ALL
+                .iter()
+                .map(|&flag| BlockEdit::SectionFlag(anchor(2 * index), flag, value)),
+        );
+    }
+    for (index, value) in [
+        Some(SectionType::NextPage),
+        Some(SectionType::NextColumn),
+        Some(SectionType::Continuous),
+        Some(SectionType::EvenPage),
+        Some(SectionType::OddPage),
+        None,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        blocks.push(BlockEdit::SectionType(anchor(2 * index), value));
+    }
+    blocks
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let [source, output, mode] = args.as_slice() else {
-        return Err("usage: mcp_block_oracle SOURCE OUTPUT mixed|split|merge".into());
+        return Err(
+            "usage: mcp_block_oracle SOURCE OUTPUT mixed|split|merge|flags-and-types".into(),
+        );
     };
     let document = ImportedDocument::open(&std::fs::read(source)?)?;
     let sections = document.sections()?;
@@ -39,6 +71,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         paragraph
     };
     let anchor = |index| p(index).anchor.clone();
+    if mode == "flags-and-types" {
+        let preview = document.preview_edits(EditBatch {
+            blocks: &flags_and_types(anchor),
+            ..Default::default()
+        })?;
+        std::fs::write(output, preview.to_docx()?)?;
+        return Ok(());
+    }
     let (blocks, run_index, text) = match mode.to_str() {
         Some("mixed") => (
             vec![

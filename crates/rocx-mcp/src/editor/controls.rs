@@ -61,12 +61,8 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let controls = self
-            .story_controls
-            .get_or_init(|| self.document.story_controls().map_err(|e| e.to_string()))
-            .as_ref()
-            .map_err(Clone::clone)?;
+    ) -> rocx::Result<(Vec<Value>, Option<usize>)> {
+        let controls = super::cached_read(&self.story_controls, || self.document.story_controls())?;
         Ok(page(controls, start, limit, |_, control| describe(control)))
     }
 

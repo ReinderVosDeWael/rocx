@@ -93,7 +93,8 @@ impl ToolKind {
                   body ranges and boundary anchors, {\"kind\":\"stories\"} for all six \
                    header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
                    Use {\"kind\":\"linkable-stories\",\"story_kind\":\"header\"} (or \"footer\") \
-                   for related parts with no effective slot and their link source anchors. \
+                    for link source anchors from unreferenced parts; set include_referenced to \
+                    true to also find parts already used by a section. \
                   Use fields, range-markers and body-inlines for original inline sites, format-runs for \
                    physical run targets, and body-tables or physical-tables for table edits. \
                    Physical-tables accepts a main, story, or entry scope; omit scope for all owners. \
@@ -200,150 +201,7 @@ impl Call {
             Self::Open(input) => {
                 return session.open_document(input.path, input.limits.map(Into::into));
             }
-            Self::Inspect(input) => match input.view {
-                None => session.inspect_document(input.document),
-                Some(View::Body) => session.inspect_body(input.document),
-                Some(View::Entries { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Entries, limit, cursor)
-                }
-                Some(View::Layout {
-                    scope,
-                    limit,
-                    cursor,
-                }) => session.inspect_page(input.document, PageView::Layout(scope), limit, cursor),
-                Some(View::NoteReferences { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::NoteReferences, limit, cursor)
-                }
-                Some(View::Revisions { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Revisions, limit, cursor)
-                }
-                Some(View::Stories { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Stories, limit, cursor)
-                }
-                Some(View::DefaultHeaders { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::DefaultHeaders, limit, cursor)
-                }
-                Some(View::LinkableStories {
-                    story_kind,
-                    limit,
-                    cursor,
-                }) => session.inspect_page(
-                    input.document,
-                    PageView::LinkableStories(story_kind.into()),
-                    limit,
-                    cursor,
-                ),
-                Some(View::StoryInlines {
-                    anchor,
-                    block_index,
-                    limit,
-                    cursor,
-                }) => session.inspect_inline_page(
-                    input.document,
-                    InlineSelector::Story {
-                        anchor: &anchor,
-                        block: block_index,
-                    },
-                    limit,
-                    cursor,
-                ),
-                Some(View::TableCellInlines {
-                    anchor,
-                    row_index,
-                    cell_index,
-                    block_index,
-                    limit,
-                    cursor,
-                }) => session.inspect_inline_page(
-                    input.document,
-                    InlineSelector::TableCell {
-                        anchor: &anchor,
-                        row: row_index,
-                        cell: cell_index,
-                        block: block_index,
-                    },
-                    limit,
-                    cursor,
-                ),
-                Some(View::Sections { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Sections, limit, cursor)
-                }
-                Some(View::Fields { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Fields, limit, cursor)
-                }
-                Some(View::BodyInlines { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
-                }
-                Some(View::InlineAt { inline_handle }) => {
-                    session.inspect_inline_at(input.document, inline_handle)
-                }
-                Some(View::ChartSeries { anchor }) => {
-                    session.inspect_chart_series(input.document, anchor)
-                }
-                Some(View::RangeMarkers { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::RangeMarkers, limit, cursor)
-                }
-                Some(View::Controls { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Controls, limit, cursor)
-                }
-                Some(View::ControlSites { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::ControlSites, limit, cursor)
-                }
-                Some(View::StoryControls { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::StoryControls, limit, cursor)
-                }
-                Some(View::BodyTables { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::BodyTables, limit, cursor)
-                }
-                Some(View::FormatRuns { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::FormatRuns, limit, cursor)
-                }
-                Some(View::PhysicalTables {
-                    scope,
-                    limit,
-                    cursor,
-                }) => session.inspect_physical_table_page(input.document, scope, limit, cursor),
-                Some(View::EntryRuns { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
-                }
-                Some(View::EntryInlines { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::EntryInlines, limit, cursor)
-                }
-                Some(View::Styles { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Styles, limit, cursor)
-                }
-                Some(View::NumberingAbstracts { limit, cursor }) => session.inspect_page(
-                    input.document,
-                    PageView::NumberingAbstracts,
-                    limit,
-                    cursor,
-                ),
-                Some(View::NumberingInstances { limit, cursor }) => session.inspect_page(
-                    input.document,
-                    PageView::NumberingInstances,
-                    limit,
-                    cursor,
-                ),
-                Some(View::ParagraphNumbering { anchor }) => {
-                    session.inspect_paragraph_numbering(input.document, anchor)
-                }
-                Some(View::NumberingParagraphs {
-                    scope,
-                    limit,
-                    cursor,
-                }) => session.inspect_page(
-                    input.document,
-                    PageView::NumberingParagraphs(scope),
-                    limit,
-                    cursor,
-                ),
-                Some(View::Resources { custom_property }) => {
-                    session.inspect_resources(input.document, custom_property)
-                }
-                Some(View::ResourceValue { query }) => {
-                    session.inspect_resource_value(input.document, query)
-                }
-            },
+            Self::Inspect(input) => return dispatch_inspection(input, session),
             Self::Preview(Preview::Ordinary(input)) => {
                 return session.preview_edits(input.document, input.edits);
             }
@@ -400,6 +258,150 @@ impl Call {
             Self::Close(input) => session.close_document(input.document),
         };
         legacy.map_err(ToolError::from)
+    }
+}
+
+fn dispatch_inspection(input: Inspect, session: &mut Session) -> Result<Value, ToolError> {
+    match input.view {
+        None => session.inspect_document(input.document),
+        Some(View::Body) => session.inspect_body(input.document),
+        Some(View::Entries { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Entries, limit, cursor)
+        }
+        Some(View::Layout {
+            scope,
+            limit,
+            cursor,
+        }) => session.inspect_page(input.document, PageView::Layout(scope), limit, cursor),
+        Some(View::NoteReferences { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::NoteReferences, limit, cursor)
+        }
+        Some(View::Revisions { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Revisions, limit, cursor)
+        }
+        Some(View::Stories { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Stories, limit, cursor)
+        }
+        Some(View::DefaultHeaders { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::DefaultHeaders, limit, cursor)
+        }
+        Some(View::LinkableStories {
+            story_kind,
+            include_referenced,
+            limit,
+            cursor,
+        }) => session.inspect_page(
+            input.document,
+            PageView::LinkableStories(story_kind.into(), include_referenced),
+            limit,
+            cursor,
+        ),
+        Some(View::StoryInlines {
+            anchor,
+            block_index,
+            limit,
+            cursor,
+        }) => session.inspect_inline_page(
+            input.document,
+            InlineSelector::Story {
+                anchor: &anchor,
+                block: block_index,
+            },
+            limit,
+            cursor,
+        ),
+        Some(View::TableCellInlines {
+            anchor,
+            row_index,
+            cell_index,
+            block_index,
+            limit,
+            cursor,
+        }) => session.inspect_inline_page(
+            input.document,
+            InlineSelector::TableCell {
+                anchor: &anchor,
+                row: row_index,
+                cell: cell_index,
+                block: block_index,
+            },
+            limit,
+            cursor,
+        ),
+        Some(View::Sections { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Sections, limit, cursor)
+        }
+        Some(View::FieldAt {
+            anchor,
+            inline_index,
+        }) => session.inspect_field_at(input.document, anchor, inline_index),
+        Some(View::Fields { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Fields, limit, cursor)
+        }
+        Some(View::BodyInlines { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
+        }
+        Some(View::InlineAt { inline_handle }) => {
+            session.inspect_inline_at(input.document, inline_handle)
+        }
+        Some(View::ChartSeries { anchor }) => session.inspect_chart_series(input.document, anchor),
+        Some(View::RangeMarkers { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::RangeMarkers, limit, cursor)
+        }
+        Some(View::Controls { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Controls, limit, cursor)
+        }
+        Some(View::ControlSites { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::ControlSites, limit, cursor)
+        }
+        Some(View::StoryControls { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::StoryControls, limit, cursor)
+        }
+        Some(View::BodyTables { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::BodyTables, limit, cursor)
+        }
+        Some(View::FormatRuns { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::FormatRuns, limit, cursor)
+        }
+        Some(View::PhysicalTables {
+            scope,
+            limit,
+            cursor,
+        }) => session.inspect_physical_table_page(input.document, scope, limit, cursor),
+        Some(View::EntryRuns { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
+        }
+        Some(View::EntryInlines { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::EntryInlines, limit, cursor)
+        }
+        Some(View::Styles { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Styles, limit, cursor)
+        }
+        Some(View::NumberingAbstracts { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::NumberingAbstracts, limit, cursor)
+        }
+        Some(View::NumberingInstances { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::NumberingInstances, limit, cursor)
+        }
+        Some(View::ParagraphNumbering { anchor }) => {
+            session.inspect_paragraph_numbering(input.document, anchor)
+        }
+        Some(View::NumberingParagraphs {
+            scope,
+            limit,
+            cursor,
+        }) => session.inspect_page(
+            input.document,
+            PageView::NumberingParagraphs(scope),
+            limit,
+            cursor,
+        ),
+        Some(View::Resources { custom_property }) => {
+            session.inspect_resources(input.document, custom_property)
+        }
+        Some(View::ResourceValue { query }) => {
+            session.inspect_resource_value(input.document, query)
+        }
     }
 }
 

@@ -10,7 +10,7 @@ use rocx::editor::{
 use rocx::{Color, RunFormat, ThemeColor, Underline};
 use serde_json::{Value, json};
 
-use super::{Snapshot, projected_run_text};
+use super::{Snapshot, projected_run_text, read_diagnostic};
 use crate::{diagnostics::ScopedEditError, schema::run_format::RunFormatChange};
 
 const OWNER: &str = "format-owner:";
@@ -181,8 +181,15 @@ impl Page {
         Continue(())
     }
 
-    fn unavailable(&mut self, catalog: &str, error: impl ToString) -> ControlFlow<()> {
-        self.push(|| json!({"kind": "unavailable", "catalog": catalog, "error": error.to_string()}))
+    fn unavailable(&mut self, catalog: &str, error: rocx::Error) -> ControlFlow<()> {
+        self.push(|| {
+            json!({
+                "kind": "unavailable",
+                "catalog": catalog,
+                "error": error.to_string(),
+                "diagnostic": read_diagnostic(error),
+            })
+        })
     }
 
     fn collect(&mut self, doc: &ImportedDocument) -> ControlFlow<()> {
