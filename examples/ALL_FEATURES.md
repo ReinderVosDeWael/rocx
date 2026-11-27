@@ -1,5 +1,12 @@
 # All-features visual inspection catalog
 
+The experimental [layout consumer samples](../crates/rocx-layout/README.md)
+use the standalone, unpublished layout crate. Their output is page geometry;
+the bound editing samples also compare inserted, replaced or deleted text
+and package bytes. The Rust `paint_page` example draws one imported page
+from glyph outlines and baselines. Python and JavaScript consume the same
+physical rows, scalar hits, wrap affinities and selection rectangles.
+
 The catalog's block control is also inspected in all three languages: Rust
 `BodyBlock::ContentControl`, Python `BodyContentControl`, and JavaScript
 `kind: "contentControl"` report the source tag, alias, and lock. Its contents

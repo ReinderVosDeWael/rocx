@@ -20,6 +20,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.12"
@@ -27,6 +28,10 @@ jobs:
       - run: uv sync --locked --group test
       - run: cargo fmt --check
       - run: cargo test --locked --all-targets
+      - run: cargo fmt -p rocx-layout --check
+      - run: cargo test --locked -p rocx-layout --all-targets
+      - run: cargo check --locked -p rocx-layout --lib --target wasm32-unknown-unknown
+      - run: cargo clippy --locked -p rocx-layout -p rocx-layout-python --all-features --all-targets -- -D warnings
       - run: cargo test --locked --all-features --all-targets
       - run: cargo test --locked --all-features --doc
       - run: cargo clippy --locked --all-features --all-targets -- -D warnings
@@ -49,6 +54,11 @@ jobs:
       - run: uv sync --locked --group test
       - run: uv run --no-sync pytest
       - run: uv run --no-sync python tools/check_wheel.py
+      - name: Compare installed layout consumer against native geometry
+        if: matrix.python == '3.12'
+        run: |
+          uv pip install ./crates/rocx-layout
+          .venv/bin/python crates/rocx-layout/tests/python_consumer.py --native
 
   standards:
     runs-on: ubuntu-latest

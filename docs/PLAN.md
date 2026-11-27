@@ -11,6 +11,39 @@ Repository closeout: remove finished worktrees and verified stale topic
 branches as part of completing each task. Follow the cleanup and preservation
 rules in [AGENTS.md](../AGENTS.md).
 
+## Editor foundation in development: rocx-layout (#95)
+
+The [layout engine plan](LAYOUT-PLAN.md) starts with cached shaping, line
+layout and incremental pagination, qualified with a click-to-edit round
+trip and cold-layout equivalence in native Rust and browser Wasm. Track qualification in
+[#95](https://github.com/ReinderVosDeWael/rocx/issues/95).
+
+First slice: an unpublished fixed-line-grid kernel for caller-supplied text
+and a pinned font. Kernel tests and two native integration tests
+passed on Rust 1.88, including an independent DOCX hit/edit/reflow fixture.
+The installed Python extension matched native geometry, and the kernel
+compiled for Wasm on 1.88. JavaScript/Wasm page buffers, scalar hits and reuse
+matched native fixtures on cold, warm and edited revisions; Firefox exercised
+the module worker and transferable buffers. Physical pagination passes the
+exact-fit gate: increasing the bottom margin one layout unit moves a row
+to the next page without rewrapping. Hits, wrap affinity and cross-page
+selections matched native in Wasm. Source-bound DOCX edit previews retain
+the displayed document and produce new bytes. The installed Python binding
+and native Rust produced an identical replacement DOCX; `python-docx`
+read back the change and all non-main package payloads were identical.
+The [browser demo](../javascript/experimental-layout/demo/README.md) opens
+and edits the sample in a worker and downloads the result. Real Firefox
+pointer and download tests verified insertion, replacement, deletion, and
+rollback after rejected text. Direct alignment, before/after spacing, and
+left/right/first-line/hanging indents are exercised through bound import.
+Keep visual navigation and multi-width cache reuse in the cross-host gates.
+Local qualification: 53 layout tests, ten native/Wasm consumer tests,
+TypeScript declarations and installed Python geometry/package parity. The
+Firefox smoke test also compared downloaded DOCX payloads independently.
+The Python extension is a separate crate; its installed-consumer oracle uses
+one cleaned scratch target to isolate a legacy root rlib collision when
+switching compilers ([#96](https://github.com/ReinderVosDeWael/rocx/issues/96)).
+
 ## Active interface milestone: local MCP server (#52)
 
 Build `crates/rocx-mcp` using the [implementation and acceptance plan](MCP-PLAN.md).
