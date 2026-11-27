@@ -8,7 +8,7 @@ use crate::editor::{
     Snapshot,
     body_inlines::{InlineHandles, project},
 };
-use crate::schema::entry_inlines::EntryInlineChange;
+use crate::{diagnostics::ScopedEditError, schema::entry_inlines::EntryInlineChange};
 
 const OWNER: &str = "entry-inline-owner:";
 const INLINE: &str = "entry-inline:";
@@ -94,13 +94,15 @@ impl Snapshot {
         &self,
         owner: &str,
         edits: Vec<EntryInlineChange>,
-    ) -> Result<Vec<u8>, String> {
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+    ) -> Result<Vec<u8>, ScopedEditError> {
+        let entries = self.document.entry_stories()?;
         let owner = owner
             .strip_prefix(OWNER)
             .and_then(index_of)
             .and_then(|i| entries.get(i))
-            .ok_or("wrong_anchor_type: expected a physical entry inline owner")?;
+            .ok_or_else(|| {
+                ScopedEditError::WrongAnchorType("expected a physical entry inline owner".into())
+            })?;
         let target = |local: &str| {
             let mut coordinates = local.strip_prefix(INLINE)?.split(':');
             let (Some(i), Some(block), Some(inline), None) = (
@@ -122,14 +124,18 @@ impl Snapshot {
             .map(|change| {
                 Ok(InlineEdit {
                     target: target(&change.anchor)
-                        .ok_or("wrong_anchor_type: expected an entry inline anchor")?
+                        .ok_or_else(|| {
+                            ScopedEditError::WrongAnchorType(
+                                "expected an entry inline anchor".into(),
+                            )
+                        })?
                         .clone(),
                     action: change.edit.resolve()?,
                 })
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, ScopedEditError>>()?;
         self.document
             .edit_entry_inlines(&owner.part_name, &edits)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 }

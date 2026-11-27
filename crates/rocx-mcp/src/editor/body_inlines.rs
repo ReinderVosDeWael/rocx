@@ -146,7 +146,7 @@ pub(super) fn project(
             let mut row = json!({"kind":"run", "text":text, "has_opaque_content":has_opaque_content,
                    "has_opaque_formatting":run.has_opaque_formatting});
             if let Some(drawing) = &run.drawing {
-                row["drawing"] = json!({
+                let mut value = json!({
                     "kind": drawing.kind, "placement": drawing.placement,
                     "description": drawing.description, "title": drawing.title, "name": drawing.name,
                     "geometry": drawing.geometry, "shape_text": drawing.shape_text,
@@ -155,6 +155,17 @@ pub(super) fn project(
                     "relationship_id": drawing.relationship_id, "width_emu": drawing.width_emu,
                     "height_emu": drawing.height_emu,
                 });
+                for (key, extent) in [
+                    ("width_emu_exact", drawing.width_emu),
+                    ("height_emu_exact", drawing.height_emu),
+                ] {
+                    if let Some(extent) =
+                        extent.filter(|extent| extent.unsigned_abs() > (1 << 53) - 1)
+                    {
+                        value[key] = json!(extent.to_string());
+                    }
+                }
+                row["drawing"] = value;
             }
             row["items"] = inline_items(&run.items);
             row["format"] = format_value(&run.format);

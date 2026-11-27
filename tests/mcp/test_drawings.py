@@ -88,6 +88,31 @@ async def test_drawing_discovery(launch):
         assert not validator.is_valid(dict(document="doc", edits=[edit]))
 
 
+@pytest.mark.parametrize("large_axis", ["width", "height"])
+async def test_drawing_extent_retains_native_integer_precision(launch, tmp_path, large_axis):
+    source = tmp_path / "wide-extent.docx"
+    document = docx.Document()
+    paragraph = document.add_paragraph()
+    paragraph.add_run().add_picture(str(IMAGES / "sample.png"))
+    extent = paragraph._p.xpath(".//wp:extent")[0]
+    small_axis = "height" if large_axis == "width" else "width"
+    extents = {small_axis: "9007199254740991", large_axis: "9007199254740993"}
+    extent.set("cx", extents["width"])
+    extent.set("cy", extents["height"])
+    document.save(source)
+    direct = native(source, "extent", tmp_path / "unused.docx")
+    assert direct == extents
+    async with launch() as client:
+        handle = await opened(client, source)
+        row = (await body(client, handle))[0, 0]
+        drawing = row["drawing"]
+        assert drawing[f"{large_axis}_emu_exact"] == direct[large_axis]
+        assert drawing[f"{small_axis}_emu"] == int(direct[small_axis])
+        assert f"{small_axis}_emu_exact" not in drawing
+        looked_up = await inspect(client, handle, "inline-at", inline_handle=row["inline_handle"])
+        assert looked_up["inline"]["drawing"] == drawing
+
+
 async def test_drawings_native_bytes_and_chart_fork(launch, tmp_path):
     source = tmp_path / "source.docx"
     doc = docx.Document()

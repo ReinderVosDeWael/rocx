@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use rocx::editor::{
     HeaderAnchor, ImportedHeader, ImportedInline, ImportedInlineNode, ImportedRun, ImportedStory,
-    ImportedStoryBlock, InlineAnchor, RunTextEdit, SectionStoryKind, StoryReferenceEdit,
-    mcp_bridge::linkable_story_parts,
+    ImportedStoryBlock, InlineAnchor, InlineEdit, RunTextEdit, SectionStoryKind,
+    StoryReferenceEdit, mcp_bridge::linkable_story_parts,
 };
 use rocx::{HeaderFooterType, ImageData, ImageRun, Paragraph, ResolvedBlock, ResolvedInline};
 use serde_json::{Value, json};
@@ -13,10 +13,15 @@ use super::{
     block_readback::inline_items,
     body_inlines::{InlineHandles, typed_inline_page},
     projected_run_text, resolve,
+    run_format::format_candidate,
 };
-use crate::schema::{
-    payloads::{BlockInput, resolve_component},
-    stories::{StoryBlockChange, StoryImageInput, StoryReferenceChange, StoryTextChange},
+use crate::{
+    diagnostics::ScopedEditError,
+    schema::{
+        payloads::{BlockInput, resolve_component},
+        run_format::RunFormatChange,
+        stories::{StoryBlockChange, StoryImageInput, StoryReferenceChange, StoryTextChange},
+    },
 };
 
 pub(super) fn resolve_story_image(
@@ -57,6 +62,11 @@ const VARIANTS: [HeaderFooterType; 3] = [
     HeaderFooterType::Even,
 ];
 const SLOTS_PER_SECTION: usize = KINDS.len() * VARIANTS.len();
+const SLOT_ANCHOR: &str = "story-slot:";
+const DEFAULT_HEADER_SLOT: &str = "default-header-slot:";
+const DEFAULT_HEADER_OWNER: &str = "default-header-owner:";
+const DEFAULT_HEADER_TEXT: &str = "default-header-text:";
+const DEFAULT_HEADER_FORMAT: &str = "default-header-format:";
 
 #[derive(Clone, Copy)]
 struct Slot {
@@ -91,6 +101,24 @@ impl Slot {
             HeaderFooterType::Even => "even",
         }
     }
+
+    fn anchor(index: usize) -> String {
+        format!("{SLOT_ANCHOR}{index}")
+    }
+}
+
+pub(super) fn section_story_slots(section: usize) -> Vec<Value> {
+    let start = section * SLOTS_PER_SECTION;
+    (start..start + SLOTS_PER_SECTION)
+        .map(|index| {
+            let slot = Slot::at(index);
+            json!({
+                "anchor": Slot::anchor(index),
+                "kind": slot.kind.as_str(),
+                "variant": slot.variant_name(),
+            })
+        })
+        .collect()
 }
 
 struct Stories {
@@ -99,9 +127,10 @@ struct Stories {
 }
 
 impl Stories {
-    fn owner(&self, local: &str) -> Result<(usize, &ImportedStory), String> {
-        let index = Snapshot::story_owner_index(local)
-            .ok_or("wrong_anchor_type: expected a physical story owner")?;
+    fn owner(&self, local: &str) -> Result<(usize, &ImportedStory), ScopedEditError> {
+        let index = Snapshot::story_owner_index(local).ok_or_else(|| {
+            ScopedEditError::WrongAnchorType("expected a physical story owner".into())
+        })?;
         Ok((index, self.owner_at(index)?))
     }
 
@@ -114,6 +143,10 @@ impl Stories {
 }
 
 impl Snapshot {
+    pub fn story_slot_index(local: &str) -> Option<usize> {
+        anchor_index(local, SLOT_ANCHOR)
+    }
+
     pub fn story_owner_index(local: &str) -> Option<usize> {
         anchor_index(local, "story-owner:")
     }
@@ -139,17 +172,17 @@ impl Snapshot {
             let source = story_inline_source(&header.part_name, block_index);
             return Ok(typed_inline_page(nodes, start, limit, &source, handles));
         }
-        let stories = self.stories()?;
+        let stories = self.stories().map_err(|e| e.to_string())?;
         let story = stories.owner_at(owner_index)?;
         let nodes = story.inline_structure(block_index).ok_or(missing)?;
         let source = story_inline_source(&story.part_name, block_index);
         Ok(typed_inline_page(nodes, start, limit, &source, handles))
     }
 
-    fn stories(&self) -> Result<Stories, String> {
+    fn stories(&self) -> rocx::Result<Stories> {
         let mut slots = BTreeMap::new();
         let mut owners = BTreeMap::new();
-        for story in self.document.stories().map_err(|e| e.to_string())? {
+        for story in self.document.stories()? {
             let index = Slot::index(&story);
             let owner = owners.entry(story.part_name.clone()).or_insert(index);
             *owner = (*owner).min(index);
@@ -167,7 +200,7 @@ impl Snapshot {
             return Err("story page limit must be positive".into());
         }
         let len = self.story_slot_count()?;
-        let stories = self.stories()?;
+        let stories = self.stories().map_err(|e| e.to_string())?;
         let end = start.saturating_add(limit).min(len);
         let rows = (start..end)
             .map(|index| {
@@ -187,7 +220,7 @@ impl Snapshot {
                     None => (Value::Null, Vec::new()),
                 };
                 json!({
-                    "anchor": format!("story-slot:{index}"),
+                    "anchor": Slot::anchor(index),
                     "section_index": slot.section,
                     "kind": slot.kind.as_str(),
                     "variant": slot.variant_name(),
@@ -208,18 +241,103 @@ impl Snapshot {
     ) -> Result<(Vec<Value>, Option<usize>), String> {
         let headers = self.document.default_headers().map_err(|e| e.to_string())?;
         let end = start.saturating_add(limit).min(headers.len());
+        let mut owners = BTreeMap::new();
+        for (index, header) in headers[..end].iter().enumerate() {
+            owners.entry(header.part_name.as_str()).or_insert(index);
+        }
         let rows = (start..end)
             .map(|index| {
                 let header = &headers[index];
+                let owner = owners[header.part_name.as_str()];
                 json!({
                     "section_index": header.section_index,
                     "part_name": header.part_name,
                     "inherited": header.inherited,
-                    "blocks": default_header_blocks(header, handles),
+                    "image_slot": {
+                        "anchor": format!("{DEFAULT_HEADER_SLOT}{}", header.section_index),
+                    },
+                    "owner": {
+                        "anchor": format!("{DEFAULT_HEADER_OWNER}{owner}"),
+                        "part_name": header.part_name,
+                    },
+                    "blocks": default_header_blocks(header, owner, handles),
                 })
             })
             .collect();
         Ok((rows, (end < headers.len()).then_some(end)))
+    }
+
+    pub fn default_header_owner_index(local: &str) -> Option<usize> {
+        anchor_index(local, DEFAULT_HEADER_OWNER)
+    }
+
+    pub fn default_header_slot_index(local: &str) -> Option<usize> {
+        anchor_index(local, DEFAULT_HEADER_SLOT)
+    }
+
+    fn default_header_slot_anchor(&self, section: usize) -> rocx::Result<Option<HeaderAnchor>> {
+        Ok(self
+            .document
+            .default_headers()?
+            .into_iter()
+            .find(|header| header.section_index == section)
+            .map(|header| header.anchor))
+    }
+
+    fn default_header_owner(
+        &self,
+        local: &str,
+    ) -> Result<(usize, ImportedHeader), ScopedEditError> {
+        let index = Self::default_header_owner_index(local).ok_or_else(|| {
+            ScopedEditError::WrongAnchorType("expected a physical default-header owner".into())
+        })?;
+        let header = self
+            .document
+            .default_headers()?
+            .into_iter()
+            .nth(index)
+            .ok_or("unknown default-header owner")?;
+        Ok((index, header))
+    }
+
+    pub fn edit_default_header_text(
+        &self,
+        local_owner: &str,
+        edits: Vec<StoryTextChange>,
+    ) -> Result<Vec<u8>, ScopedEditError> {
+        let (owner, header) = self.default_header_owner(local_owner)?;
+        let edits = edits
+            .into_iter()
+            .map(|edit| {
+                let run = default_header_run(&header, owner, &edit.anchor, DEFAULT_HEADER_TEXT)?;
+                Ok(RunTextEdit {
+                    target: run.anchor.clone(),
+                    text: edit.text,
+                })
+            })
+            .collect::<Result<Vec<_>, ScopedEditError>>()?;
+        Ok(self.document.edit_story_text(&header.part_name, &edits)?)
+    }
+
+    pub fn edit_default_header_format(
+        &self,
+        local_owner: &str,
+        edits: Vec<RunFormatChange>,
+    ) -> Result<Vec<u8>, ScopedEditError> {
+        let (owner, header) = self.default_header_owner(local_owner)?;
+        let edits = edits
+            .into_iter()
+            .map(|edit| {
+                let run = default_header_run(&header, owner, &edit.anchor, DEFAULT_HEADER_FORMAT)?;
+                Ok(InlineEdit {
+                    target: run.anchor.clone(),
+                    action: edit.edit.into(),
+                })
+            })
+            .collect::<Result<Vec<_>, ScopedEditError>>()?;
+        Ok(self
+            .document
+            .edit_run_format(Some(&header.part_name), &edits)?)
     }
 
     pub fn linkable_story_page(
@@ -228,7 +346,9 @@ impl Snapshot {
         start: usize,
         limit: usize,
     ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let parts = self.unreferenced_story_parts(kind)?;
+        let parts = self
+            .unreferenced_story_parts(kind)
+            .map_err(|e| e.to_string())?;
         let end = start.saturating_add(limit).min(parts.len());
         let rows = (start..end)
             .map(|index| {
@@ -243,8 +363,8 @@ impl Snapshot {
         Ok((rows, (end < parts.len()).then_some(end)))
     }
 
-    fn unreferenced_story_parts(&self, kind: SectionStoryKind) -> Result<Vec<String>, String> {
-        linkable_story_parts(&self.document, kind).map_err(|e| e.to_string())
+    fn unreferenced_story_parts(&self, kind: SectionStoryKind) -> rocx::Result<Vec<String>> {
+        linkable_story_parts(&self.document, kind)
     }
 
     fn story_slot_count(&self) -> Result<usize, String> {
@@ -256,7 +376,10 @@ impl Snapshot {
 
     // The session resolves only anchors issued to the caller for this snapshot.
     pub fn story_image_anchor(&self, local: &str) -> Option<HeaderAnchor> {
-        let index = anchor_index(local, "story-slot:")?;
+        if let Some(section) = Self::default_header_slot_index(local) {
+            return self.default_header_slot_anchor(section).ok().flatten();
+        }
+        let index = Self::story_slot_index(local)?;
         self.stories().ok()?.slots.remove(&index)?.anchor
     }
 
@@ -264,7 +387,7 @@ impl Snapshot {
         &self,
         local_owner: &str,
         edits: Vec<StoryTextChange>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, ScopedEditError> {
         let stories = self.stories()?;
         let (owner, story) = stories.owner(local_owner)?;
         let edits = edits
@@ -275,19 +398,20 @@ impl Snapshot {
                     text: edit.text,
                 })
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, ScopedEditError>>()?;
         self.document
             .edit_story_text(&story.part_name, &edits)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 
     pub fn edit_story_reference(
         &self,
         local_slot: &str,
         edit: StoryReferenceChange,
-    ) -> Result<Vec<u8>, String> {
-        let index = anchor_index(local_slot, "story-slot:")
-            .ok_or("wrong_anchor_type: expected a logical story slot")?;
+    ) -> Result<Vec<u8>, ScopedEditError> {
+        let index = Self::story_slot_index(local_slot).ok_or_else(|| {
+            ScopedEditError::WrongAnchorType("expected a logical story slot".into())
+        })?;
         let slot = Slot::at(index);
         let edit = match edit {
             StoryReferenceChange::Create { paragraphs } => StoryReferenceEdit::Create(
@@ -309,11 +433,21 @@ impl Snapshot {
         };
         self.document
             .edit_story_reference(slot.section, slot.kind, slot.variant, edit)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 
-    fn story_link_part(&self, kind: SectionStoryKind, anchor: &str) -> Result<String, String> {
+    fn story_link_part(
+        &self,
+        kind: SectionStoryKind,
+        anchor: &str,
+    ) -> Result<String, ScopedEditError> {
         let wrong_kind = "expected a same-kind physical story owner";
+        if Self::default_header_owner_index(anchor).is_some() {
+            if kind != SectionStoryKind::Header {
+                return Err(wrong_kind.into());
+            }
+            return Ok(self.default_header_owner(anchor)?.1.part_name);
+        }
         if let Some(candidate) = anchor.strip_prefix("linkable-story-owner:") {
             let (source_kind, index) = candidate
                 .split_once(':')
@@ -340,10 +474,22 @@ impl Snapshot {
         &self,
         local: &str,
         edit: StoryBlockChange,
-    ) -> Result<Vec<u8>, String> {
-        let anchor = self
-            .story_image_anchor(local)
-            .ok_or("wrong_anchor_type: expected a logical slot with an existing story")?;
+    ) -> Result<Vec<u8>, ScopedEditError> {
+        let wrong = || {
+            ScopedEditError::WrongAnchorType(
+                "expected a logical slot with an existing story".into(),
+            )
+        };
+        let anchor = if let Some(section) = Self::default_header_slot_index(local) {
+            self.default_header_slot_anchor(section)?
+        } else {
+            let index = Self::story_slot_index(local).ok_or_else(wrong)?;
+            self.stories()?
+                .slots
+                .remove(&index)
+                .and_then(|story| story.anchor)
+        }
+        .ok_or_else(wrong)?;
         let content = edit
             .blocks
             .into_iter()
@@ -351,7 +497,7 @@ impl Snapshot {
             .collect::<Result<Vec<_>, _>>()?;
         self.document
             .edit_story_blocks(&anchor, edit.mode.into(), edit.index, edit.remove, &content)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 }
 
@@ -371,7 +517,53 @@ fn story_inline_source(part: &str, block: usize) -> String {
     format!("inline:story:{}:{part}:{block}", part.len())
 }
 
-fn default_header_blocks(header: &ImportedHeader, handles: &mut InlineHandles<'_>) -> Vec<Value> {
+fn default_header_run<'a>(
+    header: &'a ImportedHeader,
+    owner: usize,
+    local: &str,
+    prefix: &str,
+) -> Result<&'a ImportedRun, ScopedEditError> {
+    let mut rest = local
+        .strip_prefix(prefix)
+        .ok_or_else(|| {
+            ScopedEditError::WrongAnchorType("expected a default-header run target".into())
+        })?
+        .split(':');
+    let first = rest.next().and_then(index_number);
+    if first != Some(owner) {
+        return Err("default-header run owner mismatch".into());
+    }
+    let block = rest.next().and_then(index_number);
+    let inline = rest.next().and_then(index_number);
+    let child = rest.next();
+    let invalid = "unknown default-header run target";
+    if rest.next().is_some() {
+        return Err(invalid.into());
+    }
+    let node = header
+        .inline_structure(block.ok_or(invalid)?)
+        .and_then(|nodes| nodes.get(inline?))
+        .ok_or(invalid)?;
+    match (prefix, node, child) {
+        (DEFAULT_HEADER_TEXT, ImportedInlineNode::Run(run), None) if text_candidate(run) => Ok(run),
+        (DEFAULT_HEADER_FORMAT, ImportedInlineNode::Run(run), None) if format_candidate(run) => {
+            Ok(run)
+        }
+        (DEFAULT_HEADER_FORMAT, ImportedInlineNode::Hyperlink(link), Some(child)) => {
+            match index_number(child).and_then(|index| link.children.get(index)) {
+                Some(ImportedInlineNode::Run(run)) if format_candidate(run) => Ok(run),
+                _ => Err(invalid.into()),
+            }
+        }
+        _ => Err(invalid.into()),
+    }
+}
+
+fn default_header_blocks(
+    header: &ImportedHeader,
+    owner: usize,
+    handles: &mut InlineHandles<'_>,
+) -> Vec<Value> {
     header
         .blocks
         .iter()
@@ -386,6 +578,7 @@ fn default_header_blocks(header: &ImportedHeader, handles: &mut InlineHandles<'_
                     "type": "paragraph", "index": index, "text": text,
                     "has_opaque_content": has_opaque_content,
                     "inline_items": inline_items(items), "inlines": inlines,
+                    "run_targets": default_header_run_targets(nodes, owner, index),
                 })
             }
             ImportedStoryBlock::Opaque(name) => {
@@ -394,6 +587,47 @@ fn default_header_blocks(header: &ImportedHeader, handles: &mut InlineHandles<'_
             _ => json!({"type": "opaque", "index": index, "name": "unknown"}),
         })
         .collect()
+}
+
+fn default_header_run_targets(
+    nodes: &[ImportedInlineNode],
+    owner: usize,
+    block: usize,
+) -> Vec<Value> {
+    let mut targets = Vec::new();
+    for (inline, node) in nodes.iter().enumerate() {
+        let location = format!("{owner}:{block}:{inline}");
+        match node {
+            ImportedInlineNode::Run(run) => {
+                let (text, format) = (text_candidate(run), format_candidate(run));
+                if text || format {
+                    let mut row = json!({"inline_index": inline});
+                    if text {
+                        row["anchor"] = json!(format!("{DEFAULT_HEADER_TEXT}{location}"));
+                    }
+                    if format {
+                        row["format_target"] =
+                            json!({"anchor": format!("{DEFAULT_HEADER_FORMAT}{location}")});
+                    }
+                    targets.push(row);
+                }
+            }
+            ImportedInlineNode::Hyperlink(link) => {
+                for (child, node) in link.children.iter().enumerate() {
+                    if matches!(node, ImportedInlineNode::Run(run) if format_candidate(run)) {
+                        targets.push(json!({
+                            "inline_index": inline, "child_index": child,
+                            "format_target": {
+                                "anchor": format!("{DEFAULT_HEADER_FORMAT}{location}:{child}"),
+                            },
+                        }));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    targets
 }
 
 fn story_blocks(story: &ImportedStory, owner: usize) -> Vec<Value> {
@@ -473,11 +707,11 @@ fn run_target<'a>(
     story: &'a ImportedStory,
     owner: usize,
     local: &str,
-) -> Result<&'a InlineAnchor, String> {
+) -> Result<&'a InlineAnchor, ScopedEditError> {
     let invalid = "unknown story run candidate";
     let mut indexes = local
         .strip_prefix("story-run:")
-        .ok_or("wrong_anchor_type: expected a story run candidate")?
+        .ok_or_else(|| ScopedEditError::WrongAnchorType("expected a story run candidate".into()))?
         .split(':');
     let source = indexes.next().and_then(index_number).ok_or(invalid)?;
     if source != owner {

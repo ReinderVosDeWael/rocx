@@ -1,10 +1,10 @@
 use crate::{
-    diagnostics::ToolError,
+    diagnostics::{ScopedEditError, ToolError},
     editor::{InlineHandles, PhysicalTableScope, PhysicalTableTarget, Snapshot},
     schema::{
         Edit, PhysicalTableSelector,
         entry_inlines::EntryInlineChange,
-        layout::LayoutChange,
+        layout::{LayoutChange, LayoutScope},
         notes::{NoteChange, NoteKind},
         numbering::{NumberingChange, PhysicalNumberingScope},
         resources::ResourceQuery,
@@ -63,7 +63,7 @@ pub(crate) enum PageView {
     EntryInlines,
     Fields,
     FormatRuns,
-    Layout,
+    Layout(LayoutScope),
     NoteReferences,
     NumberingAbstracts,
     NumberingInstances,
@@ -106,7 +106,7 @@ impl PageView {
             Self::EntryInlines => "entry-inlines",
             Self::Fields => "fields",
             Self::FormatRuns => "format-runs",
-            Self::Layout => "layout",
+            Self::Layout(_) => "layout",
             Self::NoteReferences => "note-references",
             Self::NumberingAbstracts => "numbering-abstracts",
             Self::NumberingInstances => "numbering-instances",
@@ -130,6 +130,8 @@ impl PageView {
     fn cursor_key(self, next: usize) -> String {
         let key = self.key();
         match self {
+            Self::Layout(LayoutScope::Paragraphs) => format!("{key}:paragraphs:{next}"),
+            Self::Layout(LayoutScope::Sections) => format!("{key}:sections:{next}"),
             Self::PhysicalTables(PhysicalTableScope::Main) => format!("{key}:main:{next}"),
             Self::PhysicalTables(PhysicalTableScope::Story(owner)) => {
                 format!("{key}:story:{owner}:{next}")
@@ -188,6 +190,57 @@ fn scope_anchors(value: &mut Value, owner: &str, issued: &mut impl FnMut(&str)) 
 }
 
 impl Session {
+    pub fn is_default_header_owner(anchor: &str) -> bool {
+        anchor
+            .split_once('/')
+            .and_then(|(_, local)| Snapshot::default_header_owner_index(local))
+            .is_some()
+    }
+
+    fn is_default_header_slot(anchor: &str) -> bool {
+        anchor
+            .split_once('/')
+            .and_then(|(_, local)| Snapshot::default_header_slot_index(local))
+            .is_some()
+    }
+
+    pub fn preview_default_header_text(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<StoryTextChange>,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let view = PageView::DefaultHeaders;
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_default_header_text(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
+    }
+
+    pub fn preview_default_header_format(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<RunFormatChange>,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let view = PageView::DefaultHeaders;
+        Self::scoped_anchor(doc, &document, view, anchor)?;
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_default_header_format(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
+    }
+
     fn document(&self, id: &str) -> Result<&Document, String> {
         self.documents.get(id).ok_or_else(|| UNKNOWN.into())
     }
@@ -527,7 +580,7 @@ impl Session {
             }
             PageView::Fields => doc.snapshot.field_page(start, limit),
             PageView::FormatRuns => doc.snapshot.format_run_page(start, limit),
-            PageView::Layout => doc.snapshot.layout_page(start, limit),
+            PageView::Layout(scope) => doc.snapshot.layout_page(scope, start, limit),
             PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
             PageView::NumberingAbstracts => doc.snapshot.numbering_page(true, start, limit),
             PageView::NumberingInstances => doc.snapshot.numbering_page(false, start, limit),
@@ -579,11 +632,11 @@ impl Session {
             }
         }
         .map_err(|e| format!("inspection_failed: {e}"))?;
-        let anchor_view = if matches!(view, PageView::PhysicalTables(_)) {
-            // All selectors publish the same target types, independent of page scope.
-            PageView::PhysicalTables(PhysicalTableScope::All)
-        } else {
-            view
+        // All selectors publish the same target types, independent of page scope.
+        let anchor_view = match view {
+            PageView::PhysicalTables(_) => PageView::PhysicalTables(PhysicalTableScope::All),
+            PageView::Layout(_) => PageView::Layout(LayoutScope::All),
+            _ => view,
         };
         for row in &mut rows {
             if view == PageView::Stories {
@@ -599,7 +652,15 @@ impl Session {
                 }
             }
             scope_anchors(row, &document, &mut |local| {
-                doc.view_anchors.insert(local.to_owned(), anchor_view);
+                if view == PageView::Sections && Snapshot::story_slot_index(local).is_some() {
+                    // A section-issued slot can edit references, but must not
+                    // grant or revoke the capabilities of a stories-issued slot.
+                    doc.view_anchors
+                        .entry(local.to_owned())
+                        .or_insert(anchor_view);
+                } else {
+                    doc.view_anchors.insert(local.to_owned(), anchor_view);
+                }
             });
         }
         let next_cursor = next.map(|n| {
@@ -642,8 +703,8 @@ impl Session {
         document: String,
         anchor: String,
         edit: rocx::editor::EntryEdit,
-    ) -> Result<Value, String> {
-        self.preview_scoped(
+    ) -> Result<Value, ToolError> {
+        self.stage_scoped_edit(
             document,
             PageView::Entries,
             &anchor,
@@ -662,8 +723,8 @@ impl Session {
         anchor: String,
         kind: NoteKind,
         edit: NoteChange,
-    ) -> Result<Value, String> {
-        self.preview_scoped(
+    ) -> Result<Value, ToolError> {
+        self.stage_scoped_edit(
             document,
             PageView::NoteReferences,
             &anchor,
@@ -683,16 +744,12 @@ impl Session {
         paired: Option<String>,
         edit: RevisionChange,
     ) -> Result<Value, ToolError> {
-        self.stage_scoped(
+        self.stage_scoped_edit(
             document,
             PageView::Revisions,
             &anchor,
             paired.as_deref(),
-            |snapshot, local, paired| {
-                snapshot
-                    .preview_revision(local, paired, edit)
-                    .map_err(ToolError::from)
-            },
+            |snapshot, local, paired| snapshot.preview_revision(local, paired, edit),
         )
     }
 
@@ -700,18 +757,24 @@ impl Session {
         &mut self,
         document: String,
         mut edits: Vec<LayoutChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         for edit in &mut edits {
-            edit.anchor =
-                Self::scoped_anchor(doc, &document, PageView::Layout, &edit.anchor)?.to_owned();
+            edit.anchor = Self::scoped_anchor(
+                doc,
+                &document,
+                PageView::Layout(LayoutScope::All),
+                &edit.anchor,
+            )?
+            .to_owned();
         }
         self.check_preview_limit(0)?;
         let (bytes, changes) = doc
             .snapshot
             .preview_layout(edits)
-            .map_err(|e| format!("rejected_batch: {e}; revise the layout edits and retry"))?;
+            .map_err(|error| ToolError::scoped(error, "revise the layout edits and retry"))?;
         self.retain_preview(document, bytes, changes)
+            .map_err(ToolError::from)
     }
 
     pub fn preview_story_text(
@@ -719,7 +782,7 @@ impl Session {
         document: String,
         anchor: &str,
         mut edits: Vec<StoryTextChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let view = if anchor
             .split_once('/')
@@ -732,7 +795,7 @@ impl Session {
         for edit in &mut edits {
             edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
         }
-        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
             let bytes = match view {
                 PageView::EntryRuns => snapshot.edit_entry_story_text(local, edits),
                 _ => snapshot.edit_story_text(local, edits),
@@ -746,7 +809,7 @@ impl Session {
         document: String,
         anchor: &str,
         mut edit: StoryReferenceChange,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         if let StoryReferenceChange::Link { anchor } = &mut edit {
             let view = match anchor
@@ -754,21 +817,25 @@ impl Session {
                 .and_then(|(_, local)| doc.view_anchors.get(local))
             {
                 Some(view @ PageView::LinkableStories(_)) => *view,
+                Some(PageView::DefaultHeaders) => PageView::DefaultHeaders,
                 _ => PageView::Stories,
             };
             *anchor = Self::scoped_anchor(doc, &document, view, anchor)?.to_owned();
         }
-        self.preview_scoped(
-            document,
-            PageView::Stories,
-            anchor,
-            None,
-            |snapshot, local, _| {
-                snapshot
-                    .edit_story_reference(local, edit)
-                    .map(|bytes| (bytes, Value::Null))
-            },
-        )
+        let view = match anchor.split_once('/') {
+            Some((_, local))
+                if Snapshot::story_slot_index(local).is_some()
+                    && doc.view_anchors.get(local) == Some(&PageView::Sections) =>
+            {
+                PageView::Sections
+            }
+            _ => PageView::Stories,
+        };
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_story_reference(local, edit)
+                .map(|bytes| (bytes, Value::Null))
+        })
     }
 
     pub fn preview_entry_inlines(
@@ -776,31 +843,34 @@ impl Session {
         document: String,
         anchor: &str,
         mut edits: Vec<EntryInlineChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let view = PageView::EntryInlines;
         Self::scoped_anchor(doc, &document, view, anchor)?;
         if edits.is_empty() {
-            return Err("invalid_batch: supply at least one entry inline edit".into());
+            return Err("invalid_batch: supply at least one entry inline edit"
+                .to_owned()
+                .into());
         }
         for edit in &mut edits {
             edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
         }
-        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
             snapshot
                 .edit_entry_inlines(local, edits)
                 .map(|bytes| (bytes, Value::Null))
         })
     }
 
-    pub fn preview_noop(&mut self, document: String) -> Result<Value, String> {
+    pub fn preview_noop(&mut self, document: String) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         self.check_preview_limit(0)?;
         let (bytes, changes) = doc
             .snapshot
             .preview_noop()
-            .map_err(|e| format!("rejected_batch: {e}"))?;
+            .map_err(|error| ToolError::native("rejected_batch", error, ToString::to_string))?;
         self.retain_preview(document, bytes, changes)
+            .map_err(ToolError::from)
     }
 
     pub fn preview_story_blocks(
@@ -808,18 +878,17 @@ impl Session {
         document: String,
         anchor: &str,
         edit: StoryBlockChange,
-    ) -> Result<Value, String> {
-        self.preview_scoped(
-            document,
-            PageView::Stories,
-            anchor,
-            None,
-            |snapshot, local, _| {
-                snapshot
-                    .edit_story_blocks(local, edit)
-                    .map(|bytes| (bytes, Value::Null))
-            },
-        )
+    ) -> Result<Value, ToolError> {
+        let view = if Self::is_default_header_slot(anchor) {
+            PageView::DefaultHeaders
+        } else {
+            PageView::Stories
+        };
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_story_blocks(local, edit)
+                .map(|bytes| (bytes, Value::Null))
+        })
     }
 
     pub fn preview_run_format(
@@ -827,14 +896,14 @@ impl Session {
         document: String,
         anchor: &str,
         mut edits: Vec<RunFormatChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let view = PageView::FormatRuns;
         Self::scoped_anchor(doc, &document, view, anchor)?;
         for edit in &mut edits {
             edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
         }
-        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
             snapshot
                 .edit_run_format(local, edits)
                 .map(|bytes| (bytes, Value::Null))
@@ -846,7 +915,7 @@ impl Session {
         document: String,
         anchor: &str,
         mut edits: Vec<PhysicalTableChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let view = PageView::PhysicalTables(PhysicalTableScope::All);
         let local = Self::scoped_anchor(doc, &document, view, anchor)?;
@@ -861,14 +930,9 @@ impl Session {
                 |anchor| doc.physical_table_targets.get(anchor),
                 edits,
             )
-            .map_err(|e| {
-                if e.starts_with("wrong_anchor_type: ") {
-                    e
-                } else {
-                    format!("rejected_batch: {e}; revise the operation and retry")
-                }
-            })?;
+            .map_err(ToolError::from)?;
         self.retain_preview(document, bytes, Value::Null)
+            .map_err(ToolError::from)
     }
 
     fn scoped_anchor<'a>(
@@ -902,33 +966,14 @@ impl Session {
         }
     }
 
-    fn preview_scoped(
+    fn stage_scoped_edit(
         &mut self,
         document: String,
         view: PageView,
         anchor: &str,
         paired: Option<&str>,
-        run: impl FnOnce(&Snapshot, &str, Option<&str>) -> Result<(Vec<u8>, Value), String>,
-    ) -> Result<Value, String> {
-        self.stage_scoped(document, view, anchor, paired, |snapshot, local, paired| {
-            run(snapshot, local, paired).map_err(|e| {
-                if e.starts_with("wrong_anchor_type: ") {
-                    e
-                } else {
-                    format!("rejected_batch: {e}; revise the operation and retry")
-                }
-            })
-        })
-    }
-
-    fn stage_scoped<E: From<String>>(
-        &mut self,
-        document: String,
-        view: PageView,
-        anchor: &str,
-        paired: Option<&str>,
-        run: impl FnOnce(&Snapshot, &str, Option<&str>) -> Result<(Vec<u8>, Value), E>,
-    ) -> Result<Value, E> {
+        run: impl FnOnce(&Snapshot, &str, Option<&str>) -> Result<(Vec<u8>, Value), ScopedEditError>,
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let local = Self::scoped_anchor(doc, &document, view, anchor)?;
         let paired = paired
@@ -937,7 +982,7 @@ impl Session {
         self.check_preview_limit(0)?;
         let (bytes, changes) = run(&doc.snapshot, local, paired)?;
         self.retain_preview(document, bytes, changes)
-            .map_err(E::from)
+            .map_err(ToolError::from)
     }
 
     pub fn preview_edits(
@@ -997,6 +1042,9 @@ impl Session {
                 continue;
             }
             let view = match edit {
+                Edit::HeaderImage { anchor, .. } if Self::is_default_header_slot(anchor) => {
+                    Some(PageView::DefaultHeaders)
+                }
                 Edit::HeaderImage { .. } => Some(PageView::Stories),
                 Edit::Block { .. } => Some(PageView::Sections),
                 Edit::Field { .. } => Some(PageView::Fields),

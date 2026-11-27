@@ -155,6 +155,39 @@ fn edit(source: &Path, case: &str) -> Vec<u8> {
     .unwrap()
 }
 
+fn write_modeled(
+    source: &Path,
+    values: &Path,
+    phase: &str,
+    metadata_fields: &[std::ffi::OsString],
+) -> Vec<u8> {
+    let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    let values = ImportedDocument::open(&fs::read(values).unwrap()).unwrap();
+    let set = match phase {
+        "set" => true,
+        "clear" => false,
+        _ => panic!("unknown modeled write phase: {phase}"),
+    };
+    let mut edits: Vec<_> = values
+        .document_defaults()
+        .unwrap()
+        .into_iter()
+        .map(|(field, value)| ResourceEdit::Default(field, set.then_some(value)))
+        .collect();
+    edits.extend(metadata_fields.iter().map(|field| {
+        let field = field.to_str().unwrap().parse::<MetadataField>().unwrap();
+        let value = values.metadata_field(field).unwrap().unwrap();
+        ResourceEdit::Metadata(field, set.then_some(value))
+    }));
+    doc.preview_edits(EditBatch {
+        resources: &edits,
+        ..EditBatch::default()
+    })
+    .unwrap()
+    .to_docx()
+    .unwrap()
+}
+
 fn main() {
     let args: Vec<_> = env::args_os().skip(1).collect();
     match args.as_slice() {
@@ -162,12 +195,25 @@ fn main() {
             let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
             println!("{}", inspect(&doc, query.to_str().unwrap(), fields));
         }
+        [command, output, source, values, phase, fields @ ..] if command == "write-modeled" => {
+            fs::write(
+                output,
+                write_modeled(
+                    Path::new(source),
+                    Path::new(values),
+                    phase.to_str().unwrap(),
+                    fields,
+                ),
+            )
+            .unwrap();
+        }
         [output, source, case] => {
             fs::write(output, edit(Path::new(source), case.to_str().unwrap())).unwrap();
         }
         _ => panic!(
             "usage: mcp_resource_oracle OUTPUT SOURCE mixed|direct \
-             or mcp_resource_oracle inspect SOURCE QUERY [FIELD ...]"
+             or mcp_resource_oracle inspect SOURCE QUERY [FIELD ...] \
+             or mcp_resource_oracle write-modeled OUTPUT SOURCE VALUES set|clear [FIELD ...]"
         ),
     }
 }

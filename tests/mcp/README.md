@@ -94,6 +94,20 @@ Additional scoped and import coverage:
 - `test_physical_inlines.py` compares typed paragraph readback in a shared
   header and footer and in body table cells with direct Rust inspection. It
   also checks pagination, original indices, and anchor/cursor owner errors.
+- `test_inline_at.py` checks read handles in body, table-cell, story, and
+  entry paragraphs, including nested hyperlink and revision nodes. It
+  rejects reuse as edit anchors and across snapshots.
+- `test_block_readback.py`, `test_default_headers.py`, and
+  `test_catalog_isolation.py` compare ordered blocks and independent read
+  scopes with Rust. They check that malformed unrelated catalogs do not
+  block supported queries and edits.
+- `test_linkable_stories.py` removes the last slot reference, reopens the
+  copy, and compares relinking the retained part with a native save.
+- `test_native_diagnostics.py` checks native diagnostics, legacy failure
+  categories, and retry without losing the original snapshot.
+- `test_field_tree.py` compares deeply nested fields with direct Rust bytes
+  using a flat request. It checks topology and size guards, retry, and
+  independent package readback.
 - `test_physical_tables.py` distinguishes ordinary body table anchors from
   physical-owner anchors and covers native geometry and cell edits.
   `test_rich_table.py` checks recursive cell declarations and independent

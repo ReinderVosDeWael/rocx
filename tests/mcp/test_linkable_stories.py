@@ -1,8 +1,12 @@
 """Installed stdio discovery and relinking of unreferenced story parts."""
 
+from xml.etree import ElementTree
+from zipfile import ZipFile
+
 import docx
-from docx.opc.packuri import PackURI
 from docx.opc.constants import RELATIONSHIP_TYPE
+from docx.opc.packuri import PackURI
+from docx.oxml.ns import qn
 from jsonschema.validators import validator_for
 import pytest
 
@@ -109,3 +113,37 @@ async def test_relink_story_without_effective_slot(launch, story_source):
     assert {key for key in before if before[key] != after[key]} == {MAIN}
     assert docx.Document(output).sections[1].footer.paragraphs[0].text == "Explicit footer override"
     validate(output)
+
+
+async def test_link_default_header_when_unrelated_footer_is_malformed(launch, story_source):
+    content = parts(story_source)
+    malformed = ElementTree.fromstring(content[OVERRIDE])
+    malformed.tag = qn("w:hdr")
+    content[OVERRIDE] = ElementTree.tostring(malformed)
+    with ZipFile(story_source, "w") as archive:
+        for name, payload in content.items():
+            archive.writestr(name, payload)
+    original = story_source.read_bytes()
+
+    async with launch() as client:
+        document = await open_document(client, story_source)
+        await failure(client, "inspect_document", "inspection_failed", document=document,
+                      view={"kind": "stories"})
+        headers = await call(client, "inspect_document", document=document,
+                             view={"kind": "default-headers"})
+        sections = await call(client, "inspect_document", document=document,
+                              view={"kind": "sections"})
+        slots = sections["sections"][1]["story_slots"]
+        header, = [slot for slot in slots if (slot["kind"], slot["variant"]) == ("header", "even")]
+        footer, = [slot for slot in slots if (slot["kind"], slot["variant"]) == ("footer", "even")]
+        owner = headers["default_headers"][0]["owner"]["anchor"]
+        operation = dict(kind="edit-story-reference", anchor=header["anchor"],
+                         edit=dict(kind="link", anchor=owner))
+        await failure(client, "preview_edits", "rejected_batch", document=document,
+                      operation=dict(operation, anchor=footer["anchor"]))
+        output = await save_preview(client, document, story_source, "link-default-only", operation)
+
+    assert story_source.read_bytes() == original
+    saved_parts = parts(output)
+    assert saved_parts.keys() == content.keys()
+    assert {name for name in content if content[name] != saved_parts[name]} == {MAIN}

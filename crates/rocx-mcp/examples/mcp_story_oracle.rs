@@ -164,6 +164,11 @@ fn main() {
         "remove" => doc
             .edit_story_reference(1, Footer, Default, StoryReferenceEdit::Remove)
             .unwrap(),
+        "link-default-only" => {
+            let part = doc.default_headers().unwrap()[0].part_name.clone();
+            doc.edit_story_reference(1, Header, Even, StoryReferenceEdit::Link(part))
+                .unwrap()
+        }
         "relink" => doc
             .edit_story_reference(
                 1,

@@ -2,9 +2,10 @@
 use std::{env, fs};
 
 use rocx::{
-    Component, Hyperlink, HyperlinkTarget, Paragraph, ResolvedBlock, RunFormat, Table, TableCell,
-    TableCellProperties, TableLayout, TableProperties, TableRow, TableRowProperties, TextRun,
-    VerticalAlignment,
+    BorderLine, BorderSide, CellBorder, CellBorderSide, CellMargins, CellTextDirection, Component,
+    Hyperlink, HyperlinkTarget, Paragraph, ResolvedBlock, ResolvedTable, RowHeight, RunFormat,
+    Table, TableAlignment, TableBorder, TableCell, TableCellProperties, TableLayout, TableLook,
+    TableProperties, TableRow, TableRowProperties, TextRun, VerticalAlignment, VerticalMerge,
     editor::{
         BodyBlock, EditBatch, ImportedDocument, ImportedInlineNode, RunTextEdit, TableOperation,
         TableSite, TableStructureEdit,
@@ -144,10 +145,200 @@ fn body_mixed(doc: &ImportedDocument) -> Vec<u8> {
     .unwrap()
 }
 
+fn property_donor() -> ResolvedTable {
+    let color = [1, 2, 3];
+    let cell = TableCell::new(vec![
+        Paragraph::from_children(vec![
+            Hyperlink::new(
+                HyperlinkTarget::external("https://example.org/donor-only").unwrap(),
+                vec![TextRun::new("not copied").into()],
+            )
+            .into(),
+        ])
+        .into(),
+    ])
+    .with_properties(TableCellProperties {
+        grid_span: Some(2),
+        vmerge: Some(VerticalMerge::Restart),
+        background_color: Some(color),
+        vertical_alignment: Some(VerticalAlignment::Bottom),
+        text_direction: Some(CellTextDirection::TopToBottomRightToLeft),
+        margins: Some(CellMargins {
+            top: Some(4.5),
+            start: Some(3.0),
+            bottom: Some(5.0),
+            end: Some(8.0),
+        }),
+        borders: [
+            CellBorderSide::Top,
+            CellBorderSide::Bottom,
+            CellBorderSide::Start,
+            CellBorderSide::End,
+        ]
+        .map(|side| CellBorder {
+            side,
+            sz: 8,
+            color,
+            val: BorderLine::Dashed,
+        })
+        .into(),
+        content_control: None,
+    });
+    resolve(
+        Table::new(vec![
+            TableRow::new(vec![cell.into()])
+                .with_properties(TableRowProperties {
+                    height: Some(RowHeight::AtLeast(16.0)),
+                    repeat_header: Some(false),
+                    cant_split: Some(true),
+                    content_control: None,
+                })
+                .into(),
+        ])
+        .with_properties(TableProperties {
+            column_widths: Some(vec![2100, 2300]),
+            layout: Some(TableLayout::Fixed),
+            style: Some("Table Grid".into()),
+            alignment: Some(TableAlignment::Center),
+            look: Some(TableLook {
+                first_row: Some(false),
+                last_row: Some(true),
+                first_column: Some(false),
+                last_column: Some(true),
+                horizontal_banding: Some(false),
+                vertical_banding: Some(true),
+            }),
+            borders: [
+                BorderSide::Top,
+                BorderSide::Left,
+                BorderSide::Bottom,
+                BorderSide::Right,
+                BorderSide::InsideH,
+                BorderSide::InsideV,
+            ]
+            .map(|side| TableBorder {
+                side,
+                sz: 8,
+                color,
+                val: BorderLine::Single,
+            })
+            .into(),
+        }),
+    )
+}
+
+fn properties(doc: &ImportedDocument, case: &str, owner: &str, output: &str) {
+    let anchors: Vec<_> = if owner == "ordinary" {
+        doc.body()
+            .iter()
+            .filter_map(|block| match block {
+                BodyBlock::Table(table) => Some(table.anchor.clone()),
+                _ => None,
+            })
+            .collect()
+    } else {
+        doc.part_tables(Some(owner))
+            .unwrap()
+            .into_iter()
+            .map(|table| table.anchor)
+            .collect()
+    };
+    assert_eq!(anchors.len(), 2);
+    let donor = property_donor();
+    let mut edits = Vec::new();
+    let mut push = |table: usize, site, field: &str, set: bool| {
+        edits.push(TableStructureEdit {
+            target: anchors[table].clone(),
+            operation: TableOperation::Property {
+                site,
+                field: field.into(),
+                source: set.then(|| Box::new(donor.clone())),
+            },
+        });
+    };
+    let set = case == "donors-set";
+    match case {
+        "donors-opaque-border" => push(0, TableSite::Cell(0, 1), "border.top", false),
+        "donors-opaque-look" => push(1, TableSite::Table, "look.firstRow", false),
+        "donors-set" | "donors-clear" => {
+            for (site, fields) in [
+                (
+                    TableSite::Table,
+                    &[
+                        "style",
+                        "alignment",
+                        "layout",
+                        "look.firstRow",
+                        "look.lastRow",
+                        "look.firstColumn",
+                        "look.lastColumn",
+                        "look.horizontalBanding",
+                        "look.verticalBanding",
+                        "border.top",
+                        "border.left",
+                        "border.bottom",
+                        "border.right",
+                        "border.insideH",
+                        "border.insideV",
+                    ][..],
+                ),
+                (TableSite::Row(0), &["height", "repeatHeader", "cantSplit"]),
+                (
+                    TableSite::Cell(0, 0),
+                    &[
+                        "verticalMerge",
+                        "backgroundColor",
+                        "verticalAlignment",
+                        "textDirection",
+                        "margin.top",
+                        "margin.start",
+                        "margin.bottom",
+                        "margin.end",
+                        "border.top",
+                        "border.bottom",
+                        "border.start",
+                        "border.end",
+                    ],
+                ),
+                (TableSite::Column(0), &["width"]),
+            ] {
+                for field in fields {
+                    push(0, site, field, set);
+                }
+            }
+            // Only one span can grow while the other shrinks on this row.
+            push(1, TableSite::Cell(0, 0), "gridSpan", set);
+            push(1, TableSite::Cell(0, 1), "gridSpan", !set);
+            if set {
+                push(0, TableSite::Cell(0, 1), "border.top", true);
+            }
+        }
+        _ => panic!("unknown donor case"),
+    }
+    let result = if owner == "ordinary" {
+        doc.preview_edits(EditBatch {
+            structural: &edits,
+            ..EditBatch::default()
+        })
+        .and_then(|preview| preview.to_docx())
+    } else {
+        doc.edit_part_tables(owner, &edits)
+    };
+    if case.starts_with("donors-opaque-") {
+        fs::write(output, result.unwrap_err().to_string()).unwrap();
+    } else {
+        fs::write(output, result.unwrap()).unwrap();
+    }
+}
+
 fn main() {
     let [source, output, case, owner]: [String; 4] =
         env::args().skip(1).collect::<Vec<_>>().try_into().unwrap();
     let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    if case.starts_with("donors-") {
+        properties(&doc, &case, &owner, &output);
+        return;
+    }
     if case == "body-mixed" {
         fs::write(output, body_mixed(&doc)).unwrap();
         return;

@@ -103,6 +103,10 @@ async def test_layout_discovery(launch):
         preview = validator_for(schemas["preview_edits"])(schemas["preview_edits"])
         assert inspect.is_valid(dict(document="doc", view=dict(kind="layout", limit=1)))
         assert not inspect.is_valid(dict(document="doc", view=dict(kind="layout", limit=0)))
+        for scope in ("all", "paragraphs", "sections"):
+            assert inspect.is_valid(dict(document="doc", view=dict(kind="layout", scope=scope)))
+        for scope in (None, "section", []):
+            assert not inspect.is_valid(dict(document="doc", view=dict(kind="layout", scope=scope)))
 
         def request(*edits):
             return dict(document="doc", operation=operation(*edits))
@@ -142,6 +146,25 @@ async def test_layout_pages_mixed_transaction_and_native_bytes(launch, tmp_path)
         inspection = await page(client, document)
         rows = first["layout"] + second["layout"] + last["layout"]
         assert inspection["layout"] == rows
+        assert await page(client, document, scope="all", limit=1) == first
+        scoped = {scope: await page(client, document, scope=scope, limit=1)
+                  for scope in ("paragraphs", "sections")}
+        cursors = {"all": first["next_cursor"],
+                   **{scope: result["next_cursor"] for scope, result in scoped.items()}}
+        assert None not in cursors.values() and len(set(cursors.values())) == 3
+        for scope, result in scoped.items():
+            for other, cursor in cursors.items():
+                if other != scope:
+                    await failure(client, "inspect_document", "invalid_cursor", document=document,
+                                  view=dict(kind="layout", scope=scope, cursor=cursor))
+            final_page = await page(client, document, scope=scope, cursor=cursors[scope], limit=1)
+            assert final_page["next_cursor"] is None
+            assert result["layout"] + final_page["layout"] == [
+                row for row in rows if row["kind"] == scope.removesuffix("s")
+            ]
+        for scope in scoped:
+            await failure(client, "inspect_document", "invalid_cursor", document=document,
+                          view=dict(kind="layout", cursor=cursors[scope]))
         assert [(row["kind"], row["index"]) for row in rows] == [
             ("paragraph", 1), ("paragraph", 2), ("section", 0), ("section", 1),
         ]
@@ -383,3 +406,54 @@ async def test_layout_guards_and_equivalent_imported_values_preserve_payloads(la
     assert output.read_bytes() == native_bytes(source, native, "guarded-noop")
     assert parts(output) == parts(source)
     validate(source, output)
+
+
+async def test_layout_paragraph_scope_survives_malformed_terminal_section(launch, tmp_path):
+    source, output, native = [tmp_path / f"{name}.docx"
+                              for name in ("malformed-section", "outline", "native-outline")]
+    make_source(source)
+    fixture = docx.Document(source)
+    terminal = fixture.sections[-1]._sectPr
+    for section_type in terminal.findall(qn("w:type")):
+        terminal.remove(section_type)
+    for section_type in ("continuous", "nextPage"):
+        terminal.insert_element_before(
+            OxmlElement("w:type", attrs={qn("w:val"): section_type}), "w:pgSz",
+        )
+    fixture.save(source)
+    original = source.read_bytes()
+
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        for selector in ({}, {"scope": "all"}, {"scope": "sections"}):
+            await failure(client, "inspect_document", "inspection_failed", document=document,
+                          view=dict(kind="layout", **selector))
+        paragraphs = await page(client, document, scope="paragraphs")
+        assert paragraphs["next_cursor"] is None
+        p, breaker = paragraphs["layout"]
+        assert [(row["kind"], row["index"]) for row in (p, breaker)] == [
+            ("paragraph", 1), ("paragraph", 2),
+        ]
+        assert "outlineLevel" not in p["layout"]
+        change = edit(p["anchor"], "outlineLevel", 4)
+        await save_layout(client, document, output, [change])
+        assert await page(client, document, scope="paragraphs") == paragraphs
+        reopened = (await call(client, "open_document", path=output.name))["document"]
+        await failure(client, "preview_edits", "wrong_owner", document=reopened,
+                      operation=operation(change))
+        after = (await page(client, reopened, scope="paragraphs"))["layout"]
+        assert [row["layout"] for row in after] == [
+            dict(p["layout"], outlineLevel=4), breaker["layout"],
+        ]
+        await failure(client, "inspect_document", "inspection_failed", document=reopened,
+                      view=dict(kind="layout", scope="sections"))
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == native_bytes(source, native, "outline")
+    after = assert_main_only_changed(source, output)
+    before = ElementTree.fromstring(parts(source)["word/document.xml"]).find(qn("w:body"))
+    assert ElementTree.tostring(after.find(qn("w:sectPr"))) == ElementTree.tostring(
+        before.find(qn("w:sectPr")),
+    )
+    properties = after.find(f"{qn('w:p')}/{qn('w:pPr')}")
+    assert properties.find(qn("w:outlineLvl")).get(qn("w:val")) == "4"

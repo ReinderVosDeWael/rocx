@@ -29,6 +29,23 @@ fn main() -> rocx::Result<()> {
     let doc = ImportedDocument::open(&std::fs::read(args.next().unwrap()).unwrap())?;
     let action = args.next().unwrap().into_string().unwrap();
     let destination = args.next().unwrap();
+    if action == "extent" {
+        let BodyBlock::Paragraph(paragraph) = &doc.body()[0] else {
+            panic!("expected paragraph")
+        };
+        let ImportedInlineNode::Run(run) = &paragraph.inline_structure[0] else {
+            panic!("expected drawing run");
+        };
+        let drawing = run.drawing.as_ref().unwrap();
+        println!(
+            "{}",
+            serde_json::json!({
+                "width": drawing.width_emu.map(|width| width.to_string()),
+                "height": drawing.height_emu.map(|height| height.to_string()),
+            })
+        );
+        return Ok(());
+    }
     let edit = |body: usize, inline: usize, action| {
         let BodyBlock::Paragraph(paragraph) = &doc.body()[body] else {
             panic!("expected paragraph")

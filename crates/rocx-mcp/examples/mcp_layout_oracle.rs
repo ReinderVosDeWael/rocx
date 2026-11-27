@@ -12,7 +12,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         [source, output, mode] => (source, output, mode.to_str().ok_or("invalid mode")?),
         _ => {
             return Err(
-                "usage: mcp_layout_oracle SOURCE OUTPUT [empty|set|clear|guarded-noop]".into(),
+                "usage: mcp_layout_oracle SOURCE OUTPUT [empty|set|clear|guarded-noop|outline]"
+                    .into(),
             );
         }
     };
@@ -29,6 +30,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     else {
         return Err("expected table-first fixture with two body paragraphs".into());
     };
+    if mode == "outline" {
+        std::fs::write(
+            output,
+            document
+                .preview_layout(&[LayoutEdit::Paragraph(
+                    paragraph.anchor.clone(),
+                    OutlineLevel,
+                    Some(LayoutValue::Integer(4)),
+                )])?
+                .to_docx()?,
+        )?;
+        return Ok(());
+    }
     let sections = document.sections()?;
     let paragraph_edit =
         |field, value| LayoutEdit::Paragraph(paragraph.anchor.clone(), field, value);

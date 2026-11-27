@@ -83,9 +83,12 @@ fn session_error(tool: ToolKind, error: &ToolError) -> CallToolResult {
         "invalid_anchor" | "wrong_anchor_type" => {
             "Inspect the document again and use an anchor of the required type."
         }
+        "invalid_inline_handle" => {
+            "Inspect the document again and use an inline_handle from an inline view."
+        }
         "invalid_cursor" => "Omit the cursor to restart, or use a next_cursor from the same view.",
         "wrong_owner" if matches!(tool, ToolKind::Inspect) => {
-            "Use a next_cursor issued for the selected document, or omit it to restart."
+            "Use an anchor, inline_handle, or next_cursor issued for the selected document. To restart a paged inspection, omit the cursor."
         }
         "wrong_owner" => "Use anchors and previews belonging to the selected document.",
         "invalid_preview" => "Create a preview for the selected document.",
@@ -105,8 +108,18 @@ fn session_error(tool: ToolKind, error: &ToolError) -> CallToolResult {
     CallToolResult::structured_error(error.response(action))
 }
 
-#[tokio::main(worker_threads = 2)]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Native editor and XML traversal recurse over supported field trees.
+    // Near-limit inputs can overflow the default worker stack in debug builds.
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_stack_size(8 * 1024 * 1024)
+        .enable_all()
+        .build()?
+        .block_on(serve())
+}
+
+async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     RocxServer::default()
         .serve(rmcp::transport::stdio())
         .await?
@@ -141,6 +154,25 @@ mod tests {
         assert_eq!(
             content["action"],
             "Use anchors and previews belonging to the selected document."
+        );
+        let content = session_error(
+            ToolKind::Inspect,
+            &String::from("wrong_owner: foreign anchor").into(),
+        )
+        .structured_content
+        .unwrap();
+        assert!(content["action"].as_str().unwrap().contains("anchor"));
+        let content = session_error(
+            ToolKind::Inspect,
+            &String::from("invalid_inline_handle: not issued").into(),
+        )
+        .structured_content
+        .unwrap();
+        assert!(
+            content["action"]
+                .as_str()
+                .unwrap()
+                .contains("inline_handle")
         );
     }
 }
