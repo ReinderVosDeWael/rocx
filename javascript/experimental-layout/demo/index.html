@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rocx physical layout demo</title>
+<link rel="stylesheet" href="./style.css">
+<main>
+  <h1>rocx physical layout</h1>
+  <p>Click text to place a caret. Drag across rows or pages to select text.</p>
+  <button id="change" disabled>Switch sample title</button>
+  <button id="open" disabled>Open or reset DOCX sample</button>
+  <fieldset id="editor" hidden>
+    <legend>DOCX preview</legend>
+    <label for="replacement">Edit text</label>
+    <input id="replacement" type="text" aria-describedby="edit-help">
+    <button id="apply" disabled>Apply edit</button>
+    <button id="download" disabled>Download current DOCX</button>
+    <p id="edit-help">Click to insert, or drag within a paragraph to replace.
+      Leave the field empty to delete the selection.</p>
+  </fieldset>
+  <p id="diagnostic" role="status"></p>
+  <p id="status" role="status">Loading layout worker…</p>
+  <div id="pages"></div>
+</main>
+<script type="module" src="./main.mjs"></script>
+</html>
