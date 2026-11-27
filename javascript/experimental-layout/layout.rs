@@ -19,10 +19,21 @@ const ROW_STRIDE: usize = 6;
 static LAST_PHYSICAL_SNAPSHOT_ID: AtomicU32 = AtomicU32::new(0);
 
 fn next_physical_snapshot_id() -> Result<u32, JsError> {
-    LAST_PHYSICAL_SNAPSHOT_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-        .map(|previous| previous + 1)
-        .map_err(|_| JsError::new("physical snapshot IDs exhausted; reload the Wasm module"))
+    let mut previous = LAST_PHYSICAL_SNAPSHOT_ID.load(Ordering::Relaxed);
+    loop {
+        let next = previous.checked_add(1).ok_or_else(|| {
+            JsError::new("physical snapshot IDs exhausted; reload the Wasm module")
+        })?;
+        match LAST_PHYSICAL_SNAPSHOT_ID.compare_exchange_weak(
+            previous,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Ok(next),
+            Err(observed) => previous = observed,
+        }
+    }
 }
 
 #[wasm_bindgen(typescript_custom_section)]

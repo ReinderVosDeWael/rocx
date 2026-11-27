@@ -47,6 +47,7 @@ Track the implementation in [PR #97](https://github.com/ReinderVosDeWael/rocx/pu
 Browser protocol regressions cover failed resets during fast switching and
 revision-exact downloads during edits. The numbering inspection cache is
 private to the imported document; the compiled editor inventory is unchanged.
+The installed MCP acceptance suite passed locally (298 tests on Rust 1.88).
 The measured follow-up [#98](https://github.com/ReinderVosDeWael/rocx/issues/98)
 separates interactive working text from package encoding and reopening.
 
