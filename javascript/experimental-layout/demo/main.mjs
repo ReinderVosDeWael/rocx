@@ -17,7 +17,8 @@ let alternate = false;
 let requestId = 0;
 let current;
 let pending;
-let downloadId;
+let unpaintedLayout;
+let pendingDownload;
 let pointId = 0;
 let picked;
 let pointer;
@@ -77,7 +78,7 @@ function syncEditor() {
   if (current) change.disabled = open.disabled = pending?.type === "edit";
   editor.hidden = !current?.source;
   apply.disabled = editor.hidden || !!pending || pointer !== undefined || !picked;
-  download.disabled = editor.hidden || !!pending;
+  download.disabled = editor.hidden || !!pending || !!pendingDownload;
 }
 
 function showGeometry({ caret, focus, selection }) {
@@ -117,12 +118,35 @@ function fail(message) {
   status.textContent = `Layout demo error: ${message}`;
   change.disabled = open.disabled = true;
   current = undefined;
+  unpaintedLayout = pendingDownload = undefined;
   syncEditor();
   worker.terminate();
 }
 
 function isCurrent({ layoutId, revision }) {
   return current?.id === layoutId && current?.revision === revision;
+}
+
+function matchesDownload({ id, layoutId, revision }) {
+  return pendingDownload && pendingDownload.id === id && pendingDownload.layoutId === layoutId &&
+    pendingDownload.revision === revision;
+}
+
+function paintLayout(data) {
+  views = data.pages.map((page) => renderPage(page, data.spec, data.source));
+  pages.replaceChildren(...views.map(({ root }) => root));
+  const { id, revision, source, edition } = data;
+  current = { id, revision, source, edition };
+  pages.dataset.revision = revision;
+  status.textContent = `${sourceStatus()} · ${views.length} pages`;
+  unpaintedLayout = pending = picked = undefined;
+  replace.value = "";
+  syncEditor();
+}
+
+function showDiagnostic({ source, focus, message }) {
+  const location = focus ? ` · paragraph ${focus.paragraph + 1}, scalar offset ${focus.offset}` : "";
+  diagnostic.textContent = `${source ?? "Fixed sample"}${location} — ${message}`;
 }
 
 function downloadDocx(bytes) {
@@ -146,31 +170,35 @@ worker.addEventListener("message", ({ data }) => {
       scale = data.fontSize / atlas.unitsPerEm;
       change.disabled = open.disabled = false;
       requestLayout();
-    } else if (data.type === "layout" && (
-      (pending?.type === "layout" && data.id === pending.id && data.editId === undefined) ||
-      (pending?.type === "edit" && data.id === current.id && data.editId === pending.id)
-    )) {
-      views = data.pages.map((page) => renderPage(page, data.spec, data.source));
-      pages.replaceChildren(...views.map(({ root }) => root));
-      const { id, revision, source, edition } = data;
-      current = { id, revision, source, edition };
-      pages.dataset.revision = revision;
-      status.textContent = `${sourceStatus()} · ${views.length} pages`;
-      pending = picked = undefined;
-      replace.value = "";
-      syncEditor();
+    } else if (data.type === "layout") {
+      if (pending?.type === "layout" && data.editId === undefined) {
+        if (data.id === pending.id) {
+          paintLayout(data);
+        } else if (data.id < pending.id && data.id > (unpaintedLayout?.id ?? current?.id ?? 0)) {
+          // The worker already committed this layout. Keep it hidden while the
+          // newer request is pending, but recover it if that request fails.
+          unpaintedLayout = data;
+        }
+      } else if (pending?.type === "edit" && data.id === current.id && data.editId === pending.id) {
+        paintLayout(data);
+      }
     } else if (data.type === "point" && !pending && isCurrent(data) && data.id === pointId) {
       showGeometry(data);
-    } else if (data.type === "download" && !pending && isCurrent(data) && data.id === downloadId) {
+    } else if (data.type === "download" && matchesDownload(data)) {
+      pendingDownload = undefined;
+      syncEditor();
       downloadDocx(data.bytes);
     } else if (data.type === "error") {
       if (!data.request) {
         fail(data.message);
+      } else if (data.request === "download" && matchesDownload(data)) {
+        pendingDownload = undefined;
+        showDiagnostic(data);
+        syncEditor();
       } else if ((data.request === pending?.type && data.id === pending.id) ||
                  (!pending && isCurrent(data) && data.request === "point" && data.id === pointId)) {
-        const { source, focus } = data;
-        const location = focus ? ` · paragraph ${focus.paragraph + 1}, scalar offset ${focus.offset}` : "";
-        diagnostic.textContent = `${source ?? "Fixed sample"}${location} — ${data.message}`;
+        if (data.request === "layout" && unpaintedLayout) paintLayout(unpaintedLayout);
+        showDiagnostic(data);
         pending = undefined;
         syncEditor();
       }
@@ -194,10 +222,11 @@ apply.addEventListener("click", () => {
   });
 });
 download.addEventListener("click", () => {
-  downloadId = ++requestId;
-  worker.postMessage({
-    type: "download", id: downloadId, layoutId: current.id, revision: current.revision,
-  });
+  pendingDownload = {
+    type: "download", id: ++requestId, layoutId: current.id, revision: current.revision,
+  };
+  syncEditor();
+  worker.postMessage(pendingDownload);
 });
 
 function sendPoint(event, begin) {

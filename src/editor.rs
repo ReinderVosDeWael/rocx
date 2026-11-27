@@ -296,10 +296,6 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedParagraph {
-    // A successful inspection (including an absent direct reference) can be
-    // answered from the snapshot. On malformed input retain the original
-    // query-time diagnostic rather than failing document open.
-    direct_numbering: std::result::Result<Option<crate::NumberingReference>, ()>,
     pub layout: BTreeMap<LayoutField, LayoutValue>,
     /// First direct insertion/deletion of the paragraph terminator.
     pub mark_revision: Option<ImportedPropertyRevision>,
@@ -587,6 +583,9 @@ pub struct ImportedDocument {
     package: Package,
     main: String,
     body: Vec<BodyBlock>,
+    // Indexed by body slot. Malformed references fall back to the existing
+    // query-time diagnostic instead of failing document open.
+    direct_numbering: Vec<std::result::Result<Option<crate::NumberingReference>, ()>>,
     controls: Vec<ImportedControl>,
     control_sites: Vec<ControlSite>,
     snapshot: Arc<()>,
@@ -603,11 +602,19 @@ impl ImportedDocument {
     pub fn open_with_limits(bytes: &[u8], limits: ReadLimits) -> Result<Self> {
         let (package, main, root) = open_word_source(bytes, limits, false)?;
         let snapshot = Arc::new(());
+        let mut direct_numbering = Vec::new();
         let body = root
             .child("w:body")
             .ok_or_else(missing_body)?
             .elements()
             .filter(|node| node.name != "w:sectPr")
+            .inspect(|node| {
+                direct_numbering.push(if node.name == "w:p" {
+                    numbering::paragraph_reference(node).map_err(|_| ())
+                } else {
+                    Err(())
+                });
+            })
             .enumerate()
             .map(|(body_index, node)| match node.name.as_str() {
                 "w:p" => {
@@ -638,7 +645,6 @@ impl ImportedDocument {
                             && node.child(ALTERNATE).is_none()
                     });
                     BodyBlock::Paragraph(ImportedParagraph {
-                        direct_numbering: numbering::paragraph_reference(node).map_err(|_| ()),
                         layout: layout::inspect(props, false),
                         flags: ParagraphFlag::read(props),
                         mark_revision: node.child("w:pPr").and_then(|p| p.child("w:rPr")).and_then(
@@ -672,6 +678,7 @@ impl ImportedDocument {
             package,
             main,
             body,
+            direct_numbering,
             snapshot,
             default_header_inspection: OnceLock::new(),
             story_inspection: OnceLock::new(),

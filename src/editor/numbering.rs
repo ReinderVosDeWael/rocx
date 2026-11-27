@@ -216,9 +216,7 @@ impl ImportedDocument {
         target: &ParagraphAnchor,
     ) -> Result<Option<NumberingReference>> {
         self.validate_snapshot(&target.snapshot)?;
-        if let Some(super::BodyBlock::Paragraph(p)) = self.body.get(target.body_index)
-            && let Ok(reference) = &p.direct_numbering
-        {
+        if let Some(Ok(reference)) = self.direct_numbering.get(target.body_index) {
             return Ok(reference.clone());
         }
         let root = self.package.word(&self.main)?;

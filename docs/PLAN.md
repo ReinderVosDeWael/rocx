@@ -43,6 +43,12 @@ Firefox smoke test also compared downloaded DOCX payloads independently.
 The Python extension is a separate crate; its installed-consumer oracle uses
 one cleaned scratch target to isolate a legacy root rlib collision when
 switching compilers ([#96](https://github.com/ReinderVosDeWael/rocx/issues/96)).
+Track the implementation in [PR #97](https://github.com/ReinderVosDeWael/rocx/pull/97).
+Browser protocol regressions cover failed resets during fast switching and
+revision-exact downloads during edits. The numbering inspection cache is
+private to the imported document; the compiled editor inventory is unchanged.
+The measured follow-up [#98](https://github.com/ReinderVosDeWael/rocx/issues/98)
+separates interactive working text from package encoding and reopening.
 
 ## Active interface milestone: local MCP server (#52)
 

@@ -55,6 +55,15 @@ the [pinned font's provenance](../../../crates/rocx-layout/tests/fonts/README.md
 
 ## Browser smoke
 
+Run the deterministic main-thread protocol regressions with Node 22 or newer:
+
+```sh
+node --test javascript/experimental-layout/demo/protocol.test.mjs
+```
+
+They exercise a failed switch after a hidden worker commit and downloads
+that overlap an edit. No browser or server is needed for these checks.
+
 From a checkout with the demo prerequisites, Firefox, GeckoDriver and the
 test Python environment installed, run the whole check (including build,
 temporary server, pointer actions and downloaded package inspection):
@@ -97,10 +106,14 @@ The worker calls `hitTest`, `caretBox`, and `selectionRects`; at soft
 wraps it picks the caret affinity matching the hit row. A drag across a
 gap keeps the last valid selection. Layout IDs, snapshot revisions, and
 pointer request IDs keep old geometry from repainting after a reflow.
+During fast switching, an intermediate worker commit stays hidden unless
+the newest switch fails. In that case the demo paints the worker's last
+committed layout so the displayed page and its edit targets stay aligned.
 
 For DOCX, `openPages` supplies the source-bound handle, page spec, and
 geometry. The worker resolves each edit against the current selection and
 source revision, calling `previewInsert` or `previewReplace`. Only a preview
 that successfully reopens replaces the retained bytes and geometry. On
 failure the worker reports the source and scalar location without replacing
-the active snapshot; download still returns the last accepted bytes.
+the active snapshot. Downloads return the bytes for the exact revision
+that was visible when clicked, even if an edit completes first.
