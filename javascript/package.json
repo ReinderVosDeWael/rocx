@@ -1,6 +1,6 @@
 {
   "name": "rocx-docx",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Author DOCX documents in Node and browsers with the Rust rocx engine",
   "type": "module",
   "engines": {

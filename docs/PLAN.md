@@ -247,6 +247,17 @@ explicitly excluded, and no partial, planned or unverified symbols.
 Require hosted qualification on the final PR head before merging, then
 verify the compiled inventory and strict ledger on `main`.
 
+## 0.5.0 release
+
+Release only after the bounded body search ([#86](https://github.com/ReinderVosDeWael/rocx/issues/86),
+[PR #92](https://github.com/ReinderVosDeWael/rocx/pull/92)) and guarded in-place save
+([#84](https://github.com/ReinderVosDeWael/rocx/issues/84),
+[PR #85](https://github.com/ReinderVosDeWael/rocx/pull/85)) reach `main`.
+Use the existing [release runbook](RELEASING.md): align Rust, Python
+and npm versions, qualify the exact candidate locally and in an untagged
+hosted preflight, verify registry publisher bindings, then push the tag.
+The MCP executable remains installable from the tagged source.
+
 ## 0.4.0 release
 
 Release Rust, Python and `rocx-docx` for npm from one validated commit.
