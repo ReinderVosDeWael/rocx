@@ -8,7 +8,7 @@ use super::{
     block_readback::table_fields,
     body_inlines::{InlineHandles, typed_inline_page},
 };
-use crate::schema::tables::BodyTableEdit;
+use crate::{diagnostics::ScopedEditError, schema::tables::BodyTableEdit};
 
 const PREFIX: &str = "body-table:";
 
@@ -100,7 +100,7 @@ impl Snapshot {
         &self,
         local: &str,
         edit: BodyTableEdit,
-    ) -> Result<TableStructureEdit, String> {
+    ) -> Result<TableStructureEdit, ScopedEditError> {
         let table = Self::body_table_index(local).and_then(|index| self.document.body().get(index));
         let Some(BodyBlock::Table(table)) = table else {
             return Err("wrong_anchor_type: expected a body-tables anchor".into());

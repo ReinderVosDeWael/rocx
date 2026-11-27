@@ -374,7 +374,7 @@ fn properties(doc: &ImportedDocument, case: &str, owner: &str, output: &str) {
     }
 }
 
-fn declaration_edges(doc: &ImportedDocument) -> Vec<u8> {
+fn first_declaration_edge(start_margin: f64, row_height: f64) -> Table {
     use CellTextDirection::*;
     let cells = [
         LeftToRight,
@@ -388,16 +388,16 @@ fn declaration_edges(doc: &ImportedDocument) -> Vec<u8> {
     .map(|(index, direction)| {
         let mut properties = TableCellProperties::default().with_text_direction(direction);
         if index == 0 {
-            properties = properties.with_margins(CellMargins::default().with_start(0.0));
+            properties = properties.with_margins(CellMargins::default().with_start(start_margin));
         }
         TableCell::new(vec![]).with_properties(properties).into()
     })
     .collect();
-    let first = Table::new(vec![
+    Table::new(vec![
         TableRow::new(cells)
             .with_properties(
                 TableRowProperties::default()
-                    .with_height(RowHeight::Exact(0.0))
+                    .with_height(RowHeight::Exact(row_height))
                     .with_repeat_header(false)
                     .with_cant_split(false),
             )
@@ -410,7 +410,10 @@ fn declaration_edges(doc: &ImportedDocument) -> Vec<u8> {
             .with_column_widths(vec![0])
             .with_alignment(TableAlignment::Start)
             .with_look(TableLook::default().with_first_row(false)),
-    );
+    )
+}
+
+fn declaration_edges(doc: &ImportedDocument) -> Vec<u8> {
     let single = |alignment| {
         Table::new(vec![
             TableRow::new(vec![TableCell::new(vec![]).into()]).into(),
@@ -418,7 +421,7 @@ fn declaration_edges(doc: &ImportedDocument) -> Vec<u8> {
         .with_properties(TableProperties::default().with_alignment(alignment))
     };
     let tables = [
-        first,
+        first_declaration_edge(0.0, 0.0),
         single(TableAlignment::End),
         single(TableAlignment::Left),
     ]
@@ -523,9 +526,32 @@ fn main() {
         body_replace_cell(&doc, case.ends_with("-duplicate"), &output);
         return;
     }
-    if case == "declaration-edges" {
-        fs::write(output, declaration_edges(&doc)).unwrap();
-        return;
+    match case.as_str() {
+        "declaration-edges" => {
+            fs::write(output, declaration_edges(&doc)).unwrap();
+            return;
+        }
+        "declaration-negative-margin" | "declaration-negative-height" => {
+            let (margin, height) = if case == "declaration-negative-margin" {
+                (-1.0, 0.0)
+            } else {
+                (0.0, -1.0)
+            };
+            let table = first_declaration_edge(margin, height);
+            let error = futures_executor::block_on(table.resolve()).unwrap_err();
+            fs::write(
+                output,
+                serde_json::json!({
+                    "message": error.to_string(),
+                    "rule": error.rule().map(rocx::Rule::code),
+                    "path": error.path(),
+                })
+                .to_string(),
+            )
+            .unwrap();
+            return;
+        }
+        _ => {}
     }
     let tables = doc
         .part_tables((owner != "body").then_some(owner.as_str()))

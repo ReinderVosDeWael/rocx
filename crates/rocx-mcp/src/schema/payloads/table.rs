@@ -15,6 +15,7 @@ use serde::{
 };
 
 use super::{BlockInput, ParagraphInput, resolve_component};
+use crate::diagnostics::ScopedEditError;
 use crate::schema::CellAlignment;
 
 macro_rules! choices {
@@ -260,15 +261,15 @@ enum TableUse {
 }
 
 impl RichTableInput {
-    pub(crate) fn resolve(self) -> Result<ResolvedTable, String> {
+    pub(crate) fn resolve(self) -> Result<ResolvedTable, ScopedEditError> {
         self.resolve_for(TableUse::Fragment)
     }
 
-    pub(crate) fn resolve_donor(self) -> Result<ResolvedTable, String> {
+    pub(crate) fn resolve_donor(self) -> Result<ResolvedTable, ScopedEditError> {
         self.resolve_for(TableUse::PropertyDonor)
     }
 
-    fn resolve_for(self, usage: TableUse) -> Result<ResolvedTable, String> {
+    fn resolve_for(self, usage: TableUse) -> Result<ResolvedTable, ScopedEditError> {
         match self {
             Self::Nested(table) => table.resolve(usage, BlockInput::resolve),
             Self::Flat(tree) => tree.resolve(usage),
@@ -280,8 +281,8 @@ impl<B> TableInput<B> {
     fn resolve(
         self,
         usage: TableUse,
-        mut resolve_block: impl FnMut(B) -> Result<ResolvedBlock, String>,
-    ) -> Result<ResolvedTable, String> {
+        mut resolve_block: impl FnMut(B) -> Result<ResolvedBlock, ScopedEditError>,
+    ) -> Result<ResolvedTable, ScopedEditError> {
         match usage {
             TableUse::Fragment if self.rows.iter().all(|row| row.cells.is_empty()) => {
                 return Err("a rich table requires at least one row with cells".into());
@@ -325,7 +326,7 @@ impl<B> TableInput<B> {
                             })
                             .into())
                     })
-                    .collect::<Result<_, String>>()?;
+                    .collect::<Result<_, ScopedEditError>>()?;
                 let p = row.properties.unwrap_or_default();
                 Ok(TableRow::new(cells)
                     .with_properties(TableRowProperties {
@@ -339,7 +340,7 @@ impl<B> TableInput<B> {
                     })
                     .into())
             })
-            .collect::<Result<_, String>>()?;
+            .collect::<Result<_, ScopedEditError>>()?;
         let props = TableProperties::from(self.properties.unwrap_or_default());
         resolve_component(Table::new(rows).with_properties(props))
     }
@@ -443,7 +444,7 @@ impl FlatTableInput {
         Ok(())
     }
 
-    fn resolve(self, root_use: TableUse) -> Result<ResolvedTable, String> {
+    fn resolve(self, root_use: TableUse) -> Result<ResolvedTable, ScopedEditError> {
         self.validate()?;
         let mut resolved: Vec<Option<ResolvedTable>> =
             (0..self.nodes.len()).map(|_| None).collect();

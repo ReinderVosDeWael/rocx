@@ -198,12 +198,39 @@ async def test_numbering_native_lifecycle(launch, tmp_path):
         assert rows == json.loads(expected_instances.read_bytes())
         inst = next(row for row in rows if row["num_id"] == 90)
         assert inst == dict(num_id=90, abstract_id=81, start_overrides=[dict(level=1, start=6)], replacement_levels=[])
-        replaced = await preview(client, imported, relinked, "replace", [
-            edit("abstract-level", abstract_id=80, level=1, value=level(1, 8)),
-            edit("replace-instance", definition=dict(id=90, abstract_id=80,
-                 start_overrides=[dict(level=0, start=2)], level_overrides=[OVERRIDE])),
-            edit("abstract-start", abstract_id=81, level=0, value=None),
-        ])
+        target = (await call(client, "inspect_document", document=imported))["body"][0]["anchor"]
+        definition = dict(id=90, abstract_id=80, start_overrides=[dict(level=0, start=2)],
+                          level_overrides=[OVERRIDE])
+
+        def replacement_edits(fields):
+            return [
+                edit("abstract-level", abstract_id=80, level=1, value=level(1, 8)),
+                edit("replace-instance", definition=fields),
+                edit("abstract-start", abstract_id=81, level=0, value=None),
+                edit("paragraph", anchor=target, value=dict(id=90, level=1)),
+            ]
+
+        schema = next(tool.inputSchema for tool in (await client.list_tools()).tools
+                      if tool.name == "preview_edits")
+        validator = validator_for(schema)(schema)
+        for key, nondefault, default in [
+            ("inherit_style", "Authoring List", None),
+            ("levels", [level(0)], []),
+        ]:
+            action = f"reject-replace-instance-{key.replace('_', '-')}"
+            diagnostic = tmp_path / f"{action}.txt"
+            native(relinked, action, diagnostic)
+            assert "concrete replacement cannot redefine abstract levels or styles" in diagnostic.read_text()
+            for field_value in (nondefault, default):
+                request = dict(document=imported, edits=replacement_edits(definition | {key: field_value}))
+                assert not validator.is_valid(request), (key, field_value)
+                result = await client.call_tool("preview_edits", request)
+                assert_tool_failure(result, "invalid_input")
+                assert f"unknown field `{key}`" in result.structuredContent["message"]
+
+        replacement = replacement_edits(definition)
+        validator.validate(dict(document=imported, edits=replacement))
+        replaced = await preview(client, imported, relinked, "replace", replacement)
         imported = await opened(client, replaced)
         rows = await value(client, imported, "numbering-instances")
         native(replaced, "inspect-instances", expected_instances)
@@ -324,26 +351,37 @@ async def test_numbering_level_fields_set_and_clear(launch, tmp_path):
             instance_level(2, override), instance_level(3, simple_override),
         ])
         document = await reopen_and_check(client, set_copy, clear=False)
-        for action, invalid, reason in [
-            ("reject-override-level-index", level(3), "mismatched replacement level"),
+        for action, invalid, reason, rule, path in [
+            ("reject-override-level-index", level(3), "mismatched replacement level",
+             "unsupported_edit", None),
             ("reject-override-run-style", level(2, label_format=dict(style="DefaultParagraphFont")),
-             "cannot contain run style references"),
+             "cannot contain run style references", "invalid_content", "label_format.style"),
             ("reject-override-paragraph-heading", level(2, paragraph_format=dict(heading=1)),
-             "cannot contain style references or headings"),
+             "cannot contain style references or headings", "invalid_content", "paragraph_format"),
+            ("reject-override-label-size", level(2, label_format=dict(size=-1)),
+             "size cannot be negative", "invalid_measurement", "label_format.size"),
+            ("reject-override-paragraph-spacing", level(2, paragraph_format=dict(spacing_before=-1)),
+             "spacing_before cannot be negative", "invalid_measurement",
+             "paragraph_format.spacing_before"),
         ]:
-            diagnostic = tmp_path / f"{action}.txt"
+            diagnostic = tmp_path / f"{action}.json"
             native(set_copy, action, diagnostic)
+            expected = json.loads(diagnostic.read_bytes())
+            assert reason in expected["message"]
+            assert (expected["rule"], expected["path"]) == (rule, path)
             result = await client.call_tool("preview_edits", dict(
                 document=document, edits=[instance_level(2, invalid)],
             ))
             assert_tool_failure(result, "rejected_batch")
-            expected_error = diagnostic.read_text()
-            assert reason in expected_error and expected_error in result.structuredContent["message"]
+            observed = result.structuredContent
+            assert observed is not None
+            assert observed["message"] == f"preview: {expected['message']}; revise the edits and retry"
+            assert (observed.get("rule"), observed.get("path")) == (expected["rule"], expected["path"])
 
         cleared = await preview(client, document, set_copy, "level-fields-clear", [
             edit("abstract-level", abstract_id=81, level=8, value=None),
             edit("abstract-start", abstract_id=80, level=0, value=9),
-            instance_start(2, None), instance_level(3, None),
+            instance_start(2, None), instance_level(2, override), instance_level(3, None),
         ])
         await reopen_and_check(client, cleared, clear=True)
 

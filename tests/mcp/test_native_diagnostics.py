@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+from struct import pack_into, unpack_from
 from zipfile import ZipFile
 
 import docx
@@ -46,6 +47,27 @@ def replace_part(source, target, part, payload):
     with ZipFile(target, "w") as archive:
         for name, data in payloads.items():
             archive.writestr(name, data)
+
+
+def corrupt_first_member_crc(source, target):
+    data = bytearray(source.read_bytes())
+    with ZipFile(source) as archive:
+        member = archive.infolist()[0]
+        assert not archive.comment
+    # The fixture is a small, comment-free ZIP. Its EOCD records the offset
+    # of the first central header; ZipInfo gives the matching local offset.
+    eocd = len(data) - 22
+    assert data[eocd:eocd + 4] == b"PK\x05\x06"
+    central, = unpack_from("<I", data, eocd + 16)
+    local = member.header_offset
+    assert data[central:central + 4] == b"PK\x01\x02"
+    assert data[local:local + 4] == b"PK\x03\x04"
+    for crc_offset in (central + 16, local + 14):
+        assert unpack_from("<I", data, crc_offset) == (member.CRC,)
+        pack_into("<I", data, crc_offset, member.CRC ^ 1)
+    target.write_bytes(data)
+    with ZipFile(target) as archive:
+        assert archive.testzip() == member.filename
 
 
 def inspection_diagnostic(detail, *, rule="unsupported_edit", path=None):
@@ -415,6 +437,35 @@ async def test_open_native_diagnostics_do_not_change_filesystem_errors(launch, t
         }
 
         assert (await call(client, "open_document", path=path("source.docx")))["document"]
+
+
+async def test_open_corrupt_member_crc_retains_native_io_diagnostic(launch, tmp_path):
+    clean = tmp_path / "source.docx"
+    corrupt = tmp_path / "bad-crc.docx"
+    write_source(clean)
+    corrupt_first_member_crc(clean, corrupt)
+
+    native_file = tmp_path / "bad-crc.json"
+    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_revision_oracle")
+    subprocess.run([oracle, "invalid-member-crc", native_file, corrupt],
+                   check=True, timeout=20, cwd=tmp_path)
+    native = json.loads(native_file.read_bytes())
+    assert native == {
+        "rule": "io_error",
+        "path": None,
+        "message": "document I/O failed: Invalid checksum",
+    }
+
+    async with launch() as client:
+        failure = await client.call_tool("open_document", dict(path=corrupt.name))
+        assert failure.isError
+        assert failure.structuredContent == {
+            "category": "invalid_document_data",
+            "message": native["message"],
+            "action": IMPORT_ACTION,
+            "rule": native["rule"],
+        }
+        assert (await call(client, "open_document", path=clean.name))["document"]
 
 
 async def test_scoped_entry_native_rejection(launch, tmp_path):

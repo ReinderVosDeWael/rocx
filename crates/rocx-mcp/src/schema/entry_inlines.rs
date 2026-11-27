@@ -8,6 +8,7 @@ use super::{
     payloads::InlineInput,
     run_format::RunFormatAction,
 };
+use crate::diagnostics::ScopedEditError;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -52,7 +53,7 @@ pub(crate) enum PictureGroup {
 }
 
 impl EntryInlineAction {
-    pub(crate) fn resolve(self) -> Result<InlineAction, String> {
+    pub(crate) fn resolve(self) -> Result<InlineAction, ScopedEditError> {
         let change = match self {
             Self::InsertAfter { inline } => BodyInlineChange::InsertAfter { inline },
             Self::Replace { inline } => BodyInlineChange::Replace { inline },

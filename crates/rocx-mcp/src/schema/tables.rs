@@ -9,6 +9,7 @@ use super::{
     blocks::Nullable,
     payloads::{BlockInput, RichTableInput},
 };
+use crate::diagnostics::ScopedEditError;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -114,7 +115,7 @@ pub(crate) enum ReplaceTableSite {
 }
 
 impl BodyTableEdit {
-    pub(crate) fn resolve(self) -> Result<TableOperation, String> {
+    pub(crate) fn resolve(self) -> Result<TableOperation, ScopedEditError> {
         Ok(match self {
             Self::Physical(edit) => edit.resolve()?,
             Self::Whole(WholeTableEdit::ReplaceNode { site, source }) => {
@@ -144,7 +145,7 @@ impl From<PhysicalTableSite> for TableSite {
 }
 
 impl PhysicalTableEdit {
-    pub(crate) fn resolve(self) -> Result<TableOperation, String> {
+    pub(crate) fn resolve(self) -> Result<TableOperation, ScopedEditError> {
         Ok(match self {
             Self::Layout { value } => {
                 TableOperation::Layout(value.into_option().map(|layout| match layout {

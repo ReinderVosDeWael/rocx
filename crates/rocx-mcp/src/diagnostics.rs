@@ -106,6 +106,23 @@ impl From<Error> for ScopedEditError {
     }
 }
 
+impl From<Diagnostic> for ScopedEditError {
+    fn from(diagnostic: Diagnostic) -> Self {
+        Self::Native(diagnostic.into())
+    }
+}
+
+impl std::fmt::Display for ScopedEditError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WrongAnchorType(message) | Self::Rejected(message) => {
+                formatter.write_str(message)
+            }
+            Self::Native(error) => error.fmt(formatter),
+        }
+    }
+}
+
 impl From<&str> for ScopedEditError {
     fn from(message: &str) -> Self {
         Self::Rejected(message.into())

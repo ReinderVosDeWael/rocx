@@ -724,10 +724,31 @@ async def test_table_declaration_property_edges_native_bytes(launch, tmp_path):
     async with launch() as client:
         document = await open_document(client, source)
         seen = await call(client, "inspect_document", document=document)
-        preview = await call(client, "preview_edits", document=document, edits=[
+        edits = [
             dict(kind="insert-rich-table", anchor=block["anchor"], table=table)
             for block, table in zip(seen["body"], declarations, strict=True)
-        ])
+        ]
+        for case, detail in [
+            ("declaration-negative-margin", "start cannot be negative"),
+            ("declaration-negative-height", "height cannot be negative"),
+        ]:
+            invalid = deepcopy(edits)
+            row = invalid[0]["table"]["rows"][0]
+            if case == "declaration-negative-margin":
+                row["cells"][0]["properties"]["margins"]["start"] = -1
+            else:
+                row["properties"]["height"]["points"] = -1
+            native = json.loads(native_oracle(source, tmp_path / f"{case}.json", case, "body"))
+            assert detail in native["message"]
+            result = await client.call_tool("preview_edits", dict(document=document, edits=invalid))
+            assert_tool_failure(result, "rejected_batch")
+            data = result.structuredContent
+            assert data["message"] == f"edit 1: {native['message']}; revise the edits and retry"
+            assert data["rule"] == native["rule"] == "invalid_measurement"
+            assert data["path"] == native["path"]
+            assert data["detail"] == detail
+
+        preview = await call(client, "preview_edits", document=document, edits=edits)
         await call(client, "save_copy", document=document, preview=preview["preview"],
                    output=output.name)
 

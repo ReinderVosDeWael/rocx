@@ -2,7 +2,7 @@ use rocx::editor::{ControlEdit, ImportedControl, WrapperEdit};
 use serde_json::{Value, json};
 
 use super::{Batch, Snapshot};
-use crate::schema::controls::ControlChange;
+use crate::{diagnostics::ScopedEditError, schema::controls::ControlChange};
 
 const CONTROL: &str = "control:";
 const SITE: &str = "control-site:";
@@ -70,7 +70,7 @@ impl Snapshot {
         &self,
         change: ControlChange,
         batch: &mut Batch,
-    ) -> Result<(), String> {
+    ) -> Result<(), ScopedEditError> {
         fn lookup<'a, T>(anchor: &str, prefix: &str, items: &'a [T]) -> Result<&'a T, String> {
             anchor
                 .strip_prefix(prefix)

@@ -161,6 +161,31 @@ fn resolve_paragraph(paragraph: Paragraph) -> rocx::Result<ResolvedParagraph> {
 }
 
 fn replacement_bytes(document: &ImportedDocument) -> rocx::Result<Vec<u8>> {
+    let BodyBlock::Paragraph(original) = &document.body()[0] else {
+        panic!("expected initial fixture paragraph");
+    };
+    let missing_style = resolve_paragraph(
+        Paragraph::new("Missing style")
+            .with_format(ParagraphFormat::default().with_style("MissingFixtureStyle")),
+    )?;
+    let Err(error) = document.preview_edits(EditBatch {
+        blocks: &[BlockEdit::Replace(
+            original.anchor.clone(),
+            Box::new(missing_style),
+        )],
+        ..Default::default()
+    }) else {
+        panic!("expected unknown paragraph style to reject");
+    };
+    println!(
+        "{}",
+        serde_json::json!({
+            "message": error.to_string(),
+            "rule": error.rule().map(rocx::Rule::code),
+            "path": error.path(),
+        })
+    );
+
     let formats = [
         rich_paragraph(),
         ParagraphFormat {

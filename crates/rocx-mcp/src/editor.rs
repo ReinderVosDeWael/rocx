@@ -269,6 +269,17 @@ impl Snapshot {
                     format!("edit {number}: {e}")
                 })
             };
+            let locate_scoped = |error: ScopedEditError| match error {
+                ScopedEditError::WrongAnchorType(message) => {
+                    Self::batch_stage_error(format!("wrong_anchor_type: {message}"))
+                }
+                ScopedEditError::Rejected(message) => locate(message),
+                ScopedEditError::Native(error) => {
+                    ToolError::native("rejected_batch", error, |error| {
+                        format!("edit {number}: {error}; {}", Self::BATCH_RETRY)
+                    })
+                }
+            };
             if let Edit::Resource { edit } = edit {
                 batch.resources.push(edit.into());
                 continue;
@@ -284,7 +295,7 @@ impl Snapshot {
                 continue;
             }
             if let Edit::Control { edit } = edit {
-                self.control_edit(edit, &mut batch).map_err(locate)?;
+                self.control_edit(edit, &mut batch).map_err(locate_scoped)?;
                 continue;
             }
             if let Edit::Style { edit } = edit {
@@ -294,30 +305,20 @@ impl Snapshot {
             if let Edit::Block { anchor, edit } = edit {
                 batch
                     .blocks
-                    .push(self.block_edit(&anchor, edit).map_err(locate)?);
+                    .push(self.block_edit(&anchor, edit).map_err(locate_scoped)?);
                 continue;
             }
             if let Edit::Field { anchor, edit } = edit {
-                batch.fields.push(
-                    self.field_edit(&anchor, edit)
-                        .map_err(|error| match error {
-                            ScopedEditError::WrongAnchorType(message) => {
-                                Self::batch_stage_error(format!("wrong_anchor_type: {message}"))
-                            }
-                            ScopedEditError::Rejected(message) => locate(message),
-                            ScopedEditError::Native(error) => {
-                                ToolError::native("rejected_batch", error, |error| {
-                                    format!("edit {number}: {error}; {}", Self::BATCH_RETRY)
-                                })
-                            }
-                        })?,
-                );
+                batch
+                    .fields
+                    .push(self.field_edit(&anchor, edit).map_err(locate_scoped)?);
                 continue;
             }
             if let Edit::Inline { anchor, edit } = edit {
-                batch
-                    .inline_edits
-                    .push(self.body_inline_edit(&anchor, edit).map_err(locate)?);
+                batch.inline_edits.push(
+                    self.body_inline_edit(&anchor, edit)
+                        .map_err(locate_scoped)?,
+                );
                 continue;
             }
             if let Edit::PairedRange {
@@ -335,7 +336,7 @@ impl Snapshot {
             if let Edit::TableStructure { anchor, edit } = edit {
                 batch
                     .structural
-                    .push(self.body_table_edit(&anchor, edit).map_err(locate)?);
+                    .push(self.body_table_edit(&anchor, edit).map_err(locate_scoped)?);
                 continue;
             }
             let header_image = matches!(edit, Edit::HeaderImage { .. });
@@ -359,9 +360,7 @@ impl Snapshot {
                     edit.target_kind()
                 )));
             }
-            batch
-                .push(edit, target)
-                .map_err(|e| Self::batch_stage_error(format!("edit {number}: {e}")))?;
+            batch.push(edit, target).map_err(locate_scoped)?;
         }
 
         Ok(batch)
@@ -400,7 +399,7 @@ struct Batch {
 }
 
 impl Batch {
-    fn push(&mut self, edit: Edit, target: &Target) -> Result<(), String> {
+    fn push(&mut self, edit: Edit, target: &Target) -> Result<(), ScopedEditError> {
         match (edit, target) {
             (Edit::Alignment { alignment, .. }, Target::Paragraph(target)) => {
                 self.alignments.push(ParagraphAlignmentEdit {
@@ -526,13 +525,11 @@ impl From<HeaderMode> for HeaderEditMode {
     }
 }
 
-fn resolve<C: Component>(value: C) -> Result<C::Resolved, String> {
-    futures_executor::block_on(value.resolve())
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "declaration produced no content".into())
+fn resolve<C: Component>(value: C) -> Result<C::Resolved, ScopedEditError> {
+    crate::schema::payloads::resolve_component(value)
 }
 
-fn resolve_table(rows: Vec<Vec<String>>) -> Result<ResolvedTable, String> {
+fn resolve_table(rows: Vec<Vec<String>>) -> Result<ResolvedTable, ScopedEditError> {
     let width = rows.first().map_or(0, Vec::len);
     if width == 0 || rows.iter().any(|row| row.len() != width) {
         return Err("rows must form a nonempty rectangular table".into());

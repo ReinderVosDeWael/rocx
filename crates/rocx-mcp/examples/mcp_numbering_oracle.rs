@@ -6,7 +6,7 @@ use rocx::editor::{
 use rocx::{
     Alignment, Color, LineHeight, NumberingAlignment, NumberingDefinition, NumberingLevel,
     NumberingReference, NumberingStartOverride, NumberingStyleDefinition, NumberingSuffix,
-    ParagraphFormat, RunFormat, RunLanguage, TabAlignment, TabLeader, TabStop, ThemeColor,
+    ParagraphFormat, Rule, RunFormat, RunLanguage, TabAlignment, TabLeader, TabStop, ThemeColor,
     Underline,
 };
 
@@ -243,7 +243,24 @@ fn main() -> rocx::Result<()> {
                 level_overrides: vec![replacement()],
                 ..Default::default()
             })),
+            paragraph(Some(NumberingReference { id: 90, level: 1 })),
         ],
+        "reject-replace-instance-inherit-style" => vec![N::ReplaceInstance(Box::new(
+            NumberingDefinition {
+                id: 90,
+                abstract_id: Some(80),
+                ..Default::default()
+            }
+            .with_inherit_style("Authoring List"),
+        ))],
+        "reject-replace-instance-levels" => vec![N::ReplaceInstance(Box::new(
+            NumberingDefinition {
+                id: 90,
+                abstract_id: Some(80),
+                ..Default::default()
+            }
+            .with_levels(vec![simple(0, 1)]),
+        ))],
         "replace-empty" => vec![N::ReplaceInstance(Box::new(NumberingDefinition {
             id: 90,
             abstract_id: Some(80),
@@ -312,6 +329,11 @@ fn main() -> rocx::Result<()> {
             },
             N::InstanceLevel {
                 num_id: 90,
+                level: 2,
+                value: Some(Box::new(detailed_override())),
+            },
+            N::InstanceLevel {
+                num_id: 90,
                 level: 3,
                 value: None,
             },
@@ -334,6 +356,20 @@ fn main() -> rocx::Result<()> {
             value: Some(Box::new(
                 simple(2, 1).with_paragraph_format(ParagraphFormat::default().with_heading(1)),
             )),
+        }],
+        "reject-override-label-size" => vec![N::InstanceLevel {
+            num_id: 90,
+            level: 2,
+            value: Some(Box::new(
+                simple(2, 1).with_label_format(RunFormat::default().with_size(-1.)),
+            )),
+        }],
+        "reject-override-paragraph-spacing" => vec![N::InstanceLevel {
+            num_id: 90,
+            level: 2,
+            value: Some(Box::new(simple(2, 1).with_paragraph_format(
+                ParagraphFormat::default().with_spacing_before(-1.),
+            ))),
         }],
         "reject-alias-level" | "reject-opaque-level" => vec![N::AbstractLevel {
             abstract_id: if action == "reject-alias-level" {
@@ -414,7 +450,22 @@ fn main() -> rocx::Result<()> {
         let Err(error) = preview else {
             panic!("native numbering guard accepted {action}")
         };
-        std::fs::write(output, error.to_string()).unwrap();
+        if action.starts_with("reject-replace-instance-") {
+            assert_eq!(error.rule(), Some(Rule::UnsupportedEdit));
+        }
+        if action.starts_with("reject-override-") {
+            std::fs::write(
+                output,
+                serde_json::json!({
+                    "rule": error.rule().map(Rule::code),
+                    "path": error.path(),
+                    "message": error.to_string(),
+                })
+                .to_string(),
+            )?;
+        } else {
+            std::fs::write(output, error.to_string())?;
+        }
         return Ok(());
     }
     let preview = preview?;

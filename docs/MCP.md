@@ -722,6 +722,8 @@ to replace or remove a level, and `abstract-start` to change just its start.
 `add-instance` and `relink-instance` take `num_id` and `abstract_id`;
 `replace-instance` replaces a link and all direct overrides via a
 `definition` with `id`, `abstract_id`, `start_overrides`, and `level_overrides`.
+Omit `levels` and `inherit_style` from this concrete definition; define levels
+on the abstract instead.
 Use `instance-start` and `instance-level` to change the two override types
 independently. Use `null` in a required `value` to clear it. `remove-instance`
 and `remove-abstract` use the respective numeric IDs.
@@ -792,8 +794,9 @@ Every preview starts from the opened or created document. Put edits that
 should apply together in one batch, using anchors from inspection of that
 document. A rejected batch leaves earlier previews and anchors usable.
 Tool failures include `category`, `message`, and a suggested `action`.
-Where a native diagnostic is available, a failure can also include its
-stable `rule`, `path`, and unformatted `detail`. A native invalid XML text
+Native diagnostics from reading a document, resolving a declaration, or
+applying an edit can also include a stable `rule`, `path`, and unformatted
+`detail`. A native invalid XML text
 character also reports `character` and its zero-based UTF-8 `byte_offset`.
 Those fields are optional; for example, filesystem errors may have no native
 editor diagnostic.

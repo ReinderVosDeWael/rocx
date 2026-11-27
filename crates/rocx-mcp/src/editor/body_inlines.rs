@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::run_format::format_value;
 use super::{ReadError, Snapshot, block_readback::inline_items, projected_run_text};
-use crate::schema::body_inlines::BodyInlineChange;
+use crate::{diagnostics::ScopedEditError, schema::body_inlines::BodyInlineChange};
 
 const PREFIX: &str = "body-inline:";
 
@@ -94,7 +94,7 @@ impl Snapshot {
         &self,
         local: &str,
         change: BodyInlineChange,
-    ) -> Result<InlineEdit, String> {
+    ) -> Result<InlineEdit, ScopedEditError> {
         let target = self.body_inline_anchor(local)?.clone();
         let action = change.resolve()?;
         Ok(InlineEdit { target, action })

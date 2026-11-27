@@ -3,6 +3,7 @@ use rocx::editor::{FieldAction, FieldPatch};
 use serde::Deserialize;
 
 use super::{blocks::Nullable, payloads::InlineInput};
+use crate::diagnostics::ScopedEditError;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -27,7 +28,7 @@ pub(crate) enum FieldChange {
 }
 
 impl FieldChange {
-    pub(crate) fn resolve(self) -> Result<FieldAction, String> {
+    pub(crate) fn resolve(self) -> Result<FieldAction, ScopedEditError> {
         Ok(match self {
             Self::Instruction { value } => FieldAction::Patch(FieldPatch::Instruction(value)),
             Self::Dirty { value } => FieldAction::Patch(FieldPatch::Dirty(value.into_option())),

@@ -1,6 +1,7 @@
 """Installed stdio parity for formatted paragraph replacements and rich insertions."""
 
 from copy import deepcopy
+import json
 import subprocess
 
 import docx
@@ -212,6 +213,9 @@ async def check_guards(client, validator, request):
             data = result.structuredContent
             assert data["category"] == "rejected_batch" and "preview" not in data
             assert detail in data["message"]
+            assert detail in data["detail"]
+            assert data["path"]
+            assert data["rule"] in ("invalid_content", "invalid_measurement")
         assert results[0].structuredContent == results[1].structuredContent
 
 
@@ -220,7 +224,8 @@ async def test_declaration_format_fields_native_bytes_and_guards(launch, tmp_pat
     write_source(source)
     original = source.read_bytes()
     oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_format_payload_oracle")
-    subprocess.run([oracle, source, native], check=True, cwd=tmp_path, timeout=20)
+    result = subprocess.run([oracle, source, native], check=True, cwd=tmp_path, timeout=20, capture_output=True)
+    style_error = json.loads(result.stdout)
 
     async with launch() as client:
         (tool,) = [item for item in (await client.list_tools()).tools if item.name == "preview_edits"]
@@ -232,6 +237,17 @@ async def test_declaration_format_fields_native_bytes_and_guards(launch, tmp_pat
         request = dict(document=document, edits=edits)
         validator.validate(request)
         await check_guards(client, validator, request)
+        missing_style = await client.call_tool("preview_edits", dict(document=document, edits=[
+            replacement(before[0]["anchor"], dict(
+                format=dict(style="MissingFixtureStyle"), inlines=[dict(kind="text", text="Missing style")],
+            )),
+        ]))
+        assert missing_style.isError
+        data = missing_style.structuredContent
+        assert data["category"] == "rejected_batch" and "preview" not in data
+        assert data["rule"] == style_error["rule"] == "unknown_style"
+        assert data.get("path") == style_error["path"]
+        assert data["message"] == f"preview: {style_error['message']}; revise the edits and retry"
         assert (await call(client, "inspect_document", document=document))["body"] == before
 
         preview = await call(client, "preview_edits", **request)

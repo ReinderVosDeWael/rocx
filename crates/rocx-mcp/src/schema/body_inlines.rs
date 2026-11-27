@@ -10,6 +10,7 @@ use super::{
     payloads::{InlineInput, resolve_component},
     run_format::RunFormatAction,
 };
+use crate::diagnostics::ScopedEditError;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -41,7 +42,7 @@ pub(crate) enum BodyInlineChange {
 }
 
 impl BodyInlineChange {
-    pub(crate) fn resolve(self) -> Result<InlineAction, String> {
+    pub(crate) fn resolve(self) -> Result<InlineAction, ScopedEditError> {
         Ok(match self {
             Self::InsertAfter { inline } => InlineAction::InsertAfter(inline.resolve()?),
             Self::Replace { inline } => InlineAction::Replace(inline.resolve()?),

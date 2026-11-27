@@ -4,7 +4,10 @@ use rocx::editor::{BlockEdit, BodyBlock, ParagraphAnchor, SectionAnchor};
 use serde_json::{Value, json};
 
 use super::{ReadError, Snapshot};
-use crate::schema::blocks::{BlockChange, section_type_name};
+use crate::{
+    diagnostics::ScopedEditError,
+    schema::blocks::{BlockChange, section_type_name},
+};
 
 const SECTION: &str = "section:";
 const PARAGRAPH: &str = "paragraph:";
@@ -61,7 +64,11 @@ impl Snapshot {
     }
 
     // Session must resolve only anchors issued for the caller's snapshot.
-    pub(super) fn block_edit(&self, local: &str, edit: BlockChange) -> Result<BlockEdit, String> {
+    pub(super) fn block_edit(
+        &self,
+        local: &str,
+        edit: BlockChange,
+    ) -> Result<BlockEdit, ScopedEditError> {
         let paragraph = || self.block_paragraph(local);
         let section = || self.block_section(local);
         Ok(match edit {
@@ -195,7 +202,10 @@ mod tests {
             ("run:0:0", json!({"kind":"keep-with-next","value":false})),
         ] {
             let error = snapshot.block_edit(local, change(input)).unwrap_err();
-            assert!(error.starts_with("wrong_anchor_type:"), "{error}");
+            assert!(
+                error.to_string().starts_with("wrong_anchor_type:"),
+                "{error}"
+            );
         }
         let split = snapshot
             .block_edit(

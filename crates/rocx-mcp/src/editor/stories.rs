@@ -28,7 +28,7 @@ use crate::{
 pub(super) fn resolve_story_image(
     bytes: Option<Vec<u8>>,
     image: Option<StoryImageInput>,
-) -> Result<rocx::ResolvedImage, String> {
+) -> Result<rocx::ResolvedImage, ScopedEditError> {
     let run = match (bytes, image) {
         (Some(bytes), None) => ImageRun::new(bytes),
         (

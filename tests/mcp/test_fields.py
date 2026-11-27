@@ -214,6 +214,12 @@ async def test_instruction_variants_match_native(launch, tmp_path):
         for invalid in (dict(kind="reference", name=" "), dict(kind="raw", text="\0")):
             await failure(client, "preview_edits", "rejected_batch", document=document,
                           edits=[insert(0, invalid)])
+        missing = await client.call_tool("preview_edits", dict(
+            document=document, edits=[insert(0, dict(kind="reference", name="MissingTarget"))],
+        ))
+        assert missing.isError
+        assert missing.structuredContent["category"] == "rejected_batch"
+        assert "paired direct body bookmark target" in missing.structuredContent["message"]
         edits = [insert(i, instruction, **properties)
                  for i, (instruction, properties, *_rest) in enumerate(instructions)]
         preview = await call(client, "preview_edits", document=document, edits=edits)
@@ -228,8 +234,13 @@ async def test_instruction_variants_match_native(launch, tmp_path):
 
     oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_field_oracle")
     native = tmp_path / "native.docx"
-    subprocess.run([oracle, source, native, "instruction-variants"],
-                   check=True, cwd=tmp_path, timeout=20)
+    result = subprocess.run([oracle, source, native, "instruction-variants"],
+                            check=True, cwd=tmp_path, timeout=20, capture_output=True)
+    diagnostic = json.loads(result.stdout)
+    assert missing.structuredContent["message"] == f"preview: {diagnostic['message']}; revise the edits and retry"
+    assert {key: missing.structuredContent.get(key) for key in ("rule", "path")} == {
+        key: diagnostic[key] for key in ("rule", "path")
+    }
     assert source.read_bytes() == original
     assert output.read_bytes() == native.read_bytes()
     before, after = parts(source), parts(output)

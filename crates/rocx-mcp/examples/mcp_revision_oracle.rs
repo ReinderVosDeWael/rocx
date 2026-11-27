@@ -1,4 +1,4 @@
-//! Independent byte oracle: call the native revision API, without MCP handles.
+//! Independent native revision and diagnostic oracle, without MCP handles.
 use std::{env, error::Error, fs};
 
 use rocx::editor::{
@@ -6,7 +6,7 @@ use rocx::editor::{
     ImportedPropertyRevision, ImportedRevision, ImportedRun, InlineAnchor, TrackedParagraph,
     TrackedText,
 };
-use rocx::{BreakType, TextRevisionAction};
+use rocx::{BreakType, Rule, TextRevisionAction};
 use serde_json::{Value, json};
 
 const AUTHOR: &str = "Ada & Co.";
@@ -136,7 +136,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     let [operation, output, source, rest @ ..] = args.as_slice() else {
         return Err("usage: mcp_revision_oracle OPERATION OUTPUT SOURCE [arguments]".into());
     };
-    let doc = ImportedDocument::open(&fs::read(source)?)?;
+    let bytes = fs::read(source)?;
+    if operation == "invalid-member-crc" && rest.is_empty() {
+        let Err(error) = ImportedDocument::open(&bytes) else {
+            panic!("opening the archive with a bad member CRC must fail");
+        };
+        assert!(matches!(&error, rocx::Error::Io(_)), "{error:?}");
+        assert_eq!(error.rule(), Some(Rule::Io));
+        fs::write(
+            output,
+            serde_json::to_vec(&json!({
+                "rule": Rule::Io.code(), "path": error.path(), "message": error.to_string(),
+            }))?,
+        )?;
+        return Ok(());
+    }
+    let doc = ImportedDocument::open(&bytes)?;
     if operation == "inspect" && rest.is_empty() {
         let mut rows = vec![];
         for (body, block) in doc.body().iter().enumerate() {

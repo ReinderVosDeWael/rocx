@@ -8,6 +8,7 @@ use rocx::{
 use serde::Deserialize;
 
 use super::{drawing, format::RunFormatInput, resolve_component};
+use crate::diagnostics::ScopedEditError;
 
 const MAX_FIELD_TREE_NODES: usize = 16384;
 const MAX_FIELD_TREE_CHILDREN: usize = 16384;
@@ -81,11 +82,11 @@ pub(crate) enum InlineInput {
 }
 
 impl InlineInput {
-    pub(crate) fn resolve(self) -> Result<ResolvedInline, String> {
+    pub(crate) fn resolve(self) -> Result<ResolvedInline, ScopedEditError> {
         self.resolve_at_depth(0)
     }
 
-    fn resolve_at_depth(self, depth: usize) -> Result<ResolvedInline, String> {
+    fn resolve_at_depth(self, depth: usize) -> Result<ResolvedInline, ScopedEditError> {
         match self {
             Self::Text { text, format } => {
                 let mut run = TextRun::new(text);
@@ -189,7 +190,7 @@ fn resolve_field(
     complex: bool,
     dirty: Option<bool>,
     locked: Option<bool>,
-) -> Result<ResolvedInline, String> {
+) -> Result<ResolvedInline, ScopedEditError> {
     ResolvedField::new(
         instruction,
         children,
@@ -204,7 +205,7 @@ fn resolve_field(
         },
     )
     .map(ResolvedInline::Field)
-    .map_err(|error| error.to_string())
+    .map_err(Into::into)
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -282,7 +283,10 @@ impl FieldTreeChild {
         }
     }
 
-    fn resolve(self, fields: &mut [Option<ResolvedInline>]) -> Result<ResolvedInline, String> {
+    fn resolve(
+        self,
+        fields: &mut [Option<ResolvedInline>],
+    ) -> Result<ResolvedInline, ScopedEditError> {
         match self {
             Self::Field { node } => Ok(fields[node].take().expect("validated field-tree")),
             Self::Hyperlink {
@@ -299,7 +303,7 @@ impl FieldTreeChild {
                 HyperlinkProperties { tooltip, history },
             )
             .map(ResolvedInline::Hyperlink)
-            .map_err(|error| error.to_string()),
+            .map_err(Into::into),
             Self::Text(run) => FieldTreeLeaf::Text(run).resolve(),
             Self::Tab(run) => FieldTreeLeaf::Tab(run).resolve(),
             Self::Break(run) => FieldTreeLeaf::Break(run).resolve(),
@@ -308,7 +312,7 @@ impl FieldTreeChild {
 }
 
 impl FieldTreeLeaf {
-    fn resolve(self) -> Result<ResolvedInline, String> {
+    fn resolve(self) -> Result<ResolvedInline, ScopedEditError> {
         let inline = match self {
             Self::Text(CachedText { text, format }) => InlineInput::Text { text, format },
             Self::Tab(CachedTab { format }) => InlineInput::Tab { format },
@@ -320,11 +324,12 @@ impl FieldTreeLeaf {
     }
 }
 
-fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<ResolvedInline, String> {
+fn resolve_field_tree(
+    nodes: Vec<FieldTreeNode>,
+    depth: usize,
+) -> Result<ResolvedInline, ScopedEditError> {
     if nodes.is_empty() || nodes.len() > MAX_FIELD_TREE_NODES {
-        return Err(format!(
-            "field-tree requires 1..={MAX_FIELD_TREE_NODES} nodes"
-        ));
+        return Err(format!("field-tree requires 1..={MAX_FIELD_TREE_NODES} nodes").into());
     }
     if nodes
         .iter()
@@ -333,9 +338,9 @@ fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<Resolve
         .sum::<usize>()
         > MAX_FIELD_TREE_CHILDREN
     {
-        return Err(format!(
-            "field-tree exceeds {MAX_FIELD_TREE_CHILDREN} total child entries"
-        ));
+        return Err(
+            format!("field-tree exceeds {MAX_FIELD_TREE_CHILDREN} total child entries").into(),
+        );
     }
 
     // Forward references exclude cycles. Requiring exactly one parent also
@@ -345,10 +350,10 @@ fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<Resolve
     for (index, node) in nodes.iter().enumerate() {
         let depth = depths[index];
         if depth == 0 {
-            return Err(format!("field-tree node {index} has no parent"));
+            return Err(format!("field-tree node {index} has no parent").into());
         }
         if depth > MAX_FIELD_TREE_DEPTH {
-            return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}"));
+            return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}").into());
         }
         for child in &node.children {
             match child {
@@ -357,17 +362,19 @@ fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<Resolve
                     if target <= index || target >= nodes.len() {
                         return Err(format!(
                             "field-tree node {index} must reference a later node, got {target}"
-                        ));
+                        )
+                        .into());
                     }
                     if depths[target] != 0 {
                         return Err(format!(
                             "field-tree node {target} is referenced more than once"
-                        ));
+                        )
+                        .into());
                     }
                     depths[target] = depth + 1;
                 }
                 FieldTreeChild::Hyperlink { .. } if depth == MAX_FIELD_TREE_DEPTH => {
-                    return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}"));
+                    return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}").into());
                 }
                 _ => {}
             }
@@ -394,9 +401,9 @@ fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<Resolve
     Ok(fields[0].take().expect("validated field-tree root"))
 }
 
-fn leaf_format(format: Option<RunFormatInput>) -> Result<RunFormat, String> {
+fn leaf_format(format: Option<RunFormatInput>) -> Result<RunFormat, ScopedEditError> {
     let format = format.map(RunFormat::from).unwrap_or_default();
-    format.validate().map_err(|error| error.to_string())?;
+    format.validate()?;
     Ok(format)
 }
 
@@ -429,12 +436,12 @@ pub(crate) enum LinkTargetInput {
 }
 
 impl LinkTargetInput {
-    fn resolve(self) -> Result<HyperlinkTarget, String> {
+    fn resolve(self) -> Result<HyperlinkTarget, ScopedEditError> {
         match self {
             Self::Url { url } => HyperlinkTarget::external(url),
             Self::Bookmark { name } => BookmarkName::new(name).map(HyperlinkTarget::bookmark),
         }
-        .map_err(|error| error.to_string())
+        .map_err(Into::into)
     }
 }
 
@@ -449,7 +456,7 @@ pub(crate) enum FieldInstructionInput {
 }
 
 impl FieldInstructionInput {
-    fn resolve(self) -> Result<FieldInstruction, String> {
+    fn resolve(self) -> Result<FieldInstruction, ScopedEditError> {
         match self {
             Self::Page {} => Ok(FieldInstruction::Page),
             Self::NumPages {} => Ok(FieldInstruction::NumPages),
@@ -457,7 +464,7 @@ impl FieldInstructionInput {
             Self::Raw { text } => FieldInstruction::raw(text),
             Self::TableOfContents {} => Ok(FieldInstruction::TableOfContents),
         }
-        .map_err(|error| error.to_string())
+        .map_err(Into::into)
     }
 }
 

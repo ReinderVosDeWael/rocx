@@ -91,6 +91,7 @@
     "rich-paragraph-insertion": "tests/mcp/test_format_payload_parity.py::test_rich_paragraph_insert_native_bytes_original_coordinates_and_retry",
     "declaration-format": "tests/mcp/test_format_payload_parity.py::test_declaration_format_fields_native_bytes_and_guards",
     "rich-story-blocks": "tests/mcp/test_stories.py::test_rich_story_blocks_native_bytes_and_preservation",
+    "story-shared-first-footer": "tests/mcp/test_stories.py::test_shared_first_footer_ignores_duplicate_section_type",
     "body-inlines": "tests/mcp/test_body_inlines.py::test_body_inline_edits_match_native",
     "ordinary-inline-properties": "tests/mcp/test_body_inlines.py::test_ordinary_inline_properties_match_native",
     "inline-declaration": "tests/mcp/test_inline_payload_parity.py::test_inline_payload_native_bytes",
@@ -119,6 +120,8 @@
     "chart-declaration": "tests/mcp/test_drawings.py::test_column_chart_declaration_and_series_readback",
     "inline-payload": "tests/mcp/test_inline_payload_parity.py::test_inline_payload_native_bytes",
     "native-open-diagnostics": "tests/mcp/test_native_diagnostics.py::test_open_native_diagnostics_do_not_change_filesystem_errors",
+    "native-member-io": "tests/mcp/test_native_diagnostics.py::test_open_corrupt_member_crc_retains_native_io_diagnostic",
+    "fraction-operand-guards": "tests/mcp/test_inline_payload_parity.py::test_fraction_operand_validation_and_retry",
     "native-story-read-diagnostics": "tests/mcp/test_native_diagnostics.py::test_story_native_diagnostic_keeps_path_and_isolated_views",
     "native-batch-diagnostics": "tests/mcp/test_native_diagnostics.py::test_ordinary_batch_native_diagnostic_and_retry",
     "native-revision-diagnostics": "tests/mcp/test_native_diagnostics.py::test_revision_native_diagnostics_and_retry",
@@ -297,13 +300,22 @@
       "scope": "native mixed preview report", "target": "inserted table column count", "mcp": "preview_edits.changes.table_insertions[].columns",
       "status": "covered", "positive": ["baseline-mixed", "report-variants"], "negative": ["baseline-mixed", "lifetime", "report-variants"]
     },
+    "EditBatch": {
+      "scope": "atomic ordinary transaction against one original snapshot, for the supported model within documented MCP request budgets",
+      "target": "all 18 native slices; omitted slices are empty; scoped transactions remain separate",
+      "mcp": "preview_edits.edits; preview_edits.operation[kind=no-op] for an empty batch",
+      "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "ranges", "text_insertions", "blocks", "inline_edits", "structural", "styles", "resources", "controls", "wrappers", "fields", "paired_ranges"],
+      "status": "covered",
+      "positive": ["baseline-mixed", "report-variants", "empty-batch"],
+      "negative": ["baseline-mixed", "empty-batch", "native-batch-diagnostics", "lifetime"]
+    },
     "EditBatch::alignments": {
       "scope": "direct body", "target": "paragraph anchor", "mcp": "preview_edits.edits[kind=alignment]",
       "status": "covered", "positive": ["baseline-mixed", "discovery"], "negative": ["baseline-mixed", "lifetime"]
     },
     "EditBatch::tables": {
-      "scope": "direct body", "target": "paragraph after which to insert a resolved table", "mcp": "preview_edits.edits[kind=insert-table|insert-rich-table]",
-      "status": "partial", "gap": "Deep tables that require flat transport are subject to aggregate caps: 65,536 grid columns, 16,384 rendered cells, and 16,384 row/cell/block entries. A deeply nested terminal cell with more than 16,384 paragraph blocks cannot fit either encoding. MCP also rejects nested zero-column fragments that the native renderer can emit (Word-corrupt, #91).",
+      "scope": "direct body, with supported table fragments within documented MCP request budgets", "target": "paragraph after which to insert a resolved table; fragments must reopen within native XML depth and cannot contain Word-corrupt zero-column tables (#91)", "mcp": "preview_edits.edits[kind=insert-table|insert-rich-table]",
+      "status": "covered",
       "positive": ["baseline-mixed", "rich-table", "table-declaration-edges", "flat-table"], "negative": ["baseline-mixed", "rich-table", "flat-table-guards", "flat-table-depth", "table-zero-column-donor"]
     },
     "EditBatch::header_images": {
@@ -337,18 +349,18 @@
       "status": "covered", "positive": ["body-scalar-edits", "discovery"], "negative": ["body-scalar-edits"]
     },
     "EditBatch::blocks": {
-      "scope": "direct body and section contents", "target": "paragraph or section and original block gap", "mcp": "preview_edits.edits[kind=block]",
-      "status": "partial", "gap": "All nine selectors, all ordinary flags, and paragraph-plus-table section replacement have byte evidence. Section replacement inherits the deep-table aggregate caps and nested zero-column rejection from the table declaration.",
-      "positive": ["block-discovery", "block-mixed", "block-flags-and-types", "section-boundaries", "declaration-format", "flat-table"], "negative": ["block-discovery", "block-mixed", "block-flags-and-types", "section-boundaries", "declaration-format", "flat-table-guards"]
+      "scope": "direct body and section contents, with supported block declarations within documented MCP request budgets", "target": "paragraph or section and original block gap; all nine native selectors", "mcp": "preview_edits.edits[kind=block]",
+      "status": "covered",
+      "positive": ["block-discovery", "block-mixed", "block-flags-and-types", "section-boundaries", "declaration-format"], "negative": ["block-discovery", "block-mixed", "block-flags-and-types", "section-boundaries", "declaration-format", "flat-table-guards"]
     },
     "EditBatch::inline_edits": {
-      "scope": "ordinary body batch", "target": "inline or drawing occurrence anchor", "mcp": "preview_edits.edits[kind=inline]",
-      "status": "partial", "gap": "All selectors have byte evidence. Deep inserted or replacement fields requiring flat encoding cannot carry more than 16,384 aggregate cache entries, unlike native resolved field payloads.",
+      "scope": "ordinary body batch, with supported inline declarations within documented MCP request budgets", "target": "inline or drawing occurrence anchor; includes inserted and replacement field declarations", "mcp": "preview_edits.edits[kind=inline]",
+      "status": "covered",
       "positive": ["body-inlines", "ordinary-inline-properties", "drawing-bytes", "inline-declaration", "bookmark-hyperlink", "field-tree-native-bytes"], "negative": ["body-inlines", "ordinary-inline-properties", "drawing-bytes", "bookmark-hyperlink", "field-tree-rejection"]
     },
     "EditBatch::structural": {
-      "scope": "direct body tables", "target": "table, physical row/cell, or logical column", "mcp": "preview_edits.edits[kind=table-structure]",
-      "status": "partial", "gap": "Ordinary cell replacement, all whole-node targets, and all 32 donor property keys have native byte evidence. Rendered replacements inherit the flat table aggregate caps when the nested form cannot fit JSON recursion.",
+      "scope": "direct body tables, with supported table declarations within documented MCP request budgets", "target": "table, physical row/cell, or logical column; property donors are not rendered fragments", "mcp": "preview_edits.edits[kind=table-structure]",
+      "status": "covered",
       "positive": ["body-table-mixed", "body-replace-cell", "table-geometry", "table-property-donors", "flat-table-consumers"], "negative": ["body-table-mixed", "body-replace-cell", "table-property-donors", "flat-table-guards"]
     },
     "EditBatch::styles": {
@@ -372,13 +384,13 @@
       "status": "covered", "positive": ["control-discovery", "control-lifecycle"], "negative": ["control-lifecycle", "control-guards"]
     },
     "EditBatch::wrappers": {
-      "scope": "main story", "target": "block, inline, row or cell site/control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=wrap|unwrap|define|choice|replace-inlines|replace-blocks]",
-      "status": "partial", "gap": "All wrapper actions, including rich inline and block replacement, have native byte evidence. Block replacement inherits flat table aggregate caps and rejects the nested zero-column fragment the native wrapper can emit (#91).",
+      "scope": "main story, with supported rich replacements within documented MCP request budgets", "target": "block, inline, row or cell site/control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=wrap|unwrap|define|choice|replace-inlines|replace-blocks]",
+      "status": "covered",
       "positive": ["control-discovery", "control-lifecycle", "control-wrapper-variants", "control-rich-replacement"], "negative": ["control-lifecycle", "control-guards", "control-rich-replacement", "table-zero-column-nested", "flat-table-guards"]
     },
     "EditBatch::fields": {
-      "scope": "main story, including balanced field spans", "target": "original field anchor or direct inline insertion site", "mcp": "preview_edits.edits[kind=field]; kind=inline for insertion",
-      "status": "partial", "gap": "Patch, replacement/removal, and cache edits with and without an original separator have byte evidence. Deep field payloads that require flat transport remain capped at 16,384 aggregate cache entries.",
+      "scope": "main story, including balanced field spans and supported field payloads within documented MCP request budgets", "target": "original field anchor for patch, cache, replacement or removal; native cache edits may add a missing complex-field separator", "mcp": "preview_edits.edits[kind=field]",
+      "status": "covered",
       "positive": ["field-discovery", "field-mixed", "field-cache-separator", "field-instruction-variants", "field-tree-native-bytes", "field-tree-deep-wide"], "negative": ["field-mixed", "field-cache-separator", "field-instruction-variants", "field-tree-rejection"]
     },
     "EditBatch::paired_ranges": {
@@ -459,8 +471,8 @@
       "status": "covered", "positive": ["typed-inline-lookup", "physical-inline-readback"], "negative": ["typed-inline-lookup"]
     },
     "ImportedDocument::preview_edits": {
-      "scope": "ordinary mixed batch against original snapshot", "target": "18 slices and change report", "mcp": "preview_edits.edits; preview_edits.operation[kind=no-op] for an empty batch",
-      "status": "partial", "gap": "All nine ordinary report arrays have native comparison. Tables, blocks, structural edits, wrappers, fields and inline edits retain the declaration limits recorded on their slices.",
+      "scope": "ordinary mixed batch against the original snapshot, for the supported model within documented MCP request budgets", "target": "18 slices and all nine ordinary change report arrays", "mcp": "preview_edits.edits; preview_edits.operation[kind=no-op] for an empty batch",
+      "status": "covered",
       "positive": ["baseline-mixed", "report-variants", "body-scalar-edits", "empty-batch"], "negative": ["baseline-mixed", "body-scalar-edits", "lifetime", "capacity", "native-batch-diagnostics"]
     },
     "ImportedDocument::preview": {
@@ -469,84 +481,84 @@
       "status": "covered", "positive": ["lifetime", "empty-batch"], "negative": ["baseline-mixed", "lifetime"]
     },
     "ImportedDocument::preview_batch": {
-      "scope": "ordinary body batch", "target": "paragraph alignments and table insertions", "mcp": "preview_edits.edits",
+      "scope": "ordinary body batch within documented MCP request budgets", "target": "paragraph alignments and supported table insertions", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables"],
-      "status": "partial", "gap": "Inherits the deep-table caps and nested zero-column rejection in EditBatch::tables.", "positive": ["baseline-mixed", "empty-batch", "rich-table", "flat-table"], "negative": ["baseline-mixed", "flat-table-guards"]
+      "status": "covered", "positive": ["baseline-mixed", "empty-batch", "rich-table", "flat-table"], "negative": ["baseline-mixed", "flat-table-guards"]
     },
     "ImportedDocument::preview_transaction": {
-      "scope": "ordinary mixed batch", "target": "paragraph alignments, table insertions and story images", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "paragraph alignments, supported table insertions and story images", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images"],
-      "status": "partial", "gap": "Inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "empty-batch", "rich-table", "story-images"], "negative": ["baseline-mixed", "flat-table-guards"]
+      "status": "covered", "positive": ["baseline-mixed", "empty-batch", "rich-table", "story-images"], "negative": ["baseline-mixed", "flat-table-guards"]
     },
     "ImportedDocument::preview_with_text": {
-      "scope": "ordinary mixed batch", "target": "transaction slices and run text", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported transaction slices and run text", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text"],
-      "status": "partial", "gap": "Inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "empty-batch", "rich-table"], "negative": ["baseline-mixed", "flat-table-guards"]
+      "status": "covered", "positive": ["baseline-mixed", "empty-batch", "rich-table"], "negative": ["baseline-mixed", "flat-table-guards"]
     },
     "ImportedDocument::preview_with_run_removals": {
-      "scope": "ordinary mixed batch", "target": "text batch slices and run removals", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported text batch slices and run removals", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "run_removals"],
-      "status": "partial", "gap": "Inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "empty-batch", "rich-table"], "negative": ["baseline-mixed", "flat-table-guards"]
+      "status": "covered", "positive": ["baseline-mixed", "empty-batch", "rich-table"], "negative": ["baseline-mixed", "flat-table-guards"]
     },
     "ImportedDocument::preview_with_paragraphs": {
-      "scope": "ordinary mixed batch", "target": "text batch slices and paragraph insertions", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported text batch slices and paragraph insertions", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs"],
-      "status": "partial", "gap": "Paragraph insertion is covered; this alias inherits the limits in EditBatch::tables.", "positive": ["baseline-created", "baseline-mixed", "rich-paragraph-insertion"], "negative": ["baseline-mixed", "rich-paragraph-insertion", "flat-table-guards"]
+      "status": "covered", "positive": ["baseline-created", "baseline-mixed", "rich-paragraph-insertion"], "negative": ["baseline-mixed", "rich-paragraph-insertion", "flat-table-guards"]
     },
     "ImportedDocument::preview_with_cells": {
-      "scope": "ordinary mixed batch", "target": "text batch slices and physical cell alignment", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported text batch slices and physical cell alignment", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "cells"],
-      "status": "partial", "gap": "Inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "empty-batch", "rich-table"], "negative": ["baseline-mixed", "flat-table-guards"]
+      "status": "covered", "positive": ["baseline-mixed", "empty-batch", "rich-table"], "negative": ["baseline-mixed", "flat-table-guards"]
     },
     "ImportedDocument::preview_mixed": {
-      "scope": "ordinary mixed batch", "target": "original seven edit slices", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported model for the original seven edit slices", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals"],
-      "status": "partial", "gap": "Inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "empty-batch", "rich-table", "rich-paragraph-insertion"], "negative": ["baseline-mixed", "flat-table-guards"]
+      "status": "covered", "positive": ["baseline-mixed", "empty-batch", "rich-table", "rich-paragraph-insertion"], "negative": ["baseline-mixed", "flat-table-guards"]
     },
     "ImportedDocument::preview_with_ranges": {
-      "scope": "ordinary mixed batch", "target": "original seven edit slices plus nonempty scalar ranges", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported original seven edit slices plus nonempty scalar ranges", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "ranges"],
-      "status": "partial", "gap": "Range slice is covered; this alias inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "body-scalar-edits", "empty-batch"], "negative": ["baseline-mixed", "body-scalar-edits"]
+      "status": "covered", "positive": ["baseline-mixed", "body-scalar-edits", "empty-batch"], "negative": ["baseline-mixed", "body-scalar-edits"]
     },
     "ImportedDocument::preview_blocks": {
-      "scope": "ordinary body batch", "target": "block and section edits", "mcp": "preview_edits.edits[kind=block]",
+      "scope": "ordinary body batch within documented MCP request budgets", "target": "supported block and section edits", "mcp": "preview_edits.edits[kind=block]; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["blocks"],
-      "status": "partial", "gap": "Inherits the section replacement table limits in EditBatch::blocks.",
+      "status": "covered",
       "positive": ["block-mixed", "block-flags-and-types", "section-boundaries"], "negative": ["block-mixed", "section-boundaries", "flat-table-guards"]
     },
     "ImportedDocument::preview_with_blocks": {
-      "scope": "ordinary mixed batch", "target": "original seven slices plus block and section edits", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported original seven slices plus block and section edits", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "blocks"],
-      "status": "partial", "gap": "Inherits the table limits in EditBatch::tables and EditBatch::blocks.",
+      "status": "covered",
       "positive": ["baseline-mixed", "block-mixed"], "negative": ["baseline-mixed", "block-mixed"]
     },
     "ImportedDocument::preview_with_inlines": {
-      "scope": "ordinary mixed batch", "target": "original seven slices plus inline edits", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported original seven slices plus inline edits", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "inline_edits"],
-      "status": "partial", "gap": "Inherits the table and field declaration limits in EditBatch::tables and EditBatch::inline_edits.",
+      "status": "covered",
       "positive": ["baseline-mixed", "body-inlines", "bookmark-hyperlink"], "negative": ["baseline-mixed", "body-inlines", "bookmark-hyperlink", "flat-table-guards", "field-tree-rejection"]
     },
     "ImportedDocument::preview_with_table_structure": {
-      "scope": "ordinary mixed batch", "target": "original seven slices plus direct table structure edits", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported original seven slices plus direct table structure edits", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "structural"],
-      "status": "partial", "gap": "Inherits the table limits in EditBatch::tables and EditBatch::structural.",
+      "status": "covered",
       "positive": ["baseline-mixed", "body-table-mixed", "body-replace-cell", "table-property-donors"], "negative": ["baseline-mixed", "body-table-mixed", "body-replace-cell", "flat-table-guards"]
     },
     "ImportedDocument::preview_with_styles": {
-      "scope": "ordinary mixed batch", "target": "original seven slices plus style edits", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported original seven slices plus style edits", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "styles"],
-      "status": "partial", "gap": "Style edits are covered; this alias inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "style-bytes", "style-rich-replace"], "negative": ["baseline-mixed", "style-bytes", "style-rich-replace"]
+      "status": "covered", "positive": ["baseline-mixed", "style-bytes", "style-rich-replace"], "negative": ["baseline-mixed", "style-bytes", "style-rich-replace"]
     },
     "ImportedDocument::preview_with_resources": {
-      "scope": "ordinary mixed batch", "target": "original seven slices plus document resource edits", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported original seven slices plus document resource edits", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "resources"],
-      "status": "partial", "gap": "Resource edits are covered; this alias inherits the limits in EditBatch::tables.",
+      "status": "covered",
       "positive": ["baseline-mixed", "resource-mixed", "resource-legacy", "numbering-bytes", "numbering-first-part", "physical-numbering-bytes"], "negative": ["baseline-mixed", "resource-retry", "numbering-bytes", "physical-numbering-bytes"]
     },
     "ImportedDocument::preview_with_controls": {
-      "scope": "ordinary mixed batch", "target": "original seven slices plus control edits", "mcp": "preview_edits.edits",
+      "scope": "ordinary mixed batch within documented MCP request budgets", "target": "supported original seven slices plus control patches", "mcp": "preview_edits.edits; no-op for empty input",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["alignments", "tables", "header_images", "run_text", "paragraphs", "cells", "run_removals", "controls"],
-      "status": "partial", "gap": "Control patches are covered; this alias inherits the limits in EditBatch::tables.", "positive": ["baseline-mixed", "control-lifecycle"], "negative": ["baseline-mixed", "control-guards"]
+      "status": "covered", "positive": ["baseline-mixed", "control-lifecycle"], "negative": ["baseline-mixed", "control-guards"]
     },
     "ImportedDocument::sections": {
       "scope": "main document section ranges", "target": "section anchor and direct section information", "mcp": "inspect_document.view[kind=sections]",
@@ -583,19 +595,20 @@
       "positive": ["table-paging", "table-owners", "catalog-body-isolation", "catalog-story-table-isolation", "catalog-entry-table-scope"], "negative": ["table-paging", "catalog-body-isolation", "catalog-story-table-isolation", "catalog-entry-table-scope"]
     },
     "ImportedDocument::edit_part_tables": {
-      "scope": "one physical body, story or note/comment part", "target": "owner-local table anchors and physical/logical coordinates", "mcp": "preview_edits.operation[kind=edit-part-tables]",
-      "status": "partial", "gap": "Geometry, layout, rich cell replacement and all property donors have native evidence. Cell replacements needing flat table transport retain its aggregate caps.",
-      "positive": ["table-geometry", "table-owners", "table-property-donors", "flat-table-consumers"], "negative": ["table-paging", "table-property-donors", "flat-table-existing-depth", "flat-table-guards"]
+      "scope": "one physical body, header/footer or ordinary note/comment part, with supported table declarations within documented MCP request budgets", "target": "owner-local table anchors and physical/logical coordinates for geometry, layout, cell content and property edits; not whole-node replacement or removal", "mcp": "preview_edits.operation[kind=edit-part-tables]",
+      "status": "covered",
+      "positive": ["table-geometry", "table-owners", "table-property-donors", "flat-table-consumers", "table-zero-column-donor", "catalog-body-isolation", "catalog-story-table-isolation", "catalog-entry-table-scope"],
+      "negative": ["table-paging", "table-property-donors", "flat-table-existing-depth", "flat-table-guards", "table-zero-column-donor", "catalog-body-isolation", "catalog-story-table-isolation"]
     },
     "ImportedDocument::edit_story_reference": {
-      "scope": "one logical section story slot", "target": "section, header/footer kind, and slot variant", "mcp": "preview_edits.operation[kind=edit-story-reference]",
-      "status": "partial", "gap": "Create with paragraph and table, link and remove have native byte evidence. Creation inherits the deep-table caps and nested zero-column rejection in the shared table declaration.",
+      "scope": "one logical section story slot, with supported creation blocks within documented MCP request budgets", "target": "section, header/footer kind, and slot variant for create, link or remove", "mcp": "preview_edits.operation[kind=edit-story-reference]",
+      "status": "covered",
       "positive": ["story-reference", "story-relink", "rich-story-blocks", "story-slot-isolation", "story-slot-identity", "story-default-owner-link", "story-referenced-owner-link"], "negative": ["story-reference", "story-relink", "story-slot-isolation", "story-slot-identity", "native-story-diagnostics", "story-default-owner-link", "story-referenced-owner-link"]
     },
     "ImportedDocument::edit_story_blocks": {
-      "scope": "one logical story slot with shared/local intent", "target": "slot anchor, original block gap, removal count and resolved blocks", "mcp": "preview_edits.operation[kind=edit-story-blocks]",
-      "status": "partial", "gap": "Shared and local splices have native byte evidence; the renderer shared with story creation inherits the deep-table caps and nested zero-column rejection.",
-      "positive": ["rich-story-blocks", "default-header-slot-edits", "flat-table"], "negative": ["rich-story-blocks", "native-story-diagnostics", "default-header-slot-edits", "flat-table-guards"]
+      "scope": "one logical story slot with shared/local intent and supported block declarations within documented MCP request budgets", "target": "slot anchor, original block gap, removal count and resolved blocks", "mcp": "preview_edits.operation[kind=edit-story-blocks]",
+      "status": "covered",
+      "positive": ["rich-story-blocks", "default-header-slot-edits", "story-shared-first-footer", "flat-table"], "negative": ["rich-story-blocks", "native-story-diagnostics", "default-header-slot-edits", "story-shared-first-footer", "flat-table-guards"]
     },
     "ImportedDocument::edit_story_text": {
       "scope": "one physical header/footer or ordinary note/comment part", "target": "eligible direct text run anchors owned by that part", "mcp": "preview_edits.operation[kind=edit-story-text]",
@@ -624,16 +637,16 @@
       "status": "covered", "positive": ["field-discovery", "field-mixed"], "negative": ["field-mixed"]
     },
     "ImportedDocument::patch_field": {
-      "scope": "main story", "target": "one field identified by paragraph anchor and original inline index", "mcp": "preview_edits.edits[kind=field]",
+      "scope": "one supported main-story field", "target": "instruction or set/clear one direct flag at an original field position", "mcp": "preview_edits.edits[kind=field].edit[kind=instruction|dirty|locked]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["fields"],
-      "status": "partial", "gap": "All patch actions have native evidence; the ledger dependency on the whole EditBatch::fields slice still inherits its flat cache cap.",
-      "positive": ["field-mixed", "field-instruction-variants"], "negative": ["field-mixed", "field-instruction-variants"]
+      "status": "covered",
+      "positive": ["field-mixed"], "negative": ["field-mixed"]
     },
     "ImportedDocument::replace_field": {
-      "scope": "main story", "target": "one field, optional resolved replacement; omission removes", "mcp": "preview_edits.edits[kind=field]",
+      "scope": "main story, with supported field replacements within documented MCP request budgets", "target": "one field, optional resolved replacement; omission in Rust maps to explicit remove", "mcp": "preview_edits.edits[kind=field].edit[kind=replace|remove]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["fields"],
-      "status": "partial", "gap": "Replacement and removal have native byte evidence; deep replacement fields retain the flat cache cap in EditBatch::fields.",
-      "positive": ["field-mixed", "field-tree-native-bytes"], "negative": ["field-mixed", "field-tree-rejection"]
+      "status": "covered",
+      "positive": ["field-mixed"], "negative": ["field-mixed"]
     },
     "ImportedDocument::body_range_markers": {
       "scope": "main story range boundaries and references", "target": "bookmark/comment IDs and original marker sites", "mcp": "inspect_document.view[kind=range-markers]",
@@ -733,25 +746,25 @@
     "ImportedDocument::preview_wrap_control": {
       "scope": "main story", "target": "one eligible wrapper site and tag", "mcp": "preview_edits.edits[kind=control].edit[kind=wrap] without last",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "partial", "gap": "Single-site wrap has native byte evidence; the ledger dependency on all of EditBatch::wrappers inherits its block replacement limits.",
+      "status": "covered",
       "positive": ["control-lifecycle"], "negative": ["control-discovery", "control-lifecycle"]
     },
     "ImportedDocument::preview_unwrap_control": {
       "scope": "main story", "target": "one eligible control anchor", "mcp": "preview_edits.edits[kind=control].edit[kind=unwrap]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "partial", "gap": "All four unwrap contexts have byte evidence; the ledger dependency on all of EditBatch::wrappers inherits its block replacement limits.",
+      "status": "covered",
       "positive": ["control-lifecycle", "control-wrapper-variants"], "negative": ["control-lifecycle", "control-guards", "control-wrapper-variants"]
     },
     "ImportedDocument::preview_replace_control": {
       "scope": "main story", "target": "control anchor and complete replacement definition", "mcp": "preview_edits.edits[kind=control].edit[kind=define]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "partial", "gap": "Plain, rich and drop-down definition variants have byte evidence; the ledger dependency on all of EditBatch::wrappers inherits its block replacement limits.",
+      "status": "covered",
       "positive": ["control-lifecycle", "control-wrapper-variants"], "negative": ["control-discovery", "control-wrapper-variants"]
     },
     "ImportedDocument::preview_control_choice": {
       "scope": "main story", "target": "control anchor, selected value and optional list items", "mcp": "preview_edits.edits[kind=control].edit[kind=choice]",
       "alias_of": "ImportedDocument::preview_edits", "batch_slices": ["wrappers"],
-      "status": "partial", "gap": "List replacement, retained list and repeated-selection no-op have byte evidence; the ledger dependency on all of EditBatch::wrappers inherits its block replacement limits.",
+      "status": "covered",
       "positive": ["control-lifecycle", "control-wrapper-variants"], "negative": ["control-discovery", "control-lifecycle", "control-wrapper-variants"]
     },
     "ImportedDocument::preview_tracked_text": {
@@ -1187,11 +1200,11 @@
     {
       "symbols": ["rocx::editor::StoryReferenceEdit::Create::0"],
       "template": {
-        "scope": "standalone creation in a non-explicit logical story slot",
+        "scope": "standalone creation in a non-explicit logical story slot, with supported blocks within documented MCP request budgets",
         "target": "ordered resolved blocks, including a formatted hyperlink paragraph followed by a rich fixed-layout table with a paragraph cell",
         "mcp": "preview_edits.operation[kind=edit-story-reference].edit[kind=create].paragraphs or edit[kind=create-rich].blocks",
-        "status": "partial", "gap": "Shares the deep-table caps and nested zero-column rejection of the common table declaration.",
-        "positive": ["story-reference", "rich-story-blocks", "flat-table"], "negative": ["story-reference", "rich-story-blocks", "native-story-diagnostics", "flat-table-guards"]
+        "status": "covered",
+        "positive": ["story-reference", "rich-story-blocks"], "negative": ["story-reference", "rich-story-blocks", "native-story-diagnostics"]
       }
     },
     {
@@ -1270,10 +1283,10 @@
     {
       "symbols": ["rocx::editor::TableInsertion::table"],
       "template": {
-        "scope": "ordinary table insertion declarations",
+        "scope": "ordinary supported table insertion declarations within documented MCP request budgets",
         "target": "plain, rich and flat tables including the tested deep and wide spanning-cell chains",
         "mcp": "preview_edits.edits[kind=insert-table].rows or edits[kind=insert-rich-table].table",
-        "status": "partial", "gap": "Shares the deep-table aggregate caps and nested zero-column rejection in EditBatch::tables.",
+        "status": "covered",
         "positive": ["baseline-mixed", "rich-table", "flat-table"], "negative": ["rich-table", "flat-table-guards", "flat-table-depth", "table-zero-column-donor"]
       }
     },
@@ -1322,10 +1335,10 @@
         "rocx::ResolvedInline::Field::0", "rocx::editor::FieldAction::Cache::0"
       ],
       "template": {
-        "scope": "nested native resolved field caches in ordinary body edits",
+        "scope": "supported nested resolved field caches in ordinary body edits within documented MCP request budgets",
         "target": "ordered cache children, including one 80-level chain with 1,100 tabs and 300 sibling fields in its deepest field",
         "mcp": "preview_edits edits[kind=field].edit[kind=cache].children and inline declarations [kind=field|field-tree]",
-        "status": "partial", "gap": "A deeply nested field with more than 16,384 terminal cached runs does not fit flat encoding and can exceed JSON recursion in the nested form. The native field constructor has no corresponding cache entry cap.",
+        "status": "covered",
         "positive": ["field-mixed", "field-cache-separator", "field-tree-native-bytes", "field-tree-deep-wide"], "negative": ["field-mixed", "field-cache-separator", "field-tree-rejection"]
       }
     },
@@ -2098,10 +2111,10 @@
     {
       "symbols": ["rocx::editor::BlockEdit"],
       "template": {
-        "scope": "ordinary direct body block transaction",
+        "scope": "ordinary direct body block transaction with supported declarations within documented MCP request budgets",
         "target": "all nine native block selectors",
         "mcp": "preview_edits.edits[kind=block].edit",
-        "status": "partial", "gap": "Section replacement inherits the deep-table aggregate caps and nested zero-column rejection.",
+        "status": "covered",
         "positive": ["block-mixed", "block-flags-and-types", "section-boundaries"], "negative": ["block-mixed", "block-flags-and-types", "section-boundaries", "flat-table-guards"]
       }
     },
@@ -2143,11 +2156,11 @@
     {
       "symbols": ["rocx::editor::BlockEdit::ReplaceSection::1"],
       "template": {
-        "scope": "ordinary section replacement",
+        "scope": "ordinary section replacement with supported blocks within documented MCP request budgets",
         "target": "ordered resolved paragraph and table blocks",
         "mcp": "preview_edits.edits[kind=block].edit[kind=replace-section].blocks",
-        "status": "partial", "gap": "Shares the deep-table aggregate caps and nested zero-column rejection in EditBatch::tables.",
-        "positive": ["block-mixed", "flat-table"], "negative": ["block-mixed", "flat-table-guards"]
+        "status": "covered",
+        "positive": ["block-mixed"], "negative": ["block-mixed", "flat-table-guards"]
       }
     },
     {
@@ -2208,10 +2221,10 @@
     {
       "symbols": ["rocx::editor::InlineAction"],
       "template": {
-        "scope": "ordinary direct body inline transaction",
+        "scope": "ordinary direct body inline transaction with supported declarations within documented MCP request budgets",
         "target": "all 12 native action selectors",
         "mcp": "preview_edits.edits[kind=inline].edit",
-        "status": "partial", "gap": "Insert and replace inherit the 16,384-entry flat cache limit for deep field payloads.",
+        "status": "covered",
         "positive": ["body-inlines", "ordinary-inline-properties", "drawing-bytes", "bookmark-hyperlink", "field-tree-native-bytes"], "negative": ["body-inlines", "ordinary-inline-properties", "drawing-bytes", "bookmark-hyperlink", "field-tree-rejection"]
       }
     },
@@ -2227,10 +2240,10 @@
     {
       "symbols": ["rocx::editor::InlineAction::InsertAfter::0", "rocx::editor::InlineAction::Replace::0"],
       "template": {
-        "scope": "ordinary direct body inline splice declarations",
+        "scope": "supported ordinary direct body inline splice declarations within documented MCP request budgets",
         "target": "resolved inline declaration after an original inline or in its place",
         "mcp": "preview_edits.edits[kind=inline].edit[kind=insert-after|replace].inline",
-        "status": "partial", "gap": "Deep field payloads for these actions inherit the 16,384-entry flat cache cap.",
+        "status": "covered",
         "positive": ["body-inlines", "drawing-bytes", "inline-declaration", "bookmark-hyperlink", "field-tree-native-bytes"], "negative": ["body-inlines", "bookmark-hyperlink", "field-tree-rejection"]
       }
     },
@@ -3515,10 +3528,10 @@
         "rocx::ResolvedTableCell", "rocx::ResolvedTableCell::blocks"
       ],
       "template": {
-        "scope": "supported block, table, row and cell declaration operands",
-        "target": "ordered paragraph/table blocks, rows and cells with modeled properties, nesting and padding",
+        "scope": "supported block, table, row and cell declaration operands within documented MCP request budgets",
+        "target": "ordered paragraph/table blocks, rows and cells with modeled properties, nesting and padding; rendered fragments must reopen within native XML depth and cannot contain Word-corrupt zero-column tables (#91)",
         "mcp": "preview_edits rich block lists or table rows/nodes, rows[].cells and cells[].blocks",
-        "status": "partial", "gap": "Deep tables requiring flat encoding retain the aggregate limits in EditBatch::tables. Nested zero-column fragments rejected by MCP can be emitted by the native wrapper renderer (#91).",
+        "status": "covered",
         "positive": ["rich-table", "flat-table", "table-declaration-edges", "rich-story-blocks", "block-mixed", "control-rich-replacement"],
         "negative": ["rich-table", "flat-table-guards", "flat-table-depth", "table-zero-column-nested"]
       }
@@ -3535,20 +3548,20 @@
     {
       "symbols": ["rocx::editor::TableOperation::ReplaceCell::blocks"],
       "template": {
-        "scope": "ordinary direct-body and physical-owner cell replacement",
+        "scope": "ordinary direct-body and physical-owner cell replacement with supported blocks within documented MCP request budgets",
         "target": "ordered resolved cell blocks, including a linked paragraph and nested table; native trailing paragraph and owner-local relationships",
         "mcp": "preview_edits table-structure or edit-part-tables edit[kind=replace-cell].blocks",
-        "status": "partial", "gap": "Deep nested replacements requiring flat table transport inherit its aggregate caps.",
+        "status": "covered",
         "positive": ["body-replace-cell", "table-owners", "flat-table-consumers"], "negative": ["body-replace-cell", "table-paging", "flat-table-existing-depth", "flat-table-guards"]
       }
     },
     {
       "symbols": ["rocx::editor::TableOperation::ReplaceNode::source"],
       "template": {
-        "scope": "ordinary whole-node table, row and cell replacement",
+        "scope": "ordinary whole-node table, row and cell replacement with supported table declarations within documented MCP request budgets",
         "target": "resolved table envelope used to render the replacement at the original site with native grid, merge and protection guards",
         "mcp": "preview_edits.edits[kind=table-structure].edit[kind=replace-node].source",
-        "status": "partial", "gap": "Deep replacement donors requiring flat table transport inherit its aggregate caps.",
+        "status": "covered",
         "positive": ["body-table-mixed", "flat-table-consumers"], "negative": ["body-table-mixed", "flat-table-consumers", "flat-table-guards"]
       }
     },
@@ -3564,21 +3577,21 @@
     {
       "symbols": ["rocx::editor::WrapperEdit::ReplaceBlocks::1"],
       "template": {
-        "scope": "rich block control replacement",
+        "scope": "rich block control replacement with supported blocks within documented MCP request budgets",
         "target": "ordered formatted hyperlink paragraph and fixed-layout table with modeled row and cell properties",
         "mcp": "preview_edits.edits[kind=control].edit[kind=replace-blocks].blocks",
-        "status": "partial", "gap": "Deep block tables inherit flat aggregate caps; the nested zero-column table emitted by native is rejected by MCP (#91).",
+        "status": "covered",
         "positive": ["control-rich-replacement"], "negative": ["control-rich-replacement", "table-zero-column-nested", "flat-table-guards"]
       }
     },
     {
       "symbols": ["rocx::editor::FieldAction::Replace::0"],
       "template": {
-        "scope": "ordinary whole-field replacement payload",
+        "scope": "supported ordinary whole-field replacement payload within documented MCP request budgets",
         "target": "a resolved field, not an arbitrary inline; independently encoded instruction, form, flags and ordered cached display",
         "mcp": "preview_edits.edits[kind=field].edit[kind=replace].inline",
-        "status": "partial", "gap": "Deep replacement fields requiring flat transport inherit its 16,384-entry cache cap.",
-        "positive": ["field-mixed", "field-instruction-variants", "field-tree-native-bytes"], "negative": ["field-mixed", "field-tree-rejection"]
+        "status": "covered",
+        "positive": ["field-mixed"], "negative": ["field-mixed", "field-tree-rejection"]
       }
     },
     {
@@ -3627,104 +3640,194 @@
         "mcp": "preview_edits.operation[kind=edit-revision] error structuredContent.character and .byte_offset",
         "status": "covered", "positive": ["native-revision-diagnostics"], "negative": ["native-revision-diagnostics"]
       }
+    },
+    {
+      "symbols": ["rocx::CellMargins::validate", "rocx::TableRowProperties::validate"],
+      "template": {
+        "scope": "table declaration resolution",
+        "target": "zero margins and height, absent or false row flags, and native negative margin and height diagnostics",
+        "mcp": "preview_edits.edits[kind=insert-rich-table]",
+        "status": "covered", "positive": ["table-declaration-edges"], "negative": ["table-declaration-edges"]
+      }
+    },
+    {
+      "symbols": [
+        "rocx::CommentMetadata", "rocx::CommentMetadata::author", "rocx::CommentMetadata::date",
+        "rocx::CommentMetadata::initials", "rocx::CommentMetadata::validate",
+        "rocx::CommentMetadata::with_author", "rocx::CommentMetadata::with_date",
+        "rocx::CommentMetadata::with_initials"
+      ],
+      "template": {
+        "scope": "existing base comment metadata only",
+        "target": "author assignment, initials and date assignment/clear, native date validation and stored readback; not comment authoring",
+        "mcp": "preview_edits.operation[kind=edit-entry]; inspect_document.view[kind=entries]",
+        "status": "covered", "positive": ["entry-scoped-bytes"], "negative": ["entry-rejection", "entry-scoped-bytes"]
+      }
+    },
+    {
+      "symbols": ["rocx::Diagnostic::at", "rocx::Diagnostic::new"],
+      "template": {
+        "scope": "native editor diagnostic projection",
+        "target": "native rule, unformatted detail and optional location when a declaration or edit rejects",
+        "mcp": "structured failure result",
+        "status": "covered", "positive": ["fraction-operand-guards", "numbering-level-fields"], "negative": ["native-revision-diagnostics", "native-open-diagnostics"]
+      }
+    },
+    {
+      "symbols": ["rocx::Error::Io", "rocx::Rule::Io"],
+      "template": {
+        "scope": "native byte-backed DOCX import",
+        "target": "exact io_error code and display text for a failed archive member read, not a filesystem-open error",
+        "mcp": "open_document structured error",
+        "status": "covered", "positive": ["native-member-io"], "negative": ["native-member-io", "native-open-diagnostics"]
+      }
+    },
+    {
+      "symbols": ["rocx::FieldInstruction::bookmark_name", "rocx::ResolvedField::instruction", "rocx::ResolvedField::properties"],
+      "template": {
+        "scope": "supported ordinary field declarations and original-snapshot field inspection",
+        "target": "typed REF validation against a paired direct body bookmark, instruction rendering, field form and optional flags",
+        "mcp": "preview_edits.edits[kind=inline|field]; inspect_document.view[kind=fields|field-at]",
+        "status": "covered", "positive": ["field-instruction-variants", "field-tree-native-bytes"], "negative": ["field-instruction-variants", "field-tree-rejection"]
+      }
+    },
+    {
+      "symbols": [
+        "rocx::ImageAnchorHorizontalAlignment::xml", "rocx::ImageAnchorReference::xml",
+        "rocx::ImageAnchorVerticalAlignment::xml", "rocx::ImageWrapSide::xml"
+      ],
+      "template": {
+        "scope": "supported placed picture declarations",
+        "target": "native positioning, relative-to and wrap-side spellings and axis-specific guards",
+        "mcp": "preview_edits.edits[kind=inline].edit.inline[kind=image]",
+        "status": "covered", "positive": ["picture-declarations"], "negative": ["picture-declarations"]
+      }
+    },
+    {
+      "symbols": [
+        "rocx::ParagraphFormat::validate", "rocx::ResolvedParagraph::validate", "rocx::RunFormat::validate",
+        "rocx::Rule::InvalidMeasurement", "rocx::Rule::UnknownStyle"
+      ],
+      "template": {
+        "scope": "resolved paragraphs and modeled numbering formats",
+        "target": "native paragraph, run, measurement and missing style guards; structured errors and valid byte-identical retry",
+        "mcp": "preview_edits.edits[kind=block|insert-rich-paragraph|numbering]",
+        "status": "covered", "positive": ["declaration-format", "numbering-level-fields"], "negative": ["declaration-format", "numbering-level-fields"]
+      }
+    },
+    {
+      "symbols": ["rocx::ResolvedHyperlink::new"],
+      "template": {
+        "scope": "supported resolved hyperlink declarations",
+        "target": "validated literal URL or bookmark target, ordered display leaf children and direct tooltip/history",
+        "mcp": "preview_edits.edits[kind=inline].edit.inline[kind=hyperlink]",
+        "status": "covered", "positive": ["inline-declaration", "bookmark-hyperlink"], "negative": ["inline-declaration", "bookmark-hyperlink", "field-tree-rejection"]
+      }
+    },
+    {
+      "symbols": ["rocx::ResolvedInline", "rocx::ResolvedInline::format", "rocx::ResolvedInline::image", "rocx::ResolvedInline::validate"],
+      "template": {
+        "scope": "supported tagged inline declarations; raw authoring annotations are not accepted",
+        "target": "typed inline payload, leaf formats and pictures; direct fraction operands and ordinary formatting guards",
+        "mcp": "preview_edits.edits[kind=inline].edit.inline; inspect_document.view[kind=body-inlines|inline-at]",
+        "status": "covered", "positive": ["inline-declaration", "picture-declarations", "typed-inline-lookup", "fraction-operand-guards"], "negative": ["fraction-operand-guards", "declaration-format", "field-tree-rejection"]
+      }
+    },
+    {
+      "symbols": ["rocx::ResolvedInlineContentControl::new"],
+      "template": {
+        "scope": "native validation of replacement content for an existing inline control",
+        "target": "eligible replacement leaves and forbidden hyperlink children, not insertion of a raw wrapper declaration",
+        "mcp": "preview_edits.edits[kind=control].edit[kind=replace-inlines]",
+        "status": "covered", "positive": ["control-rich-replacement"], "negative": ["control-rich-replacement", "control-guards"]
+      }
+    },
+    {
+      "symbols": [
+        "rocx::BookmarkName::range_id",
+        "rocx::NoteId", "rocx::NoteId::get", "rocx::NoteId::new", "rocx::NoteId::next",
+        "rocx::NoteTarget", "rocx::NoteTarget::id", "rocx::NoteTarget::kind",
+        "rocx::NoteTarget::with_id", "rocx::NoteTarget::with_kind",
+        "rocx::RangeId", "rocx::RangeId::as_str", "rocx::RangeId::new",
+        "rocx::RangeKind", "rocx::RangeKind::Bookmark", "rocx::RangeKind::Bookmark::0",
+        "rocx::RangeKind::Comment", "rocx::RangeKind::Comment::0",
+        "rocx::RangeKind::StructuredComment", "rocx::RangeKind::StructuredComment::0"
+      ],
+      "template": {
+        "scope": "raw authoring identities and declarations", "target": "note or range constructor, declaration or accessor", "mcp": "not applicable",
+        "status": "excluded", "gap": "These are authoring declarations, not stored Word IDs or payloads of the imported note-reference or paired-range operations.",
+        "decision": "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973", "positive": [], "negative": []
+      }
+    },
+    {
+      "symbols": [
+        "rocx::ResolvedBlockContentControl", "rocx::ResolvedBlockContentControl::children",
+        "rocx::ResolvedBlockContentControl::new", "rocx::ResolvedBlockContentControl::properties",
+        "rocx::ResolvedInlineContentControl", "rocx::ResolvedInlineContentControl::children",
+        "rocx::ResolvedInlineContentControl::properties", "rocx::ResolvedInlineContentControl::text",
+        "rocx::ResolvedComment", "rocx::ResolvedComment::author", "rocx::ResolvedComment::text",
+        "rocx::ResolvedCommentBody", "rocx::ResolvedCommentBody::blocks",
+        "rocx::ResolvedCommentBody::metadata", "rocx::ResolvedCommentBody::validate",
+        "rocx::ResolvedInline::comment", "rocx::ResolvedInline::revision"
+      ],
+      "template": {
+        "scope": "raw authoring wrappers and annotations", "target": "resolved authoring declarations and their members", "mcp": "not applicable",
+        "status": "excluded", "gap": "Native fragment guards reject the raw wrappers and annotations. Imported control, comment and revision operations remain covered separately.",
+        "decision": "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973", "positive": [], "negative": []
+      }
+    },
+    {
+      "symbols": [
+        "rocx::NumberingDefinition::inherit_style", "rocx::NumberingDefinition::levels",
+        "rocx::NumberingDefinition::with_inherit_style", "rocx::NumberingDefinition::with_levels"
+      ],
+      "template": {
+        "scope": "authoring fields on a concrete numbering instance", "target": "local levels and inherited style assignments", "mcp": "omit both fields from replace-instance",
+        "status": "excluded", "gap": "Native concrete replacement rejects both nondefault assignments. The wire rejects those keys and uses omission for the default supported instance.",
+        "decision": "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973", "positive": ["numbering-bytes"], "negative": ["numbering-bytes"]
+      }
+    },
+    {
+      "symbols": ["rocx::NumberingDefinition::validate"],
+      "template": {
+        "scope": "authoring whole-definition numbering validation", "target": "standalone validation using levels declared on the same object", "mcp": "not applicable",
+        "status": "excluded", "gap": "Concrete editor operations validate against a stored or staged abstract rather than an authored instance's own level declarations.",
+        "decision": "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973", "positive": [], "negative": []
+      }
+    },
+    {
+      "symbols": ["rocx::ResolvedField::text", "rocx::ResolvedHyperlink::text", "rocx::ResolvedInline::text"],
+      "template": {
+        "scope": "local resolved-value convenience methods", "target": "flattened display projection on authoring declarations", "mcp": "not applicable",
+        "status": "excluded", "gap": "These are not native imported-editor operations or results; saved rendering and structured imported display leaves remain in scope.",
+        "decision": "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973", "positive": [], "negative": []
+      }
+    },
+    {
+      "symbols": [
+        "rocx::Error::InvalidParagraphContent", "rocx::Error::Io::0", "rocx::Error::Producer",
+        "rocx::Error::Producer::0", "rocx::Error::Shared", "rocx::Error::Shared::0",
+        "rocx::Error::Zip::0", "rocx::Error::producer", "rocx::Rule::DependencyCycle",
+        "rocx::Rule::ExcludedDependency", "rocx::Rule::ProducerError", "rocx::Rule::SchemaOrder"
+      ],
+      "template": {
+        "scope": "native implementation and authoring diagnostics artifacts", "target": "opaque third-party error objects, deferred producers or non-emitted declarations", "mcp": "not applicable",
+        "status": "excluded", "gap": "These objects and declarations are not protocol operations or results. Observable diagnostics from imported-editor errors remain covered separately.",
+        "decision": "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973", "positive": [], "negative": []
+      }
+    },
+    {
+      "symbols": [
+        "rocx::editor::DrawingProperty::parse", "rocx::editor::LayoutField::python_name",
+        "rocx::editor::ParagraphFlag::python_name", "rocx::editor::RunFormatField::parse",
+        "rocx::editor::RunToggle::parse", "rocx::editor::SectionFlag::python_name"
+      ],
+      "template": {
+        "scope": "binding and CLI spelling helpers", "target": "standalone parsing or spelling of an editor enum", "mcp": "documented protocol enum spellings",
+        "status": "excluded", "gap": "MCP represents the supported underlying editor values, not the standalone Rust or Python spelling utilities.",
+        "decision": "https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973", "positive": [], "negative": []
+      }
     }
   ],
-  "unverified_symbols": [
-    "EditBatch",
-    "rocx::BookmarkName::range_id",
-    "rocx::CellMargins::validate",
-    "rocx::CommentMetadata",
-    "rocx::CommentMetadata::author",
-    "rocx::CommentMetadata::date",
-    "rocx::CommentMetadata::initials",
-    "rocx::CommentMetadata::validate",
-    "rocx::CommentMetadata::with_author",
-    "rocx::CommentMetadata::with_date",
-    "rocx::CommentMetadata::with_initials",
-    "rocx::Diagnostic::at",
-    "rocx::Diagnostic::new",
-    "rocx::Error::InvalidParagraphContent",
-    "rocx::Error::Io",
-    "rocx::Error::Io::0",
-    "rocx::Error::Producer",
-    "rocx::Error::Producer::0",
-    "rocx::Error::Shared",
-    "rocx::Error::Shared::0",
-    "rocx::Error::Zip::0",
-    "rocx::Error::producer",
-    "rocx::FieldInstruction::bookmark_name",
-    "rocx::ImageAnchorHorizontalAlignment::xml",
-    "rocx::ImageAnchorReference::xml",
-    "rocx::ImageAnchorVerticalAlignment::xml",
-    "rocx::ImageWrapSide::xml",
-    "rocx::NoteId",
-    "rocx::NoteId::get",
-    "rocx::NoteId::new",
-    "rocx::NoteId::next",
-    "rocx::NoteTarget",
-    "rocx::NoteTarget::id",
-    "rocx::NoteTarget::kind",
-    "rocx::NoteTarget::with_id",
-    "rocx::NoteTarget::with_kind",
-    "rocx::NumberingDefinition::inherit_style",
-    "rocx::NumberingDefinition::levels",
-    "rocx::NumberingDefinition::validate",
-    "rocx::NumberingDefinition::with_inherit_style",
-    "rocx::NumberingDefinition::with_levels",
-    "rocx::ParagraphFormat::validate",
-    "rocx::RangeId",
-    "rocx::RangeId::as_str",
-    "rocx::RangeId::new",
-    "rocx::RangeKind",
-    "rocx::RangeKind::Bookmark",
-    "rocx::RangeKind::Bookmark::0",
-    "rocx::RangeKind::Comment",
-    "rocx::RangeKind::Comment::0",
-    "rocx::RangeKind::StructuredComment",
-    "rocx::RangeKind::StructuredComment::0",
-    "rocx::ResolvedBlockContentControl",
-    "rocx::ResolvedBlockContentControl::children",
-    "rocx::ResolvedBlockContentControl::new",
-    "rocx::ResolvedBlockContentControl::properties",
-    "rocx::ResolvedComment",
-    "rocx::ResolvedComment::author",
-    "rocx::ResolvedComment::text",
-    "rocx::ResolvedCommentBody",
-    "rocx::ResolvedCommentBody::blocks",
-    "rocx::ResolvedCommentBody::metadata",
-    "rocx::ResolvedCommentBody::validate",
-    "rocx::ResolvedField::instruction",
-    "rocx::ResolvedField::properties",
-    "rocx::ResolvedField::text",
-    "rocx::ResolvedHyperlink::new",
-    "rocx::ResolvedHyperlink::text",
-    "rocx::ResolvedInline",
-    "rocx::ResolvedInline::comment",
-    "rocx::ResolvedInline::format",
-    "rocx::ResolvedInline::image",
-    "rocx::ResolvedInline::revision",
-    "rocx::ResolvedInline::text",
-    "rocx::ResolvedInline::validate",
-    "rocx::ResolvedInlineContentControl",
-    "rocx::ResolvedInlineContentControl::children",
-    "rocx::ResolvedInlineContentControl::new",
-    "rocx::ResolvedInlineContentControl::properties",
-    "rocx::ResolvedInlineContentControl::text",
-    "rocx::ResolvedParagraph::validate",
-    "rocx::Rule::DependencyCycle",
-    "rocx::Rule::ExcludedDependency",
-    "rocx::Rule::InvalidMeasurement",
-    "rocx::Rule::Io",
-    "rocx::Rule::ProducerError",
-    "rocx::Rule::SchemaOrder",
-    "rocx::Rule::UnknownStyle",
-    "rocx::RunFormat::validate",
-    "rocx::TableRowProperties::validate",
-    "rocx::editor::DrawingProperty::parse",
-    "rocx::editor::LayoutField::python_name",
-    "rocx::editor::ParagraphFlag::python_name",
-    "rocx::editor::RunFormatField::parse",
-    "rocx::editor::RunToggle::parse",
-    "rocx::editor::SectionFlag::python_name"
-  ]
+  "unverified_symbols": []
 }

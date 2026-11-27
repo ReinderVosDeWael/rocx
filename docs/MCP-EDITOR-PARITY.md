@@ -91,6 +91,15 @@ inventing edits over opaque XML is outside this editor milestone. If a
 supported editor value lacks a portable representation, it is a **gap**
 until represented or explicitly adjudicated on #72.
 
+Verify this contract within the documented MCP request budgets, including
+the flat field and table limits. These limits remain part of the service
+contract; they are not additional editor operation variants. A native
+renderer result that cannot be reopened within the native XML depth limit
+or that Word treats as corrupt is not a supported edited document.
+The [scope decision on #72](https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973)
+records these boundaries and lists the standalone Rust helpers outside the
+editor contract.
+
 The editor's fragment validators, not the broader authoring API, set the
 declaration boundary. For example, `ResolvedTable` can carry row/cell controls,
 but the native editor rejects them in replacement fragments. It also rejects

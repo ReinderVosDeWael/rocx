@@ -15,6 +15,35 @@ fn text(value: &str) -> Result<ResolvedInline, rocx::Error> {
 }
 
 fn instruction_variants(document: &ImportedDocument) -> rocx::Result<Vec<u8>> {
+    let BodyBlock::Paragraph(paragraph) = &document.body()[1] else {
+        panic!("expected field fixture paragraph");
+    };
+    let [ImportedInlineNode::Run(run)] = paragraph.inline_structure.as_slice() else {
+        panic!("expected a single run");
+    };
+    let missing = InlineEdit {
+        target: run.anchor.clone(),
+        action: InlineAction::InsertAfter(ResolvedInline::Field(ResolvedField::new(
+            FieldInstruction::Reference(BookmarkName::new("MissingTarget")?),
+            vec![text("cached 0")?],
+            FieldProperties::default(),
+        )?)),
+    };
+    let Err(error) = document.preview_edits(EditBatch {
+        inline_edits: &[missing],
+        ..Default::default()
+    }) else {
+        panic!("expected a missing reference target to reject");
+    };
+    println!(
+        "{}",
+        serde_json::json!({
+            "message": error.to_string(),
+            "rule": error.rule().map(rocx::Rule::code),
+            "path": error.path(),
+        })
+    );
+
     let instructions = [
         FieldInstruction::Page,
         FieldInstruction::NumPages,

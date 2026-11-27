@@ -234,11 +234,18 @@ helpers, such as deferred producers, raw note/range constructors, and
 Python spelling helpers. Review those against the accepted editor API
 individually. Do not extend the existing rejected-fragment scope decision
 to unrelated symbols or change the strict gate to make closure pass.
-The current ledger has 53 partial rows and 96 unverified symbols. Some
-valid native field/table compositions exceed the documented flat transport
-budgets; dependent aliases inherit those gaps. The remaining symbols also
-include exact scope decisions and evidence obligations, not a count of
-missing editor features. Keep the strict check red until resolved.
+The engineer approved retaining the documented flat transport budgets
+and verifying parity within them. The [scope decision](https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973)
+records the exact standalone authoring, binding and runtime exclusions.
+#72 remains closed. Reconcile each remaining editor-visible key against
+fixture evidence and run the unchanged strict gate in hosted MCP CI.
+The final diagnostic audit also checks native errors raised while
+resolving rich declarations, before applying an edit. Preserve their
+structured rule, path and detail without changing existing message text.
+The unchanged strict checker passes locally: 1,824 covered, 84
+explicitly excluded, and no partial, planned or unverified symbols.
+Require hosted qualification on the final PR head before merging, then
+verify the compiled inventory and strict ledger on `main`.
 
 ## 0.4.0 release
 

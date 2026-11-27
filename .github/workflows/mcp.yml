@@ -39,7 +39,7 @@ jobs:
         if: matrix.rust == '1.88.0'
         run: |
           python tools/mcp_parity_surface.py --check
-          python tools/check_mcp_parity.py
+          python tools/check_mcp_parity.py --require-complete
           uv run --no-project --with-requirements tests/mcp/requirements.txt pytest -q tests/mcp_parity
       - run: cargo fmt --all --check
       - run: cargo test --locked -p rocx-mcp --all-targets
