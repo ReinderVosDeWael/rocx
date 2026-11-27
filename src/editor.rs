@@ -29,6 +29,9 @@ pub use entry_edits::{EntryEdit, NoteReferenceEdit};
 mod header;
 mod insertion;
 mod layout;
+#[cfg(feature = "layout-bridge")]
+#[doc(hidden)]
+pub mod layout_bridge;
 #[cfg(feature = "mcp-bridge")]
 #[doc(hidden)]
 pub mod mcp_bridge;
@@ -293,6 +296,10 @@ fn read_table(node: &Node, snapshot: &Arc<()>, body_index: usize) -> ImportedTab
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ImportedParagraph {
+    // A successful inspection (including an absent direct reference) can be
+    // answered from the snapshot. On malformed input retain the original
+    // query-time diagnostic rather than failing document open.
+    direct_numbering: std::result::Result<Option<crate::NumberingReference>, ()>,
     pub layout: BTreeMap<LayoutField, LayoutValue>,
     /// First direct insertion/deletion of the paragraph terminator.
     pub mark_revision: Option<ImportedPropertyRevision>,
@@ -631,6 +638,7 @@ impl ImportedDocument {
                             && node.child(ALTERNATE).is_none()
                     });
                     BodyBlock::Paragraph(ImportedParagraph {
+                        direct_numbering: numbering::paragraph_reference(node).map_err(|_| ()),
                         layout: layout::inspect(props, false),
                         flags: ParagraphFlag::read(props),
                         mark_revision: node.child("w:pPr").and_then(|p| p.child("w:rPr")).and_then(

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[project]
+name = "rocx-layout"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Checkout-only experimental rocx layout bindings"
+classifiers = ["Private :: Do Not Upload"]
+
+[tool.maturin]
+module-name = "rocx_layout"
+manifest-path = "python/Cargo.toml"
+features = ["pyo3/extension-module"]

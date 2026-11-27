@@ -180,7 +180,7 @@ fn simple(n: &Node, attrs: &[&str], children: &[&str]) -> bool {
         })
 }
 
-fn paragraph_reference(p: &Node) -> Result<Option<NumberingReference>> {
+pub(super) fn paragraph_reference(p: &Node) -> Result<Option<NumberingReference>> {
     let Some(props) = unique(p, "w:pPr")? else {
         return Ok(None);
     };
@@ -216,6 +216,11 @@ impl ImportedDocument {
         target: &ParagraphAnchor,
     ) -> Result<Option<NumberingReference>> {
         self.validate_snapshot(&target.snapshot)?;
+        if let Some(super::BodyBlock::Paragraph(p)) = self.body.get(target.body_index)
+            && let Ok(reference) = &p.direct_numbering
+        {
+            return Ok(reference.clone());
+        }
         let root = self.package.word(&self.main)?;
         let p = root
             .child("w:body")
