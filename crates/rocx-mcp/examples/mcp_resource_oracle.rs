@@ -26,6 +26,20 @@ fn inspect(doc: &ImportedDocument, query: &str, fields: &[std::ffi::OsString]) -
             })
             .collect::<serde_json::Map<_, _>>()
             .into(),
+        "custom-property" => fields
+            .iter()
+            .map(|field| {
+                let name = field.to_str().unwrap();
+                let value = outcome(doc.custom_property(name), |value| {
+                    value.map_or(Value::Null, |value| match value {
+                        CustomValue::Boolean(value) => json!(value),
+                        CustomValue::Text(value) => json!(value),
+                    })
+                });
+                (name.to_owned(), value)
+            })
+            .collect::<serde_json::Map<_, _>>()
+            .into(),
         "default-alignment" => outcome(doc.default_alignment(), |value| {
             json!(value.map(|alignment| match alignment {
                 Alignment::Left => "left",
@@ -120,6 +134,14 @@ fn edit(source: &Path, case: &str) -> Vec<u8> {
                 }],
             )
         }
+        "legacy" => (
+            vec![
+                ResourceEdit::CoreTitle(None),
+                ResourceEdit::CoreSubject(Some("Résumé 世界 😀".into())),
+                ResourceEdit::DefaultAlignment(None),
+            ],
+            vec![],
+        ),
         "direct" => (
             vec![
                 ResourceEdit::Default(DefaultField::Bold, None),
@@ -211,7 +233,7 @@ fn main() {
             fs::write(output, edit(Path::new(source), case.to_str().unwrap())).unwrap();
         }
         _ => panic!(
-            "usage: mcp_resource_oracle OUTPUT SOURCE mixed|direct \
+            "usage: mcp_resource_oracle OUTPUT SOURCE mixed|legacy|direct \
              or mcp_resource_oracle inspect SOURCE QUERY [FIELD ...] \
              or mcp_resource_oracle write-modeled OUTPUT SOURCE VALUES set|clear [FIELD ...]"
         ),

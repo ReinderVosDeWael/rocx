@@ -4,8 +4,8 @@ use rocx::editor::{BodyBlock, ImportedInlineNode, InlineAnchor, InlineEdit};
 use serde_json::{Value, json};
 
 use super::run_format::format_value;
-use super::{Snapshot, block_readback::inline_items, projected_run_text};
-use crate::schema::body_inlines::BodyInlineChange;
+use super::{ReadError, Snapshot, block_readback::inline_items, projected_run_text};
+use crate::{diagnostics::ScopedEditError, schema::body_inlines::BodyInlineChange};
 
 const PREFIX: &str = "body-inline:";
 
@@ -22,7 +22,7 @@ impl Snapshot {
         start: usize,
         limit: usize,
         handles: &mut InlineHandles<'_>,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         let mut nodes = self
             .document
             .body()
@@ -66,8 +66,8 @@ impl Snapshot {
         anchor: &InlineAnchor,
         local: &str,
         handles: &mut InlineHandles<'_>,
-    ) -> Result<Value, String> {
-        let node = self.document.inline_at(anchor).map_err(|e| e.to_string())?;
+    ) -> rocx::Result<Value> {
+        let node = self.document.inline_at(anchor)?;
         Ok(project(node, local, handles))
     }
 
@@ -94,18 +94,15 @@ impl Snapshot {
         &self,
         local: &str,
         change: BodyInlineChange,
-    ) -> Result<InlineEdit, String> {
+    ) -> Result<InlineEdit, ScopedEditError> {
         let target = self.body_inline_anchor(local)?.clone();
         let action = change.resolve()?;
         Ok(InlineEdit { target, action })
     }
 
-    pub fn chart_series(&self, local: &str) -> Result<Value, String> {
+    pub fn chart_series(&self, local: &str) -> Result<Value, ReadError> {
         let anchor = self.body_inline_anchor(local)?;
-        let (categories, values) = self
-            .document
-            .chart_series(anchor)
-            .map_err(|error| error.to_string())?;
+        let (categories, values) = self.document.chart_series(anchor)?;
         Ok(json!({"categories": categories, "values": values}))
     }
 }

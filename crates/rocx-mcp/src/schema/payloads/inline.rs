@@ -2,14 +2,16 @@ use rmcp::schemars::{self, JsonSchema};
 use rocx::{
     BookmarkName, BreakType, ColumnChartProperties, ColumnChartRun, FieldForm, FieldInstruction,
     FieldProperties, Hyperlink, HyperlinkProperties, HyperlinkTarget, ImageData, ImageRun,
-    InlineFraction, ResolvedField, ResolvedInline, RunFormat, ShapeProperties, ShapeRun, TextRun,
+    InlineFraction, ResolvedField, ResolvedHyperlink, ResolvedInline, RunFormat, ShapeProperties,
+    ShapeRun, TextRun,
 };
 use serde::Deserialize;
 
 use super::{drawing, format::RunFormatInput, resolve_component};
+use crate::diagnostics::ScopedEditError;
 
-const MAX_FIELD_TREE_NODES: usize = 256;
-const MAX_FIELD_TREE_CHILDREN: usize = 1024;
+const MAX_FIELD_TREE_NODES: usize = 16384;
+const MAX_FIELD_TREE_CHILDREN: usize = 16384;
 const MAX_FIELD_TREE_DEPTH: usize = 256;
 
 #[derive(Deserialize, JsonSchema)]
@@ -68,22 +70,23 @@ pub(crate) enum InlineInput {
         dirty: Option<bool>,
         locked: Option<bool>,
     },
-    /// Flat field cache, including inline nesting through depth 256. Native
-    /// XML limits still apply. Use `field` for caches with other inline kinds.
+    /// Flat field cache with nested fields, hyperlinks and leaf runs.
+    /// Native XML limits still apply.
     FieldTree {
         /// Node 0 is the root. Each subsequent node must be referenced once
-        /// by an earlier node. Across all nodes, at most 1024 child entries.
+        /// by an earlier node. At most 256 container levels and 16,384 total
+        /// child entries, including runs inside hyperlinks.
         #[schemars(length(min = 1, max = MAX_FIELD_TREE_NODES))]
         nodes: Vec<FieldTreeNode>,
     },
 }
 
 impl InlineInput {
-    pub(crate) fn resolve(self) -> Result<ResolvedInline, String> {
+    pub(crate) fn resolve(self) -> Result<ResolvedInline, ScopedEditError> {
         self.resolve_at_depth(0)
     }
 
-    fn resolve_at_depth(self, depth: usize) -> Result<ResolvedInline, String> {
+    fn resolve_at_depth(self, depth: usize) -> Result<ResolvedInline, ScopedEditError> {
         match self {
             Self::Text { text, format } => {
                 let mut run = TextRun::new(text);
@@ -187,7 +190,7 @@ fn resolve_field(
     complex: bool,
     dirty: Option<bool>,
     locked: Option<bool>,
-) -> Result<ResolvedInline, String> {
+) -> Result<ResolvedInline, ScopedEditError> {
     ResolvedField::new(
         instruction,
         children,
@@ -202,7 +205,7 @@ fn resolve_field(
         },
     )
     .map(ResolvedInline::Field)
-    .map_err(|error| error.to_string())
+    .map_err(Into::into)
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -226,42 +229,118 @@ enum FieldTreeChild {
         /// Zero-based index of a later node in this tree.
         node: usize,
     },
-    Text {
-        text: String,
-        format: Option<RunFormatInput>,
+    Hyperlink {
+        target: LinkTargetInput,
+        /// Ordered display runs. Native cache hyperlinks cannot contain fields
+        /// or other containers.
+        #[schemars(length(max = MAX_FIELD_TREE_CHILDREN))]
+        children: Vec<FieldTreeLeaf>,
+        tooltip: Option<String>,
+        history: Option<bool>,
     },
-    Tab {
-        format: Option<RunFormatInput>,
-    },
-    Break {
-        #[serde(rename = "type", default)]
-        break_type: BreakTypeInput,
-        format: Option<RunFormatInput>,
-    },
+    Text(CachedText),
+    Tab(CachedTab),
+    Break(CachedBreak),
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum FieldTreeLeaf {
+    Text(CachedText),
+    Tab(CachedTab),
+    Break(CachedBreak),
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(inline)]
+struct CachedText {
+    text: String,
+    format: Option<RunFormatInput>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(inline)]
+struct CachedTab {
+    format: Option<RunFormatInput>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(inline)]
+struct CachedBreak {
+    #[serde(rename = "type", default)]
+    break_type: BreakTypeInput,
+    format: Option<RunFormatInput>,
 }
 
 impl FieldTreeChild {
-    fn resolve(self, fields: &mut [Option<ResolvedInline>]) -> Result<ResolvedInline, String> {
+    fn entry_count(&self) -> usize {
+        match self {
+            Self::Hyperlink { children, .. } => 1 + children.len(),
+            _ => 1,
+        }
+    }
+
+    fn resolve(
+        self,
+        fields: &mut [Option<ResolvedInline>],
+    ) -> Result<ResolvedInline, ScopedEditError> {
+        match self {
+            Self::Field { node } => Ok(fields[node].take().expect("validated field-tree")),
+            Self::Hyperlink {
+                target,
+                children,
+                tooltip,
+                history,
+            } => ResolvedHyperlink::new(
+                target.resolve()?,
+                children
+                    .into_iter()
+                    .map(FieldTreeLeaf::resolve)
+                    .collect::<Result<_, _>>()?,
+                HyperlinkProperties { tooltip, history },
+            )
+            .map(ResolvedInline::Hyperlink)
+            .map_err(Into::into),
+            Self::Text(run) => FieldTreeLeaf::Text(run).resolve(),
+            Self::Tab(run) => FieldTreeLeaf::Tab(run).resolve(),
+            Self::Break(run) => FieldTreeLeaf::Break(run).resolve(),
+        }
+    }
+}
+
+impl FieldTreeLeaf {
+    fn resolve(self) -> Result<ResolvedInline, ScopedEditError> {
         let inline = match self {
-            Self::Field { node } => return Ok(fields[node].take().expect("validated field-tree")),
-            Self::Text { text, format } => InlineInput::Text { text, format },
-            Self::Tab { format } => InlineInput::Tab { format },
-            Self::Break { break_type, format } => InlineInput::Break { break_type, format },
+            Self::Text(CachedText { text, format }) => InlineInput::Text { text, format },
+            Self::Tab(CachedTab { format }) => InlineInput::Tab { format },
+            Self::Break(CachedBreak { break_type, format }) => {
+                InlineInput::Break { break_type, format }
+            }
         };
         inline.resolve()
     }
 }
 
-fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<ResolvedInline, String> {
+fn resolve_field_tree(
+    nodes: Vec<FieldTreeNode>,
+    depth: usize,
+) -> Result<ResolvedInline, ScopedEditError> {
     if nodes.is_empty() || nodes.len() > MAX_FIELD_TREE_NODES {
-        return Err(format!(
-            "field-tree requires 1..={MAX_FIELD_TREE_NODES} nodes"
-        ));
+        return Err(format!("field-tree requires 1..={MAX_FIELD_TREE_NODES} nodes").into());
     }
-    if nodes.iter().map(|node| node.children.len()).sum::<usize>() > MAX_FIELD_TREE_CHILDREN {
-        return Err(format!(
-            "field-tree exceeds {MAX_FIELD_TREE_CHILDREN} total child entries"
-        ));
+    if nodes
+        .iter()
+        .flat_map(|node| &node.children)
+        .map(FieldTreeChild::entry_count)
+        .sum::<usize>()
+        > MAX_FIELD_TREE_CHILDREN
+    {
+        return Err(
+            format!("field-tree exceeds {MAX_FIELD_TREE_CHILDREN} total child entries").into(),
+        );
     }
 
     // Forward references exclude cycles. Requiring exactly one parent also
@@ -271,24 +350,33 @@ fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<Resolve
     for (index, node) in nodes.iter().enumerate() {
         let depth = depths[index];
         if depth == 0 {
-            return Err(format!("field-tree node {index} has no parent"));
+            return Err(format!("field-tree node {index} has no parent").into());
         }
         if depth > MAX_FIELD_TREE_DEPTH {
-            return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}"));
+            return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}").into());
         }
         for child in &node.children {
-            if let FieldTreeChild::Field { node: target } = *child {
-                if target <= index || target >= nodes.len() {
-                    return Err(format!(
-                        "field-tree node {index} must reference a later node, got {target}"
-                    ));
+            match child {
+                FieldTreeChild::Field { node: target } => {
+                    let target = *target;
+                    if target <= index || target >= nodes.len() {
+                        return Err(format!(
+                            "field-tree node {index} must reference a later node, got {target}"
+                        )
+                        .into());
+                    }
+                    if depths[target] != 0 {
+                        return Err(format!(
+                            "field-tree node {target} is referenced more than once"
+                        )
+                        .into());
+                    }
+                    depths[target] = depth + 1;
                 }
-                if depths[target] != 0 {
-                    return Err(format!(
-                        "field-tree node {target} is referenced more than once"
-                    ));
+                FieldTreeChild::Hyperlink { .. } if depth == MAX_FIELD_TREE_DEPTH => {
+                    return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}").into());
                 }
-                depths[target] = depth + 1;
+                _ => {}
             }
         }
     }
@@ -313,9 +401,9 @@ fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<Resolve
     Ok(fields[0].take().expect("validated field-tree root"))
 }
 
-fn leaf_format(format: Option<RunFormatInput>) -> Result<RunFormat, String> {
+fn leaf_format(format: Option<RunFormatInput>) -> Result<RunFormat, ScopedEditError> {
     let format = format.map(RunFormat::from).unwrap_or_default();
-    format.validate().map_err(|error| error.to_string())?;
+    format.validate()?;
     Ok(format)
 }
 
@@ -348,12 +436,12 @@ pub(crate) enum LinkTargetInput {
 }
 
 impl LinkTargetInput {
-    fn resolve(self) -> Result<HyperlinkTarget, String> {
+    fn resolve(self) -> Result<HyperlinkTarget, ScopedEditError> {
         match self {
             Self::Url { url } => HyperlinkTarget::external(url),
             Self::Bookmark { name } => BookmarkName::new(name).map(HyperlinkTarget::bookmark),
         }
-        .map_err(|error| error.to_string())
+        .map_err(Into::into)
     }
 }
 
@@ -368,7 +456,7 @@ pub(crate) enum FieldInstructionInput {
 }
 
 impl FieldInstructionInput {
-    fn resolve(self) -> Result<FieldInstruction, String> {
+    fn resolve(self) -> Result<FieldInstruction, ScopedEditError> {
         match self {
             Self::Page {} => Ok(FieldInstruction::Page),
             Self::NumPages {} => Ok(FieldInstruction::NumPages),
@@ -376,7 +464,7 @@ impl FieldInstructionInput {
             Self::Raw { text } => FieldInstruction::raw(text),
             Self::TableOfContents {} => Ok(FieldInstruction::TableOfContents),
         }
-        .map_err(|error| error.to_string())
+        .map_err(Into::into)
     }
 }
 
@@ -431,19 +519,49 @@ mod tests {
     }
 
     #[test]
-    fn recursive_field_syntax_remains_subject_to_json_parser_depth() {
-        let mut inline = json!({"kind": "text", "text": "cached"});
-        for _ in 0..64 {
-            inline =
-                json!({"kind": "field", "instruction": {"kind": "page"}, "children": [inline]});
+    fn flat_field_tree_does_not_deserialize_unsupported_cache_children() {
+        for child in [
+            json!({"kind": "fraction", "numerator": "1", "denominator": "2"}),
+            json!({
+                "kind": "hyperlink",
+                "target": {"kind": "url", "url": "https://example.org"},
+                "children": [{"kind": "field", "node": 1}]
+            }),
+        ] {
+            let wire = json!({
+                "kind": "field-tree",
+                "nodes": [{"instruction": {"kind": "page"}, "children": [child]}]
+            })
+            .to_string();
+            assert!(
+                serde_json::from_str::<InlineInput>(&wire).is_err(),
+                "{wire}"
+            );
         }
-        let wire = inline.to_string();
-        assert!(
-            serde_json::from_str::<InlineInput>(&wire)
-                .err()
-                .expect("legacy deep field must exceed the default JSON recursion limit")
-                .to_string()
-                .contains("recursion limit exceeded")
-        );
+    }
+
+    #[test]
+    fn recursive_field_syntax_keeps_the_json_parser_boundary() {
+        // Each field adds two JSON containers. The text run is container 127,
+        // and its optional format object would be container 128.
+        for format in [serde_json::Value::Null, json!({})] {
+            let expected_ok = format.is_null();
+            let mut inline = json!({"kind": "text", "text": "cached", "format": format});
+            for _ in 0..63 {
+                inline = json!({
+                    "kind": "field", "instruction": {"kind": "page"}, "children": [inline]
+                });
+            }
+            match serde_json::from_str::<InlineInput>(&inline.to_string()) {
+                Ok(_) => assert!(expected_ok, "accepted 128 JSON containers"),
+                Err(error) => {
+                    assert!(!expected_ok, "rejected 127 JSON containers: {error}");
+                    assert!(
+                        error.to_string().contains("recursion limit exceeded"),
+                        "{error}"
+                    );
+                }
+            }
+        }
     }
 }

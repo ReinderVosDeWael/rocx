@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::assignment_value;
 use crate::{
-    editor::{Snapshot, projected_run_text},
+    editor::{ReadError, Snapshot, projected_run_text, read_diagnostic},
     schema::numbering::PhysicalNumberingScope,
 };
 
@@ -44,15 +44,15 @@ impl Snapshot {
         scope: PhysicalNumberingScope,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         match scope {
             PhysicalNumberingScope::Cells => Ok(self.numbering_cells(start, limit)),
             PhysicalNumberingScope::Stories => {
-                let stories = self.document.stories().map_err(|e| e.to_string())?;
+                let stories = self.document.stories()?;
                 Ok(self.numbering_stories(&stories, start, limit))
             }
             PhysicalNumberingScope::Entries => {
-                let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+                let entries = self.document.entry_stories()?;
                 Ok(self.numbering_entries(entries, start, limit))
             }
         }
@@ -190,7 +190,10 @@ impl Snapshot {
                 row["anchor"] = json!(local);
                 row["value"] = assignment_value(value);
             }
-            Err(error) => row["unavailable"] = json!(error.to_string()),
+            Err(error) => {
+                row["unavailable"] = json!(error.to_string());
+                row["diagnostic"] = read_diagnostic(error);
+            }
         }
         row
     }

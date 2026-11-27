@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use rocx::editor::{BodyBlock, LayoutEdit, LayoutField, LayoutValue};
 use serde_json::{Value, json};
 
-use super::{Snapshot, report};
+use super::{ReadError, Snapshot, report};
 use crate::{
     diagnostics::ScopedEditError,
     schema::layout::{LayoutChange, LayoutScope},
@@ -18,7 +18,7 @@ impl Snapshot {
         scope: LayoutScope,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         if limit == 0 {
             return Err("layout page limit must be positive".into());
         }
@@ -49,7 +49,7 @@ impl Snapshot {
             }
         }
         if scope != LayoutScope::Paragraphs {
-            let sections = self.document.sections().map_err(|e| e.to_string())?;
+            let sections = self.document.sections()?;
             for (index, section) in sections.iter().enumerate() {
                 if let Some(next) = visit("section", SECTION, index, &section.layout) {
                     return Ok((rows, Some(next)));

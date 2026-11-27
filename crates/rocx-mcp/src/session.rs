@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::{ScopedEditError, ToolError},
-    editor::{InlineHandles, PhysicalTableScope, PhysicalTableTarget, Snapshot},
+    editor::{InlineHandles, PhysicalTableScope, PhysicalTableTarget, ReadError, Snapshot},
     schema::{
         Edit, PhysicalTableSelector,
         entry_inlines::EntryInlineChange,
@@ -73,7 +73,7 @@ pub(crate) enum PageView {
     Sections,
     Stories,
     DefaultHeaders,
-    LinkableStories(SectionStoryKind),
+    LinkableStories(SectionStoryKind, bool),
     StoryInlines(usize, usize),
     Styles,
     TableCellInlines(usize, usize, usize, usize),
@@ -120,7 +120,7 @@ impl PageView {
             Self::Sections => "sections",
             Self::Stories => "stories",
             Self::DefaultHeaders => "default-headers",
-            Self::LinkableStories(_) => "linkable-stories",
+            Self::LinkableStories(..) => "linkable-stories",
             Self::StoryInlines(..) => "story-inlines",
             Self::Styles => "styles",
             Self::TableCellInlines(..) => "table-cell-inlines",
@@ -139,7 +139,8 @@ impl PageView {
             Self::PhysicalTables(PhysicalTableScope::Entry(owner)) => {
                 format!("{key}:entry:{owner}:{next}")
             }
-            Self::LinkableStories(kind) => format!("{key}:{}:{next}", kind.as_str()),
+            Self::LinkableStories(kind, false) => format!("{key}:{}:{next}", kind.as_str()),
+            Self::LinkableStories(kind, true) => format!("{key}:all:{}:{next}", kind.as_str()),
             Self::StoryInlines(owner, block) => format!("{key}:{owner}:{block}:{next}"),
             Self::TableCellInlines(table, row, cell, block) => {
                 format!("{key}:{table}:{row}:{cell}:{block}:{next}")
@@ -335,18 +336,15 @@ impl Session {
         self.register(bytes, Vec::new(), true)
     }
 
-    pub fn inspect_document(&mut self, document: String) -> Result<Value, String> {
+    pub fn inspect_document(&mut self, document: String) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
-        let mut result = doc
-            .snapshot
-            .inspect()
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+        let mut result = doc.snapshot.inspect().map_err(ReadError::from)?;
         scope_anchors(&mut result, &document, &mut |_| {});
         result["document"] = json!(document);
         Ok(result)
     }
 
-    pub fn inspect_body(&self, document: String) -> Result<Value, String> {
+    pub fn inspect_body(&self, document: String) -> Result<Value, ToolError> {
         let mut result = self.document(&document)?.snapshot.inspect_body();
         scope_anchors(&mut result, &document, &mut |_| {});
         result["document"] = json!(document);
@@ -357,12 +355,12 @@ impl Session {
         &self,
         document: String,
         custom_property: Option<String>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let mut result = doc
             .snapshot
             .inspect_resources(custom_property)
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+            .map_err(ReadError::from)?;
         result["document"] = json!(document);
         Ok(result)
     }
@@ -371,28 +369,45 @@ impl Session {
         &self,
         document: String,
         query: ResourceQuery,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let mut result = self
             .document(&document)?
             .snapshot
             .inspect_resource_value(query)
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+            .map_err(ReadError::from)?;
         result["document"] = json!(document);
         Ok(result)
     }
 
-    pub fn inspect_chart_series(&self, document: String, anchor: String) -> Result<Value, String> {
+    pub fn inspect_chart_series(
+        &self,
+        document: String,
+        anchor: String,
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let local = Self::scoped_anchor(doc, &document, PageView::BodyInlines, &anchor)?;
-        let mut result = doc
-            .snapshot
-            .chart_series(local)
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+        let mut result = doc.snapshot.chart_series(local)?;
         result["document"] = json!(document);
         Ok(result)
     }
 
-    fn scoped_numbering_paragraph<'a>(
+    pub fn inspect_field_at(
+        &self,
+        document: String,
+        anchor: String,
+        inline_index: usize,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let local = Self::scoped_paragraph(doc, &document, &anchor, false)?;
+        let paragraph = doc.snapshot.compact_paragraph_anchor(local)?;
+        let field = doc
+            .snapshot
+            .field_at(&paragraph, inline_index)
+            .map_err(ReadError::from)?;
+        Ok(json!({"document": document, "field": field}))
+    }
+
+    fn scoped_paragraph<'a>(
         doc: &Document,
         document: &str,
         anchor: &'a str,
@@ -433,27 +448,37 @@ impl Session {
         &self,
         document: String,
         anchor: String,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
-        let local = Self::scoped_numbering_paragraph(doc, &document, &anchor, false)?;
-        let value = doc.snapshot.paragraph_numbering(local).map_err(|error| {
-            if error.starts_with("wrong_anchor_type:") {
-                error
-            } else {
-                format!("inspection_failed: {error}")
-            }
-        })?;
+        let local = Self::scoped_paragraph(doc, &document, &anchor, false)?;
+        let paragraph = doc.snapshot.compact_paragraph_anchor(local)?;
+        let value = doc
+            .snapshot
+            .paragraph_numbering(&paragraph)
+            .map_err(ReadError::from)?;
         Ok(json!({"document":document, "value":value}))
     }
 
-    pub fn inspect_inline_at(&mut self, document: String, handle: String) -> Result<Value, String> {
-        let doc = self.documents.get_mut(&document).ok_or(UNKNOWN)?;
-        let invalid = "invalid_inline_handle: use an inline_handle issued by an inline view";
-        let (owner, local) = handle.split_once('/').ok_or(invalid)?;
+    pub fn inspect_inline_at(
+        &mut self,
+        document: String,
+        handle: String,
+    ) -> Result<Value, ToolError> {
+        let doc = self
+            .documents
+            .get_mut(&document)
+            .ok_or_else(|| UNKNOWN.to_owned())?;
+        let invalid =
+            || "invalid_inline_handle: use an inline_handle issued by an inline view".to_owned();
+        let (owner, local) = handle.split_once('/').ok_or_else(invalid)?;
         if owner != document {
-            return Err("wrong_owner: use an inline handle from the selected document".into());
+            return Err(
+                "wrong_owner: use an inline handle from the selected document"
+                    .to_owned()
+                    .into(),
+            );
         }
-        let anchor = doc.inline_handles.get(local).ok_or(invalid)?.clone();
+        let anchor = doc.inline_handles.get(local).ok_or_else(invalid)?.clone();
         let mut handles = InlineHandles {
             document: &document,
             issued: &mut doc.inline_handles,
@@ -461,7 +486,7 @@ impl Session {
         let inline = doc
             .snapshot
             .inspect_inline(&anchor, local, &mut handles)
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+            .map_err(ReadError::from)?;
         Ok(json!({"document":document,"inline":inline}))
     }
 
@@ -471,13 +496,14 @@ impl Session {
         selector: InlineSelector<'_>,
         limit: usize,
         cursor: Option<String>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let view = match selector {
             InlineSelector::Story { anchor, block } => {
                 let local = Self::scoped_anchor(doc, &document, PageView::Stories, anchor)?;
-                let owner = Snapshot::story_owner_index(local)
-                    .ok_or("wrong_anchor_type: expected a physical story owner anchor")?;
+                let owner = Snapshot::story_owner_index(local).ok_or_else(|| {
+                    "wrong_anchor_type: expected a physical story owner anchor".to_owned()
+                })?;
                 PageView::StoryInlines(owner, block)
             }
             InlineSelector::TableCell {
@@ -488,7 +514,7 @@ impl Session {
             } => {
                 let local = Self::scoped_anchor(doc, &document, PageView::BodyTables, anchor)?;
                 let table = Snapshot::body_table_index(local)
-                    .ok_or("wrong_anchor_type: expected a body-tables anchor")?;
+                    .ok_or_else(|| "wrong_anchor_type: expected a body-tables anchor".to_owned())?;
                 PageView::TableCellInlines(table, row, cell, block)
             }
         };
@@ -501,15 +527,16 @@ impl Session {
         selector: Option<PhysicalTableSelector>,
         limit: usize,
         cursor: Option<String>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let scope = match selector {
             None => PhysicalTableScope::All,
             Some(PhysicalTableSelector::Main) => PhysicalTableScope::Main,
             Some(PhysicalTableSelector::Story { anchor }) => {
                 let local = Self::scoped_anchor(doc, &document, PageView::Stories, &anchor)?;
-                let owner = Snapshot::story_owner_index(local)
-                    .ok_or("wrong_anchor_type: expected a physical story owner anchor")?;
+                let owner = Snapshot::story_owner_index(local).ok_or_else(|| {
+                    "wrong_anchor_type: expected a physical story owner anchor".to_owned()
+                })?;
                 PhysicalTableScope::Story(owner)
             }
             Some(PhysicalTableSelector::Entry { anchor }) => {
@@ -525,7 +552,9 @@ impl Session {
                 let owner = local
                     .strip_prefix(prefix)
                     .and_then(|index| index.parse().ok())
-                    .ok_or("wrong_anchor_type: expected a physical entry owner anchor")?;
+                    .ok_or_else(|| {
+                        "wrong_anchor_type: expected a physical entry owner anchor".to_owned()
+                    })?;
                 PhysicalTableScope::Entry(owner)
             }
         };
@@ -538,24 +567,30 @@ impl Session {
         view: PageView,
         limit: usize,
         cursor: Option<String>,
-    ) -> Result<Value, String> {
-        let doc = self.documents.get_mut(&document).ok_or(UNKNOWN)?;
+    ) -> Result<Value, ToolError> {
+        let doc = self
+            .documents
+            .get_mut(&document)
+            .ok_or_else(|| UNKNOWN.to_owned())?;
         if !(1..=100).contains(&limit) {
-            return Err("invalid_input: use a page limit between 1 and 100".into());
+            return Err("invalid_input: use a page limit between 1 and 100"
+                .to_owned()
+                .into());
         }
         let start = match cursor {
             None => 0,
             Some(cursor) => {
-                let (owner, local) = cursor
-                    .split_once('/')
-                    .ok_or("invalid_cursor: restart the selected view")?;
+                let invalid = || "invalid_cursor: restart the selected view".to_owned();
+                let (owner, local) = cursor.split_once('/').ok_or_else(invalid)?;
                 if owner != document {
-                    return Err("wrong_owner: use a cursor from the selected document".into());
+                    return Err("wrong_owner: use a cursor from the selected document"
+                        .to_owned()
+                        .into());
                 }
                 doc.cursors
                     .get(local)
                     .and_then(|&(issued_view, start)| (issued_view == view).then_some(start))
-                    .ok_or("invalid_cursor: restart the selected view")?
+                    .ok_or_else(invalid)?
             }
         };
         let mut inline_handles = InlineHandles {
@@ -570,18 +605,33 @@ impl Session {
             PageView::RangeMarkers => doc.snapshot.range_marker_page(start, limit),
             PageView::Controls => Ok(doc.snapshot.control_page(start, limit)),
             PageView::ControlSites => Ok(doc.snapshot.control_site_page(start, limit)),
-            PageView::StoryControls => doc.snapshot.story_control_page(start, limit),
-            PageView::BodyTables => doc.snapshot.body_table_page(start, limit),
+            PageView::StoryControls => doc
+                .snapshot
+                .story_control_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::BodyTables => doc
+                .snapshot
+                .body_table_page(start, limit)
+                .map_err(ReadError::from),
             PageView::Entries => doc.snapshot.entry_page(start, limit),
             PageView::EntryRuns => doc.snapshot.entry_run_page(start, limit),
-            PageView::EntryInlines => {
-                doc.snapshot
-                    .entry_inline_page(start, limit, &mut inline_handles)
-            }
-            PageView::Fields => doc.snapshot.field_page(start, limit),
-            PageView::FormatRuns => doc.snapshot.format_run_page(start, limit),
+            PageView::EntryInlines => doc
+                .snapshot
+                .entry_inline_page(start, limit, &mut inline_handles)
+                .map_err(ReadError::from),
+            PageView::Fields => doc
+                .snapshot
+                .field_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::FormatRuns => doc
+                .snapshot
+                .format_run_page(start, limit)
+                .map_err(ReadError::from),
             PageView::Layout(scope) => doc.snapshot.layout_page(scope, start, limit),
-            PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
+            PageView::NoteReferences => doc
+                .snapshot
+                .note_reference_page(start, limit)
+                .map_err(ReadError::from),
             PageView::NumberingAbstracts => doc.snapshot.numbering_page(true, start, limit),
             PageView::NumberingInstances => doc.snapshot.numbering_page(false, start, limit),
             PageView::NumberingParagraphs(scope) => {
@@ -595,7 +645,7 @@ impl Session {
                         let part = doc
                             .story_parts
                             .get(&owner)
-                            .ok_or("invalid_anchor: inspect the stories view")?;
+                            .ok_or_else(|| "invalid_anchor: inspect the stories view".to_owned())?;
                         PhysicalTableScope::Story((owner, part.as_str()))
                     }
                     PhysicalTableScope::Entry(owner) => PhysicalTableScope::Entry(owner),
@@ -607,21 +657,30 @@ impl Session {
                         (page.rows, page.next)
                     })
             }
-            PageView::Revisions => doc.snapshot.revision_page(start, limit),
+            PageView::Revisions => doc
+                .snapshot
+                .revision_page(start, limit)
+                .map_err(ReadError::from),
             PageView::Sections => doc.snapshot.section_page(start, limit),
             PageView::Stories => doc.snapshot.story_page(start, limit),
             PageView::DefaultHeaders => {
                 doc.snapshot
                     .default_header_page(start, limit, &mut inline_handles)
             }
-            PageView::LinkableStories(kind) => doc.snapshot.linkable_story_page(kind, start, limit),
+            PageView::LinkableStories(kind, include_referenced) => doc
+                .snapshot
+                .linkable_story_page(kind, include_referenced, start, limit),
             PageView::StoryInlines(owner, block) => {
                 doc.snapshot
                     .story_inline_page(owner, block, start, limit, &mut inline_handles)
             }
-            PageView::Styles => doc.snapshot.style_page(start, limit),
-            PageView::TableCellInlines(table, row, cell, block) => {
-                doc.snapshot.table_cell_inline_page(
+            PageView::Styles => doc
+                .snapshot
+                .style_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::TableCellInlines(table, row, cell, block) => doc
+                .snapshot
+                .table_cell_inline_page(
                     table,
                     (row, cell),
                     block,
@@ -629,9 +688,8 @@ impl Session {
                     limit,
                     &mut inline_handles,
                 )
-            }
-        }
-        .map_err(|e| format!("inspection_failed: {e}"))?;
+                .map_err(ReadError::from),
+        }?;
         // All selectors publish the same target types, independent of page scope.
         let anchor_view = match view {
             PageView::PhysicalTables(_) => PageView::PhysicalTables(PhysicalTableScope::All),
@@ -683,17 +741,13 @@ impl Session {
             PageView::EntryInlines => "entry_inlines",
             PageView::PhysicalTables(_) => "physical_tables",
             PageView::DefaultHeaders => "default_headers",
-            PageView::LinkableStories(_) => "linkable_stories",
+            PageView::LinkableStories(..) => "linkable_stories",
             PageView::StoryInlines(..) | PageView::TableCellInlines(..) => "inlines",
             _ => view.key(),
         };
         let mut result = json!({"document":document, (field):rows, "next_cursor":next_cursor});
         if view == PageView::Styles {
-            result["part_name"] = json!(
-                doc.snapshot
-                    .styles_part_name()
-                    .map_err(|e| format!("inspection_failed: {e}"))?
-            );
+            result["part_name"] = json!(doc.snapshot.styles_part_name().map_err(ReadError::from)?);
         }
         Ok(result)
     }
@@ -816,7 +870,7 @@ impl Session {
                 .split_once('/')
                 .and_then(|(_, local)| doc.view_anchors.get(local))
             {
-                Some(view @ PageView::LinkableStories(_)) => *view,
+                Some(view @ PageView::LinkableStories(..)) => *view,
                 Some(PageView::DefaultHeaders) => PageView::DefaultHeaders,
                 _ => PageView::Stories,
             };
@@ -1000,12 +1054,10 @@ impl Session {
             if let Edit::Numbering { edit } = edit {
                 match edit {
                     NumberingChange::Paragraph { anchor, .. } => {
-                        *anchor = Self::scoped_numbering_paragraph(doc, &document, anchor, false)?
-                            .to_owned();
+                        *anchor = Self::scoped_paragraph(doc, &document, anchor, false)?.to_owned();
                     }
                     NumberingChange::PhysicalParagraph { anchor, .. } => {
-                        *anchor = Self::scoped_numbering_paragraph(doc, &document, anchor, true)?
-                            .to_owned();
+                        *anchor = Self::scoped_paragraph(doc, &document, anchor, true)?.to_owned();
                     }
                     _ => {}
                 }

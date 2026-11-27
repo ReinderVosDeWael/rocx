@@ -127,6 +127,104 @@ fn mixed(source: &Path, png: &Path, mode: HeaderEditMode) -> EditPreview {
     .unwrap()
 }
 
+fn report_variants(source: &Path) -> EditPreview {
+    let doc = ImportedDocument::open(&fs::read(source).unwrap()).unwrap();
+    let paragraph = |index| -> &ImportedParagraph {
+        let BodyBlock::Paragraph(paragraph) = &doc.body()[index] else {
+            panic!("expected report fixture paragraph");
+        };
+        paragraph
+    };
+    let run = |body, inline: usize| {
+        let ImportedInlineNode::Run(run) = &paragraph(body).inline_structure[inline] else {
+            panic!("expected report fixture run");
+        };
+        run.anchor.clone()
+    };
+    let BodyBlock::Table(table) = &doc.body()[5] else {
+        panic!("expected report fixture table");
+    };
+    let alignments = [
+        (10, Alignment::Right), // No-op.
+        (9, Alignment::ThaiJustify),
+        (8, Alignment::JustifyLow),
+        (7, Alignment::JustifyHigh),
+        (6, Alignment::JustifyMedium),
+        (4, Alignment::Distribute),
+        (3, Alignment::Justify),
+        (2, Alignment::Right),
+        (1, Alignment::Center),
+        (0, Alignment::Left),
+    ]
+    .map(|(body, alignment)| ParagraphAlignmentEdit {
+        target: paragraph(body).anchor.clone(),
+        alignment,
+    });
+    let cells = [
+        (1, 2, VerticalAlignment::Bottom), // No-op.
+        (1, 1, VerticalAlignment::Both),
+        (1, 0, VerticalAlignment::Bottom),
+        (0, 2, VerticalAlignment::Center),
+        (0, 0, VerticalAlignment::Top),
+    ]
+    .map(|(row_index, cell_index, alignment)| CellAlignmentEdit {
+        target: table.anchor.clone(),
+        row_index,
+        cell_index,
+        alignment,
+    });
+    let tables = [
+        (8, &[&["wide A", "wide B", "wide C"][..]][..]),
+        (0, &[&["tall A"][..], &["tall B"][..]][..]),
+    ]
+    .map(|(body, rows)| TableInsertion {
+        target: paragraph(body).anchor.clone(),
+        table: resolve_now(
+            Table::new(
+                rows.iter()
+                    .map(|row| {
+                        TableRow::new(
+                            row.iter()
+                                .map(|&text| {
+                                    TableCell::new(vec![Paragraph::new(text).into()]).into()
+                                })
+                                .collect(),
+                        )
+                        .into()
+                    })
+                    .collect(),
+            )
+            .resolve(),
+        )
+        .unwrap()
+        .unwrap(),
+    });
+    let run_text = [
+        (7, 0, "from empty"),
+        (0, 4, "Keep"), // No-op.
+        (0, 3, ""),
+        (0, 1, " new 😀 & "),
+    ]
+    .map(|(body, inline, text)| RunTextEdit {
+        target: run(body, inline),
+        text: text.into(),
+    });
+    doc.preview_edits(EditBatch {
+        alignments: &alignments,
+        cells: &cells,
+        tables: &tables,
+        run_text: &run_text,
+        run_removals: &[run(7, 1), run(0, 2), run(0, 0)],
+        text_insertions: &[TextInsertion {
+            target: paragraph(9).anchor.clone(),
+            position: 0,
+            text: "runless".into(),
+        }],
+        ..EditBatch::default()
+    })
+    .unwrap()
+}
+
 // Use only the public native getters; never call the MCP report projector.
 fn mixed_report(preview: &EditPreview) -> serde_json::Value {
     use serde_json::{Value, json};
@@ -439,6 +537,11 @@ fn main() {
             println!("{}", mixed_report(&preview));
             (output, preview.to_docx().unwrap())
         }
+        [command, output, source] if command == "report-variants" => {
+            let preview = report_variants(Path::new(source));
+            println!("{}", mixed_report(&preview));
+            (output, preview.to_docx().unwrap())
+        }
         [command, output, source, png, slot, mode] if command == "story-image" => (
             output,
             story_image(Path::new(source), Path::new(png), slot, mode),
@@ -477,7 +580,7 @@ fn main() {
             (output, serde_json::to_vec(&result).unwrap())
         }
         _ => panic!(
-            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | story-image OUTPUT SOURCE PNG SLOT MODE | entry-runs OUTPUT SOURCE KIND | scalar OUTPUT SOURCE | entry OUTPUT SOURCE CASE | inspect-entries OUTPUT SOURCE | no-op OUTPUT SOURCE | open-with-limits OUTPUT SOURCE COUNT MEMBER TOTAL"
+            "usage: mcp_byte_oracle create OUTPUT TIMESTAMP [TEXT ...] | mixed OUTPUT SOURCE PNG MODE | report-variants OUTPUT SOURCE | story-image OUTPUT SOURCE PNG SLOT MODE | entry-runs OUTPUT SOURCE KIND | scalar OUTPUT SOURCE | entry OUTPUT SOURCE CASE | inspect-entries OUTPUT SOURCE | no-op OUTPUT SOURCE | open-with-limits OUTPUT SOURCE COUNT MEMBER TOTAL"
         ),
     };
     fs::write(output, bytes).unwrap();

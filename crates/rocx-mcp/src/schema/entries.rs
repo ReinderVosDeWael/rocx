@@ -122,14 +122,17 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
-    /// Page through related header or footer parts with no effective slot.
+    /// Page through related header or footer parts eligible to link.
     /// Use an issued owner anchor as the source of an edit-story-reference link.
     LinkableStories {
         story_kind: LinkableStoryKind,
+        /// Include parts already used by a section. Defaults to false.
+        #[serde(default)]
+        include_referenced: bool,
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
         limit: usize,
-        /// Opaque next-page cursor for this document and story kind.
+        /// Opaque next-page cursor for this document, story kind, and include_referenced setting.
         #[serde(default, deserialize_with = "present")]
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
@@ -173,6 +176,8 @@ pub(super) enum View {
         #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
     },
+    /// Read one field at its original inline slot in an inspected body paragraph.
+    FieldAt { anchor: String, inline_index: usize },
     /// Inspect supported fields in original main-story order.
     Fields {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]

@@ -6,7 +6,7 @@ use rocx::{
 };
 use serde_json::{Value, json};
 
-use super::Snapshot;
+use super::{ReadError, Snapshot};
 use crate::{diagnostics::ScopedEditError, schema::tables::PhysicalTableChange};
 
 const OWNER_PREFIX: &str = "physical-table-owner:";
@@ -42,28 +42,24 @@ impl Snapshot {
     fn physical_table_owners(
         &self,
         scope: PhysicalTableScope<(usize, &str)>,
-    ) -> Result<Vec<Owner>, String> {
+    ) -> Result<Vec<Owner>, ReadError> {
         if let PhysicalTableScope::Entry(index) = scope {
             let entry = self
                 .document
-                .entry_stories()
-                .map_err(|e| e.to_string())?
+                .entry_stories()?
                 .get(index)
                 .ok_or("unknown physical entry owner")?;
             return Ok(vec![Owner {
                 part: entry.part_name.clone(),
                 kind: entry.kind.as_str(),
                 slots: Vec::new(),
-                tables: self
-                    .document
-                    .part_tables(Some(&entry.part_name))
-                    .map_err(|e| e.to_string())?,
+                tables: self.document.part_tables(Some(&entry.part_name))?,
             }]);
         }
         let mut owners = Vec::new();
         // Passing None follows the package's actual main relationship even when relocated.
         if !matches!(scope, PhysicalTableScope::Story(_)) {
-            let tables = self.document.part_tables(None).map_err(|e| e.to_string())?;
+            let tables = self.document.part_tables(None)?;
             if let Some(table) = tables.first() {
                 owners.push(Owner {
                     part: table.part_name.clone(),
@@ -78,7 +74,7 @@ impl Snapshot {
         }
 
         let mut by_part = BTreeMap::new();
-        for story in self.document.stories().map_err(|e| e.to_string())? {
+        for story in self.document.stories()? {
             if matches!(scope, PhysicalTableScope::Story((_, part)) if story.part_name != part) {
                 continue;
             }
@@ -102,7 +98,7 @@ impl Snapshot {
             }));
         }
         if scope == PhysicalTableScope::All {
-            for entry in self.document.entry_stories().map_err(|e| e.to_string())? {
+            for entry in self.document.entry_stories()? {
                 by_part
                     .entry(entry.part_name.clone())
                     .or_insert_with(|| Owner {
@@ -118,10 +114,7 @@ impl Snapshot {
             if main.as_ref() != Some(&owner.part) {
                 // The native walker excludes reserved/ambiguous entries and guards
                 // destructive edits against protected content and unsafe geometry.
-                owner.tables = self
-                    .document
-                    .part_tables(Some(&owner.part))
-                    .map_err(|e| e.to_string())?;
+                owner.tables = self.document.part_tables(Some(&owner.part))?;
                 if !owner.tables.is_empty() {
                     owners.push(owner);
                 }
@@ -135,7 +128,7 @@ impl Snapshot {
         scope: PhysicalTableScope<(usize, &str)>,
         start: usize,
         limit: usize,
-    ) -> Result<PhysicalTablePage, String> {
+    ) -> Result<PhysicalTablePage, ReadError> {
         if limit == 0 {
             return Err("physical table page limit must be positive".into());
         }

@@ -192,22 +192,63 @@ async def test_numbering_native_lifecycle(launch, tmp_path):
             edit("instance-level", num_id=90, level=1, value=None),
         ])
         imported = await opened(client, relinked)
-        inst = next(row for row in await value(client, imported, "numbering-instances") if row["num_id"] == 90)
+        rows = await value(client, imported, "numbering-instances")
+        expected_instances = tmp_path / "native-instances.json"
+        native(relinked, "inspect-instances", expected_instances)
+        assert rows == json.loads(expected_instances.read_bytes())
+        inst = next(row for row in rows if row["num_id"] == 90)
         assert inst == dict(num_id=90, abstract_id=81, start_overrides=[dict(level=1, start=6)], replacement_levels=[])
-        replaced = await preview(client, imported, relinked, "replace", [
-            edit("abstract-level", abstract_id=80, level=1, value=level(1, 8)),
-            edit("replace-instance", definition=dict(id=90, abstract_id=81,
-                 start_overrides=[dict(level=0, start=2)], level_overrides=[OVERRIDE])),
-            edit("abstract-start", abstract_id=81, level=0, value=None),
-        ])
+        target = (await call(client, "inspect_document", document=imported))["body"][0]["anchor"]
+        definition = dict(id=90, abstract_id=80, start_overrides=[dict(level=0, start=2)],
+                          level_overrides=[OVERRIDE])
+
+        def replacement_edits(fields):
+            return [
+                edit("abstract-level", abstract_id=80, level=1, value=level(1, 8)),
+                edit("replace-instance", definition=fields),
+                edit("abstract-start", abstract_id=81, level=0, value=None),
+                edit("paragraph", anchor=target, value=dict(id=90, level=1)),
+            ]
+
+        schema = next(tool.inputSchema for tool in (await client.list_tools()).tools
+                      if tool.name == "preview_edits")
+        validator = validator_for(schema)(schema)
+        for key, nondefault, default in [
+            ("inherit_style", "Authoring List", None),
+            ("levels", [level(0)], []),
+        ]:
+            action = f"reject-replace-instance-{key.replace('_', '-')}"
+            diagnostic = tmp_path / f"{action}.txt"
+            native(relinked, action, diagnostic)
+            assert "concrete replacement cannot redefine abstract levels or styles" in diagnostic.read_text()
+            for field_value in (nondefault, default):
+                request = dict(document=imported, edits=replacement_edits(definition | {key: field_value}))
+                assert not validator.is_valid(request), (key, field_value)
+                result = await client.call_tool("preview_edits", request)
+                assert_tool_failure(result, "invalid_input")
+                assert f"unknown field `{key}`" in result.structuredContent["message"]
+
+        replacement = replacement_edits(definition)
+        validator.validate(dict(document=imported, edits=replacement))
+        replaced = await preview(client, imported, relinked, "replace", replacement)
         imported = await opened(client, replaced)
-        inst = next(row for row in await value(client, imported, "numbering-instances") if row["num_id"] == 90)
-        assert inst["start_overrides"] == [dict(level=0, start=2)] and inst["replacement_levels"] == [1]
+        rows = await value(client, imported, "numbering-instances")
+        native(replaced, "inspect-instances", expected_instances)
+        assert rows == json.loads(expected_instances.read_bytes())
+        inst = next(row for row in rows if row["num_id"] == 90)
+        assert inst == dict(num_id=90, abstract_id=80, start_overrides=[dict(level=0, start=2)],
+                            replacement_levels=[1])
         starts = {(r["abstract_id"], r["level"]): r["start"]
                   for r in await value(client, imported, "abstract-starts")}
         assert starts[81, 0] is None and starts[80, 1] == 8
+        cleared = await preview(client, imported, replaced, "replace-empty", [
+            edit("replace-instance", definition=dict(id=90, abstract_id=80)),
+        ])
+        imported = await opened(client, cleared)
+        inst = next(row for row in await value(client, imported, "numbering-instances") if row["num_id"] == 90)
+        assert inst == dict(num_id=90, abstract_id=80, start_overrides=[], replacement_levels=[])
         target = (await call(client, "inspect_document", document=imported))["body"][0]["anchor"]
-        removed = await preview(client, imported, replaced, "remove", [
+        removed = await preview(client, imported, cleared, "remove", [
             edit("remove-abstract", abstract_id=80), edit("remove-abstract", abstract_id=81),
             edit("remove-instance", num_id=90), edit("paragraph", anchor=target, value=None),
         ])
@@ -225,12 +266,136 @@ async def test_numbering_native_lifecycle(launch, tmp_path):
         (source, created, {NUMBERS, "word/document.xml"}),
         (created, relinked, {NUMBERS}),
         (relinked, replaced, {NUMBERS}),
-        (replaced, removed, {NUMBERS, "word/document.xml"}),
+        (replaced, cleared, {NUMBERS}),
+        (cleared, removed, {NUMBERS, "word/document.xml"}),
     ]:
         a, b = parts(before), parts(after)
         assert a.keys() == b.keys()
         assert {k for k in a if a[k] != b[k]} == changed
-    validate(source, created, relinked, replaced, removed)
+    validate(source, created, relinked, replaced, cleared, removed)
+
+
+async def test_numbering_level_fields_set_and_clear(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    source_doc(source)
+    legacy = dict(line_spacing=1.25, tab_stops=[dict(position=18, alignment="end")])
+    abstract_levels = [
+        level(0, alignment="left", suffix="tab"),
+        level(1, 2, alignment="center", suffix="space", restart=0, is_legal=True),
+        level(2, 3, alignment="right", suffix="nothing", restart=1, is_legal=False),
+        level(3, 4, alignment="start", paragraph_format=legacy),
+    ]
+    unreferenced_levels = [level(0), level(8, 5, alignment="end")]
+    label = dict(
+        bold=False, italic=True, font="Arial", size=11.5, color=dict(theme="accent4", tint=36),
+        underline="wave", subscript=True, strike=False, all_caps=False, small_caps=True,
+        snap_to_grid=False, bold_complex_script=True, italic_complex_script=False,
+        size_complex_script=13, rtl=False, complex_script=True, font_east_asia="MS Gothic",
+        font_complex_script="Tahoma", language=dict(latin="en-GB", east_asia="ja-JP", bidi="ar-SA"),
+    )
+    paragraph = dict(
+        alignment="justify-high", bidi=True, spacing_before=5.5, spacing_after=2,
+        line_height=dict(kind="exact", value=12.5), left_indent=24, right_indent=6,
+        first_line_indent=-12, keep_together=False, keep_with_next=True, page_break_before=False,
+        widow_control=False, suppress_line_numbers=True, contextual_spacing=False,
+        mirror_indents=True, snap_to_grid=False,
+        tab_stops=[dict(position=36, alignment="decimal", leader="middleDot")],
+    )
+    override = level(2, 10, format="upperLetter", text="§ %3)", alignment="end", suffix="nothing",
+                     restart=2, is_legal=True, paragraph_style="heading 1",
+                     label_format=label, paragraph_format=paragraph)
+    simple_override = level(3, 20, label_format=dict(superscript=True, color="auto"))
+
+    def instance_level(index, value):
+        return edit("instance-level", num_id=90, level=index, value=value)
+
+    def instance_start(index, value):
+        return edit("instance-start", num_id=90, level=index, value=value)
+
+    async def reopen_and_check(client, output, *, clear):
+        document = await opened(client, output)
+        expected = tmp_path / "catalog.json"
+        native(output, "inspect", expected)
+        observed = await catalogs(client, document)
+        assert observed == json.loads(expected.read_bytes())
+        abstracts = {row["abstract_id"]: row for row in observed["abstracts"]}
+        instance = next(row for row in observed["instances"] if row["num_id"] == 90)
+        read_levels = [row | dict(has_opaque_content=False) for row in abstract_levels]
+        read_levels[0]["start"] = 9 if clear else 1
+        read_levels[3]["paragraph_format"] = dict(
+            line_height=dict(kind="multiple", value=1.25), tab_stops=legacy["tab_stops"],
+        )
+        assert abstracts[80] == dict(abstract_id=80, levels=read_levels)
+        assert abstracts[81] == dict(abstract_id=81, levels=[
+            row | dict(has_opaque_content=False)
+            for row in (unreferenced_levels[:1] if clear else unreferenced_levels)
+        ])
+        detailed = override | dict(has_opaque_content=False, paragraph_style="Heading1",
+                                   paragraph_format=paragraph | dict(alignment="highKashida"))
+        assert instance == dict(
+            num_id=90, abstract_id=80, style_ids=[],
+            start_overrides=([dict(level=3, start=14)] if clear else
+                             [dict(level=2, start=12), dict(level=3, start=14)]),
+            level_overrides=([detailed] if clear else
+                             [detailed, simple_override | dict(has_opaque_content=False)]),
+        )
+        return document
+
+    async with launch() as client:
+        document = await opened(client, source)
+        set_copy = await preview(client, document, source, "level-fields-set", [
+            edit("add-abstract", abstract_id=80, levels=abstract_levels),
+            edit("add-abstract", abstract_id=81, levels=unreferenced_levels),
+            edit("add-instance", num_id=90, abstract_id=80),
+            instance_start(2, 12), instance_start(3, 14),
+            instance_level(2, override), instance_level(3, simple_override),
+        ])
+        document = await reopen_and_check(client, set_copy, clear=False)
+        for action, invalid, reason, rule, path in [
+            ("reject-override-level-index", level(3), "mismatched replacement level",
+             "unsupported_edit", None),
+            ("reject-override-run-style", level(2, label_format=dict(style="DefaultParagraphFont")),
+             "cannot contain run style references", "invalid_content", "label_format.style"),
+            ("reject-override-paragraph-heading", level(2, paragraph_format=dict(heading=1)),
+             "cannot contain style references or headings", "invalid_content", "paragraph_format"),
+            ("reject-override-label-size", level(2, label_format=dict(size=-1)),
+             "size cannot be negative", "invalid_measurement", "label_format.size"),
+            ("reject-override-paragraph-spacing", level(2, paragraph_format=dict(spacing_before=-1)),
+             "spacing_before cannot be negative", "invalid_measurement",
+             "paragraph_format.spacing_before"),
+        ]:
+            diagnostic = tmp_path / f"{action}.json"
+            native(set_copy, action, diagnostic)
+            expected = json.loads(diagnostic.read_bytes())
+            assert reason in expected["message"]
+            assert (expected["rule"], expected["path"]) == (rule, path)
+            result = await client.call_tool("preview_edits", dict(
+                document=document, edits=[instance_level(2, invalid)],
+            ))
+            assert_tool_failure(result, "rejected_batch")
+            observed = result.structuredContent
+            assert observed is not None
+            assert observed["message"] == f"preview: {expected['message']}; revise the edits and retry"
+            assert (observed.get("rule"), observed.get("path")) == (expected["rule"], expected["path"])
+
+        cleared = await preview(client, document, set_copy, "level-fields-clear", [
+            edit("abstract-level", abstract_id=81, level=8, value=None),
+            edit("abstract-start", abstract_id=80, level=0, value=9),
+            instance_start(2, None), instance_level(2, override), instance_level(3, None),
+        ])
+        await reopen_and_check(client, cleared, clear=True)
+
+    before = parts(source)
+    for output in (set_copy, cleared):
+        after = parts(output)
+        assert before.keys() == after.keys()
+        assert {name for name in before if before[name] != after[name]} == {NUMBERS}
+    nums = docx.Document(cleared).part.numbering_part.element
+    assert nums.xpath("w:abstractNum[@w:abstractNumId='80']/w:lvl[@w:ilvl='0']/w:start/@w:val") == ["9"]
+    overrides = nums.xpath("w:num[@w:numId='90']/w:lvlOverride")
+    assert [(item.get(qn("w:ilvl")), [etree.QName(n).localname for n in item])
+            for item in overrides] == [("2", ["lvl"]), ("3", ["startOverride"])]
+    validate(set_copy, cleared)
 
 
 async def test_numbering_independent_readers_ignore_bad_style_catalog(launch, tmp_path):
@@ -274,17 +439,32 @@ async def test_numbering_level_free_alias_and_opaque_readback(launch, tmp_path, 
 
         body = (await call(client, "inspect_document", document=document))["body"]
         anchor = body[0]["anchor"]
-        guards = [("reject-alias-level", 711, "inherited abstract has no direct editable level")]
+        guards = [
+            ("reject-alias-level", edit("abstract-level", abstract_id=711, level=0, value=level(0)),
+             "inherited abstract has no direct editable level"),
+            ("reject-owning-relink", edit("relink-instance", num_id=712, abstract_id=711),
+             "cannot move a numbering style's owning instance"),
+        ]
         if opaque:
-            guards.append(("reject-opaque-level", 710, "cannot discard unmodeled abstract level markup"))
-        for command, abstract_id, reason in guards:
+            guards.extend([
+                ("reject-opaque-level", edit("abstract-level", abstract_id=710, level=0, value=level(0)),
+                 "cannot discard unmodeled abstract level markup"),
+                ("reject-opaque-abstract", edit("replace-abstract", abstract_id=710, levels=[level(0)]),
+                 "cannot discard unmodeled abstract level markup"),
+            ])
+        else:
+            guards.append((
+                "reject-lost-abstract-level", edit("replace-abstract", abstract_id=710, levels=[level(1)]),
+                "would lose numbering levels of a surviving instance",
+            ))
+        for command, request, reason in guards:
             diagnostic = tmp_path / f"{command}.txt"
             native(source, command, diagnostic)
             native_message = diagnostic.read_text()
             assert reason in native_message
             rejected = await client.call_tool("preview_edits", {
                 "document": document,
-                "edits": [edit("abstract-level", abstract_id=abstract_id, level=0, value=level(0))],
+                "edits": [request],
             })
             assert_tool_failure(rejected, "rejected_batch")
             if rejected.structuredContent is not None:
@@ -292,6 +472,22 @@ async def test_numbering_level_free_alias_and_opaque_readback(launch, tmp_path, 
             else:
                 message = rejected.content[0].text
             assert native_message in message
+
+        if not opaque:
+            updated = await preview(client, document, source, "edit-owner-level", [
+                edit("abstract-level", abstract_id=710, level=0, value=level(0, 9)),
+            ])
+            changed = await catalogs(client, await opened(client, updated))
+            owner = next(row for row in changed["abstracts"] if row["abstract_id"] == 710)
+            assert owner["style_link"] == "FixtureList" and owner["levels"][0]["start"] == 9
+            assert next(row for row in changed["abstracts"] if row["abstract_id"] == 711) == abstracts[711]
+            assert changed["instances"] == catalog["instances"]
+            updated_parts = parts(updated)
+            original_parts = parts(source)
+            assert updated_parts.keys() == original_parts.keys()
+            (numbering_part,) = [p for p in original_parts if p.endswith("numbering.xml")]
+            assert {p for p in original_parts if original_parts[p] != updated_parts[p]} == {numbering_part}
+            validate(updated)
 
         assignment = dict(id=713, level=0)
         output = await preview(client, document, source, "assign-alias", [
@@ -340,6 +536,21 @@ async def test_numbering_creates_part_with_reciprocal_style_link(launch, tmp_pat
         catalog = await catalogs(client, reopened)
         assert catalog["abstracts"][0]["style_link"] == "FirstListStyle"
         assert catalog["instances"][0]["style_ids"] == ["FirstListStyle"]
+        page = await inspect(client, reopened, "styles", limit=100)
+        while not any(row["id"] == "FirstListStyle" for row in page["styles"]):
+            assert page["next_cursor"] is not None
+            page = await inspect(client, reopened, "styles", limit=100, cursor=page["next_cursor"])
+        style = next(row for row in page["styles"] if row["id"] == "FirstListStyle")
+        diagnostic = tmp_path / "native-replace-numbering-style.txt"
+        native(output, "reject-replace-numbering-style", diagnostic)
+        rejected = await client.call_tool("preview_edits", dict(document=reopened, edits=[
+            dict(kind="style", edit=dict(kind="replace", anchor=style["anchor"],
+                 definition=dict(kind="numbering", name="First List Style", numbering_id=90))),
+        ]))
+        assert_tool_failure(rejected, "rejected_batch")
+        assert "cannot replace a linked numbering style" in diagnostic.read_text()
+        assert diagnostic.read_text() in rejected.structuredContent["message"]
+        assert await catalogs(client, reopened) == catalog
     result = parts(output)
     assert result[NUMBERS] == entries[NUMBERS]
     assert str(docx.Document(output).part.numbering_part.partname) != "/" + NUMBERS

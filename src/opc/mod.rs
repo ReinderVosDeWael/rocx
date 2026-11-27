@@ -23,11 +23,13 @@ pub(crate) struct Package {
     // Snapshots share payloads; materializing edited XML replaces only its own entries.
     pub parts: BTreeMap<String, Arc<[u8]>>,
     xml_cache: std::cell::RefCell<BTreeMap<String, CachedXml>>,
+    pub(crate) check_word_depth: bool,
 }
 #[derive(Clone, Debug)]
 struct CachedXml {
     node: Node,
     dirty: bool,
+    check_emitted_depth: bool,
 }
 impl Package {
     pub fn load_with_limits(bytes: &[u8], limits: ReadLimits) -> Result<Self> {
@@ -85,6 +87,7 @@ impl Package {
         let p = Self {
             parts,
             xml_cache: Default::default(),
+            check_word_depth: false,
         };
         p.validate_graph()?;
         Ok(p)
@@ -109,25 +112,42 @@ impl Package {
             CachedXml {
                 node: node.clone(),
                 dirty: false,
+                check_emitted_depth: false,
             },
         );
         Ok(node)
     }
     pub fn put(&mut self, path: impl Into<String>, node: Node) -> Result<()> {
-        fn validate(n: &Node) -> Result<()> {
+        self.put_xml(path, node, None)
+    }
+    pub(crate) fn put_word_xml(&mut self, path: impl Into<String>, node: Node) -> Result<()> {
+        // The root element is depth two: the native parser counts the document node.
+        self.put_xml(path, node, self.check_word_depth.then_some(2))
+    }
+    fn put_xml(&mut self, path: impl Into<String>, node: Node, depth: Option<usize>) -> Result<()> {
+        fn validate(n: &Node, depth: Option<usize>, check: &mut bool) -> Result<()> {
+            if let Some(depth) = depth {
+                // Text, comments and processing instructions can add one level.
+                // Empty or coalesced text need not yield a node; confirm on the
+                // final serialized bytes rather than rejecting a staged tree.
+                *check |= depth > crate::xml::MAX_READ_DEPTH
+                    || (depth == crate::xml::MAX_READ_DEPTH && !n.children.is_empty());
+            }
             for (_, v) in &n.attrs {
                 crate::xml::validate_text(v)?;
             }
+            let child_depth = depth.filter(|_| !*check).map(|depth| depth + 1);
             for c in &n.children {
                 match c {
-                    crate::xml::Content::Element(n) => validate(n)?,
+                    crate::xml::Content::Element(n) => validate(n, child_depth, check)?,
                     crate::xml::Content::Text(t) => crate::xml::validate_text(t)?,
                     _ => (),
                 }
             }
             Ok(())
         }
-        validate(&node)?;
+        let mut check_emitted_depth = false;
+        validate(&node, depth, &mut check_emitted_depth)?;
         let path = path.into();
         PartName::new(&path)?;
         let path = self
@@ -137,9 +157,14 @@ impl Package {
             .cloned()
             .unwrap_or(path);
         self.parts.entry(path.clone()).or_default();
-        self.xml_cache
-            .borrow_mut()
-            .insert(path, CachedXml { node, dirty: true });
+        self.xml_cache.borrow_mut().insert(
+            path,
+            CachedXml {
+                node,
+                dirty: true,
+                check_emitted_depth,
+            },
+        );
         Ok(())
     }
     pub fn relation(&mut self, owner: &str, kind: &str, target: &str) -> Result<String> {
@@ -467,12 +492,17 @@ impl Package {
         }
         Ok(())
     }
-    fn materialize(&mut self) {
+    fn materialize(&mut self) -> Result<()> {
         for (path, cached) in self.xml_cache.take() {
             if cached.dirty {
-                self.parts.insert(path, cached.node.bytes().into());
+                let bytes = cached.node.bytes();
+                if cached.check_emitted_depth {
+                    crate::xml::check_emitted_read_budget(&bytes).map_err(|err| err.at(&path))?;
+                }
+                self.parts.insert(path, bytes.into());
             }
         }
+        Ok(())
     }
     fn validate_graph(&self) -> Result<()> {
         self.validate_content_types()?;
@@ -584,7 +614,7 @@ pub struct PackagePlan {
 }
 impl PackagePlan {
     pub(crate) fn new(mut package: Package) -> Result<Self> {
-        package.materialize();
+        package.materialize()?;
         package.validate_graph()?;
         Ok(Self { package })
     }
@@ -641,28 +671,57 @@ mod tests {
         let mut package = Package {
             parts: BTreeMap::from([("opaque.xml".into(), original.into())]),
             xml_cache: Default::default(),
+            check_word_depth: false,
         };
         let mut node = package.xml("opaque.xml").unwrap();
         node.set("attr", "uncommitted local mutation");
-        package.materialize();
+        package.materialize().unwrap();
         assert_eq!(package.parts["opaque.xml"].as_ref(), original);
         package.put("opaque.xml", node).unwrap();
         assert_eq!(
             package.xml("opaque.xml").unwrap().get("attr"),
             Some("uncommitted local mutation")
         );
-        package.materialize();
+        package.materialize().unwrap();
         assert_ne!(package.parts["opaque.xml"].as_ref(), original);
         assert_eq!(
             package.xml("opaque.xml").unwrap().get("attr"),
             Some("uncommitted local mutation")
         );
     }
+
+    #[test]
+    fn word_depth_budget_checks_only_final_serialized_writes() {
+        let mut package = Package::load_with_limits(
+            include_bytes!("../../assets/default.docx"),
+            ReadLimits::default(),
+        )
+        .unwrap();
+        package.check_word_depth = true;
+        let part = "word/document.xml";
+        let near_limit = |text| {
+            (2..crate::xml::MAX_READ_DEPTH).fold(Node::new("w:p").text(text), |child, _| {
+                Node::new("w:p").with(child)
+            })
+        };
+        package.put_word_xml(part, near_limit("too deep")).unwrap();
+        let error = PackagePlan::new(package.clone()).unwrap_err();
+        assert_eq!(error.path(), Some(part));
+        assert!(error.to_string().contains("XML depth exceeds read limit"));
+
+        // A scratch write may be replaced before output; empty text serializes
+        // to no XML node, so this part is exactly at the budget.
+        package.put_word_xml(part, near_limit("")).unwrap();
+        let output = PackagePlan::new(package).unwrap();
+        Node::parse(output.part(&PartName::new(part).unwrap()).unwrap()).unwrap();
+    }
+
     #[test]
     fn external_targets_are_explicit_and_internal_targets_are_validated() {
         let mut package = Package {
             parts: BTreeMap::from([("main.xml".into(), b"<document/>".as_slice().into()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.as_slice().into())]),
             xml_cache: Default::default(),
+            check_word_depth: false,
         };
         let external = package
             .add_relationship(
@@ -676,6 +735,7 @@ mod tests {
         let mut package = Package {
             parts: BTreeMap::from([("main.xml".into(), b"<document/>".as_slice().into()), ("[Content_Types].xml".into(), br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>"#.as_slice().into())]),
             xml_cache: Default::default(),
+            check_word_depth: false,
         };
         package.link("main.xml", "image", "missing.png").unwrap();
         assert!(

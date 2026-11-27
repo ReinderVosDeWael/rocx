@@ -42,6 +42,10 @@ impl ToolError {
             if let Some(detail) = native_detail(error) {
                 response["detail"] = json!(detail);
             }
+            if let Some((character, byte_offset)) = xml_character(error) {
+                response["character"] = json!(character);
+                response["byte_offset"] = json!(byte_offset);
+            }
         }
         response
     }
@@ -75,6 +79,19 @@ fn native_detail(error: &Error) -> Option<&str> {
     }
 }
 
+fn xml_character(error: &Error) -> Option<(char, usize)> {
+    match error {
+        Error::InvalidXmlCharacter {
+            character,
+            byte_offset,
+        } => Some((*character, *byte_offset)),
+        Error::At { source, .. } => xml_character(source),
+        Error::Shared(source) => xml_character(source),
+        Error::Producer(source) => source.downcast_ref::<Error>().and_then(xml_character),
+        _ => None,
+    }
+}
+
 /// A staged operation can reject a target or payload before calling the native editor.
 #[derive(Debug)]
 pub(crate) enum ScopedEditError {
@@ -86,6 +103,23 @@ pub(crate) enum ScopedEditError {
 impl From<Error> for ScopedEditError {
     fn from(error: Error) -> Self {
         Self::Native(error)
+    }
+}
+
+impl From<Diagnostic> for ScopedEditError {
+    fn from(diagnostic: Diagnostic) -> Self {
+        Self::Native(diagnostic.into())
+    }
+}
+
+impl std::fmt::Display for ScopedEditError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WrongAnchorType(message) | Self::Rejected(message) => {
+                formatter.write_str(message)
+            }
+            Self::Native(error) => error.fmt(formatter),
+        }
     }
 }
 
@@ -148,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn native_error_without_path_or_detail_only_adds_rule() {
+    fn native_xml_error_preserves_character_and_byte_offset() {
         let error = Error::InvalidXmlCharacter {
             character: '\0',
             byte_offset: 0,
@@ -161,6 +195,8 @@ mod tests {
                 "message": "invalid XML 1.0 character U+0000 at byte offset 0",
                 "action": "Retry.",
                 "rule": "invalid_xml",
+                "character": "\0",
+                "byte_offset": 0,
             })
         );
     }

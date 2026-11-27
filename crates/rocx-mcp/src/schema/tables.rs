@@ -9,6 +9,7 @@ use super::{
     blocks::Nullable,
     payloads::{BlockInput, RichTableInput},
 };
+use crate::diagnostics::ScopedEditError;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -63,7 +64,8 @@ pub(crate) enum PhysicalTableEdit {
         site: PhysicalTableSite,
         /// Native field key from the corresponding properties map, or "width" for a grid column.
         field: String,
-        /// Donor declaration. The core copies only the selected direct property.
+        /// Donor declaration. The core copies only the selected direct property,
+        /// so the donor's rows may have no cells.
         source: Box<RichTableInput>,
     },
 }
@@ -113,7 +115,7 @@ pub(crate) enum ReplaceTableSite {
 }
 
 impl BodyTableEdit {
-    pub(crate) fn resolve(self) -> Result<TableOperation, String> {
+    pub(crate) fn resolve(self) -> Result<TableOperation, ScopedEditError> {
         Ok(match self {
             Self::Physical(edit) => edit.resolve()?,
             Self::Whole(WholeTableEdit::ReplaceNode { site, source }) => {
@@ -143,7 +145,7 @@ impl From<PhysicalTableSite> for TableSite {
 }
 
 impl PhysicalTableEdit {
-    pub(crate) fn resolve(self) -> Result<TableOperation, String> {
+    pub(crate) fn resolve(self) -> Result<TableOperation, ScopedEditError> {
         Ok(match self {
             Self::Layout { value } => {
                 TableOperation::Layout(value.into_option().map(|layout| match layout {
@@ -177,7 +179,7 @@ impl PhysicalTableEdit {
             } => TableOperation::Property {
                 site: site.into(),
                 field,
-                source: Some(Box::new(source.resolve()?)),
+                source: Some(Box::new(source.resolve_donor()?)),
             },
         })
     }

@@ -3,12 +3,13 @@ use std::{env, fs};
 
 use rocx::{
     BorderLine, BorderSide, CellBorder, CellBorderSide, CellMargins, CellTextDirection, Component,
-    Hyperlink, HyperlinkTarget, Paragraph, ResolvedBlock, ResolvedTable, RowHeight, RunFormat,
-    Table, TableAlignment, TableBorder, TableCell, TableCellProperties, TableLayout, TableLook,
-    TableProperties, TableRow, TableRowProperties, TextRun, VerticalAlignment, VerticalMerge,
+    ContentControlProperties, Hyperlink, HyperlinkTarget, Paragraph, ResolvedBlock, ResolvedTable,
+    RowHeight, RunFormat, Table, TableAlignment, TableBorder, TableCell, TableCellProperties,
+    TableLayout, TableLook, TableProperties, TableRow, TableRowProperties, TextRun,
+    VerticalAlignment, VerticalMerge,
     editor::{
-        BodyBlock, EditBatch, ImportedDocument, ImportedInlineNode, RunTextEdit, TableOperation,
-        TableSite, TableStructureEdit,
+        BodyBlock, EditBatch, ImportedDocument, ImportedInlineNode, RunTextEdit, TableInsertion,
+        TableOperation, TableSite, TableStructureEdit,
     },
 };
 
@@ -143,6 +144,48 @@ fn body_mixed(doc: &ImportedDocument) -> Vec<u8> {
     .unwrap()
     .to_docx()
     .unwrap()
+}
+
+fn body_replace_cell(doc: &ImportedDocument, duplicate: bool, output: &str) {
+    let table = doc
+        .body()
+        .iter()
+        .filter_map(|block| match block {
+            BodyBlock::Table(table) => Some(table),
+            _ => None,
+        })
+        .nth(1)
+        .unwrap();
+    let BodyBlock::Paragraph(tail) = doc.body().last().unwrap() else {
+        panic!("expected tail paragraph");
+    };
+    let ImportedInlineNode::Run(run) = &tail.inline_structure[0] else {
+        panic!("expected tail run");
+    };
+    let mut edits = vec![TableStructureEdit {
+        target: table.anchor.clone(),
+        operation: TableOperation::ReplaceCell {
+            row: 0,
+            cell: 0,
+            blocks: rich_blocks(),
+        },
+    }];
+    if duplicate {
+        edits.push(edits[0].clone());
+    }
+    let result = doc.preview_edits(EditBatch {
+        structural: &edits,
+        run_text: &[RunTextEdit {
+            target: run.anchor.clone(),
+            text: "Edited tail 😀".into(),
+        }],
+        ..EditBatch::default()
+    });
+    if duplicate {
+        fs::write(output, result.err().unwrap().to_string()).unwrap();
+    } else {
+        fs::write(output, result.unwrap().to_docx().unwrap()).unwrap();
+    }
 }
 
 fn property_donor() -> ResolvedTable {
@@ -331,6 +374,139 @@ fn properties(doc: &ImportedDocument, case: &str, owner: &str, output: &str) {
     }
 }
 
+fn first_declaration_edge(start_margin: f64, row_height: f64) -> Table {
+    use CellTextDirection::*;
+    let cells = [
+        LeftToRight,
+        BottomToTopLeftToRight,
+        LeftToRightVertical,
+        TopToBottomRightToLeftVertical,
+        TopToBottomLeftToRightVertical,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, direction)| {
+        let mut properties = TableCellProperties::default().with_text_direction(direction);
+        if index == 0 {
+            properties = properties.with_margins(CellMargins::default().with_start(start_margin));
+        }
+        TableCell::new(vec![]).with_properties(properties).into()
+    })
+    .collect();
+    Table::new(vec![
+        TableRow::new(cells)
+            .with_properties(
+                TableRowProperties::default()
+                    .with_height(RowHeight::Exact(row_height))
+                    .with_repeat_header(false)
+                    .with_cant_split(false),
+            )
+            .into(),
+        TableRow::new(vec![]).into(),
+    ])
+    .with_properties(
+        TableProperties::default()
+            .with_layout(TableLayout::Autofit)
+            .with_column_widths(vec![0])
+            .with_alignment(TableAlignment::Start)
+            .with_look(TableLook::default().with_first_row(false)),
+    )
+}
+
+fn declaration_edges(doc: &ImportedDocument) -> Vec<u8> {
+    let single = |alignment| {
+        Table::new(vec![
+            TableRow::new(vec![TableCell::new(vec![]).into()]).into(),
+        ])
+        .with_properties(TableProperties::default().with_alignment(alignment))
+    };
+    let tables = [
+        first_declaration_edge(0.0, 0.0),
+        single(TableAlignment::End),
+        single(TableAlignment::Left),
+    ]
+    .into_iter()
+    .zip(doc.body())
+    .map(|(table, block)| {
+        let BodyBlock::Paragraph(target) = block else {
+            panic!("expected paragraph");
+        };
+        TableInsertion {
+            target: target.anchor.clone(),
+            table: resolve(table),
+        }
+    })
+    .collect::<Vec<_>>();
+    doc.preview_edits(EditBatch {
+        tables: &tables,
+        ..EditBatch::default()
+    })
+    .unwrap()
+    .to_docx()
+    .unwrap()
+}
+
+fn property_edges(case: &str) -> Vec<TableOperation> {
+    let donor = |cell: TableCell, properties| {
+        resolve(
+            Table::new(vec![TableRow::new(vec![cell.into()]).into()]).with_properties(properties),
+        )
+    };
+    let put = |site, field: &str, source| TableOperation::Property {
+        site,
+        field: field.into(),
+        source: Some(Box::new(source)),
+    };
+    let continuation = || {
+        donor(
+            TableCell::new(vec![]).with_properties(
+                TableCellProperties::default().with_vmerge(VerticalMerge::Continue),
+            ),
+            TableProperties::default(),
+        )
+    };
+    match case {
+        "edge-properties" => vec![
+            put(
+                TableSite::Table,
+                "look.firstRow",
+                donor(
+                    TableCell::new(vec![]),
+                    TableProperties::default().with_look(TableLook::default().with_first_row(true)),
+                ),
+            ),
+            put(TableSite::Cell(1, 0), "verticalMerge", continuation()),
+        ],
+        "edge-guard-merge" => vec![put(TableSite::Cell(1, 1), "verticalMerge", continuation())],
+        "edge-guard-look" => vec![put(
+            TableSite::Table,
+            "look.firstRow",
+            donor(TableCell::new(vec![]), TableProperties::default()),
+        )],
+        "edge-empty-row-donor" | "edge-control-donor" => {
+            let mut row = TableRowProperties::default().with_height(RowHeight::Exact(0.0));
+            let cells = if case == "edge-control-donor" {
+                let control = ContentControlProperties::default().with_tag("donor-only");
+                row = row.with_content_control(control.clone());
+                vec![
+                    TableCell::new(vec![])
+                        .with_properties(
+                            TableCellProperties::default().with_content_control(control),
+                        )
+                        .into(),
+                ]
+            } else {
+                vec![]
+            };
+            let source = resolve(Table::new(vec![
+                TableRow::new(cells).with_properties(row).into(),
+            ]));
+            vec![put(TableSite::Row(0), "height", source)]
+        }
+        _ => unreachable!(),
+    }
+}
+
 fn main() {
     let [source, output, case, owner]: [String; 4] =
         env::args().skip(1).collect::<Vec<_>>().try_into().unwrap();
@@ -342,6 +518,40 @@ fn main() {
     if case == "body-mixed" {
         fs::write(output, body_mixed(&doc)).unwrap();
         return;
+    }
+    if matches!(
+        case.as_str(),
+        "body-replace-cell" | "body-replace-cell-duplicate"
+    ) {
+        body_replace_cell(&doc, case.ends_with("-duplicate"), &output);
+        return;
+    }
+    match case.as_str() {
+        "declaration-edges" => {
+            fs::write(output, declaration_edges(&doc)).unwrap();
+            return;
+        }
+        "declaration-negative-margin" | "declaration-negative-height" => {
+            let (margin, height) = if case == "declaration-negative-margin" {
+                (-1.0, 0.0)
+            } else {
+                (0.0, -1.0)
+            };
+            let table = first_declaration_edge(margin, height);
+            let error = futures_executor::block_on(table.resolve()).unwrap_err();
+            fs::write(
+                output,
+                serde_json::json!({
+                    "message": error.to_string(),
+                    "rule": error.rule().map(rocx::Rule::code),
+                    "path": error.path(),
+                })
+                .to_string(),
+            )
+            .unwrap();
+            return;
+        }
+        _ => {}
     }
     let tables = doc
         .part_tables((owner != "body").then_some(owner.as_str()))
@@ -421,6 +631,7 @@ fn main() {
             cell: 0,
             blocks: rich_blocks(),
         }],
+        case if case.starts_with("edge-") => property_edges(case),
         _ => panic!("unknown case"),
     };
     let edits: Vec<_> = operations
@@ -430,9 +641,10 @@ fn main() {
             operation,
         })
         .collect();
-    fs::write(
-        output,
-        doc.edit_part_tables(&target.part_name, &edits).unwrap(),
-    )
-    .unwrap();
+    let result = doc.edit_part_tables(&target.part_name, &edits);
+    if case.starts_with("edge-guard-") {
+        fs::write(output, result.unwrap_err().to_string()).unwrap();
+    } else {
+        fs::write(output, result.unwrap()).unwrap();
+    }
 }

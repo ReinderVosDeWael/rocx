@@ -801,6 +801,152 @@ async def test_mixed_native_bytes_and_preservation(launch, tmp_path, mode):
     validate(source, output)
 
 
+async def test_report_variants_native_bytes_and_rejection(launch, tmp_path):
+    source = tmp_path / "report.docx"
+    output = tmp_path / "report-copy.docx"
+    # Original body index, MCP request token, stored OOXML before, MCP report token.
+    alignments = [
+        (0, "left", None, "Left"),
+        (1, "center", "left", "Center"),
+        (2, "right", "center", "Right"),
+        (3, "justify", "right", "Justify"),
+        (4, "distribute", "both", "Distribute"),
+        (6, "justify-medium", "distribute", "JustifyMedium"),
+        (7, "justify-high", "mediumKashida", "JustifyHigh"),
+        (8, "justify-low", "highKashida", "JustifyLow"),
+        (9, "thai-justify", "lowKashida", "ThaiJustify"),
+    ]
+    cells = [
+        (0, 0, None, "top"),
+        (0, 2, "top", "center"),
+        (1, 0, "both", "bottom"),
+        (1, 1, "center", "both"),
+    ]
+    insertions = [(0, [["tall A"], ["tall B"]]), (8, [["wide A", "wide B", "wide C"]])]
+    replacements = [(0, 1, "old", " new 😀 & "), (0, 3, "erase", ""), (7, 0, "", "from empty")]
+    removals = [(0, 0, "drop plain"), (0, 2, " drop styled "), (7, 1, "")]
+
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    paragraphs = {}
+    for index, _, before, _ in alignments:
+        if index == 6:
+            table = fixture.add_table(2, 3)  # Body index 5, shifted by the first insertion.
+        paragraph = fixture.add_paragraph(f"P{index}" if index not in (0, 7, 9) else "")
+        paragraphs[index] = paragraph
+        if before is not None:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.from_xml(before)
+    for row, cell, before, _ in cells + [(1, 2, "bottom", None)]:
+        if before is not None:
+            table.cell(row, cell).vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.from_xml(before)
+    paragraphs[0].add_run("drop plain")
+    annotated = paragraphs[0].add_run("old")
+    annotated.bold = True
+    annotated._r.set(qn("w:rsidR"), "00A10B20")
+    paragraphs[0].add_run(" drop styled ").italic = True
+    paragraphs[0].add_run("erase")
+    paragraphs[0].add_run("Keep")
+    for _ in range(2):
+        # An empty w:t is eligible; an empty w:r without a text leaf is not.
+        paragraphs[7].add_run()._r.append(OxmlElement("w:t"))
+    fixture.add_paragraph("Unchanged").alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    fixture.save(source)
+    original = source.read_bytes()
+
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        seen = await call(client, "inspect_document", document=document)
+        body = seen["body"]
+        run = {(b["index"], r["inline_index"]): r["anchor"]
+               for b in body if b["type"] == "paragraph" for r in b["runs"]}
+        cell_anchor = {(c["row_index"], c["cell_index"]): c["anchor"] for c in body[5]["cells"]}
+        edits = [
+            *[dict(kind="alignment", anchor=body[i]["anchor"], alignment=request)
+              for i, request, _, _ in alignments],
+            *[dict(kind="cell-alignment", anchor=cell_anchor[r, c], alignment=after)
+              for r, c, _, after in cells],
+            *[dict(kind="insert-table", anchor=body[i]["anchor"], rows=rows)
+              for i, rows in insertions],
+            *[dict(kind="run-text", anchor=run[i, j], text=after)
+              for i, j, _, after in replacements],
+            *[dict(kind="run-remove", anchor=run[i, j]) for i, j, _ in removals],
+            dict(kind="insert-text", anchor=body[9]["anchor"], offset=0, text="runless"),
+        ]
+        noops = [
+            dict(kind="alignment", anchor=body[10]["anchor"], alignment="right"),
+            dict(kind="cell-alignment", anchor=cell_anchor[1, 2], alignment="bottom"),
+            dict(kind="run-text", anchor=run[0, 4], text="Keep"),
+        ]
+        batch = list(reversed(edits + noops))
+        # Duplicates in each report family reject a mixed batch, not just one record.
+        by_kind = {edit["kind"]: edit for edit in edits}
+        for duplicate in (edit for kind, edit in by_kind.items() if kind != "insert-text"):
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          edits=[*batch, duplicate])
+        for invalid in [
+            dict(kind="run-remove", anchor=run[0, 1]),  # Would discard w:rsidR.
+            dict(kind="run-text", anchor=run[0, 1], text="not\tsingle-line text"),
+        ]:
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          edits=[invalid])
+        assert list(tmp_path.iterdir()) == [source]
+        assert await call(client, "inspect_document", document=document) == seen
+
+        preview = await call(client, "preview_edits", document=document, edits=batch)
+        saved = await call(client, "save_copy", document=document, preview=preview["preview"],
+                           output=output.name)
+        assert saved["output_snapshot"] == preview["output_snapshot"] == digest(output.read_bytes())
+        noop = await call(client, "preview_edits", document=document, edits=noops)
+        assert noop["changes"] == dict.fromkeys(preview["changes"], [])
+
+    native = tmp_path / "native.docx"
+    result = subprocess.run(
+        [executable("ROCX_MCP_ORACLE"), "report-variants", native, source],
+        check=True, capture_output=True, cwd=tmp_path, timeout=20,
+    )
+    report = preview["changes"]
+    assert report == json.loads(result.stdout)
+    assert report == {
+        "changes": [dict(target=i, before=before, after=after)
+                    for i, _, before, after in alignments],
+        "cell_alignments": [dict(target=5, row_index=r, cell_index=c, before=before, after=after)
+                            for r, c, before, after in cells],
+        "table_insertions": [dict(target=i, rows=len(rows), columns=len(rows[0]))
+                             for i, rows in insertions],
+        "run_text": [dict(target=i, inline_index=j, before=before, after=after)
+                     for i, j, before, after in [*replacements, (9, 0, "", "runless")]],
+        "run_removals": [dict(target=i, inline_index=j, before=before) for i, j, before in removals],
+        "paragraph_insertions": [], "block_changes": [], "inline_changes": [], "header_images": [],
+    }
+    assert output.read_bytes() == native.read_bytes()
+    assert source.read_bytes() == original
+    edited = docx.Document(output)
+    assert [i for i, b in enumerate(edited.iter_inner_content()) if isinstance(b, Table)] == [1, 6, 10]
+    tall, original_table, wide = edited.tables
+    assert [[[c.text for c in row.cells] for row in t.rows] for t in (tall, wide)] == [
+        rows for _, rows in insertions
+    ]
+    assert [p.alignment.xml_value for p in edited.paragraphs] == [
+        "left", "center", "right", "both", "distribute", "mediumKashida", "highKashida",
+        "lowKashida", "thaiDistribute", "right",
+    ]
+    assert [[c.vertical_alignment.xml_value if c.vertical_alignment is not None else None
+             for c in row.cells] for row in original_table.rows] == [
+        ["top", None, "center"], ["bottom", "both", "bottom"],
+    ]
+    first = edited.paragraphs[0].runs
+    assert [r.text for r in first] == [" new 😀 & ", "", "Keep"]
+    assert first[0].bold and first[0]._r.get(qn("w:rsidR")) == "00A10B20"
+    assert [r.text for r in edited.paragraphs[6].runs] == ["from empty"]
+    assert edited.paragraphs[8].text == "runless"
+    original_parts, edited_parts = parts(source), parts(output)
+    assert original_parts.keys() == edited_parts.keys()
+    assert {name for name, data in original_parts.items() if data != edited_parts[name]} == {
+        "word/document.xml",
+    }
+    validate(source, output)
+
+
 async def test_scalar_edits_native_bytes_and_retry(launch, tmp_path):
     source = tmp_path / "scalar.docx"
     output = tmp_path / "scalar-copy.docx"

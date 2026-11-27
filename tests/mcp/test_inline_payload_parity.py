@@ -1,14 +1,18 @@
 """Installed stdio parity for additive inline declaration fields."""
 
 from copy import deepcopy
+import json
 import subprocess
 
 import docx
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from jsonschema.validators import validator_for
 import pytest
 
-from test_stdio import PNG, anyio_backend, call, executable, failure, launch, parts, validate
+from test_stdio import (
+    PNG, anyio_backend, assert_tool_failure, call, executable, failure, launch, parts, validate,
+)
 
 pytestmark = pytest.mark.anyio
 URL = "https://example.org/payload"
@@ -121,4 +125,147 @@ async def test_inline_payload_native_bytes(launch, tmp_path, mode):
         assert paragraph._p.xpath(".//wp:docPr/@descr") == ["A logo"]
     else:
         assert not paragraph._p.xpath(".//w:rPr")
+    validate(source, output)
+
+
+async def test_bookmark_hyperlink_native_bytes(launch, tmp_path):
+    source, ambiguous, native, output = [
+        tmp_path / f"{name}.docx" for name in ("source", "ambiguous", "native", "out")
+    ]
+    name, text, tooltip = "Destination", "Go to destination", "Jump <here> & return"
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    fixture.add_paragraph("Original")
+
+    def add_bookmark(marker_id):
+        paragraph = fixture.add_paragraph("Bookmarked text")
+        start, end = OxmlElement("w:bookmarkStart"), OxmlElement("w:bookmarkEnd")
+        start.set(qn("w:name"), name)
+        start.set(qn("w:id"), marker_id)
+        end.set(qn("w:id"), marker_id)
+        paragraph.runs[0]._r.addprevious(start)
+        paragraph._p.append(end)
+
+    add_bookmark("7")
+    fixture.save(source)
+    original = source.read_bytes()
+    add_bookmark("8")  # Paired, with a distinct ID: only the name is ambiguous.
+    fixture.save(ambiguous)
+    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_inline_payload_oracle")
+    subprocess.run([oracle, source, native, "bookmark"], check=True, cwd=tmp_path, timeout=20)
+
+    async with launch() as client:
+        (tool,) = [item for item in (await client.list_tools()).tools if item.name == "preview_edits"]
+        validator = validator_for(tool.inputSchema)(tool.inputSchema)
+
+        async def open_lead(path):
+            document = (await call(client, "open_document", path=path.name))["document"]
+            rows = (await call(client, "inspect_document", document=document,
+                               view={"kind": "body-inlines"}))["body_inlines"]
+            return document, rows[0]["anchor"]
+
+        def request(document, anchor, target):
+            return insertion(document, [(anchor, dict(
+                kind="hyperlink", target=dict(kind="bookmark", name=target),
+                children=[dict(kind="text", text=text)], tooltip=tooltip, history=True,
+            ))])
+
+        document, anchor = await open_lead(source)
+        other, other_anchor = await open_lead(ambiguous)
+        for rejected, message in [
+            (request(document, anchor, "Missing"), "expected one paired direct body bookmark target"),
+            (request(other, other_anchor, name), "expected one paired direct body bookmark target"),
+            (request(document, anchor, "Not a bookmark"), "invalid bookmark name"),
+        ]:
+            validator.validate(rejected)  # Native guards, not JSON schema failures.
+            result = await client.call_tool("preview_edits", rejected)
+            assert_tool_failure(result, "rejected_batch")
+            assert message in result.structuredContent["message"]
+
+        retry = request(document, anchor, name)
+        validator.validate(retry)
+        preview = await call(client, "preview_edits", **retry)
+        await call(client, "save_copy", document=document, preview=preview["preview"], output=output.name)
+        saved = (await call(client, "open_document", path=output.name))["document"]
+        rows = (await call(client, "inspect_document", document=saved,
+                           view={"kind": "body-inlines"}))["body_inlines"]
+        inspected = rows[1]
+        assert (
+            inspected["kind"], inspected["bookmark"], inspected["relationship_id"],
+            inspected["tooltip"], inspected["history_xml"],
+        ) == ("hyperlink", name, None, tooltip, "1")
+        (child,) = inspected["children"]
+        assert (child["kind"], child["text"]) == ("run", text)
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == native.read_bytes()
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {part for part in before if before[part] != after[part]} == {"word/document.xml"}
+    lead, destination = docx.Document(output).paragraphs
+    run, hyperlink = lead._p
+    assert run.tag == qn("w:r") and lead.runs[0].text == "Original"
+    assert hyperlink.tag == qn("w:hyperlink")
+    assert dict(hyperlink.attrib) == {qn("w:anchor"): name, qn("w:tooltip"): tooltip, qn("w:history"): "1"}
+    assert hyperlink.xpath("./w:r/w:t/text()") == [text]
+    assert destination._p.xpath("./w:bookmarkStart/@w:name") == [name]
+    assert destination._p.xpath("./w:bookmarkStart/@w:id") == ["7"]
+    assert destination._p.xpath("./w:bookmarkEnd/@w:id") == ["7"]
+    validate(source, output)
+
+
+async def test_fraction_operand_validation_and_retry(launch, tmp_path):
+    source, native, output = [tmp_path / f"{name}.docx" for name in ("source", "native", "out")]
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    fixture.add_paragraph("Original")
+    fixture.save(source)
+    original = source.read_bytes()
+    oracle = executable("ROCX_MCP_ORACLE").with_name("mcp_inline_payload_oracle")
+    run = subprocess.run(
+        [oracle, source, native, "fraction"], check=True, cwd=tmp_path, timeout=20,
+        capture_output=True, text=True,
+    )
+    diagnostics = json.loads(run.stdout)
+    assert len(diagnostics) == 6
+    assert {case["rule"] for case in diagnostics} == {"invalid_content", "invalid_xml"}
+
+    async with launch() as client:
+        (tool,) = [item for item in (await client.list_tools()).tools if item.name == "preview_edits"]
+        validator = validator_for(tool.inputSchema)(tool.inputSchema)
+        document = (await call(client, "open_document", path=source.name))["document"]
+        (lead,) = (await call(client, "inspect_document", document=document,
+                             view={"kind": "body-inlines"}))["body_inlines"]
+        anchor = lead["anchor"]
+
+        def request(numerator, denominator):
+            return insertion(document, [(anchor, dict(
+                kind="fraction", numerator=numerator, denominator=denominator,
+            ))])
+
+        for case in diagnostics:
+            rejected = request(case["numerator"], case["denominator"])
+            validator.validate(rejected)
+            result = await client.call_tool("preview_edits", rejected)
+            assert_tool_failure(result, "rejected_batch")
+            assert result.structuredContent["message"] == (
+                f"edit 1: {case['diagnostic']}; revise the edits and retry"
+            )
+            for key in ("rule", "path", "detail"):
+                assert result.structuredContent[key] == case[key]
+
+        retry = request("x < y", "2 & 3")
+        validator.validate(retry)
+        preview = await call(client, "preview_edits", **retry)
+        await call(client, "save_copy", document=document, preview=preview["preview"], output=output.name)
+        saved = (await call(client, "open_document", path=output.name))["document"]
+        lead, fraction = (await call(client, "inspect_document", document=saved,
+                                     view={"kind": "body-inlines"}))["body_inlines"]
+        assert lead["text"] == "Original"
+        assert (fraction["kind"], fraction["numerator"], fraction["denominator"]) == (
+            "fraction", "x < y", "2 & 3",
+        )
+
+    assert source.read_bytes() == original
+    assert output.read_bytes() == native.read_bytes()
     validate(source, output)

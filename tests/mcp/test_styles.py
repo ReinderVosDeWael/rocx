@@ -134,6 +134,11 @@ def assert_region(node):
         "before": "110", "after": "40", "line": "250", "lineRule": "atLeast",
     }
     assert attributes(node, "pPr/tabs/tab") == {"pos": "720", "val": "decimal", "leader": "dot"}
+    assert_rich_text(node)
+    assert attributes(node, "tcPr/shd") == {"val": "clear", "color": "auto", "fill": "010203"}
+
+
+def assert_rich_text(node):
     assert attributes(node, "rPr/rFonts") == {
         "ascii": "Arial", "hAnsi": "Arial", "eastAsia": "MS Gothic", "cs": "Tahoma",
     }
@@ -143,7 +148,20 @@ def assert_region(node):
         ("bCs", "1"), ("iCs", "0"), ("szCs", "26"), ("rtl", "0"), ("cs", "1"),
     ):
         assert attributes(node, f"rPr/{tag}") == {"val": value}
-    assert attributes(node, "tcPr/shd") == {"val": "clear", "color": "auto", "fill": "010203"}
+
+
+def paragraph_flags(positive):
+    return (
+        ("bidi", "bidi", positive),
+        ("keep_together", "keepLines", positive),
+        ("keep_with_next", "keepNext", not positive),
+        ("page_break_before", "pageBreakBefore", positive),
+        ("widow_control", "widowControl", not positive),
+        ("suppress_line_numbers", "suppressLineNumbers", positive),
+        ("contextual_spacing", "contextualSpacing", not positive),
+        ("mirror_indents", "mirrorIndents", positive),
+        ("snap_to_grid", "snapToGrid", not positive),
+    )
 
 
 async def test_style_discovery(launch):
@@ -416,17 +434,7 @@ async def test_table_style_region_clear_guard(launch, tmp_path, obstruction):
 async def test_paragraph_style_format(launch, tmp_path, mode, value, line, rule, positive):
     source = tmp_path / "source.docx"
     style_source(source)
-    flags = (
-        ("bidi", "bidi", positive),
-        ("keep_together", "keepLines", positive),
-        ("keep_with_next", "keepNext", not positive),
-        ("page_break_before", "pageBreakBefore", positive),
-        ("widow_control", "widowControl", not positive),
-        ("suppress_line_numbers", "suppressLineNumbers", positive),
-        ("contextual_spacing", "contextualSpacing", not positive),
-        ("mirror_indents", "mirrorIndents", positive),
-        ("snap_to_grid", "snapToGrid", not positive),
-    )
+    flags = paragraph_flags(positive)
     fmt = dict(
         alignment="center", spacing_before=5.5, spacing_after=2,
         left_indent=0.5, right_indent=0.25, first_line_indent=0.125 if positive else -0.125,
@@ -459,6 +467,247 @@ async def test_paragraph_style_format(launch, tmp_path, mode, value, line, rule,
     assert attributes(style.element, "pPr/tabs/tab") == {
         "pos": "720", "val": "decimal", "leader": "dot",
     }
+    only_styles_changed(source, output)
+    validate(output)
+
+
+async def test_rich_style_replace_and_native_guards(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    style_source(source)
+    fixture = docx.Document(source)
+    fixture.styles["Destination"].font.strike = True
+    old_region = etree.SubElement(fixture.styles["Spare"].element, qn("w:tblStylePr"),
+                                  {qn("w:type"): "lastRow"})
+    etree.SubElement(etree.SubElement(old_region, qn("w:rPr")), qn("w:b"))
+    fixture.save(source)
+    original = source.read_bytes()
+
+    flags = paragraph_flags(False)
+    fmt = dict(
+        alignment="center", spacing_before=5.5, spacing_after=2,
+        line_height=dict(kind="at-least", value=12.5),
+        left_indent=0.5, right_indent=0.25, first_line_indent=-0.125, tab_stops=[TAB],
+        **{field: enabled for field, _, enabled in flags},
+    )
+    paragraph = dict(
+        kind="paragraph", name="Destination", base_style="Normal", linked_style="Swap Style",
+        next_paragraph_style="Memo Style", format=fmt, text=RICH_REGION["text"],
+    )
+    table = dict(
+        kind="table", name="Spare", base_style="Matrix",
+        regions=[dict(region=region, format=RICH_REGION) for region in ("wholeTable", "firstRow")],
+    )
+    async with launch() as client:
+        document = await opened(client, source)
+        _, rows = await catalog(client, document)
+        anchors = {row["id"]: row["anchor"] for row in rows}
+        conflict = paragraph | {"format": fmt | {"line_spacing": 1.5}}
+        for action, edit, reason in [
+            ("reject-line-spacing-conflict:add",
+             change("add", definition=conflict | {"name": "Conflicting Paragraph"}),
+             "line_height and line_spacing are mutually exclusive"),
+            ("reject-line-spacing-conflict:replace",
+             change("replace", anchor=anchors["Destination"], definition=conflict),
+             "line_height and line_spacing are mutually exclusive"),
+            ("reject-replacement-identity",
+             change("replace", anchor=anchors["Destination"],
+                    definition=paragraph | {"name": "Renamed Paragraph"}),
+             "replacement must preserve style ID, name and type"),
+            ("reject-live-replacement",
+             change("replace", anchor=anchors["MemoStyle"],
+                    definition=paragraph | {"name": "Memo Style", "next_paragraph_style": "Normal"}),
+             "resource has live or uninspectable references"),
+        ]:
+            diagnostic = tmp_path / f"{action.replace(':', '-')}.txt"
+            native(source, action, diagnostic)
+            result = await client.call_tool("preview_edits", dict(document=document, edits=[edit]))
+            assert_tool_failure(result, "rejected_batch")
+            expected_error = diagnostic.read_text()
+            assert reason in expected_error and expected_error in result.structuredContent["message"]
+
+        output = await preview(client, document, source, "replace-rich", [
+            change("replace", anchor=anchors["Destination"], definition=paragraph),
+            change("replace", anchor=anchors["Spare"], definition=table),
+        ])
+
+    styles = docx.Document(output).styles
+    replaced = styles["Destination"]
+    assert (replaced.style_id, replaced.type) == ("Destination", WD_STYLE_TYPE.PARAGRAPH)
+    assert replaced.base_style.name == "Normal"
+    assert replaced.next_paragraph_style.name == "Memo Style"
+    assert attributes(replaced.element, "link") == {"val": "SwapStyle"}
+    assert replaced.font.strike is None  # Old direct formatting was replaced, not patched.
+    assert_rich_text(replaced.element)
+    for _, tag, enabled in flags:
+        assert attributes(replaced.element, f"pPr/{tag}") == {"val": str(int(enabled))}
+    assert attributes(replaced.element, "pPr/jc") == {"val": "center"}
+    assert attributes(replaced.element, "pPr/spacing") == {
+        "before": "110", "after": "40", "line": "250", "lineRule": "atLeast",
+    }
+    assert attributes(replaced.element, "pPr/ind") == {"left": "720", "right": "360", "hanging": "180"}
+    assert attributes(replaced.element, "pPr/tabs/tab") == {"pos": "720", "val": "decimal", "leader": "dot"}
+    replaced = styles["Spare"]
+    assert (replaced.style_id, replaced.type) == ("Spare", WD_STYLE_TYPE.TABLE)
+    assert replaced.base_style.name == "Matrix"
+    assert replaced.element.xpath("w:tblStylePr/@w:type") == ["firstRow"]
+    assert_region(replaced.element)
+    assert_region(replaced.element.find(qn("w:tblStylePr")))
+    assert source.read_bytes() == original
+    only_styles_changed(source, output)
+    validate(source, output)
+
+
+async def test_style_direct_fields_set_and_clear(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    style_source(source)
+    # Stored Word XML values, not effective formatting. Put required values last
+    # so a clear can remove the leaf only after removing its sibling attributes.
+    run_flags = ("b", "i", "bCs", "iCs", "rtl", "cs", "strike", "caps", "smallCaps", "vanish")
+    para_flags = ("keepNext", "keepLines", "pageBreakBefore", "widowControl", "bidi",
+                  "contextualSpacing", "mirrorIndents", "snapToGrid", "suppressLineNumbers")
+    memo = {
+        **{tag: {"val": "Destination"} for tag in ("basedOn", "next")},
+        "link": {"val": "SwapStyle"},
+        "pPr/jc": {"val": "right"},
+        "pPr/tabs/tab": {"leader": "middleDot", "val": "end"},
+        **{f"rPr/{tag}": {"val": str(i % 2)} for i, tag in enumerate(run_flags)},
+        **{f"pPr/{tag}": {"val": str(i % 2)} for i, tag in enumerate(para_flags)},
+        "rPr/rFonts": dict(ascii="Arial", hAnsi="Calibri", eastAsia="MS Gothic", cs="Tahoma",
+                          asciiTheme="majorAscii", hAnsiTheme="minorHAnsi",
+                          eastAsiaTheme="majorEastAsia", cstheme="minorBidi"),
+        "rPr/lang": dict(val="en-GB", eastAsia="ja-JP", bidi="ar-SA"),
+        "rPr/sz": dict(val="23"),
+        "rPr/szCs": dict(val="27"),
+        "rPr/vertAlign": dict(val="superscript"),
+        "rPr/snapToGrid": dict(val="0"),
+        "rPr/color": dict(themeColor="accent2", themeTint="3A", themeShade="C4", val="012345"),
+        "rPr/u": dict(color="654321", themeColor="accent5", themeTint="59", themeShade="A6",
+                      val="wavyDouble"),
+        "pPr/spacing": dict(before="110", after="40", beforeLines="50", afterLines="125",
+                           beforeAutospacing="0", afterAutospacing="1", line="270", lineRule="exact"),
+        "pPr/ind": dict(left="144", right="288", start="-72", end="36", leftChars="100",
+                       rightChars="200", startChars="-50", endChars="25", firstLine="180",
+                       firstLineChars="75"),
+    }
+    expected = {
+        "MemoStyle": memo,
+        "Destination": {"pPr/ind": dict(hanging="80", hangingChars="50")},
+        "Matrix": {"tcPr/shd": dict(fill="102030", color="405060", themeColor="accent1",
+                                   themeFill="accent6", themeTint="33", themeShade="CC",
+                                   themeFillTint="44", themeFillShade="BB", val="pct25")},
+    }
+    special = {"pPr/tabs/tab": "tab.-40", "rPr/snapToGrid": "runSnapToGrid"}
+    scalar_paths = {"basedOn", "next", "link", "pPr/jc"}
+    scalar_paths.update(f"rPr/{tag}" for tag in run_flags)
+    scalar_paths.update(f"pPr/{tag}" for tag in para_flags)
+
+    def edits(rows, clear):
+        anchors = {row["id"]: row.get("anchor") for row in rows}
+        return [
+            change("field", anchor=anchors[style_id],
+                   field=path.rsplit("/", 1)[-1] if path in scalar_paths
+                   else f"{special.get(path, path.rsplit('/', 1)[-1])}.{attr}",
+                   value=None if clear else value)
+            for style_id, properties in expected.items()
+            for path, leaf in properties.items()
+            for attr, value in leaf.items()
+        ]
+
+    async def reopen_and_check(client, output, *, clear):
+        document = await opened(client, output)
+        part, rows = await catalog(client, document)
+        direct = json.loads(native(output, "inspect"))
+        assert part == direct["part_name"] == STYLE_PATH
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in rows] == direct["styles"]
+        styles = {row["id"]: row for row in rows}
+        for style_id, properties in expected.items():
+            row = styles[style_id]
+            # Inspect the exact transported property subtrees independently of the
+            # native JSON comparison, and verify all three preserved references.
+            node = etree.Element(qn("w:style"))
+            node.extend(map(etree.fromstring, row["property_xml"]))
+            for path, attrs in properties.items():
+                if "/" not in path:
+                    key = {"basedOn": "based_on", "next": "next_style", "link": "linked_style"}[path]
+                    assert row[key] == (None if clear else attrs["val"])
+                elif clear:
+                    assert node.find("/".join(qn(f"w:{tag}") for tag in path.split("/"))) is None, path
+                else:
+                    extra = {"pos": "-40"} if path == "pPr/tabs/tab" else {}
+                    assert attributes(node, path) == attrs | extra
+        return document, rows
+
+    async with launch() as client:
+        document = await opened(client, source)
+        _, rows = await catalog(client, document)
+        set_copy = await preview(client, document, source, "direct-fields-set", edits(rows, False))
+        document, rows = await reopen_and_check(client, set_copy, clear=False)
+        anchors = {row["id"]: row.get("anchor") for row in rows}
+        for action, style_id, field, value, reason in [
+            ("reject-style-cycle", "Destination", "basedOn", "MemoStyle", "style inheritance cycle"),
+            ("reject-required-style-val", "MemoStyle", "color.val", None, "cannot clear required value"),
+        ]:
+            diagnostic = tmp_path / f"{action}.txt"
+            native(set_copy, action, diagnostic)
+            result = await client.call_tool("preview_edits", dict(document=document, edits=[
+                change("field", anchor=anchors[style_id], field=field, value=value),
+            ]))
+            assert_tool_failure(result, "rejected_batch")
+            expected_error = diagnostic.read_text()
+            assert reason in expected_error and expected_error in result.structuredContent["message"]
+        clear_copy = await preview(client, document, set_copy, "direct-fields-clear", edits(rows, True))
+        await reopen_and_check(client, clear_copy, clear=True)
+    only_styles_changed(source, set_copy, clear_copy)
+    validate(set_copy, clear_copy)
+
+
+async def test_style_definition_properties(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    style_source(source)
+    run = dict(
+        bold=True, italic=False, underline="dash", font="Georgia", size=9.5,
+        color=dict(theme="accent3", shade=164), superscript=True, strike=False, all_caps=True,
+        small_caps=False, snap_to_grid=False, language=RICH_REGION["text"]["language"],
+        bold_complex_script=False, italic_complex_script=True, size_complex_script=14,
+        rtl=True, complex_script=False, font_east_asia="Yu Gothic", font_complex_script="Tahoma",
+    )
+    async with launch() as client:
+        document = await opened(client, source)
+        output = await preview(client, document, source, "style-definition-properties", [
+            add("character", "Editorial Character", base_style="Default Paragraph Font",
+                linked_style="Memo Style", format=run),
+            add("paragraph", "Editorial Paragraph", linked_style="Swap Style", text=RICH_REGION["text"]),
+            add("table", "Editorial Table", base_style="Matrix"),
+        ])
+        reopened = await opened(client, output)
+        _, rows = await catalog(client, reopened)
+
+    styles = {row["id"]: row for row in rows}
+    character = styles["EditorialCharacter"]
+    assert character["based_on"] == "DefaultParagraphFont"
+    assert character["linked_style"] == "MemoStyle"
+    assert styles["EditorialParagraph"]["linked_style"] == "SwapStyle"
+    assert styles["EditorialTable"]["based_on"] == "Matrix"
+    (rpr,) = map(etree.fromstring, character["property_xml"])
+    assert rpr.tag == qn("w:rPr")
+    assert {etree.QName(node).localname for node in rpr} == {
+        "rFonts", "lang", "color", "vertAlign", "b", "i", "u", "sz", "strike", "caps",
+        "smallCaps", "snapToGrid", "bCs", "iCs", "szCs", "rtl", "cs",
+    }
+    assert attributes(rpr, "rFonts") == {
+        "ascii": "Georgia", "hAnsi": "Georgia", "eastAsia": "Yu Gothic", "cs": "Tahoma",
+    }
+    assert attributes(rpr, "lang") == {"val": "en-GB", "eastAsia": "ja-JP", "bidi": "ar-SA"}
+    assert attributes(rpr, "color") == {"val": "auto", "themeColor": "accent3", "themeShade": "A4"}
+    for tag, value in (
+        ("vertAlign", "superscript"), ("b", "1"), ("i", "0"), ("u", "dash"), ("sz", "19"),
+        ("strike", "0"), ("caps", "1"), ("smallCaps", "0"), ("snapToGrid", "0"), ("bCs", "0"),
+        ("iCs", "1"), ("szCs", "28"), ("rtl", "1"), ("cs", "0"),
+    ):
+        assert attributes(rpr, tag) == {"val": value}
+    paragraph = etree.Element(qn("w:style"))
+    paragraph.extend(map(etree.fromstring, styles["EditorialParagraph"]["property_xml"]))
+    assert_rich_text(paragraph)
     only_styles_changed(source, output)
     validate(output)
 

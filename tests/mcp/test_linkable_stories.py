@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from jsonschema.validators import validator_for
 import pytest
 
-from test_stdio import anyio_backend, call, failure, launch, parts, validate
+from test_stdio import anyio_backend, assert_tool_failure, call, failure, launch, parts, validate
 from test_stories import MAIN, open_document, save_preview, story_page, story_source
 
 
@@ -38,12 +38,18 @@ async def test_linkable_story_schema(launch):
     inspect = validator_for(schema)(schema)
     for kind in ("header", "footer"):
         assert inspect.is_valid(dict(document="doc", view=selector(kind, limit=1, cursor="next")))
+        for include_referenced in (True, False):
+            assert inspect.is_valid(dict(document="doc", view=selector(
+                kind, include_referenced=include_referenced,
+            )))
     for view in (
         dict(kind="linkable-stories"),
         selector("body"),
         selector("header", limit=0),
         selector("footer", limit=101),
         selector("footer", cursor=None),
+        selector("header", include_referenced=None),
+        selector("header", include_referenced="true"),
     ):
         assert not inspect.is_valid(dict(document="doc", view=view))
 
@@ -147,3 +153,81 @@ async def test_link_default_header_when_unrelated_footer_is_malformed(launch, st
     saved_parts = parts(output)
     assert saved_parts.keys() == content.keys()
     assert {name for name in content if content[name] != saved_parts[name]} == {MAIN}
+
+
+async def test_link_referenced_first_header_without_reading_unrelated_footer(launch, tmp_path):
+    source = tmp_path / "referenced-first-header.docx"
+    fixture = docx.Document()
+    first = fixture.sections[0]
+    first.first_page_header.paragraphs[0].text = "First-page header"
+    first.footer.paragraphs[0].text = "Wrong-root footer"
+    fixture.add_section()
+    # This reference is readable, but rewriting it must hit the native guard.
+    reference = fixture.sections[0]._sectPr.find(qn("w:headerReference"))
+    reference.set(qn("w:rsidR"), "00000001")
+    first_header = "word/header1.xml"
+    wrong_header, _ = fixture.part.add_header_part()
+    unused, _ = fixture.part.add_header_part()
+    unused.partname = PackURI("/word/custom/unused-header.xml")
+    fixture.part.relate_to("https://example.test/external-header", RELATIONSHIP_TYPE.HEADER,
+                          is_external=True)
+    late, _ = fixture.part.add_header_part()
+    late.partname = PackURI("/word/custom/late-header.xml")
+    fixture.save(source)
+    content = parts(source)
+    for part, root in (("word/footer1.xml", "w:hdr"), (str(wrong_header.partname)[1:], "w:ftr")):
+        malformed = ElementTree.fromstring(content[part])
+        malformed.tag = qn(root)
+        content[part] = ElementTree.tostring(malformed)
+    with ZipFile(source, "w") as archive:
+        for name, payload in content.items():
+            archive.writestr(name, payload)
+    original = source.read_bytes()
+
+    async with launch() as client:
+        document = await open_document(client, source)
+        await failure(client, "inspect_document", "inspection_failed", document=document,
+                      view=dict(kind="stories"))
+        defaults = await call(client, "inspect_document", document=document, view=dict(kind="default-headers"))
+        assert defaults["default_headers"] == []
+        ordinary = await linkable_page(client, document, "header")
+        assert ordinary == await linkable_page(client, document, "header", include_referenced=False)
+        (unused_owner,), end = ordinary
+        assert end is None and f"/{unused_owner['part_name']}" == unused.partname
+
+        (owner,), cursor = await linkable_page(client, document, "header", include_referenced=True, limit=1)
+        assert owner["part_name"] == first_header and cursor is not None
+        (same_unused,), end = await linkable_page(
+            client, document, "header", include_referenced=True, cursor=cursor,
+        )
+        assert end is None and same_unused["part_name"] == unused_owner["part_name"]
+        assert same_unused["anchor"] != unused_owner["anchor"]
+        other = await open_document(client, source)
+        for handle, view, error in (
+            (document, selector("header", cursor=cursor), "invalid_cursor"),
+            (document, selector("footer", include_referenced=True, cursor=cursor), "invalid_cursor"),
+            (other, selector("header", include_referenced=True, cursor=cursor), "wrong_owner"),
+        ):
+            await failure(client, "inspect_document", error, document=handle, view=view)
+
+        sections = (await call(client, "inspect_document", document=document,
+                               view=dict(kind="sections")))["sections"]
+        protected = sections[0]["story_slots"][1]["anchor"]
+        destination = sections[1]["story_slots"][2]["anchor"]
+        operation = dict(kind="edit-story-reference", anchor=destination,
+                         edit=dict(kind="link", anchor=owner["anchor"]))
+        rejected = await client.call_tool("preview_edits", dict(
+            document=document, operation=dict(operation, anchor=protected),
+        ))
+        assert_tool_failure(rejected, "rejected_batch")
+        assert rejected.structuredContent["detail"] == "cannot change a revised section or opaque story reference"
+        other_owner, _ = await linkable_page(client, other, "header", include_referenced=True)
+        await failure(client, "preview_edits", "wrong_owner", document=document,
+                      operation=dict(operation, edit=dict(kind="link", anchor=other_owner[0]["anchor"])))
+        output = await save_preview(client, document, source, "link-first-only", operation)
+
+    assert source.read_bytes() == original
+    saved = parts(output)
+    assert saved.keys() == content.keys()
+    assert {name for name in content if content[name] != saved[name]} == {MAIN}
+    assert docx.Document(output).sections[1].even_page_header.paragraphs[0].text == "First-page header"

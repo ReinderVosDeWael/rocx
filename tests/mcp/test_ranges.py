@@ -10,7 +10,9 @@ from jsonschema.validators import validator_for
 import pytest
 
 from test_fields import opened, word
-from test_stdio import anyio_backend, call, digest, executable, failure, launch, parts, validate
+from test_stdio import (
+    anyio_backend, assert_tool_failure, call, digest, executable, failure, launch, parts, validate,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -80,6 +82,16 @@ async def saved(client, document, draft, output):
     assert result["output_snapshot"] == draft["output_snapshot"] == digest(output.read_bytes())
 
 
+def assert_native_markers(rows, source):
+    expected = source.with_suffix(".markers.json")
+    native(source, "inspect", expected)
+    keys = ("body_index", "inline_index", "kind", "id", "name")
+    assert all(set(row) == set(keys) for row in rows)
+    values = [[row[key] for key in keys] for row in rows]
+    assert values == json.loads(expected.read_bytes())
+    return values
+
+
 async def test_paired_range_discovery(launch):
     async with launch() as client:
         schemas = {tool.name: tool.inputSchema for tool in (await client.list_tools()).tools}
@@ -112,22 +124,29 @@ async def test_range_markers_preserve_ambiguous_source(launch, tmp_path):
         paragraph._p.append(word("bookmarkEnd", id=str(i)))
     paragraph._p.append(word("bookmarkStart", id="+049"))  # Alias and missing name.
     paragraph._p.append(word("bookmarkEnd"))  # Missing ID.
+    run = paragraph.add_run()._r
+    run.append(word("commentReference", id="+000"))
+    run.append(word("commentReference"))
     document.save(source)
-    native_rows = tmp_path / "markers.json"
-    native(source, "inspect", native_rows)
     async with launch() as client:
         handle = await opened(client, source)
         page = await inspect(client, handle, limit=100)
         assert len(page["range_markers"]) == 100
         tail = await inspect(client, handle, cursor=page["next_cursor"])
         assert tail["next_cursor"] is None
-        keys = ["body_index", "inline_index", "kind", "id", "name"]
-        rows = [[row[k] for k in keys] for row in page["range_markers"] + tail["range_markers"]]
-        assert rows == json.loads(native_rows.read_bytes())
-        assert rows[-2:] == [[0, 100, "bookmarkStart", "+049", None],
-                             [0, 101, "bookmarkEnd", None, None]]
-        await failure(client, "preview_edits", "rejected_batch", document=handle,
-                      edits=[edit(49, "Range49")])
+        rows = assert_native_markers(page["range_markers"] + tail["range_markers"], source)
+        assert rows[-4:] == [[0, 100, "bookmarkStart", "+049", None],
+                             [0, 101, "bookmarkEnd", None, None],
+                             [0, 102, "commentReference", "+000", None],
+                             [0, 102, "commentReference", None, None]]
+        result = await client.call_tool("preview_edits", dict(
+            document=handle, edits=[edit(49, "Range49")],
+        ))
+        assert_tool_failure(result, "rejected_batch")
+        error = native(
+            source, "ambiguous", tmp_path / "unused.docx",
+        )
+        assert result.structuredContent["message"] == f"preview: {error}; revise the edits and retry"
 
 
 async def test_paired_range_lifecycle(launch, tmp_path):
@@ -136,8 +155,6 @@ async def test_paired_range_lifecycle(launch, tmp_path):
     )]
     make_source(source)
     original = source.read_bytes()
-    native_rows = tmp_path / "markers.json"
-    native(source, "inspect", native_rows)
     async with launch() as client:
         document = await opened(client, source)
         full = await inspect(client, document)
@@ -148,8 +165,7 @@ async def test_paired_range_lifecycle(launch, tmp_path):
             page = await inspect(client, document, limit=2, cursor=page["next_cursor"])
             rows.extend(page["range_markers"])
         assert rows == full["range_markers"]
-        keys = ["body_index", "inline_index", "kind", "id", "name"]
-        assert [list(row[k] for k in keys) for row in rows] == json.loads(native_rows.read_bytes()) == [
+        assert assert_native_markers(rows, source) == [
             [1, 0, "bookmarkStart", "+007", "OldPlace"],
             [1, 2, "bookmarkEnd", "0007", None],
             [4, 0, "commentRangeStart", "0", None],
@@ -203,19 +219,28 @@ async def test_paired_range_lifecycle(launch, tmp_path):
         await failure(client, "inspect_document", "wrong_owner", document=reopened,
                       view=dict(kind="range-markers", cursor=cursor))
         moved_rows = (await inspect(client, reopened))["range_markers"]
+        assert_native_markers(moved_rows, moved)
         assert [(r["body_index"], r["inline_index"], r["id"]) for r in moved_rows] == [
             (2, 1, "+007"), (3, 1, "0007"), (5, 0, "0"), (5, 2, "0"), (5, 3, "0"),
         ]
         deletion = await call(client, "preview_edits", document=reopened, edits=remove)
         await saved(client, reopened, deletion, removed)
         empty = await opened(client, removed)
-        assert (await inspect(client, empty))["range_markers"] == []
+        assert assert_native_markers((await inspect(client, empty))["range_markers"], removed) == []
         clean = await anchors(client, empty)
         creation = await call(client, "preview_edits", document=empty, edits=[
             edit(8, "NewPlace", (clean[1, 0], clean[1, 0])),
             edit(0, endpoints=(clean[4, 0], clean[4, 0])),
         ])
         await saved(client, empty, creation, created)
+        rebuilt = await opened(client, created)
+        assert assert_native_markers((await inspect(client, rebuilt))["range_markers"], created) == [
+            [1, 0, "bookmarkStart", "8", "NewPlace"],
+            [1, 2, "bookmarkEnd", "8", None],
+            [4, 0, "commentRangeStart", "0", None],
+            [4, 2, "commentRangeEnd", "0", None],
+            [4, 3, "commentReference", "0", None],
+        ]
 
     for before, after, action, preview in [
         (source, moved, "move", draft),

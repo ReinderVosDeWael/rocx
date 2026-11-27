@@ -153,6 +153,7 @@ async def test_physical_table_discovery(launch):
 
     assert inspect.is_valid(dict(document="doc", view=dict(kind="body-tables", limit=1)))
     assert ordinary("remove-table")
+    assert ordinary("replace-cell", row=0, cell=0, blocks=RICH)
     assert ordinary("replace-node", site=dict(kind="table"), source=DONOR)
     assert ordinary("insert-column", column=0)
     assert not ordinary("remove-table", cell=0)
@@ -333,6 +334,70 @@ async def test_rich_physical_table_content_native_bytes(launch, table_source, tm
 
 def body_edit(table, kind, **payload):
     return dict(kind="table-structure", **edit(table, kind, **payload))
+
+
+async def test_ordinary_body_replace_cell_native_bytes_and_retry(launch, table_source, tmp_path):
+    source, output = tmp_path / "body.docx", tmp_path / "edited.docx"
+    fixture = docx.Document(table_source)
+    fixture.add_paragraph("Original tail")
+    fixture.save(source)
+    original = source.read_bytes()
+    async with launch() as client:
+        document = await open_document(client, source)
+        tables = await call(client, "inspect_document", document=document,
+                            view=dict(kind="body-tables"))
+        _, plain, _ = tables["body_tables"]
+        seen = await call(client, "inspect_document", document=document)
+        run = seen["body"][-1]["runs"][0]
+        replace = body_edit(plain, "replace-cell", row=0, cell=0, blocks=RICH)
+        run_edit = dict(kind="run-text", anchor=run["anchor"], text="Edited tail 😀")
+
+        native = native_oracle(source, tmp_path / "duplicate.txt",
+                               "body-replace-cell-duplicate", "body").decode()
+        rejected = await client.call_tool("preview_edits", dict(
+            document=document, edits=[replace, run_edit, replace],
+        ))
+        assert_tool_failure(rejected, "rejected_batch")
+        assert "duplicate cell replacement" in native
+        assert native in rejected.structuredContent["message"]
+
+        preview = await call(client, "preview_edits", document=document, edits=[replace, run_edit])
+        assert preview["changes"]["run_text"][0]["after"] == "Edited tail 😀"
+        saved = await call(client, "save_copy", document=document, preview=preview["preview"],
+                           output=output.name)
+        assert saved["output_snapshot"] == preview["output_snapshot"]
+
+    compare_native(source, output, "body-replace-cell", "body")
+    assert source.read_bytes() == original
+    before, after = parts(source), parts(output)
+    relationships = "word/_rels/relocated-main.xml.rels"
+    assert before.keys() == after.keys()
+    assert {name for name in before if before[name] != after[name]} == {MAIN, relationships}
+
+    independent = docx.Document(output)
+    plain = independent.tables[1]
+    cell = plain.cell(0, 0)
+    paragraph, trailing = cell.paragraphs
+    assert paragraph.text == "Rich 😀 link" and paragraph.runs[0].bold is True
+    assert trailing.text == "" and cell._tc[-1].tag == qn("w:p")
+    assert cell.tables[0].cell(0, 0).text == "nested payload"
+    assert cell.tables[0].columns[0].width.twips == 1440
+    assert cell.vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert [plain.cell(0, 1).text, *(sibling.text for sibling in plain.rows[1].cells)] == [
+        "plain 1", "plain 2", "plain 3",
+    ]
+    assert independent.paragraphs[0].text == "Body unchanged"
+    assert independent.paragraphs[-1].text == "Edited tail 😀"
+
+    (link,) = paragraph.hyperlinks
+    rel_id = link._element.get(qn("r:id"))
+    old_rels = [rel.attrib for rel in ElementTree.fromstring(before[relationships])]
+    new_rels = [rel.attrib for rel in ElementTree.fromstring(after[relationships])]
+    (added,) = [rel for rel in new_rels if rel not in old_rels]
+    assert [rel for rel in new_rels if rel != added] == old_rels
+    assert added == dict(Id=rel_id, Type=RELATIONSHIP_TYPE.HYPERLINK,
+                         Target=LINK, TargetMode="External")
+    validate(output)
 
 
 def body_donor(*texts):
@@ -624,3 +689,176 @@ async def test_grouped_table_property_donors(launch, tmp_path, scope):
                                     for key, value in dict(CELL_BORDER, space="4").items()}
         assert next(second.iter(qn("w:tblLook"))).attrib == {qn("w:val"): "8020"}
     validate(source, populated, cleared)
+
+
+async def test_table_declaration_property_edges_native_bytes(launch, tmp_path):
+    source, output = (tmp_path / name for name in ("source.docx", "edited.docx"))
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    for label in ("Start", "End", "Left"):
+        fixture.add_paragraph(label)
+    fixture.save(source)
+
+    directions = {
+        "left-to-right": "lrTb",
+        "bottom-to-top-left-to-right": "btLr",
+        "left-to-right-vertical": "lrTbV",
+        "top-to-bottom-right-to-left-vertical": "tbRlV",
+        "top-to-bottom-left-to-right-vertical": "tbLrV",
+    }
+    cells = [dict(blocks=[], properties=dict(text_direction=value)) for value in directions]
+    cells[0]["properties"]["margins"] = dict(start=0)
+    declarations = [
+        dict(
+            properties=dict(alignment="start", layout="autofit", column_widths=[0],
+                            look=dict(first_row=False)),
+            rows=[
+                dict(cells=cells, properties=dict(height=dict(kind="exact", points=0),
+                                                  repeat_header=False, cant_split=False)),
+                dict(cells=[]),
+            ],
+        ),
+        *[dict(properties=dict(alignment=value), rows=[dict(cells=[dict(blocks=[])])])
+          for value in ("end", "left")],
+    ]
+    async with launch() as client:
+        document = await open_document(client, source)
+        seen = await call(client, "inspect_document", document=document)
+        edits = [
+            dict(kind="insert-rich-table", anchor=block["anchor"], table=table)
+            for block, table in zip(seen["body"], declarations, strict=True)
+        ]
+        for case, detail in [
+            ("declaration-negative-margin", "start cannot be negative"),
+            ("declaration-negative-height", "height cannot be negative"),
+        ]:
+            invalid = deepcopy(edits)
+            row = invalid[0]["table"]["rows"][0]
+            if case == "declaration-negative-margin":
+                row["cells"][0]["properties"]["margins"]["start"] = -1
+            else:
+                row["properties"]["height"]["points"] = -1
+            native = json.loads(native_oracle(source, tmp_path / f"{case}.json", case, "body"))
+            assert detail in native["message"]
+            result = await client.call_tool("preview_edits", dict(document=document, edits=invalid))
+            assert_tool_failure(result, "rejected_batch")
+            data = result.structuredContent
+            assert data["message"] == f"edit 1: {native['message']}; revise the edits and retry"
+            assert data["rule"] == native["rule"] == "invalid_measurement"
+            assert data["path"] == native["path"]
+            assert data["detail"] == detail
+
+        preview = await call(client, "preview_edits", document=document, edits=edits)
+        await call(client, "save_copy", document=document, preview=preview["preview"],
+                   output=output.name)
+
+    compare_native(source, output, "declaration-edges", "body")
+    main = "word/document.xml"
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {part for part in before if before[part] != after[part]} == {main}
+    tables = list(ElementTree.fromstring(after[main]).iter(qn("w:tbl")))
+    assert [next(table.iter(qn("w:jc"))).get(qn("w:val")) for table in tables] == [
+        "start", "end", "left",
+    ]
+    first = tables[0]
+    assert next(first.iter(qn("w:tblLayout"))).get(qn("w:type")) == "autofit"
+    assert len(widths := list(first.iter(qn("w:gridCol")))) == 5
+    assert all(int(col.get(qn("w:w"))) > 0 for col in widths)
+    look = next(first.iter(qn("w:tblLook")))
+    assert (look.get(qn("w:firstRow")), look.get(qn("w:firstColumn")),
+            look.get(qn("w:val"))) == ("0", "1", "0480")
+    explicit, omitted = first.findall(qn("w:tr"))
+    row = explicit.find(qn("w:trPr"))
+    assert row.find(qn("w:trHeight")).attrib == {qn("w:val"): "0", qn("w:hRule"): "exact"}
+    assert [row.find(qn(key)).get(qn("w:val")) for key in ("w:tblHeader", "w:cantSplit")] == ["0", "0"]
+    assert omitted.find(qn("w:trPr")) is None
+    assert [node.get(qn("w:val")) for node in first.iter(qn("w:textDirection"))] == list(
+        directions.values(),
+    )
+    margin = next(first.iter(qn("w:tcMar")))
+    assert [(node.tag, node.attrib) for node in margin] == [
+        (qn("w:start"), {qn("w:type"): "dxa", qn("w:w"): "0"}),
+    ]
+    validate(output)
+
+
+async def test_physical_property_edges_native_bytes_and_guards(launch, table_source, tmp_path):
+    source, output, height_output = (
+        tmp_path / name for name in ("edge-source.docx", "edited.docx", "height.docx")
+    )
+    fixture = docx.Document(table_source)
+    plain = fixture.tables[1]
+    plain._tbl.tblPr.find(qn("w:tblLook")).set(qn("w:val"), "04a0")
+    restart = plain.cell(0, 0)._tc.get_or_add_tcPr().get_or_add_vMerge()
+    restart.set(qn("w:val"), "restart")
+    # Existing implicit continuations may contain private content.
+    plain.cell(1, 0)._tc.get_or_add_tcPr().get_or_add_vMerge()
+    fixture.save(source)
+    original = source.read_bytes()
+
+    def donor(**properties):
+        return dict(rows=[dict(cells=[dict(blocks=[])])], properties=properties)
+
+    continuing = donor()
+    continuing["rows"][0]["cells"][0]["properties"] = dict(vmerge="continue")
+    height = dict(kind="exact", points=0)
+    async with launch() as client:
+        document = await open_document(client, source)
+        table = (await page(client, document))["physical_tables"][2]
+
+        def setting(site, field, value):
+            return edit(table, "set-property", site=site, field=field, source=value)
+
+        def request(*edits):
+            return operation(table["owner"], *edits)
+
+        def merge(cell):
+            return setting(dict(kind="cell", row=1, cell=cell), "verticalMerge", continuing)
+
+        table_site, row_site = dict(kind="table"), dict(kind="row", row=0)
+        for case, change, message in [
+            ("edge-guard-merge", merge(1), "merge continuation would hide existing content"),
+            ("edge-guard-look", setting(table_site, "look.firstRow", donor()),
+             "source look flag is not explicit"),
+        ]:
+            native = native_oracle(source, tmp_path / "error.txt", case, "body").decode()
+            result = await client.call_tool("preview_edits", dict(
+                document=document, operation=request(change),
+            ))
+            assert_tool_failure(result, "rejected_batch")
+            assert message in native and native in result.structuredContent["message"]
+
+        # Native property editing does not need donor cells or copy controls.
+        empty_row = dict(rows=[dict(cells=[], properties=dict(height=height))])
+        await save(client, document, height_output, request(setting(row_site, "height", empty_row)))
+        height_donor = donor()
+        height_donor["rows"][0]["properties"] = dict(height=height)
+        for at_cell in (False, True):
+            controlled = deepcopy(height_donor)
+            row = controlled["rows"][0]
+            node = row["cells"][0] if at_cell else row
+            node.setdefault("properties", {})["content_control"] = dict(tag="donor-only")
+            await failure(client, "preview_edits", "invalid_input", document=document,
+                          operation=request(setting(row_site, "height", controlled)))
+        await save(client, document, output, request(
+            setting(table_site, "look.firstRow", donor(look=dict(first_row=True))), merge(0),
+        ))
+        reopened = await open_document(client, output)
+        result = (await page(client, reopened))["physical_tables"][2]
+        assert result["cell_properties"][1][0]["verticalMerge"] == {"val": "continue"}
+
+    for case in ("edge-empty-row-donor", "edge-control-donor"):
+        compare_native(source, height_output, case, "body")
+    compare_native(source, output, "edge-properties", "body")
+    assert source.read_bytes() == original
+    before, after = parts(source), parts(output)
+    assert before.keys() == after.keys()
+    assert {part for part in before if before[part] != after[part]} == {MAIN}
+    root = ElementTree.fromstring(after[MAIN])
+    plain = root.find(qn("w:body")).findall(qn("w:tbl"))[1]
+    assert next(plain.iter(qn("w:tblLook"))).get(qn("w:val")) == "04a0"
+    assert [node.text for node in plain.iter(qn("w:t"))] == [
+        "plain 0", "plain 1", "plain 2", "plain 3",
+    ]
+    validate(output, height_output)

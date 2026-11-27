@@ -318,7 +318,7 @@ impl WordParts for Package {
     fn put_word(&mut self, path: impl Into<String>, mut node: Node) -> Result<()> {
         node.configure_ordering(schema::order);
         node.sort_properties();
-        self.put(path, node)
+        self.put_word_xml(path, node)
     }
 }
 

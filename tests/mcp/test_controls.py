@@ -4,8 +4,12 @@ import json
 import subprocess
 
 import docx
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE
-from docx.oxml.ns import qn
+from docx.oxml.ns import nsmap, qn
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from jsonschema.validators import validator_for
 from lxml import etree
 import pytest
@@ -13,7 +17,7 @@ import pytest
 from test_fields import opened, simple, word
 from test_ranges import inspect, saved
 from test_stdio import (
-    anyio_backend, assert_tool_failure, call, executable, failure, launch, make_entry_source,
+    PNG, anyio_backend, assert_tool_failure, call, executable, failure, launch, make_entry_source,
     parts, validate,
 )
 
@@ -49,8 +53,9 @@ def make_source(path):
     wrap(paragraph._p, "unwrap", word("richText"))
     wrap(doc.add_paragraph("old block")._p, "block", word("richText"))
     wrap(doc.add_paragraph("existing cache")._p, "define", word("richText"))
-    wrap(doc.add_paragraph("locked payload")._p, "locked", word("lock", val="sdtContentLocked"),
-         word("richText"))
+    locked = wrap(doc.add_paragraph("locked payload")._p, "locked",
+                  word("lock", val="sdtContentLocked"), word("richText"))
+    locked.find(qn("w:sdtPr")).insert(0, word("alias", val="Locked & named"))
     doc.add_paragraph("block first").runs[0].bold = True
     doc.add_paragraph("block last")
     doc.add_table(1, 1).cell(0, 0).text = "table text"
@@ -135,9 +140,18 @@ async def test_control_lifecycle(launch, tmp_path):
         ]
         assert all("anchor" not in row for row in stories)
         sites = (await inspect(client, document, "control-sites"))["control_sites"]
+        expected = json.loads(native(source, "inspect", tmp_path / "native-readback.json"))
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in controls] == expected["controls"]
+        assert stories == expected["story_controls"]
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in sites] == expected["control_sites"]
+        first_page = await inspect(client, document, "control-sites", limit=4)
+        second_page = await inspect(client, document, "control-sites", cursor=first_page["next_cursor"])
+        assert first_page["control_sites"] + second_page["control_sites"] == sites
+        assert second_page["next_cursor"] is None
         sites = {(row["context"], row["text"]): row["anchor"] for row in sites}
         first, last = (sites["block", text] for text in ("block first", "block last"))
         body = (await call(client, "inspect_document", document=document))["body"]
+        assert [row for row in body if row["type"] == "content-control"] == expected["body_controls"]
         other = await opened(client, source)
         foreign = (await inspect(client, other, "control-sites"))["control_sites"][0]["anchor"]
         patch = change("patch", anchor=anchors["plain"], tag="patched", alias="New alias",
@@ -219,6 +233,111 @@ async def test_control_lifecycle(launch, tmp_path):
     validate(source, *outputs.values())
 
 
+async def test_rich_control_replacement_native_bytes(launch, tmp_path):
+    source, output = (tmp_path / name for name in ("source.docx", "rich.docx"))
+    make_source(source)
+    original = source.read_bytes()
+    expected = native(source, "rich-replacement", tmp_path / "native-rich.docx")
+    url = "https://example.org/control"
+    link = dict(kind="hyperlink", target=dict(kind="url", url=url),
+                tooltip="Control guide", history=False,
+                children=[dict(kind="text", text="Read the guide", format=dict(italic=True))])
+    paragraph = dict(kind="paragraph", paragraph=dict(
+        inlines=[link], format=dict(alignment="center"),
+    ))
+    cell = dict(properties=dict(background_color=[17, 34, 51], vertical_alignment="center"),
+                blocks=[dict(kind="paragraph", paragraph=dict(inlines=[
+                    dict(kind="text", text="Cell text", format=dict(bold=True)),
+                ]))])
+    table = dict(kind="rich-table", table=dict(
+        properties=dict(column_widths=[1440], layout="fixed", alignment="right"),
+        rows=[dict(properties=dict(repeat_header=True, height=dict(kind="exact", points=14)),
+                   cells=[cell])],
+    ))
+    png = PNG.read_bytes()
+    inlines = [
+        dict(kind="tab", format=dict(bold=False)),
+        dict(kind="image", bytes=list(png), transformation=dict(width=24),
+             alt_text=dict(description="Control logo")),
+        dict(kind="break", format=dict(italic=True)),
+    ]
+
+    async with launch() as client:
+        document = await opened(client, source)
+        controls = await inspect(client, document, "controls")
+        anchors = {row["tag"]: row["anchor"] for row in controls["controls"]}
+
+        def replace_inlines(*children):
+            return change("replace-inlines", anchor=anchors["inline"], inlines=list(children))
+
+        def replace_blocks(*children):
+            return change("replace-blocks", anchor=anchors["block"], blocks=list(children))
+
+        inline_edit = replace_inlines(*inlines)
+        block_edit = replace_blocks(paragraph, table)
+        bookmark_paragraph = {**paragraph, "paragraph": {**paragraph["paragraph"], "inlines": [
+            {**link, "target": dict(kind="bookmark", name="Destination")},
+        ]}}
+        for action, edits in [
+            ("inline-link", [block_edit, replace_inlines(link)]),
+            ("block-bookmark-link", [inline_edit, replace_blocks(bookmark_paragraph)]),
+        ]:
+            result = await client.call_tool("preview_edits", dict(document=document, edits=edits))
+            assert_tool_failure(result, "rejected_batch")
+            error = native(source, action, tmp_path / f"{action}.txt").decode()
+            assert result.structuredContent["message"] == f"preview: {error}; revise the edits and retry"
+        assert await inspect(client, document, "controls") == controls
+        draft = await call(client, "preview_edits", document=document, edits=[inline_edit, block_edit])
+        await saved(client, document, draft, output)
+        reopened = await opened(client, output)
+        await failure(client, "preview_edits", "wrong_owner", document=reopened, edits=[inline_edit])
+        rows = (await inspect(client, reopened, "controls"))["controls"]
+        assert [(row["context"], row["kind"]) for row in rows if row["tag"] in ("inline", "block")] == [
+            ("inline", "richText"), ("block", "richText"),
+        ]
+
+    assert output.read_bytes() == expected
+    assert source.read_bytes() == original
+    before, after = parts(source), parts(output)
+    assert {name for name in before if before[name] != after[name]} == {
+        "[Content_Types].xml", "word/document.xml", "word/_rels/document.xml.rels",
+    }
+    readback = docx.Document(output)
+    inline, = readback.element.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='inline']/w:sdtContent")
+    block, = readback.element.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='block']/w:sdtContent")
+    assert [node.tag for node in inline] == [qn("w:r")] * 3
+    assert inline.xpath("w:r[w:tab]/w:rPr/w:b/@w:val", namespaces=nsmap) == ["0"]
+    assert inline.xpath("w:r[w:br]/w:rPr/w:i/@w:val", namespaces=nsmap) == ["1"]
+    assert inline.xpath(".//wp:extent/@cx", namespaces=nsmap) == [str(24 * 12700)]
+    assert inline.xpath(".//wp:docPr/@descr", namespaces=nsmap) == ["Control logo"]
+    embed, = inline.xpath(".//a:blip/@r:embed", namespaces=nsmap)
+    image = readback.part.rels[embed]
+    assert image.reltype == RELATIONSHIP_TYPE.IMAGE and not image.is_external
+    assert image.target_part.blob == png and image.target_part.content_type == "image/png"
+    assert after.keys() - before.keys() == {str(image.target_part.partname).lstrip("/")}
+
+    assert [node.tag for node in block] == [qn("w:p"), qn("w:tbl")]
+    heading = Paragraph(block[0], readback._body)
+    hyperlink, = heading.hyperlinks
+    rel = readback.part.rels[hyperlink._element.get(qn("r:id"))]
+    assert (rel.reltype, rel.is_external, rel.target_ref) == (RELATIONSHIP_TYPE.HYPERLINK, True, url)
+    assert heading.alignment == WD_ALIGN_PARAGRAPH.CENTER and hyperlink.text == "Read the guide"
+    assert hyperlink.runs[0].italic
+    assert hyperlink._element.get(qn("w:tooltip")) == "Control guide"
+    assert hyperlink._element.get(qn("w:history")) == "0"
+    result_table = Table(block[1], readback._body)
+    assert result_table.alignment == WD_TABLE_ALIGNMENT.RIGHT and not result_table.autofit
+    row, = result_table.rows
+    assert row.height.pt == 14 and row.height_rule == WD_ROW_HEIGHT_RULE.EXACTLY
+    assert block.xpath("w:tbl/w:tr/w:trPr/w:tblHeader/@w:val", namespaces=nsmap) == ["1"]
+    result_cell, = row.cells
+    assert result_cell.vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert result_cell.width.twips == 1440 and result_cell.text == "Cell text"
+    assert result_cell.paragraphs[0].runs[0].bold
+    assert block.xpath(".//w:tcPr/w:shd/@w:fill", namespaces=nsmap) == ["112233"]
+    validate(source, output)
+
+
 def make_wrapper_variants(path):
     doc = docx.Document()
     doc.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
@@ -250,6 +369,8 @@ def make_wrapper_variants(path):
         ("implicit", None, "no explicit type"),
     ]:
         wrap(doc.add_paragraph(text)._p, tag, *([prop] if prop is not None else []))
+    for i in range(3):
+        wrap(doc.add_paragraph(f"lock cache {i}")._p, f"lock-{i}", word("richText"))
     doc.sections[0].header.paragraphs[0].text = "untouched header"
     doc.save(path)
 
@@ -283,6 +404,7 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
             ("block", "text"), ("block", "richText"), ("block", "comboBox"),
             ("block", "date"), ("block", "picture"), ("block", "opaque"),
             ("block", "richText"),
+            *[("block", "richText")] * 3,
         ]
         assert rows["combo"]["selected"] == "combo-code"
         assert rows["combo"]["choices"] == [dict(display_text="Combo label", value="combo-code")]
@@ -291,6 +413,26 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
             return change(action, anchor=rows[target]["anchor"], **fields)
 
         dropdown = dict(kind="drop-down", items=items, selected="one")
+        locked = await preview(client, document, source, "locks", "locks", [
+            edit(f"lock-{i}", "define", tag=f"lock-{i}", alias=f"Alias {i} & Café", lock=lock,
+                 text=dict(kind="plain", **multi_line))
+            for i, (lock, multi_line) in enumerate(
+                [("control", dict(multi_line=True)), ("content", {}), ("both", dict(multi_line=False))]
+            )
+        ])
+        locked_doc = await opened(client, locked)
+        locked_rows = await findings(client, locked_doc, locked)
+        assert [(locked_rows[f"lock-{i}"]["lock"], locked_rows[f"lock-{i}"]["multi_line"],
+                 locked_rows[f"lock-{i}"]["alias"]) for i in range(3)] == [
+            ("sdtLocked", "1", "Alias 0 & Café"), ("contentLocked", None, "Alias 1 & Café"),
+            ("sdtContentLocked", "0", "Alias 2 & Café"),
+        ]
+        result = await client.call_tool("preview_edits", dict(document=locked_doc, edits=[
+            change("define", anchor=locked_rows["lock-0"]["anchor"], text=dict(kind="rich")),
+        ]))
+        assert_tool_failure(result, "rejected_batch")
+        native_error = native(locked, "locked-define", tmp_path / "native-locked-error.txt").decode()
+        assert result.structuredContent["message"] == f"preview: {native_error}; revise the edits and retry"
         for invalid, diagnostic in [
             (edit("row", "define", text=dict(kind="plain", multi_line=True)),
              "row and cell controls require rich text"),
@@ -316,7 +458,10 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
         ])
         document = await opened(client, defined)
         rows = await findings(client, document, defined)
-        assert list(rows) == ["rich", "dropdown", "combo", "date", "picture", "opaque", "implicit"]
+        assert list(rows) == [
+            "rich", "dropdown", "combo", "date", "picture", "opaque", "implicit",
+            "lock-0", "lock-1", "lock-2",
+        ]
         assert {key: rows["rich"][key] for key in ("kind", "lock", "alias", "id", "multi_line")} == {
             "kind": "richText", "lock": "unlocked", "alias": None, "id": None, "multi_line": None,
         }
@@ -352,13 +497,13 @@ async def test_control_wrapper_variants_native_bytes(launch, tmp_path):
                 for i in choices] == items
         assert root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='rich']/w:sdtContent//w:t/text()",
                           namespaces=ns) == ["keep this cache"]
-    for before, after in [(source, defined), (defined, selected)]:
+    for before, after in [(source, defined), (source, locked), (defined, selected)]:
         old, new = parts(before), parts(after)
         assert old.keys() == new.keys()
         assert {name for name in old if old[name] != new[name]} == {"word/document.xml"}
     assert noop.read_bytes() == selected.read_bytes()
     assert source.read_bytes() == original
-    validate(source, defined, selected, noop)
+    validate(source, defined, locked, selected, noop)
 
 
 async def test_story_control_typed_findings(launch, tmp_path):
@@ -410,6 +555,8 @@ async def test_control_native_guards(launch, tmp_path):
     async with launch() as client:
         document = await opened(client, source)
         rows = (await inspect(client, document, "controls"))["controls"]
+        expected = json.loads(native(source, "inspect", tmp_path / "native-guarded.json"))
+        assert [{k: v for k, v in row.items() if k != "anchor"} for row in rows] == expected["controls"]
         assert next(row for row in rows if row["tag"] == "bound")["bound"] is True
         anchors = {row["tag"]: row["anchor"] for row in rows}
         targets = (await inspect(client, document, "fields"))["fields"]

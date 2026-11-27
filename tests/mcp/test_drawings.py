@@ -62,6 +62,176 @@ async def preview(client, document, source, action, edits):
     return output
 
 
+async def qualify_declarations(client, source, action, declarations, guards):
+    fixture = docx.Document()
+    fixture.settings.element.find(qn("w:zoom")).set(qn("w:percent"), "100")
+    fixture.sections[0].header.paragraphs[0].text = "Untouched header"
+    for index in range(len(declarations)):
+        fixture.add_paragraph(f"Original {index}")
+    fixture.save(source)
+    document = await opened(client, source)
+    original = await body(client, document)
+    for category, rejected in guards:
+        await failure(client, "preview_edits", category, document=document, edits=[
+            inline(original[0, 0]["anchor"], "insert-after", inline=rejected),
+        ])
+    output = await preview(client, document, source, action, [
+        inline(original[index, 0]["anchor"], "insert-after", inline=declaration)
+        for index, declaration in enumerate(declarations)
+    ])
+    reopened = await opened(client, output)
+    rows = await body(client, reopened)
+    drawings = [rows[index, 1] for index in range(len(declarations))]
+    assert [row["drawing"] for row in drawings] == native(output, "drawing-readback", output)
+    for row in drawings:
+        lookup = await inspect(client, reopened, "inline-at", inline_handle=row["inline_handle"])
+        assert lookup["inline"]["drawing"] == row["drawing"]
+    before, after = parts(source), parts(output)
+    assert before.keys() <= after.keys()
+    assert {name for name in before if before[name] != after[name]} <= {
+        "word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml",
+    }
+    validate(source, output)
+    return output, reopened, drawings
+
+
+async def test_picture_anchor_and_transform_declarations(launch, tmp_path):
+    polygon = [[-10, 5], [21600, 0], [0, 21600]]
+    anchors = [
+        dict(horizontal_reference="left-margin", vertical_reference="top-margin",
+             horizontal_alignment="inside", vertical_alignment="top",
+             wrap="tight", wrap_side="largest", wrap_polygon=polygon,
+             distance_left=2.5, distance_right=4, relative_height=2**32 - 1,
+             behind_text=True, locked=True, layout_in_cell=False, allow_overlap=False),
+        dict(horizontal_reference="right-margin", vertical_reference="bottom-margin",
+             horizontal_alignment="outside", vertical_alignment="bottom",
+             wrap="through", wrap_side="right", wrap_polygon=polygon),
+        dict(horizontal_reference="inside-margin", vertical_reference="outside-margin",
+             horizontal_alignment="left", vertical_alignment="outside",
+             wrap="top-and-bottom", distance_top=0, distance_bottom=3),
+        dict(horizontal_reference="outside-margin", vertical_reference="inside-margin",
+             horizontal_alignment="right", vertical_alignment="inside",
+             wrap="square", wrap_side="both-sides"),
+        dict(horizontal_reference="column", vertical_reference="paragraph",
+             horizontal_alignment="center", vertical_alignment="center",
+             wrap="square", wrap_side="left"),
+        dict(horizontal_reference="character", vertical_reference="line", x=-12.5, y=20, wrap="none"),
+        dict(horizontal_reference="margin", vertical_reference="margin"),
+        dict(horizontal_reference="page", vertical_reference="page"),
+    ]
+    pictures = [image(transformation=dict(anchor=anchor)) for anchor in anchors]
+    pictures[0]["transformation"].update(width=61.5, height=30.25, rotation=-12.5,
+                                        flip_horizontal=False, flip_vertical=True,
+                                        crop=dict(left=10.25, top=5, right=20, bottom=15))
+    pictures[0]["alt_text"] = dict(name="Seal & crest", title="Picture title", description="Decorative <seal>")
+    guards = [("rejected_batch", image(transformation=dict(anchor=anchor))) for anchor in [
+        dict(horizontal_reference="line"),
+        dict(vertical_reference="column"),
+        dict(vertical_alignment="top", y=1),
+        dict(wrap="tight", wrap_polygon=[[0, 0], [1, 1], [2, 2]]),
+        dict(wrap="through", wrap_polygon=polygon, distance_top=1),
+    ]]
+    guards.extend([
+        ("invalid_input", image(transformation=dict(anchor=dict(wrap="tight", wrap_polygon=[[0]])))),
+        ("rejected_batch", image(transformation=dict(crop=dict(top=60, bottom=40)))),
+        ("rejected_batch", image(transformation=dict(rotation=361))),
+    ])
+    async with launch() as client:
+        output, _, rows = await qualify_declarations(
+            client, tmp_path / "source.docx", "picture-declarations", pictures, guards,
+        )
+    drawing = rows[0]["drawing"]
+    assert (drawing["name"], drawing["title"], drawing["description"]) == (
+        "Seal & crest", "Picture title", "Decorative <seal>",
+    )
+    assert (drawing["width_emu"], drawing["height_emu"]) == (781050, 384175)
+    assert (drawing["crop"], drawing["rotation"]) == ([10250, 5000, 20000, 15000], -750000)
+    assert (drawing["flip_horizontal"], drawing["flip_vertical"]) == (False, True)
+    assert rows[1]["drawing"]["flip_vertical"] is None
+    ids = {row["drawing"]["relationship_id"] for row in rows}
+    assert len(ids) == 1
+    document = docx.Document(output)
+    assert document.part.related_parts[ids.pop()].blob == (IMAGES / "sample.jpg").read_bytes()
+    placements = [p._p.xpath(".//wp:anchor")[0] for p in document.paragraphs]
+    first, second, third = placements[:3]
+    offset = placements[5]
+    assert [first.get(key) for key in ("relativeHeight", "behindDoc", "locked", "layoutInCell", "allowOverlap")] == [
+        "4294967295", "1", "1", "0", "0",
+    ]
+    assert first.xpath("./wp:positionH[@relativeFrom='leftMargin']/wp:align/text()") == ["inside"]
+    assert first.xpath("./wp:positionV[@relativeFrom='topMargin']/wp:align/text()") == ["top"]
+    assert offset.xpath("./wp:positionH[@relativeFrom='character']/wp:posOffset/text()") == ["-158750"]
+    assert offset.xpath("./wp:positionV[@relativeFrom='line']/wp:posOffset/text()") == ["254000"]
+    for place, tag in [(first, "wrapTight"), (second, "wrapThrough")]:
+        (wrap,) = place.xpath(f"./wp:{tag}")
+        assert [[int(vertex.get(axis)) for axis in ("x", "y")]
+                for vertex in wrap.find(qn("wp:wrapPolygon"))] == polygon
+    assert dict(first.xpath("./wp:wrapTight")[0].attrib) == {
+        "wrapText": "largest", "distL": "31750", "distR": "50800",
+    }
+    assert dict(third.xpath("./wp:wrapTopAndBottom")[0].attrib) == {"distT": "0", "distB": "38100"}
+
+
+async def test_shape_geometry_style_and_text_declarations(launch, tmp_path):
+    shapes = [
+        shape(width=42.5, height=23.25, geometry=geometry, text="Heading & <leaf>\r\n\r\n尾",
+              text_format=dict(font_size=12.25, bold=False, italic=True, color=[7, 16, 255],
+                               font="Example & Serif", alignment=alignment, vertical_alignment=vertical))
+        for geometry, alignment, vertical in [
+            ("rectangle", "right", "bottom"), ("ellipse", "center", "center"), ("text-box", "left", "top"),
+        ]
+    ]
+    shapes[0]["properties"].update(fill=[17, 34, 51], outline=dict(width=1.25, color=[68, 85, 102]))
+    shapes[2]["properties"]["anchor"] = dict(y=5)
+    guards = [("rejected_batch", rejected) for rejected in [
+        shape(geometry="text-box", fill=[17, 34, 51]),
+        shape(outline=dict(width=1585, color=[0, 0, 0])),
+        shape(text="sample", text_format=dict(font_size=0)),
+        shape(text="sample", text_format=dict(font="invalid\0font")),
+    ]]
+    async with launch() as client:
+        output, _, rows = await qualify_declarations(
+            client, tmp_path / "source.docx", "shape-declarations", shapes, guards,
+        )
+    assert [row["drawing"]["geometry"] for row in rows] == ["rect", "ellipse", "textBox"]
+    assert [row["drawing"]["placement"] for row in rows] == ["inline", "inline", "floating"]
+    assert [row["drawing"]["shape_text"] for row in rows] == ["Heading & <leaf>\n\n尾"] * 3
+    rectangle, ellipse, text_box = [p._p for p in docx.Document(output).paragraphs]
+    assert rectangle.xpath(".//a:spPr/a:solidFill/a:srgbClr/@val") == ["112233"]
+    assert rectangle.xpath(".//a:ln/@w") == ["15875"]
+    assert rectangle.xpath(".//a:ln/a:solidFill/a:srgbClr/@val") == ["445566"]
+    assert not text_box.xpath(".//a:prstGeom")
+    for element, horizontal, vertical in [(rectangle, "r", "b"), (ellipse, "ctr", "ctr"), (text_box, "l", "t")]:
+        assert element.xpath(".//a:bodyPr/@anchor") == [vertical]
+        assert element.xpath(".//a:pPr/@algn") == [horizontal] * 3
+        assert element.xpath(".//a:rPr/a:latin/@typeface") == ["Example & Serif"] * 2
+        assert element.xpath(".//a:rPr/a:solidFill/a:srgbClr/@val") == ["0710FF"] * 2
+        for prop in element.xpath(".//a:rPr | .//a:endParaRPr"):
+            assert dict(prop.attrib) == {"sz": "1225", "b": "0", "i": "1"}
+
+
+async def test_column_chart_declaration_and_series_readback(launch, tmp_path):
+    categories = ["<&😀>", "", "same", "same", "negative", "end"]
+    # The first precise value previously parsed to an adjacent f64 on ingress.
+    values = [-3.25, 0, 0.12345678901234561, 0.12345678901234562, -0.12345678901234561, 9.5]
+    guards = [("rejected_batch", invalid) for invalid in [
+        chart(categories, values[:-1]), chart(["invalid\0label"], [1]), chart(categories, values, width=0),
+    ]]
+    source = tmp_path / "source.docx"
+    async with launch() as client:
+        output, reopened, (row,) = await qualify_declarations(
+            client, source, "chart-declaration",
+            [chart(categories, values, width=102.5, height=64.25)], guards,
+        )
+        series = await inspect(client, reopened, "chart-series", anchor=row["anchor"])
+        assert series == {"document": reopened, **native(output, "chart-readback", output)}
+        assert (series["categories"], series["values"]) == (categories, values)
+    drawing = row["drawing"]
+    assert (drawing["kind"], drawing["placement"], drawing["width_emu"], drawing["height_emu"]) == (
+        "chart", "inline", 1301750, 815975,
+    )
+
+
 async def test_drawing_discovery(launch):
     async with launch() as client:
         schemas = {tool.name: tool.inputSchema for tool in (await client.list_tools()).tools}

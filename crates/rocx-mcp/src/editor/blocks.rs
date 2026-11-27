@@ -3,8 +3,11 @@ use std::collections::BTreeMap;
 use rocx::editor::{BlockEdit, BodyBlock, ParagraphAnchor, SectionAnchor};
 use serde_json::{Value, json};
 
-use super::Snapshot;
-use crate::schema::blocks::{BlockChange, section_type_name};
+use super::{ReadError, Snapshot};
+use crate::{
+    diagnostics::ScopedEditError,
+    schema::blocks::{BlockChange, section_type_name},
+};
 
 const SECTION: &str = "section:";
 const PARAGRAPH: &str = "paragraph:";
@@ -14,11 +17,11 @@ impl Snapshot {
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         if limit == 0 {
             return Err("section page limit must be positive".into());
         }
-        let sections = self.document.sections().map_err(|e| e.to_string())?;
+        let sections = self.document.sections()?;
         let start = start.min(sections.len());
         let end = start.saturating_add(limit).min(sections.len());
         let rows = (start..end)
@@ -61,7 +64,11 @@ impl Snapshot {
     }
 
     // Session must resolve only anchors issued for the caller's snapshot.
-    pub(super) fn block_edit(&self, local: &str, edit: BlockChange) -> Result<BlockEdit, String> {
+    pub(super) fn block_edit(
+        &self,
+        local: &str,
+        edit: BlockChange,
+    ) -> Result<BlockEdit, ScopedEditError> {
         let paragraph = || self.block_paragraph(local);
         let section = || self.block_section(local);
         Ok(match edit {
@@ -195,7 +202,10 @@ mod tests {
             ("run:0:0", json!({"kind":"keep-with-next","value":false})),
         ] {
             let error = snapshot.block_edit(local, change(input)).unwrap_err();
-            assert!(error.starts_with("wrong_anchor_type:"), "{error}");
+            assert!(
+                error.to_string().starts_with("wrong_anchor_type:"),
+                "{error}"
+            );
         }
         let split = snapshot
             .block_edit(
