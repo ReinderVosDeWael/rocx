@@ -28,6 +28,10 @@ add `save_in_place` for an explicitly selected preview of an opened file.
 Keep `save_copy` exclusive-create and qualify replacement and stale-source
 refusal through the installed stdio client. This is MCP file handling, not
 a new editor operation in the language bindings.
+Bring [PR #85](https://github.com/ReinderVosDeWael/rocx/pull/85) forward
+from its original base without dropping typed import diagnostics or the
+strict parity check added in #90. Qualify the integrated checkout before
+merging the PR.
 
 **In progress — [#72](https://github.com/ReinderVosDeWael/rocx/issues/72):**
 follow the [full MCP/Rust editor parity plan](MCP-EDITOR-PARITY.md). The first
@@ -97,12 +101,161 @@ edits, plus single-owner transactions for physical run formatting and
 nested/direct tables. Reuse a rich, recursive table declaration for insertion,
 cell contents and eligible donor properties. Direct-body table geometry and
 whole-node edits run in the ordinary batch; physical owners retain native
-scope restrictions.
+scope restrictions. [PR #80](https://github.com/ReinderVosDeWael/rocx/pull/80)
+merged after hosted qualification.
 
-Next: discover paired bookmark/comment markers and structured control sites
-and qualify their original-coordinate transactions. Continue with drawing
-and chart actions, style and numbering resources, then reconcile the remaining
-payload and owner coverage against the compiled ledger.
+The paired-range increment adds paged bookmark/comment marker discovery and
+ordinary create/move/remove edits using two original body-inline anchors.
+Comment ranges operate on existing definitions without modifying them.
+The saved lifecycle outputs match direct Rust bytes, and a live OpenCode
+client saved and paged through a cross-paragraph bookmark.
+
+The content-control increment adds paged main-story controls and wrapping
+sites, read-only physical story controls, and ordinary patch, wrap, unwrap,
+definition, choice and content replacement edits. The Rust 1.88 installed
+binary passed 139 MCP and parity tests plus ten subtests. Saved previews
+matched direct Rust output for all four wrapping contexts and a mixed
+control batch; independent checks validated the packages and confirmed that
+only the main document part changed.
+
+The body-object increment exposes drawing and fraction readback, chart-series
+queries, direct-body drawing patches, image asset redirection, and object
+removal. Inline declarations now include modeled shapes, column charts, and
+picture transformation and accessibility. The Rust 1.88 installed binary
+passed 141 MCP and parity tests plus ten subtests. Native byte comparisons
+covered all ten property groups, shared chart forking, and occurrence-local
+image replacement.
+
+The entry-inline increment pages original note and comment inlines and
+previews native edits scoped to one physical part, including pictures,
+external hyperlinks, and direct formatting. Saved picture lifecycles and
+hyperlinks matched direct Rust bytes for comments and relocated footnotes and
+endnotes. Reference runs and unrelated parts were preserved. The Rust 1.88
+installed binary passed 145 MCP and parity tests plus ten subtests.
+
+The style increment adds paged catalog readback and the seven native style
+variants in ordinary previews, including missing catalog creation, conditional
+table regions, and guarded reference migration. Saved previews matched
+direct Rust bytes for mixed edits, catalog creation, clears, and retargeting.
+The Rust 1.88 installed binary passed 148 MCP and parity tests plus ten
+subtests.
+
+The numbering increment pages abstract and concrete catalogs, exposes their
+independent read scopes, and supports global definition and override edits
+with direct body assignments in the ordinary batch. Relocated-catalog
+lifecycle previews and first-part creation with a staged numbering style
+matched direct Rust bytes. The Rust 1.88 installed binary passed 152 MCP and
+parity tests plus ten subtests.
+
+The physical-numbering increment pages direct paragraphs in shared
+header/footer parts, note/comment entries, and direct body cells. Ordinary
+previews can target these paragraphs alongside staged lists. Assignment and
+cleanup batches matched direct Rust bytes, including a cell in a later table
+after removing an earlier one. Continue with typed inline discovery in
+header/footer and table-cell paragraphs, then reconcile remaining payload and
+owner coverage against the compiled ledger.
+
+Continue #72 in parallel: qualify typed inline discovery for physical
+stories and cells. The first audit found mappings for all 18 batch slices and
+all public `ImportedDocument` methods; it did not establish parity. Prioritize
+resolved declaration fields, independently discoverable body and table
+targets, empty relocated note owners, and relinking eligible story parts
+after their last slot reference is removed. Then qualify full typed readback,
+native diagnostics, and reports. Compare each increment with direct Rust
+through the installed stdio client. Reconcile the ledger before declaring
+parity; a transport mapping alone is not qualification.
+The [parity closure gate](MCP-EDITOR-PARITY.md#delivery-slices) still
+requires the integrated evidence on `main`.
+
+The paired-range increment merged in [PR #81](https://github.com/ReinderVosDeWael/rocx/pull/81).
+The controls, drawings, entry-inline, style and numbering increments merged in
+[PR #87](https://github.com/ReinderVosDeWael/rocx/pull/87) after hosted checks.
+The [#88](https://github.com/ReinderVosDeWael/rocx/pull/88) checkpoint merged
+after hosted checks. It adds physical inline views, richer declaration
+inputs, relinking unused story parts and selecting relocated empty note
+owners. It also expands direct-Rust evidence for layout, styles, resources,
+entry edits and the nine mixed-preview report arrays. On `11a3d2f`, 39 MCP
+Rust tests and Clippy passed on Rust 1.88 and stable; 232 installed-client
+and ledger tests plus ten subtests passed with schemas enabled. The strict
+docs build checked 700 pages. A live OpenCode client retrieved a bold
+header run via `inline-at` and saved a centered body paragraph; independent
+`python-docx` readback verified both. Continue with logical slot isolation,
+scoped diagnostics, guarded edit evidence, and symbol-by-symbol reconciliation.
+
+The follow-up issues logical story slot anchors from `sections` without
+reading story bodies, adds paragraph-only layout discovery, and uses the
+independent default-header reader for run, image, splice and link targets.
+Native diagnostics are retained for the scoped preview operations. Flat
+field declarations carry deep native field trees without increasing JSON
+parser depth; installed debug previews at depths 64, 200 and 248 matched
+Rust and reopened using a bounded worker stack. Focused acceptance
+exercises every modeled default/metadata
+write and table property donor key, plus protected entry guards. The
+coverage validator can group explicit symbol lists with shared evidence;
+partial and unexplained symbols must still block #72 closure.
+A live OpenCode client set a paragraph's outline level through the
+paragraph-only view, and independent readback confirmed both original
+section-type elements were retained.
+
+Continue past [PR #89](https://github.com/ReinderVosDeWael/rocx/pull/89),
+which merged after hosted checks. The GitHub issue state is not the
+technical parity gate. The follow-up adds rich deep field caches,
+format-only entry hyperlink children and direct shape/chart runs, structured
+inspection diagnostics, point field readback, and a flat rich-table form for
+native depths beyond the JSON parser limit. The installed table comparisons
+matched native bytes at 83 body and 84 header table levels. Continue auditing
+operation boundaries and qualifying declaration, style/numbering, typed
+readback, lifecycle and report leaves. Do not claim full parity until the
+strict ledger passes.
+
+Integrated verification: 313 installed-client and ledger tests plus 23
+subtests passed with OOXML validation. The 43 MCP and 19 bridge-enabled
+core Rust tests and strict Clippy passed on Rust 1.88 and stable.
+The compiled inventory still matches
+all 1,908 symbols. Live OpenCode read the stored `" PAGE "` instruction at
+its original inline position and saved a dirty-flag edit; the package
+comparison found only `word/document.xml` changed. The strict closure
+check remains red.
+Follow-up fixtures matched direct Rust for adjacent floating-point chart
+values, a deep field cache with hundreds of sibling fields, and a deep
+table with wide spanning cells. Story discovery no longer depends on
+unrelated section layout; link sources can include referenced parts even
+when an unrelated story is malformed. Flat tables now qualify 48 levels
+with 1,024 grid columns per level. Keep zero-column fragments rejected:
+the core can emit a nested cellless row, but Word documents that shape
+as corrupt ([#91](https://github.com/ReinderVosDeWael/rocx/issues/91)).
+A zero-column property donor is supported because it is not rendered.
+Continue qualifying exact payload and helper equivalences,
+keeping native restrictions and resolving wire mismatches before
+promoting their ledger rows.
+
+[Draft PR #90](https://github.com/ReinderVosDeWael/rocx/pull/90) carries
+the transport and evidence changes. Keep it separate from the technical
+closure decision; the strict ledger still has unresolved obligations.
+Review fixes preserve specific legacy declaration errors and reject rendered
+previews that would exceed the native XML read depth. The guard checks only
+changed, potentially over-depth Word parts. The 83-level body and 84-level
+header outputs still reopen and match native bytes; an 84-level body output
+and an insertion into an already-deep cell reject before retaining a preview.
+A live OpenCode call rejected the 84-level body edit, then saved and
+reopened the 83-level retry using the same original paragraph anchor.
+The compiled inventory also reaches standalone authoring and binding
+helpers, such as deferred producers, raw note/range constructors, and
+Python spelling helpers. Review those against the accepted editor API
+individually. Do not extend the existing rejected-fragment scope decision
+to unrelated symbols or change the strict gate to make closure pass.
+The engineer approved retaining the documented flat transport budgets
+and verifying parity within them. The [scope decision](https://github.com/ReinderVosDeWael/rocx/issues/72#issuecomment-7223110973)
+records the exact standalone authoring, binding and runtime exclusions.
+#72 remains closed. Reconcile each remaining editor-visible key against
+fixture evidence and run the unchanged strict gate in hosted MCP CI.
+The final diagnostic audit also checks native errors raised while
+resolving rich declarations, before applying an edit. Preserve their
+structured rule, path and detail without changing existing message text.
+The unchanged strict checker passes locally: 1,824 covered, 84
+explicitly excluded, and no partial, planned or unverified symbols.
+Require hosted qualification on the final PR head before merging, then
+verify the compiled inventory and strict ledger on `main`.
 
 ## 0.4.0 release
 

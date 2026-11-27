@@ -13,7 +13,7 @@ from docx.shared import Inches
 from jsonschema.validators import validator_for
 import pytest
 
-from test_stdio import anyio_backend, call, digest, executable, failure, launch, parts, validate
+from test_stdio import anyio_backend, assert_tool_failure, call, digest, executable, failure, launch, parts, validate
 
 
 pytestmark = pytest.mark.anyio
@@ -56,8 +56,16 @@ async def test_rich_story_blocks_native_bytes_and_preservation(launch, story_sou
         document = await open_document(client, story_source)
         rows, _ = await story_page(client, document)
         if case == "create-rich":
+            blocks.append(dict(kind="rich-table", table=dict(
+                properties=dict(layout="fixed", column_widths=[1440]),
+                rows=[dict(cells=[dict(blocks=[
+                    dict(kind="paragraph", paragraph=dict(inlines=[dict(kind="text", text="Footer table")])),
+                ])])],
+            )))
             operation = {"kind": "edit-story-reference", "anchor": rows[5]["anchor"],
                          "edit": {"kind": "create-rich", "blocks": blocks}}
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          operation={**operation, "anchor": rows[3]["anchor"]})
         elif case == "rich-splice-footer":
             operation = {"kind": "edit-story-blocks", "anchor": rows[9]["anchor"],
                          "edit": {"mode": "shared", "index": 0, "remove": 1, "blocks": blocks}}
@@ -84,7 +92,11 @@ async def test_rich_story_blocks_native_bytes_and_preservation(launch, story_sou
     assert story_source.read_bytes() == source
     document = docx.Document(output)
     if case == "create-rich":
-        assert_rich(document.sections[0].even_page_footer.paragraphs[0])
+        footer = document.sections[0].even_page_footer
+        assert_rich(footer.paragraphs[0])
+        table, = footer.tables
+        assert table.cell(0, 0).text == "Footer table" and table.autofit is False
+        assert table.columns[0].width.twips == 1440
     elif case == "rich-splice-footer":
         assert len(document.sections[1].footer.paragraphs) == 1
         assert_rich(document.sections[1].footer.paragraphs[0])
@@ -284,6 +296,84 @@ async def test_story_text_scoped_targets_and_native_bytes(launch, story_source):
     assert header.paragraphs[0].runs[0].bold
     assert header.paragraphs[0].text == " Direct 😀 Original link"
     assert header.tables[0].cell(0, 0).text == "Opaque table"
+
+
+async def test_shared_first_footer_ignores_duplicate_section_type(launch, tmp_path):
+    source = tmp_path / "duplicate-section-type.docx"
+    fixture = docx.Document()
+    fixture.add_paragraph("Untouched body")
+    fixture.sections[0].first_page_footer.paragraphs[0].add_run("First footer").bold = True
+    fixture.add_section()
+    sect_pr = fixture.sections[0]._sectPr
+    for value in ("nextPage", "continuous"):
+        section_type = OxmlElement("w:type")
+        section_type.set(qn("w:val"), value)
+        sect_pr.insert_element_before(section_type, "w:pgSz")
+    fixture.save(source)
+    original = source.read_bytes()
+    before = parts(source)
+    section_types = ElementTree.fromstring(before[MAIN]).findall(
+        f".//{qn('w:sectPr')}/{qn('w:type')}"
+    )
+    assert [node.get(qn("w:val")) for node in section_types] == ["nextPage", "continuous"]
+    empty_source = tmp_path / "empty-stories-duplicate-type.docx"
+    footer_reference = sect_pr.find(qn("w:footerReference"))
+    sect_pr.remove(footer_reference)
+    fixture.save(empty_source)
+
+    async with launch() as client:
+        empty = await open_document(client, empty_source)
+        await failure(client, "inspect_document", "inspection_failed", document=empty,
+                      view=dict(kind="sections"))
+        empty_slots, cursor = await story_page(client, empty, limit=12)
+        assert cursor is None and len(empty_slots) == 12
+        assert [row["section_index"] for row in empty_slots] == [0] * 6 + [1] * 6
+        assert all(row["owner"] is None and row["blocks"] == [] for row in empty_slots)
+        document = await open_document(client, source)
+        await failure(client, "inspect_document", "inspection_failed", document=document,
+                      view=dict(kind="sections"))
+        first, cursor = await story_page(client, document, limit=6)
+        second, cursor = await story_page(client, document, limit=6, cursor=cursor)
+        assert len(first) == len(second) == 6 and cursor is None
+        explicit, inherited = first[4], second[4]
+        assert [(row["section_index"], row["kind"], row["variant"]) for row in (explicit, inherited)] == [
+            (0, "footer", "first"), (1, "footer", "first"),
+        ]
+        assert not explicit["inherited"] and inherited["inherited"]
+        assert explicit["owner"] == inherited["owner"]
+        assert second[5]["owner"] is None and second[5]["blocks"] == []
+        owner = inherited["owner"]
+        inlines = await call(client, "inspect_document", document=document, view=dict(
+            kind="story-inlines", anchor=owner["anchor"], block_index=0,
+        ))
+        (run,) = inlines["inlines"]
+        assert run["items"] == [dict(kind="text", text="First footer")] and run["bold"] is True
+
+        text = dict(kind="edit-story-text", anchor=owner["anchor"], edits=[
+            dict(anchor=inherited["blocks"][0]["inlines"][0]["anchor"], text=" Direct 😀 "),
+        ])
+        block_edit = dict(mode="shared", index=1, remove=0, blocks=[
+            dict(kind="paragraph", paragraph=dict(inlines=[dict(kind="text", text="New footer 😀")])),
+        ])
+        blocks = dict(kind="edit-story-blocks", anchor=inherited["anchor"], edit=block_edit)
+        local = dict(blocks, edit=dict(block_edit, mode="section-local"))
+        rejected = await client.call_tool("preview_edits", dict(document=document, operation=local))
+        assert_tool_failure(rejected, "rejected_batch")
+        assert rejected.structuredContent["detail"] == "ambiguous section structure"
+
+        text_output = await save_preview(client, document, source, "first-footer-text", text)
+        blocks_output = await save_preview(client, document, source, "first-footer-blocks", blocks)
+
+    assert source.read_bytes() == original
+    for output in (text_output, blocks_output):
+        after = parts(output)
+        assert after.keys() == before.keys()
+        assert {name for name in before if before[name] != after[name]} == {owner["part_name"]}
+        assert after[MAIN] == before[MAIN]
+    footer = docx.Document(text_output).sections[1].first_page_footer
+    assert footer.paragraphs[0].text == " Direct 😀 " and footer.paragraphs[0].runs[0].bold
+    footer = docx.Document(blocks_output).sections[1].first_page_footer
+    assert [paragraph.text for paragraph in footer.paragraphs] == ["First footer", "New footer 😀"]
 
 
 @pytest.mark.parametrize("case", ["create", "link", "remove"])

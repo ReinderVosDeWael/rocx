@@ -1,15 +1,19 @@
 pub(crate) mod blocks;
 pub(crate) mod body_inlines;
+pub(crate) mod controls;
 mod entries;
+pub(crate) mod entry_inlines;
 pub(crate) mod fields;
 pub(crate) mod layout;
 mod limits;
 pub(crate) mod notes;
+pub(crate) mod numbering;
 pub(crate) mod payloads;
 pub(crate) mod resources;
 pub(crate) mod revisions;
 pub(crate) mod run_format;
 pub(crate) mod stories;
+pub(crate) mod styles;
 pub(crate) mod tables;
 
 use rmcp::{
@@ -20,7 +24,11 @@ use rmcp::{
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-use crate::session::{PageView, Session};
+use crate::{
+    diagnostics::ToolError,
+    session::{InlineSelector, PageView, Session},
+};
+pub(crate) use entries::PhysicalTableSelector;
 use entries::{Operation, View};
 
 #[derive(Clone, Copy)]
@@ -80,14 +88,27 @@ impl ToolKind {
                  A paragraph's scalar_length describes Unicode scalar coordinates for its plain-text \
                   projection, with null meaning none are advertised. It is not edit permission: \
                   preview_edits validates the actual target and batch. Omit view for this compact \
-                  result. Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
+                   result or use {\"kind\":\"body\"} for body anchors without reading story parts. \
+                   Use view {\"kind\":\"entries\"} for ordinary footnote, endnote, and comment \
                   definitions with entry anchors, note-references for direct body note sites and \
                   tracked revisions with {\"kind\":\"revisions\"}, or direct paragraph and section \
                   properties with {\"kind\":\"layout\"}. Use {\"kind\":\"sections\"} for native \
                   body ranges and boundary anchors, {\"kind\":\"stories\"} for all six \
-                  header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
-                  Use fields and body-inlines for original inline sites, format-runs for \
-                  physical run targets, and body-tables or physical-tables for table edits. \
+                   header/footer slots, or {\"kind\":\"resources\"} for direct metadata and defaults. \
+                   Use {\"kind\":\"linkable-stories\",\"story_kind\":\"header\"} (or \"footer\") \
+                    for link source anchors from unreferenced parts; set include_referenced to \
+                    true to also find parts already used by a section. \
+                  Use fields, range-markers and body-inlines for original inline sites, format-runs for \
+                   physical run targets, and body-tables or physical-tables for table edits. \
+                   Physical-tables accepts a main, story, or entry scope; omit scope for all owners. \
+                  Use controls and control-sites for main-story content control edits, or \
+                  story-controls for read-only physical story controls. \
+                  Body-inlines describes drawings; chart-series reads the series at one \
+                  body-inlines anchor. Use entry-inlines for note and comment inline anchors, \
+                  or styles for the physical style catalog and original style anchors. \
+                  Use numbering-abstracts and numbering-instances for direct list catalogs, \
+                  paragraph-numbering for one direct body assignment, or numbering-paragraphs \
+                  for physical story, entry and body-cell assignments. \
                   The page limit defaults to 25 (range 1–100); \
                   pass the returned next_cursor as view.cursor for the same document, with the same \
                   or a different limit. Omit the cursor to restart. Example compact result excerpt: \
@@ -187,93 +208,213 @@ pub(crate) enum Call {
 }
 
 impl Call {
-    pub(crate) fn dispatch(self, session: &mut Session) -> Result<Value, String> {
-        match self {
+    pub(crate) fn dispatch(self, session: &mut Session) -> Result<Value, ToolError> {
+        let legacy = match self {
             Self::Create(input) => session.create_document(input.paragraphs),
-            Self::Open(input) => session.open_document(input.path, input.limits.map(Into::into)),
-            Self::Inspect(input) => match input.view {
-                None => session.inspect_document(input.document),
-                Some(View::Entries { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Entries, limit, cursor)
-                }
-                Some(View::Layout { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Layout, limit, cursor)
-                }
-                Some(View::NoteReferences { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::NoteReferences, limit, cursor)
-                }
-                Some(View::Revisions { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Revisions, limit, cursor)
-                }
-                Some(View::Stories { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Stories, limit, cursor)
-                }
-                Some(View::Sections { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Sections, limit, cursor)
-                }
-                Some(View::Fields { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Fields, limit, cursor)
-                }
-                Some(View::BodyInlines { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
-                }
-                Some(View::BodyTables { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::BodyTables, limit, cursor)
-                }
-                Some(View::FormatRuns { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::FormatRuns, limit, cursor)
-                }
-                Some(View::PhysicalTables { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::PhysicalTables, limit, cursor)
-                }
-                Some(View::EntryRuns { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
-                }
-                Some(View::Resources { custom_property }) => {
-                    session.inspect_resources(input.document, custom_property)
-                }
-                Some(View::ResourceValue { query }) => {
-                    session.inspect_resource_value(input.document, query)
-                }
-            },
+            Self::Open(input) => {
+                return session.open_document(input.path, input.limits.map(Into::into));
+            }
+            Self::Inspect(input) => return dispatch_inspection(input, session),
             Self::Preview(Preview::Ordinary(input)) => {
-                session.preview_edits(input.document, input.edits)
+                return session.preview_edits(input.document, input.edits);
             }
             Self::Preview(Preview::Scoped(input)) => match input.operation {
                 Operation::EditEntry { anchor, edit } => {
-                    session.preview_entry(input.document, anchor, edit.into())
+                    return session.preview_entry(input.document, anchor, edit.into());
                 }
                 Operation::EditNoteReference {
                     anchor,
                     note_kind,
                     edit,
-                } => session.preview_note_reference(input.document, anchor, note_kind, edit),
+                } => {
+                    return session.preview_note_reference(input.document, anchor, note_kind, edit);
+                }
                 Operation::EditRevision {
                     anchor,
                     paired_anchor,
                     edit,
-                } => session.preview_revision(input.document, anchor, paired_anchor, edit),
-                Operation::EditLayout { edits } => session.preview_layout(input.document, edits),
+                } => return session.preview_revision(input.document, anchor, paired_anchor, edit),
+                Operation::EditLayout { edits } => {
+                    return session.preview_layout(input.document, edits);
+                }
+                Operation::EditStoryText { anchor, edits }
+                    if Session::is_default_header_owner(&anchor) =>
+                {
+                    return session.preview_default_header_text(input.document, &anchor, edits);
+                }
                 Operation::EditStoryText { anchor, edits } => {
-                    session.preview_story_text(input.document, &anchor, edits)
+                    return session.preview_story_text(input.document, &anchor, edits);
+                }
+                Operation::EditEntryInlines { anchor, edits } => {
+                    return session.preview_entry_inlines(input.document, &anchor, edits);
                 }
                 Operation::EditStoryReference { anchor, edit } => {
-                    session.preview_story_reference(input.document, &anchor, edit)
+                    return session.preview_story_reference(input.document, &anchor, edit);
                 }
                 Operation::EditStoryBlocks { anchor, edit } => {
-                    session.preview_story_blocks(input.document, &anchor, edit)
+                    return session.preview_story_blocks(input.document, &anchor, edit);
+                }
+                Operation::EditRunFormat { anchor, edits }
+                    if Session::is_default_header_owner(&anchor) =>
+                {
+                    return session.preview_default_header_format(input.document, &anchor, edits);
                 }
                 Operation::EditRunFormat { anchor, edits } => {
-                    session.preview_run_format(input.document, &anchor, edits)
+                    return session.preview_run_format(input.document, &anchor, edits);
                 }
                 Operation::EditPartTables { anchor, edits } => {
-                    session.preview_part_tables(input.document, &anchor, edits)
+                    return session.preview_part_tables(input.document, &anchor, edits);
                 }
-                Operation::NoOp {} => session.preview_noop(input.document),
+                Operation::NoOp {} => return session.preview_noop(input.document),
             },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
             Self::SaveInPlace(input) => session.save_in_place(input.document, input.preview),
             Self::Close(input) => session.close_document(input.document),
+        };
+        legacy.map_err(ToolError::from)
+    }
+}
+
+fn dispatch_inspection(input: Inspect, session: &mut Session) -> Result<Value, ToolError> {
+    match input.view {
+        None => session.inspect_document(input.document),
+        Some(View::Body) => session.inspect_body(input.document),
+        Some(View::Entries { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Entries, limit, cursor)
+        }
+        Some(View::Layout {
+            scope,
+            limit,
+            cursor,
+        }) => session.inspect_page(input.document, PageView::Layout(scope), limit, cursor),
+        Some(View::NoteReferences { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::NoteReferences, limit, cursor)
+        }
+        Some(View::Revisions { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Revisions, limit, cursor)
+        }
+        Some(View::Stories { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Stories, limit, cursor)
+        }
+        Some(View::DefaultHeaders { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::DefaultHeaders, limit, cursor)
+        }
+        Some(View::LinkableStories {
+            story_kind,
+            include_referenced,
+            limit,
+            cursor,
+        }) => session.inspect_page(
+            input.document,
+            PageView::LinkableStories(story_kind.into(), include_referenced),
+            limit,
+            cursor,
+        ),
+        Some(View::StoryInlines {
+            anchor,
+            block_index,
+            limit,
+            cursor,
+        }) => session.inspect_inline_page(
+            input.document,
+            InlineSelector::Story {
+                anchor: &anchor,
+                block: block_index,
+            },
+            limit,
+            cursor,
+        ),
+        Some(View::TableCellInlines {
+            anchor,
+            row_index,
+            cell_index,
+            block_index,
+            limit,
+            cursor,
+        }) => session.inspect_inline_page(
+            input.document,
+            InlineSelector::TableCell {
+                anchor: &anchor,
+                row: row_index,
+                cell: cell_index,
+                block: block_index,
+            },
+            limit,
+            cursor,
+        ),
+        Some(View::Sections { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Sections, limit, cursor)
+        }
+        Some(View::FieldAt {
+            anchor,
+            inline_index,
+        }) => session.inspect_field_at(input.document, anchor, inline_index),
+        Some(View::Fields { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Fields, limit, cursor)
+        }
+        Some(View::BodyInlines { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::BodyInlines, limit, cursor)
+        }
+        Some(View::InlineAt { inline_handle }) => {
+            session.inspect_inline_at(input.document, inline_handle)
+        }
+        Some(View::ChartSeries { anchor }) => session.inspect_chart_series(input.document, anchor),
+        Some(View::RangeMarkers { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::RangeMarkers, limit, cursor)
+        }
+        Some(View::Controls { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Controls, limit, cursor)
+        }
+        Some(View::ControlSites { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::ControlSites, limit, cursor)
+        }
+        Some(View::StoryControls { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::StoryControls, limit, cursor)
+        }
+        Some(View::BodyTables { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::BodyTables, limit, cursor)
+        }
+        Some(View::FormatRuns { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::FormatRuns, limit, cursor)
+        }
+        Some(View::PhysicalTables {
+            scope,
+            limit,
+            cursor,
+        }) => session.inspect_physical_table_page(input.document, scope, limit, cursor),
+        Some(View::EntryRuns { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::EntryRuns, limit, cursor)
+        }
+        Some(View::EntryInlines { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::EntryInlines, limit, cursor)
+        }
+        Some(View::Styles { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::Styles, limit, cursor)
+        }
+        Some(View::NumberingAbstracts { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::NumberingAbstracts, limit, cursor)
+        }
+        Some(View::NumberingInstances { limit, cursor }) => {
+            session.inspect_page(input.document, PageView::NumberingInstances, limit, cursor)
+        }
+        Some(View::ParagraphNumbering { anchor }) => {
+            session.inspect_paragraph_numbering(input.document, anchor)
+        }
+        Some(View::NumberingParagraphs {
+            scope,
+            limit,
+            cursor,
+        }) => session.inspect_page(
+            input.document,
+            PageView::NumberingParagraphs(scope),
+            limit,
+            cursor,
+        ),
+        Some(View::Resources { custom_property }) => {
+            session.inspect_resources(input.document, custom_property)
+        }
+        Some(View::ResourceValue { query }) => {
+            session.inspect_resource_value(input.document, query)
         }
     }
 }
@@ -457,12 +598,22 @@ pub(crate) enum Edit {
         alignment: CellAlignment,
     },
     /// Append an inline image to an existing header or footer slot.
+    #[schemars(transform = stories::require_image_payload)]
     HeaderImage {
-        /// Slot anchor from compact inspection or the stories view.
+        /// Slot anchor from compact inspection or stories, or `image_slot.anchor` from default-headers.
         anchor: String,
         mode: HeaderMode,
-        /// Complete encoded image as byte values.
-        bytes: Vec<u8>,
+        /// Shorthand for an encoded image with intrinsic dimensions and default metadata.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(with = "Vec<u8>", skip_serializing_if = "Option::is_none")]
+        bytes: Option<Vec<u8>>,
+        /// Rich inline image declaration. Supply this or `bytes`, not both.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(
+            with = "stories::StoryImageInput",
+            skip_serializing_if = "Option::is_none"
+        )]
+        image: Option<Box<stories::StoryImageInput>>,
     },
     /// Set or clear a named document property or direct default in the ordinary batch.
     Resource { edit: resources::ResourceChange },
@@ -481,11 +632,31 @@ pub(crate) enum Edit {
         anchor: String,
         edit: body_inlines::BodyInlineChange,
     },
+    /// Create, move or remove a paired bookmark or comment range in the main story.
+    PairedRange {
+        /// Numeric range ID. For a comment, identifies one existing definition.
+        #[schemars(range(min = 0, max = 4_294_967_295u32))]
+        id: u32,
+        /// Bookmark name. Omit for a comment range.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(with = "String", skip_serializing_if = "Option::is_none")]
+        bookmark: Option<String>,
+        /// Inclusive original endpoints from body-inlines. Omit to remove the pair.
+        #[serde(default, deserialize_with = "entries::present")]
+        #[schemars(with = "RangeEndpoints", skip_serializing_if = "Option::is_none")]
+        endpoints: Option<RangeEndpoints>,
+    },
     /// Change a direct body table in the ordinary mixed batch.
     TableStructure {
         anchor: String,
         edit: tables::BodyTableEdit,
     },
+    /// Change a main-story content control using anchors from controls or control-sites.
+    Control { edit: controls::ControlChange },
+    /// Edit the relationship-selected style catalog.
+    Style { edit: styles::StyleChange },
+    /// Change a list definition, instance or paragraph assignment.
+    Numbering { edit: numbering::NumberingChange },
 }
 
 impl Edit {
@@ -506,7 +677,11 @@ impl Edit {
             | Self::Field { anchor, .. }
             | Self::Inline { anchor, .. }
             | Self::TableStructure { anchor, .. } => Some(anchor),
-            Self::Resource { .. } => None,
+            Self::Resource { .. }
+            | Self::PairedRange { .. }
+            | Self::Control { .. }
+            | Self::Style { .. }
+            | Self::Numbering { .. } => None,
         }
     }
 
@@ -522,13 +697,27 @@ impl Edit {
             Self::RunText { .. } | Self::RunRemove { .. } => "run",
             Self::CellAlignment { .. } => "cell",
             Self::HeaderImage { .. } => "header",
-            Self::Resource { .. } => unreachable!("resources have no anchor"),
+            Self::Resource { .. }
+            | Self::PairedRange { .. }
+            | Self::Control { .. }
+            | Self::Style { .. }
+            | Self::Numbering { .. } => {
+                unreachable!("edit has no single anchor")
+            }
             Self::Block { .. }
             | Self::Field { .. }
             | Self::Inline { .. }
             | Self::TableStructure { .. } => unreachable!("domain adapter resolves its own target"),
         }
     }
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(inline)]
+pub(crate) struct RangeEndpoints {
+    pub(crate) first: String,
+    pub(crate) last: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -579,6 +768,40 @@ mod tests {
             ToolKind::Preview,
             json!({"document": "doc", "edits": edits}),
         )
+    }
+
+    #[test]
+    fn physical_inline_views_advertise_bounded_paragraph_selectors() {
+        let inspect = ToolKind::Inspect.definition().input_schema;
+        let variants = inspect["properties"]["view"]["oneOf"].as_array().unwrap();
+        for (kind, indices) in [
+            ("story-inlines", &["block_index"][..]),
+            (
+                "table-cell-inlines",
+                &["row_index", "cell_index", "block_index"][..],
+            ),
+        ] {
+            let view = variants
+                .iter()
+                .find(|view| view["properties"]["kind"]["const"] == kind)
+                .unwrap();
+            assert_eq!(view["additionalProperties"], false);
+            let required = view["required"].as_array().unwrap();
+            assert_eq!(required.len(), indices.len() + 2);
+            for field in ["kind", "anchor"]
+                .into_iter()
+                .chain(indices.iter().copied())
+            {
+                assert!(required.contains(&json!(field)), "{kind} requires {field}");
+            }
+            for field in indices {
+                assert_eq!(view["properties"][*field]["type"], "integer");
+                assert_eq!(view["properties"][*field]["minimum"], 0);
+            }
+            assert_eq!(view["properties"]["limit"]["minimum"], 1);
+            assert_eq!(view["properties"]["limit"]["maximum"], 100);
+            assert_eq!(view["properties"]["cursor"]["type"], "string");
+        }
     }
 
     #[test]
@@ -825,19 +1048,27 @@ mod tests {
             ("text-range", &["start", "end", "text"][..]),
             ("insert-text", &["offset", "text"][..]),
             ("cell-alignment", &["alignment"][..]),
-            ("header-image", &["mode", "bytes"][..]),
+            ("header-image", &["mode"][..]),
             ("block", &["edit"][..]),
             ("field", &["edit"][..]),
             ("inline", &["edit"][..]),
             ("table-structure", &["edit"][..]),
         ];
-        assert_eq!(variants.len(), required.len() + 1);
-        let resource = variants
+        assert_eq!(variants.len(), required.len() + 5);
+        for kind in ["resource", "control", "style", "numbering"] {
+            let variant = variants
+                .iter()
+                .find(|variant| variant["properties"]["kind"]["const"] == kind)
+                .unwrap();
+            assert_eq!(variant["required"], json!(["kind", "edit"]));
+            assert_eq!(variant["additionalProperties"], false);
+        }
+        let range = variants
             .iter()
-            .find(|variant| variant["properties"]["kind"]["const"] == "resource")
+            .find(|variant| variant["properties"]["kind"]["const"] == "paired-range")
             .unwrap();
-        assert_eq!(resource["required"], json!(["kind", "edit"]));
-        assert_eq!(resource["additionalProperties"], false);
+        assert_eq!(range["required"], json!(["kind", "id"]));
+        assert_eq!(range["additionalProperties"], false);
         for (kind, extra) in required {
             let variant = variants
                 .iter()
@@ -857,6 +1088,10 @@ mod tests {
                 assert_eq!(variant["properties"][field]["minimum"], 0);
             }
             if kind == "header-image" {
+                assert_eq!(
+                    variant["oneOf"],
+                    json!([{"required": ["bytes"]}, {"required": ["image"]}])
+                );
                 let byte = &variant["properties"]["bytes"]["items"];
                 assert_eq!(byte["type"], "integer");
                 assert_eq!(byte["minimum"], 0);

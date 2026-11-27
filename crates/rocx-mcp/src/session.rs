@@ -1,9 +1,12 @@
 use crate::{
-    editor::Snapshot,
+    diagnostics::{ScopedEditError, ToolError},
+    editor::{InlineHandles, PhysicalTableScope, PhysicalTableTarget, ReadError, Snapshot},
     schema::{
-        Edit,
-        layout::LayoutChange,
+        Edit, PhysicalTableSelector,
+        entry_inlines::EntryInlineChange,
+        layout::{LayoutChange, LayoutScope},
         notes::{NoteChange, NoteKind},
+        numbering::{NumberingChange, PhysicalNumberingScope},
         resources::ResourceQuery,
         revisions::RevisionChange,
         run_format::RunFormatChange,
@@ -11,11 +14,12 @@ use crate::{
         tables::PhysicalTableChange,
     },
 };
+use rocx::editor::{InlineAnchor, SectionStoryKind};
 use rocx::opc::ReadLimits;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs::{self, File, Metadata, OpenOptions},
     io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
@@ -44,6 +48,9 @@ struct Source {
 struct Document {
     snapshot: Snapshot,
     view_anchors: HashMap<String, PageView>,
+    inline_handles: HashMap<String, InlineAnchor>,
+    story_parts: HashMap<usize, String>,
+    physical_table_targets: BTreeMap<String, PhysicalTableTarget>,
     cursors: HashMap<String, (PageView, usize)>,
     source: Option<Source>,
     previews: HashMap<String, Preview>,
@@ -52,34 +59,99 @@ struct Document {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PageView {
     BodyInlines,
+    RangeMarkers,
+    Controls,
+    ControlSites,
+    StoryControls,
     BodyTables,
     Entries,
     EntryRuns,
+    EntryInlines,
     Fields,
     FormatRuns,
-    Layout,
+    Layout(LayoutScope),
     NoteReferences,
-    PhysicalTables,
+    NumberingAbstracts,
+    NumberingInstances,
+    NumberingParagraphs(PhysicalNumberingScope),
+    PhysicalTables(PhysicalTableScope),
     Revisions,
     Sections,
     Stories,
+    DefaultHeaders,
+    LinkableStories(SectionStoryKind, bool),
+    StoryInlines(usize, usize),
+    Styles,
+    TableCellInlines(usize, usize, usize, usize),
+}
+
+pub(crate) enum InlineSelector<'a> {
+    Story {
+        anchor: &'a str,
+        block: usize,
+    },
+    TableCell {
+        anchor: &'a str,
+        row: usize,
+        cell: usize,
+        block: usize,
+    },
 }
 
 impl PageView {
     fn key(self) -> &'static str {
         match self {
             Self::BodyInlines => "body-inlines",
+            Self::RangeMarkers => "range-markers",
+            Self::Controls => "controls",
+            Self::ControlSites => "control-sites",
+            Self::StoryControls => "story-controls",
             Self::BodyTables => "body-tables",
             Self::Entries => "entries",
             Self::EntryRuns => "entry-runs",
+            Self::EntryInlines => "entry-inlines",
             Self::Fields => "fields",
             Self::FormatRuns => "format-runs",
-            Self::Layout => "layout",
+            Self::Layout(_) => "layout",
             Self::NoteReferences => "note-references",
-            Self::PhysicalTables => "physical-tables",
+            Self::NumberingAbstracts => "numbering-abstracts",
+            Self::NumberingInstances => "numbering-instances",
+            Self::NumberingParagraphs(scope) => match scope {
+                PhysicalNumberingScope::Cells => "numbering-paragraphs-cells",
+                PhysicalNumberingScope::Stories => "numbering-paragraphs-stories",
+                PhysicalNumberingScope::Entries => "numbering-paragraphs-entries",
+            },
+            Self::PhysicalTables(_) => "physical-tables",
             Self::Revisions => "revisions",
             Self::Sections => "sections",
             Self::Stories => "stories",
+            Self::DefaultHeaders => "default-headers",
+            Self::LinkableStories(..) => "linkable-stories",
+            Self::StoryInlines(..) => "story-inlines",
+            Self::Styles => "styles",
+            Self::TableCellInlines(..) => "table-cell-inlines",
+        }
+    }
+
+    fn cursor_key(self, next: usize) -> String {
+        let key = self.key();
+        match self {
+            Self::Layout(LayoutScope::Paragraphs) => format!("{key}:paragraphs:{next}"),
+            Self::Layout(LayoutScope::Sections) => format!("{key}:sections:{next}"),
+            Self::PhysicalTables(PhysicalTableScope::Main) => format!("{key}:main:{next}"),
+            Self::PhysicalTables(PhysicalTableScope::Story(owner)) => {
+                format!("{key}:story:{owner}:{next}")
+            }
+            Self::PhysicalTables(PhysicalTableScope::Entry(owner)) => {
+                format!("{key}:entry:{owner}:{next}")
+            }
+            Self::LinkableStories(kind, false) => format!("{key}:{}:{next}", kind.as_str()),
+            Self::LinkableStories(kind, true) => format!("{key}:all:{}:{next}", kind.as_str()),
+            Self::StoryInlines(owner, block) => format!("{key}:{owner}:{block}:{next}"),
+            Self::TableCellInlines(table, row, cell, block) => {
+                format!("{key}:{table}:{row}:{cell}:{block}:{next}")
+            }
+            _ => format!("{key}:{next}"),
         }
     }
 }
@@ -135,6 +207,57 @@ fn scope_anchors(value: &mut Value, owner: &str, issued: &mut impl FnMut(&str)) 
 }
 
 impl Session {
+    pub fn is_default_header_owner(anchor: &str) -> bool {
+        anchor
+            .split_once('/')
+            .and_then(|(_, local)| Snapshot::default_header_owner_index(local))
+            .is_some()
+    }
+
+    fn is_default_header_slot(anchor: &str) -> bool {
+        anchor
+            .split_once('/')
+            .and_then(|(_, local)| Snapshot::default_header_slot_index(local))
+            .is_some()
+    }
+
+    pub fn preview_default_header_text(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<StoryTextChange>,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let view = PageView::DefaultHeaders;
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_default_header_text(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
+    }
+
+    pub fn preview_default_header_format(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<RunFormatChange>,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let view = PageView::DefaultHeaders;
+        Self::scoped_anchor(doc, &document, view, anchor)?;
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_default_header_format(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
+    }
+
     fn document(&self, id: &str) -> Result<&Document, String> {
         self.documents.get(id).ok_or_else(|| UNKNOWN.into())
     }
@@ -165,13 +288,18 @@ impl Session {
         bytes: Vec<u8>,
         source_paths: Option<[PathBuf; 3]>,
         initial: bool,
-        limits: Option<ReadLimits>,
     ) -> Result<Value, String> {
-        let snapshot = match limits {
-            Some(limits) => Snapshot::open_with_limits(&bytes, limits),
-            None => Snapshot::open(&bytes),
-        }
-        .map_err(|e| format!("invalid_document_data: {e}"))?;
+        let snapshot = Snapshot::open(&bytes).map_err(|e| format!("invalid_document_data: {e}"))?;
+        self.register_snapshot(snapshot, bytes, source_paths, initial)
+    }
+
+    fn register_snapshot(
+        &mut self,
+        snapshot: Snapshot,
+        bytes: Vec<u8>,
+        source_paths: Option<[PathBuf; 3]>,
+        initial: bool,
+    ) -> Result<Value, String> {
         let id = Uuid::new_v4().to_string();
         let digest = hash(&bytes);
         let source = source_paths.map(|aliases| Source {
@@ -193,6 +321,9 @@ impl Session {
             Document {
                 snapshot,
                 view_anchors: HashMap::new(),
+                inline_handles: HashMap::new(),
+                story_parts: HashMap::new(),
+                physical_table_targets: BTreeMap::new(),
                 cursors: HashMap::new(),
                 source,
                 previews,
@@ -205,28 +336,37 @@ impl Session {
         &mut self,
         path: String,
         limits: Option<ReadLimits>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         self.check_document_limit()?;
         let slot = path_slot(Path::new(&path))?;
         let absolute = std::path::absolute(&path).map_err(|e| format!("io: invalid path: {e}"))?;
         let resolved =
             fs::canonicalize(&path).map_err(|e| format!("io: cannot open source: {e}"))?;
         let bytes = fs::read(&resolved).map_err(|e| format!("io: cannot read source: {e}"))?;
-        self.register(bytes, Some([absolute, slot, resolved]), false, limits)
+        let snapshot =
+            Snapshot::open_with_limits(&bytes, limits.unwrap_or_default()).map_err(|error| {
+                ToolError::native("invalid_document_data", error, ToString::to_string)
+            })?;
+        self.register_snapshot(snapshot, bytes, Some([absolute, slot, resolved]), false)
+            .map_err(ToolError::from)
     }
 
     pub fn create_document(&mut self, paragraphs: Vec<String>) -> Result<Value, String> {
         self.check_document_limit()?;
         let bytes = Snapshot::create(paragraphs).map_err(|e| format!("invalid_paragraphs: {e}"))?;
-        self.register(bytes, None, true, None)
+        self.register(bytes, None, true)
     }
 
-    pub fn inspect_document(&mut self, document: String) -> Result<Value, String> {
+    pub fn inspect_document(&mut self, document: String) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
-        let mut result = doc
-            .snapshot
-            .inspect()
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+        let mut result = doc.snapshot.inspect().map_err(ReadError::from)?;
+        scope_anchors(&mut result, &document, &mut |_| {});
+        result["document"] = json!(document);
+        Ok(result)
+    }
+
+    pub fn inspect_body(&self, document: String) -> Result<Value, ToolError> {
+        let mut result = self.document(&document)?.snapshot.inspect_body();
         scope_anchors(&mut result, &document, &mut |_| {});
         result["document"] = json!(document);
         Ok(result)
@@ -236,12 +376,12 @@ impl Session {
         &self,
         document: String,
         custom_property: Option<String>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let mut result = doc
             .snapshot
             .inspect_resources(custom_property)
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+            .map_err(ReadError::from)?;
         result["document"] = json!(document);
         Ok(result)
     }
@@ -250,14 +390,196 @@ impl Session {
         &self,
         document: String,
         query: ResourceQuery,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let mut result = self
             .document(&document)?
             .snapshot
             .inspect_resource_value(query)
-            .map_err(|e| format!("inspection_failed: {e}"))?;
+            .map_err(ReadError::from)?;
         result["document"] = json!(document);
         Ok(result)
+    }
+
+    pub fn inspect_chart_series(
+        &self,
+        document: String,
+        anchor: String,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let local = Self::scoped_anchor(doc, &document, PageView::BodyInlines, &anchor)?;
+        let mut result = doc.snapshot.chart_series(local)?;
+        result["document"] = json!(document);
+        Ok(result)
+    }
+
+    pub fn inspect_field_at(
+        &self,
+        document: String,
+        anchor: String,
+        inline_index: usize,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let local = Self::scoped_paragraph(doc, &document, &anchor, false)?;
+        let paragraph = doc.snapshot.compact_paragraph_anchor(local)?;
+        let field = doc
+            .snapshot
+            .field_at(&paragraph, inline_index)
+            .map_err(ReadError::from)?;
+        Ok(json!({"document": document, "field": field}))
+    }
+
+    fn scoped_paragraph<'a>(
+        doc: &Document,
+        document: &str,
+        anchor: &'a str,
+        physical: bool,
+    ) -> Result<&'a str, String> {
+        let source = if physical {
+            "numbering-paragraphs"
+        } else {
+            "compact body"
+        };
+        let (owner, local) = anchor
+            .split_once('/')
+            .ok_or_else(|| format!("invalid_anchor: inspect {source} for a paragraph anchor"))?;
+        if owner != document {
+            return Err("wrong_owner: use a paragraph anchor from the selected document".into());
+        }
+        let compact = doc.snapshot.has_issued_anchor(local);
+        let view = doc.view_anchors.get(local);
+        let eligible = if physical {
+            matches!(view, Some(PageView::NumberingParagraphs(_)))
+        } else {
+            compact
+        };
+        if eligible {
+            Ok(local)
+        } else if compact || view.is_some() {
+            Err(format!(
+                "wrong_anchor_type: expected a paragraph anchor from {source}"
+            ))
+        } else {
+            Err(format!(
+                "invalid_anchor: inspect {source} for a paragraph anchor"
+            ))
+        }
+    }
+
+    pub fn inspect_paragraph_numbering(
+        &self,
+        document: String,
+        anchor: String,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let local = Self::scoped_paragraph(doc, &document, &anchor, false)?;
+        let paragraph = doc.snapshot.compact_paragraph_anchor(local)?;
+        let value = doc
+            .snapshot
+            .paragraph_numbering(&paragraph)
+            .map_err(ReadError::from)?;
+        Ok(json!({"document":document, "value":value}))
+    }
+
+    pub fn inspect_inline_at(
+        &mut self,
+        document: String,
+        handle: String,
+    ) -> Result<Value, ToolError> {
+        let doc = self
+            .documents
+            .get_mut(&document)
+            .ok_or_else(|| UNKNOWN.to_owned())?;
+        let invalid =
+            || "invalid_inline_handle: use an inline_handle issued by an inline view".to_owned();
+        let (owner, local) = handle.split_once('/').ok_or_else(invalid)?;
+        if owner != document {
+            return Err(
+                "wrong_owner: use an inline handle from the selected document"
+                    .to_owned()
+                    .into(),
+            );
+        }
+        let anchor = doc.inline_handles.get(local).ok_or_else(invalid)?.clone();
+        let mut handles = InlineHandles {
+            document: &document,
+            issued: &mut doc.inline_handles,
+        };
+        let inline = doc
+            .snapshot
+            .inspect_inline(&anchor, local, &mut handles)
+            .map_err(ReadError::from)?;
+        Ok(json!({"document":document,"inline":inline}))
+    }
+
+    pub fn inspect_inline_page(
+        &mut self,
+        document: String,
+        selector: InlineSelector<'_>,
+        limit: usize,
+        cursor: Option<String>,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let view = match selector {
+            InlineSelector::Story { anchor, block } => {
+                let local = Self::scoped_anchor(doc, &document, PageView::Stories, anchor)?;
+                let owner = Snapshot::story_owner_index(local).ok_or_else(|| {
+                    "wrong_anchor_type: expected a physical story owner anchor".to_owned()
+                })?;
+                PageView::StoryInlines(owner, block)
+            }
+            InlineSelector::TableCell {
+                anchor,
+                row,
+                cell,
+                block,
+            } => {
+                let local = Self::scoped_anchor(doc, &document, PageView::BodyTables, anchor)?;
+                let table = Snapshot::body_table_index(local)
+                    .ok_or_else(|| "wrong_anchor_type: expected a body-tables anchor".to_owned())?;
+                PageView::TableCellInlines(table, row, cell, block)
+            }
+        };
+        self.inspect_page(document, view, limit, cursor)
+    }
+
+    pub fn inspect_physical_table_page(
+        &mut self,
+        document: String,
+        selector: Option<PhysicalTableSelector>,
+        limit: usize,
+        cursor: Option<String>,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let scope = match selector {
+            None => PhysicalTableScope::All,
+            Some(PhysicalTableSelector::Main) => PhysicalTableScope::Main,
+            Some(PhysicalTableSelector::Story { anchor }) => {
+                let local = Self::scoped_anchor(doc, &document, PageView::Stories, &anchor)?;
+                let owner = Snapshot::story_owner_index(local).ok_or_else(|| {
+                    "wrong_anchor_type: expected a physical story owner anchor".to_owned()
+                })?;
+                PhysicalTableScope::Story(owner)
+            }
+            Some(PhysicalTableSelector::Entry { anchor }) => {
+                let (view, prefix) = if anchor
+                    .split_once('/')
+                    .is_some_and(|(_, local)| local.starts_with("entry-inline-owner:"))
+                {
+                    (PageView::EntryInlines, "entry-inline-owner:")
+                } else {
+                    (PageView::EntryRuns, "entry-run-owner:")
+                };
+                let local = Self::scoped_anchor(doc, &document, view, &anchor)?;
+                let owner = local
+                    .strip_prefix(prefix)
+                    .and_then(|index| index.parse().ok())
+                    .ok_or_else(|| {
+                        "wrong_anchor_type: expected a physical entry owner anchor".to_owned()
+                    })?;
+                PhysicalTableScope::Entry(owner)
+            }
+        };
+        self.inspect_page(document, PageView::PhysicalTables(scope), limit, cursor)
     }
 
     pub fn inspect_page(
@@ -266,61 +588,189 @@ impl Session {
         view: PageView,
         limit: usize,
         cursor: Option<String>,
-    ) -> Result<Value, String> {
-        let doc = self.documents.get_mut(&document).ok_or(UNKNOWN)?;
+    ) -> Result<Value, ToolError> {
+        let doc = self
+            .documents
+            .get_mut(&document)
+            .ok_or_else(|| UNKNOWN.to_owned())?;
         if !(1..=100).contains(&limit) {
-            return Err("invalid_input: use a page limit between 1 and 100".into());
+            return Err("invalid_input: use a page limit between 1 and 100"
+                .to_owned()
+                .into());
         }
         let start = match cursor {
             None => 0,
             Some(cursor) => {
-                let (owner, local) = cursor
-                    .split_once('/')
-                    .ok_or("invalid_cursor: restart the selected view")?;
+                let invalid = || "invalid_cursor: restart the selected view".to_owned();
+                let (owner, local) = cursor.split_once('/').ok_or_else(invalid)?;
                 if owner != document {
-                    return Err("wrong_owner: use a cursor from the selected document".into());
+                    return Err("wrong_owner: use a cursor from the selected document"
+                        .to_owned()
+                        .into());
                 }
                 doc.cursors
                     .get(local)
                     .and_then(|&(issued_view, start)| (issued_view == view).then_some(start))
-                    .ok_or("invalid_cursor: restart the selected view")?
+                    .ok_or_else(invalid)?
             }
         };
+        let mut inline_handles = InlineHandles {
+            document: &document,
+            issued: &mut doc.inline_handles,
+        };
         let (mut rows, next) = match view {
-            PageView::BodyInlines => doc.snapshot.body_inline_page(start, limit),
-            PageView::BodyTables => doc.snapshot.body_table_page(start, limit),
+            PageView::BodyInlines => {
+                doc.snapshot
+                    .body_inline_page(start, limit, &mut inline_handles)
+            }
+            PageView::RangeMarkers => doc.snapshot.range_marker_page(start, limit),
+            PageView::Controls => Ok(doc.snapshot.control_page(start, limit)),
+            PageView::ControlSites => Ok(doc.snapshot.control_site_page(start, limit)),
+            PageView::StoryControls => doc
+                .snapshot
+                .story_control_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::BodyTables => doc
+                .snapshot
+                .body_table_page(start, limit)
+                .map_err(ReadError::from),
             PageView::Entries => doc.snapshot.entry_page(start, limit),
             PageView::EntryRuns => doc.snapshot.entry_run_page(start, limit),
-            PageView::Fields => doc.snapshot.field_page(start, limit),
-            PageView::FormatRuns => doc.snapshot.format_run_page(start, limit),
-            PageView::Layout => doc.snapshot.layout_page(start, limit),
-            PageView::NoteReferences => doc.snapshot.note_reference_page(start, limit),
-            PageView::PhysicalTables => doc.snapshot.physical_table_page(start, limit),
-            PageView::Revisions => doc.snapshot.revision_page(start, limit),
+            PageView::EntryInlines => doc
+                .snapshot
+                .entry_inline_page(start, limit, &mut inline_handles)
+                .map_err(ReadError::from),
+            PageView::Fields => doc
+                .snapshot
+                .field_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::FormatRuns => doc
+                .snapshot
+                .format_run_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::Layout(scope) => doc.snapshot.layout_page(scope, start, limit),
+            PageView::NoteReferences => doc
+                .snapshot
+                .note_reference_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::NumberingAbstracts => doc.snapshot.numbering_page(true, start, limit),
+            PageView::NumberingInstances => doc.snapshot.numbering_page(false, start, limit),
+            PageView::NumberingParagraphs(scope) => {
+                doc.snapshot.physical_numbering_page(scope, start, limit)
+            }
+            PageView::PhysicalTables(scope) => {
+                let scope = match scope {
+                    PhysicalTableScope::All => PhysicalTableScope::All,
+                    PhysicalTableScope::Main => PhysicalTableScope::Main,
+                    PhysicalTableScope::Story(owner) => {
+                        let part = doc
+                            .story_parts
+                            .get(&owner)
+                            .ok_or_else(|| "invalid_anchor: inspect the stories view".to_owned())?;
+                        PhysicalTableScope::Story((owner, part.as_str()))
+                    }
+                    PhysicalTableScope::Entry(owner) => PhysicalTableScope::Entry(owner),
+                };
+                doc.snapshot
+                    .physical_table_page(scope, start, limit)
+                    .map(|page| {
+                        doc.physical_table_targets.extend(page.targets);
+                        (page.rows, page.next)
+                    })
+            }
+            PageView::Revisions => doc
+                .snapshot
+                .revision_page(start, limit)
+                .map_err(ReadError::from),
             PageView::Sections => doc.snapshot.section_page(start, limit),
             PageView::Stories => doc.snapshot.story_page(start, limit),
-        }
-        .map_err(|e| format!("inspection_failed: {e}"))?;
+            PageView::DefaultHeaders => {
+                doc.snapshot
+                    .default_header_page(start, limit, &mut inline_handles)
+            }
+            PageView::LinkableStories(kind, include_referenced) => doc
+                .snapshot
+                .linkable_story_page(kind, include_referenced, start, limit),
+            PageView::StoryInlines(owner, block) => {
+                doc.snapshot
+                    .story_inline_page(owner, block, start, limit, &mut inline_handles)
+            }
+            PageView::Styles => doc
+                .snapshot
+                .style_page(start, limit)
+                .map_err(ReadError::from),
+            PageView::TableCellInlines(table, row, cell, block) => doc
+                .snapshot
+                .table_cell_inline_page(
+                    table,
+                    (row, cell),
+                    block,
+                    start,
+                    limit,
+                    &mut inline_handles,
+                )
+                .map_err(ReadError::from),
+        }?;
+        // All selectors publish the same target types, independent of page scope.
+        let anchor_view = match view {
+            PageView::PhysicalTables(_) => PageView::PhysicalTables(PhysicalTableScope::All),
+            PageView::Layout(_) => PageView::Layout(LayoutScope::All),
+            _ => view,
+        };
         for row in &mut rows {
+            if view == PageView::Stories {
+                let owner = &row["owner"];
+                if let Some((index, part)) = owner["anchor"]
+                    .as_str()
+                    .and_then(Snapshot::story_owner_index)
+                    .zip(owner["part_name"].as_str())
+                {
+                    doc.story_parts
+                        .entry(index)
+                        .or_insert_with(|| part.to_owned());
+                }
+            }
             scope_anchors(row, &document, &mut |local| {
-                doc.view_anchors.insert(local.to_owned(), view);
+                if view == PageView::Sections && Snapshot::story_slot_index(local).is_some() {
+                    // A section-issued slot can edit references, but must not
+                    // grant or revoke the capabilities of a stories-issued slot.
+                    doc.view_anchors
+                        .entry(local.to_owned())
+                        .or_insert(anchor_view);
+                } else {
+                    doc.view_anchors.insert(local.to_owned(), anchor_view);
+                }
             });
         }
         let next_cursor = next.map(|n| {
-            let local = format!("{}:{n}", view.key());
+            let local = view.cursor_key(n);
             doc.cursors.insert(local.clone(), (view, n));
             format!("{document}/{local}")
         });
         let field = match view {
             PageView::BodyInlines => "body_inlines",
+            PageView::RangeMarkers => "range_markers",
+            PageView::ControlSites => "control_sites",
+            PageView::StoryControls => "story_controls",
             PageView::BodyTables => "body_tables",
             PageView::FormatRuns => "format_runs",
             PageView::NoteReferences => "note_references",
+            PageView::NumberingAbstracts => "abstracts",
+            PageView::NumberingInstances => "instances",
+            PageView::NumberingParagraphs(_) => "paragraphs",
             PageView::EntryRuns => "entry_runs",
-            PageView::PhysicalTables => "physical_tables",
+            PageView::EntryInlines => "entry_inlines",
+            PageView::PhysicalTables(_) => "physical_tables",
+            PageView::DefaultHeaders => "default_headers",
+            PageView::LinkableStories(..) => "linkable_stories",
+            PageView::StoryInlines(..) | PageView::TableCellInlines(..) => "inlines",
             _ => view.key(),
         };
-        Ok(json!({"document":document, (field):rows, "next_cursor":next_cursor}))
+        let mut result = json!({"document":document, (field):rows, "next_cursor":next_cursor});
+        if view == PageView::Styles {
+            result["part_name"] = json!(doc.snapshot.styles_part_name().map_err(ReadError::from)?);
+        }
+        Ok(result)
     }
 
     pub fn preview_entry(
@@ -328,8 +778,8 @@ impl Session {
         document: String,
         anchor: String,
         edit: rocx::editor::EntryEdit,
-    ) -> Result<Value, String> {
-        self.preview_scoped(
+    ) -> Result<Value, ToolError> {
+        self.stage_scoped_edit(
             document,
             PageView::Entries,
             &anchor,
@@ -348,8 +798,8 @@ impl Session {
         anchor: String,
         kind: NoteKind,
         edit: NoteChange,
-    ) -> Result<Value, String> {
-        self.preview_scoped(
+    ) -> Result<Value, ToolError> {
+        self.stage_scoped_edit(
             document,
             PageView::NoteReferences,
             &anchor,
@@ -368,8 +818,8 @@ impl Session {
         anchor: String,
         paired: Option<String>,
         edit: RevisionChange,
-    ) -> Result<Value, String> {
-        self.preview_scoped(
+    ) -> Result<Value, ToolError> {
+        self.stage_scoped_edit(
             document,
             PageView::Revisions,
             &anchor,
@@ -382,18 +832,24 @@ impl Session {
         &mut self,
         document: String,
         mut edits: Vec<LayoutChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         for edit in &mut edits {
-            edit.anchor =
-                Self::scoped_anchor(doc, &document, PageView::Layout, &edit.anchor)?.to_owned();
+            edit.anchor = Self::scoped_anchor(
+                doc,
+                &document,
+                PageView::Layout(LayoutScope::All),
+                &edit.anchor,
+            )?
+            .to_owned();
         }
         self.check_preview_limit(0)?;
         let (bytes, changes) = doc
             .snapshot
             .preview_layout(edits)
-            .map_err(|e| format!("rejected_batch: {e}; revise the layout edits and retry"))?;
+            .map_err(|error| ToolError::scoped(error, "revise the layout edits and retry"))?;
         self.retain_preview(document, bytes, changes)
+            .map_err(ToolError::from)
     }
 
     pub fn preview_story_text(
@@ -401,7 +857,7 @@ impl Session {
         document: String,
         anchor: &str,
         mut edits: Vec<StoryTextChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let view = if anchor
             .split_once('/')
@@ -414,7 +870,7 @@ impl Session {
         for edit in &mut edits {
             edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
         }
-        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
             let bytes = match view {
                 PageView::EntryRuns => snapshot.edit_entry_story_text(local, edits),
                 _ => snapshot.edit_story_text(local, edits),
@@ -428,32 +884,68 @@ impl Session {
         document: String,
         anchor: &str,
         mut edit: StoryReferenceChange,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         if let StoryReferenceChange::Link { anchor } = &mut edit {
-            *anchor = Self::scoped_anchor(doc, &document, PageView::Stories, anchor)?.to_owned();
+            let view = match anchor
+                .split_once('/')
+                .and_then(|(_, local)| doc.view_anchors.get(local))
+            {
+                Some(view @ PageView::LinkableStories(..)) => *view,
+                Some(PageView::DefaultHeaders) => PageView::DefaultHeaders,
+                _ => PageView::Stories,
+            };
+            *anchor = Self::scoped_anchor(doc, &document, view, anchor)?.to_owned();
         }
-        self.preview_scoped(
-            document,
-            PageView::Stories,
-            anchor,
-            None,
-            |snapshot, local, _| {
-                snapshot
-                    .edit_story_reference(local, edit)
-                    .map(|bytes| (bytes, Value::Null))
-            },
-        )
+        let view = match anchor.split_once('/') {
+            Some((_, local))
+                if Snapshot::story_slot_index(local).is_some()
+                    && doc.view_anchors.get(local) == Some(&PageView::Sections) =>
+            {
+                PageView::Sections
+            }
+            _ => PageView::Stories,
+        };
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_story_reference(local, edit)
+                .map(|bytes| (bytes, Value::Null))
+        })
     }
 
-    pub fn preview_noop(&mut self, document: String) -> Result<Value, String> {
+    pub fn preview_entry_inlines(
+        &mut self,
+        document: String,
+        anchor: &str,
+        mut edits: Vec<EntryInlineChange>,
+    ) -> Result<Value, ToolError> {
+        let doc = self.document(&document)?;
+        let view = PageView::EntryInlines;
+        Self::scoped_anchor(doc, &document, view, anchor)?;
+        if edits.is_empty() {
+            return Err("invalid_batch: supply at least one entry inline edit"
+                .to_owned()
+                .into());
+        }
+        for edit in &mut edits {
+            edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
+        }
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_entry_inlines(local, edits)
+                .map(|bytes| (bytes, Value::Null))
+        })
+    }
+
+    pub fn preview_noop(&mut self, document: String) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         self.check_preview_limit(0)?;
         let (bytes, changes) = doc
             .snapshot
             .preview_noop()
-            .map_err(|e| format!("rejected_batch: {e}"))?;
+            .map_err(|error| ToolError::native("rejected_batch", error, ToString::to_string))?;
         self.retain_preview(document, bytes, changes)
+            .map_err(ToolError::from)
     }
 
     pub fn preview_story_blocks(
@@ -461,18 +953,17 @@ impl Session {
         document: String,
         anchor: &str,
         edit: StoryBlockChange,
-    ) -> Result<Value, String> {
-        self.preview_scoped(
-            document,
-            PageView::Stories,
-            anchor,
-            None,
-            |snapshot, local, _| {
-                snapshot
-                    .edit_story_blocks(local, edit)
-                    .map(|bytes| (bytes, Value::Null))
-            },
-        )
+    ) -> Result<Value, ToolError> {
+        let view = if Self::is_default_header_slot(anchor) {
+            PageView::DefaultHeaders
+        } else {
+            PageView::Stories
+        };
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
+            snapshot
+                .edit_story_blocks(local, edit)
+                .map(|bytes| (bytes, Value::Null))
+        })
     }
 
     pub fn preview_run_format(
@@ -480,14 +971,14 @@ impl Session {
         document: String,
         anchor: &str,
         mut edits: Vec<RunFormatChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let view = PageView::FormatRuns;
         Self::scoped_anchor(doc, &document, view, anchor)?;
         for edit in &mut edits {
             edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
         }
-        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
+        self.stage_scoped_edit(document, view, anchor, None, |snapshot, local, _| {
             snapshot
                 .edit_run_format(local, edits)
                 .map(|bytes| (bytes, Value::Null))
@@ -499,18 +990,24 @@ impl Session {
         document: String,
         anchor: &str,
         mut edits: Vec<PhysicalTableChange>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
-        let view = PageView::PhysicalTables;
-        Self::scoped_anchor(doc, &document, view, anchor)?;
+        let view = PageView::PhysicalTables(PhysicalTableScope::All);
+        let local = Self::scoped_anchor(doc, &document, view, anchor)?;
         for edit in &mut edits {
             edit.anchor = Self::scoped_anchor(doc, &document, view, &edit.anchor)?.to_owned();
         }
-        self.preview_scoped(document, view, anchor, None, |snapshot, local, _| {
-            snapshot
-                .edit_part_tables(local, edits)
-                .map(|bytes| (bytes, Value::Null))
-        })
+        self.check_preview_limit(0)?;
+        let bytes = doc
+            .snapshot
+            .edit_part_tables(
+                doc.physical_table_targets.get(local),
+                |anchor| doc.physical_table_targets.get(anchor),
+                edits,
+            )
+            .map_err(ToolError::from)?;
+        self.retain_preview(document, bytes, Value::Null)
+            .map_err(ToolError::from)
     }
 
     fn scoped_anchor<'a>(
@@ -544,41 +1041,83 @@ impl Session {
         }
     }
 
-    fn preview_scoped(
+    fn stage_scoped_edit(
         &mut self,
         document: String,
         view: PageView,
         anchor: &str,
         paired: Option<&str>,
-        run: impl FnOnce(&Snapshot, &str, Option<&str>) -> Result<(Vec<u8>, Value), String>,
-    ) -> Result<Value, String> {
+        run: impl FnOnce(&Snapshot, &str, Option<&str>) -> Result<(Vec<u8>, Value), ScopedEditError>,
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         let local = Self::scoped_anchor(doc, &document, view, anchor)?;
         let paired = paired
             .map(|anchor| Self::scoped_anchor(doc, &document, view, anchor))
             .transpose()?;
         self.check_preview_limit(0)?;
-        let (bytes, changes) = run(&doc.snapshot, local, paired).map_err(|e| {
-            if e.starts_with("wrong_anchor_type: ") {
-                e
-            } else {
-                format!("rejected_batch: {e}; revise the operation and retry")
-            }
-        })?;
+        let (bytes, changes) = run(&doc.snapshot, local, paired)?;
         self.retain_preview(document, bytes, changes)
+            .map_err(ToolError::from)
     }
 
     pub fn preview_edits(
         &mut self,
         document: String,
         mut edits: Vec<Edit>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, ToolError> {
         let doc = self.document(&document)?;
         if edits.is_empty() {
-            return Err("invalid_batch: supply at least one edit".into());
+            return Err(ToolError::from(
+                "invalid_batch: supply at least one edit".to_owned(),
+            ));
         }
         for (i, edit) in edits.iter_mut().enumerate() {
+            if let Edit::Numbering { edit } = edit {
+                match edit {
+                    NumberingChange::Paragraph { anchor, .. } => {
+                        *anchor = Self::scoped_paragraph(doc, &document, anchor, false)?.to_owned();
+                    }
+                    NumberingChange::PhysicalParagraph { anchor, .. } => {
+                        *anchor = Self::scoped_paragraph(doc, &document, anchor, true)?.to_owned();
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            if let Edit::Style { edit } = edit {
+                edit.scope(|anchor| {
+                    *anchor =
+                        Self::scoped_anchor(doc, &document, PageView::Styles, anchor)?.to_owned();
+                    Ok(())
+                })?;
+                continue;
+            }
+            if let Edit::Control { edit } = edit {
+                edit.scope(|anchor, is_site| {
+                    let view = if is_site {
+                        PageView::ControlSites
+                    } else {
+                        PageView::Controls
+                    };
+                    *anchor = Self::scoped_anchor(doc, &document, view, anchor)?.to_owned();
+                    Ok(())
+                })?;
+                continue;
+            }
+            if let Edit::PairedRange { endpoints, .. } = edit {
+                if let Some(endpoints) = endpoints {
+                    for anchor in [&mut endpoints.first, &mut endpoints.last] {
+                        *anchor =
+                            Self::scoped_anchor(doc, &document, PageView::BodyInlines, anchor)?
+                                .to_owned();
+                    }
+                }
+                continue;
+            }
             let view = match edit {
+                Edit::HeaderImage { anchor, .. } if Self::is_default_header_slot(anchor) => {
+                    Some(PageView::DefaultHeaders)
+                }
                 Edit::HeaderImage { .. } => Some(PageView::Stories),
                 Edit::Block { .. } => Some(PageView::Sections),
                 Edit::Field { .. } => Some(PageView::Fields),
@@ -591,34 +1130,30 @@ impl Session {
             };
             let (owner, local) = anchor
                 .split_once('/')
-                .ok_or("invalid_anchor: use an inspected anchor")?;
+                .ok_or_else(|| "invalid_anchor: use an inspected anchor".to_owned())?;
             if owner != document {
-                return Err(format!(
-                    "wrong_owner: inspect the selected document for edit {i}"
-                ));
+                return Err(
+                    format!("wrong_owner: inspect the selected document for edit {i}").into(),
+                );
             }
             let matches_view = view.is_some_and(|view| doc.view_anchors.get(local) == Some(&view));
             if !doc.snapshot.has_issued_anchor(local) && !matches_view {
                 if doc.view_anchors.contains_key(local) {
                     return Err(format!(
                         "wrong_anchor_type: edit {i} requires an ordinary edit anchor"
-                    ));
+                    )
+                    .into());
                 }
-                return Err(format!(
-                    "invalid_anchor: inspect the document again for edit {i}"
-                ));
+                return Err(
+                    format!("invalid_anchor: inspect the document again for edit {i}").into(),
+                );
             }
             anchor.drain(..owner.len() + 1);
         }
         self.check_preview_limit(0)?;
-        let (bytes, changes) = doc.snapshot.preview(edits).map_err(|e| {
-            if e.starts_with("wrong_anchor_type:") {
-                e
-            } else {
-                format!("rejected_batch: {e}; revise the edits and retry")
-            }
-        })?;
+        let (bytes, changes) = doc.snapshot.preview(edits)?;
         self.retain_preview(document, bytes, changes)
+            .map_err(ToolError::from)
     }
 
     fn retain_preview(
@@ -746,6 +1281,161 @@ mod tests {
     use crate::schema::ToolKind;
 
     #[test]
+    fn physical_inline_pages_keep_typed_values_and_bind_cursors_to_paragraphs() {
+        use rocx::{
+            Document, Footer, Header, HeaderFooterType, Hyperlink, HyperlinkTarget, Paragraph,
+            RunFormat, Section, Table, TableCell, TableRow, TextRun,
+        };
+
+        let paragraph = |label: &str| {
+            Paragraph::from_children(vec![
+                TextRun::new(label.to_owned())
+                    .with_format(RunFormat {
+                        bold: Some(false),
+                        ..RunFormat::default()
+                    })
+                    .into(),
+                Hyperlink::new(
+                    HyperlinkTarget::external("https://example.org").unwrap(),
+                    vec![TextRun::new("link").into()],
+                )
+                .into(),
+            ])
+        };
+        let table = |blocks| {
+            Table::new(vec![
+                TableRow::new(vec![TableCell::new(blocks).into()]).into(),
+            ])
+        };
+        let section = Section::new(vec![
+            table(vec![
+                table(vec![Paragraph::new("nested").into()]).into(),
+                paragraph("cell").into(),
+                Paragraph::from_children(vec![]).into(),
+            ])
+            .into(),
+        ])
+        .with_headers(
+            [(
+                HeaderFooterType::Default,
+                Header::new(vec![paragraph("header").into(), paragraph("next").into()]).into(),
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .with_footers(
+            [(
+                HeaderFooterType::Default,
+                Footer::new(vec![paragraph("footer").into()]).into(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let bytes = futures_executor::block_on(
+            Document::new(vec![section.into(), Section::new(vec![]).into()]).resolve(),
+        )
+        .unwrap()
+        .to_docx()
+        .unwrap();
+        let mut session = Session::default();
+        let other = session.register(bytes.clone(), None, false).unwrap();
+        let snapshot = session.register(bytes, None, false).unwrap();
+        let document = &snapshot["document"];
+        let inspect = |session: &mut Session, document: &Value, view: Value| {
+            ToolKind::Inspect
+                .parse(
+                    json!({"document":document, "view":view})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                )
+                .unwrap()
+                .dispatch(session)
+        };
+        let stories = inspect(&mut session, document, json!({"kind":"stories"})).unwrap();
+        let header = &stories["stories"][0]["owner"]["anchor"];
+        let alias = &stories["stories"][6]["owner"]["anchor"];
+        let footer = &stories["stories"][3]["owner"]["anchor"];
+        assert_eq!(header, alias);
+        let tables = inspect(&mut session, document, json!({"kind":"body-tables"})).unwrap();
+        let body_table = &tables["body_tables"][0]["anchor"];
+        let story_view = |anchor: &Value, block| json!({"kind":"story-inlines","anchor":anchor,"block_index":block,"limit":1});
+        let cell_view = |block| {
+            json!({"kind":"table-cell-inlines","anchor":body_table,
+                   "row_index":0,"cell_index":0,"block_index":block,"limit":1})
+        };
+        let empty_header = inspect(&mut session, document, story_view(header, 0)).unwrap();
+        assert_eq!(empty_header["inlines"], json!([]));
+        let header_page = inspect(&mut session, document, story_view(header, 1)).unwrap();
+        assert_eq!(
+            header_page["inlines"][0]["items"],
+            json!([{"kind":"text","text":"header"}]),
+            "{header_page}"
+        );
+        assert_eq!(header_page["inlines"][0]["format"]["bold"], false);
+        assert_eq!(header_page["inlines"][0]["inline_index"], 0);
+        let next = inspect(&mut session, document, story_view(header, 2)).unwrap();
+        assert_ne!(header_page["next_cursor"], next["next_cursor"]);
+        assert_eq!(next["inlines"][0]["text"], "next");
+        let footer_page = inspect(&mut session, document, story_view(footer, 1)).unwrap();
+        assert_eq!(footer_page["inlines"][0]["text"], "footer");
+        // The compiler adds empty paragraphs before a leading table and after every table.
+        let cell_page = inspect(&mut session, document, cell_view(3)).unwrap();
+        assert_eq!(cell_page["inlines"][0]["text"], "cell");
+        let empty = inspect(&mut session, document, cell_view(2)).unwrap();
+        assert_eq!(empty["inlines"], json!([]));
+        assert!(empty["next_cursor"].is_null());
+        assert!(
+            inspect(&mut session, document, cell_view(1))
+                .unwrap_err()
+                .category
+                == "inspection_failed"
+        );
+        assert!(
+            inspect(
+                &mut session,
+                document,
+                story_view(&stories["stories"][0]["anchor"], 0)
+            )
+            .unwrap_err()
+            .category
+                == "wrong_anchor_type"
+        );
+        for mut wrong_target in [story_view(header, 2), story_view(footer, 1), cell_view(3)] {
+            wrong_target["cursor"] = header_page["next_cursor"].clone();
+            assert!(
+                inspect(&mut session, document, wrong_target)
+                    .unwrap_err()
+                    .category
+                    == "invalid_cursor"
+            );
+        }
+        let other_doc = &other["document"];
+        let other_stories = inspect(&mut session, other_doc, json!({"kind":"stories"})).unwrap();
+        let mut foreign_cursor = story_view(&other_stories["stories"][0]["owner"]["anchor"], 1);
+        foreign_cursor["cursor"] = header_page["next_cursor"].clone();
+        assert!(
+            inspect(&mut session, other_doc, foreign_cursor)
+                .unwrap_err()
+                .category
+                == "wrong_owner"
+        );
+        for (mut view, first) in [
+            (story_view(alias, 1), header_page),
+            (cell_view(3), cell_page),
+        ] {
+            view["cursor"] = first["next_cursor"].clone();
+            let second = inspect(&mut session, document, view).unwrap();
+            let link = &second["inlines"][0];
+            assert_eq!(link["inline_index"], 1);
+            assert_eq!(link["kind"], "hyperlink");
+            assert!(link["relationship_id"].is_string());
+            assert_eq!(link["children"][0]["items"][0]["text"], "link");
+            assert!(second["next_cursor"].is_null());
+        }
+    }
+
+    #[test]
     fn previews_require_issued_anchors_from_the_selected_document() {
         let mut session = Session::default();
         let create = |session: &mut Session| {
@@ -766,27 +1456,27 @@ mod tests {
         };
         let guessed = format!("{document}/paragraph:0");
         for (anchor, category) in [
-            ("no-owner".into(), "invalid_anchor:"),
-            (guessed.clone(), "invalid_anchor:"),
-            (foreign, "wrong_owner:"),
+            ("no-owner".into(), "invalid_anchor"),
+            (guessed.clone(), "invalid_anchor"),
+            (foreign, "wrong_owner"),
         ] {
             let error = session
                 .preview_edits(document.clone(), vec![insert(anchor)])
                 .unwrap_err();
-            assert!(error.starts_with(category), "{error}");
+            assert_eq!(error.category, category);
         }
 
         let inspection = session.inspect_document(document.clone()).unwrap();
         let inspected = inspection["body"][0]["anchor"].as_str().unwrap();
         assert_eq!(inspected, guessed);
         for (anchor, category) in [
-            (format!("{document}/paragraph:999"), "invalid_anchor:"),
-            (inspected.to_owned(), "wrong_anchor_type:"),
+            (format!("{document}/paragraph:999"), "invalid_anchor"),
+            (inspected.to_owned(), "wrong_anchor_type"),
         ] {
             let error = session
                 .preview_edits(document.clone(), vec![Edit::RunRemove { anchor }])
                 .unwrap_err();
-            assert!(error.starts_with(category), "{error}");
+            assert_eq!(error.category, category);
         }
         assert!(
             session
@@ -827,8 +1517,8 @@ mod tests {
             (json!([insert(2, "x"), insert(2, "y")]), "overlapping"),
         ] {
             let error = preview(&mut session, edits).unwrap_err();
-            assert!(error.starts_with("rejected_batch:"), "{error}");
-            assert!(error.contains(detail), "{error}");
+            assert_eq!(error.category, "rejected_batch");
+            assert!(error.message.contains(detail), "{error:?}");
         }
         assert_eq!(session.document(document).unwrap().previews.len(), 1);
         let other = session.create_document(vec!["other".into()]).unwrap();
@@ -836,15 +1526,15 @@ mod tests {
             .inspect_document(other["document"].as_str().unwrap().to_owned())
             .unwrap();
         for (anchor, category) in [
-            (&paragraph["runs"][0]["anchor"], "wrong_anchor_type:"),
-            (&foreign["body"][0]["anchor"], "wrong_owner:"),
+            (&paragraph["runs"][0]["anchor"], "wrong_anchor_type"),
+            (&foreign["body"][0]["anchor"], "wrong_owner"),
         ] {
             let error = preview(
                 &mut session,
                 json!([{"kind":"insert-text","anchor":anchor,"offset":0,"text":"x"}]),
             )
             .unwrap_err();
-            assert!(error.starts_with(category), "{error}");
+            assert_eq!(error.category, category);
         }
         let result = preview(&mut session, json!([insert(3, "!"), range(1, 2)])).unwrap();
         assert_eq!(result["changes"]["run_text"][0]["after"], "AB!");

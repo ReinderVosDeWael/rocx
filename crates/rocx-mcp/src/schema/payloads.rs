@@ -7,14 +7,19 @@ use rocx::{
 };
 use serde::Deserialize;
 
+use crate::diagnostics::ScopedEditError;
+
+mod drawing;
 mod format;
 mod inline;
 mod table;
 #[cfg(test)]
 mod tests;
 
-use format::ParagraphFormatInput;
-pub(crate) use format::RunFormatInput;
+pub(crate) use drawing::{AltText, Transform};
+pub(crate) use format::{
+    LineHeightInput, ParagraphFormatInput, RunFormatInput, RunLanguageInput, TabStopInput,
+};
 pub(crate) use inline::InlineInput;
 pub(crate) use table::RichTableInput;
 
@@ -27,7 +32,7 @@ pub(crate) struct ParagraphInput {
 }
 
 impl ParagraphInput {
-    pub(crate) fn resolve(self) -> Result<ResolvedParagraph, String> {
+    pub(crate) fn resolve(self) -> Result<ResolvedParagraph, ScopedEditError> {
         let children = self
             .inlines
             .into_iter()
@@ -60,7 +65,7 @@ pub(crate) enum BlockInput {
 }
 
 impl BlockInput {
-    pub(crate) fn resolve(self) -> Result<ResolvedBlock, String> {
+    pub(crate) fn resolve(self) -> Result<ResolvedBlock, ScopedEditError> {
         match self {
             Self::RichTable { table } => table.resolve().map(ResolvedBlock::Table),
             Self::Paragraph { paragraph } => paragraph.resolve().map(ResolvedBlock::Paragraph),
@@ -92,8 +97,9 @@ impl BlockInput {
     }
 }
 
-fn resolve_component<C: Component>(component: C) -> Result<C::Resolved, String> {
-    futures_executor::block_on(component.resolve())
-        .map_err(|error| error.to_string())?
+pub(crate) fn resolve_component<C: Component>(
+    component: C,
+) -> Result<C::Resolved, ScopedEditError> {
+    futures_executor::block_on(component.resolve())?
         .ok_or_else(|| "declaration produced no content".into())
 }

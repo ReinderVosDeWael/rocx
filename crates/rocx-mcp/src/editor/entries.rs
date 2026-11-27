@@ -6,19 +6,21 @@ use rocx::editor::{
 };
 use serde_json::{Value, json};
 
-use super::{Snapshot, projected_run_text};
-use crate::schema::stories::StoryTextChange;
+use super::{ReadError, Snapshot, block_readback::inline_items, projected_run_text};
+use crate::{diagnostics::ScopedEditError, schema::stories::StoryTextChange};
+
+mod inlines;
 
 impl Snapshot {
     pub fn entry_page(
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         if limit == 0 {
             return Err("entry page limit must be positive".into());
         }
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+        let entries = self.document.entry_stories()?;
         let start = start.min(entries.len());
         let end = start.saturating_add(limit).min(entries.len());
         let page = entries[start..end]
@@ -30,24 +32,24 @@ impl Snapshot {
     }
 
     // Session must resolve only anchors issued for the caller's document.
-    pub fn edit_entry(&self, local: &str, edit: EntryEdit) -> Result<Vec<u8>, String> {
+    pub fn edit_entry(&self, local: &str, edit: EntryEdit) -> Result<Vec<u8>, ScopedEditError> {
         let index = entry_index(local).ok_or("unknown local entry anchor")?;
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+        let entries = self.document.entry_stories()?;
         let entry = entries
             .get(index)
             .filter(|entry| is_candidate(entry.kind, entry.note_type.as_deref(), &entry.id))
             .ok_or("unknown local entry anchor")?;
         self.document
             .edit_entry(&entry.part_name, &entry.id, edit)
-            .map_err(|e| e.to_string())
+            .map_err(ScopedEditError::from)
     }
 
     pub fn entry_run_page(
         &self,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
+        let entries = self.document.entry_stories()?;
         let mut owners = BTreeMap::new();
         for (index, entry) in entries.iter().enumerate() {
             owners.entry(entry.part_name.as_str()).or_insert(index);
@@ -98,24 +100,28 @@ impl Snapshot {
         &self,
         owner: &str,
         edits: Vec<StoryTextChange>,
-    ) -> Result<Vec<u8>, String> {
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+    ) -> Result<Vec<u8>, ScopedEditError> {
+        let entries = self.document.entry_stories()?;
         let owner = owner
             .strip_prefix("entry-run-owner:")
             .and_then(index_of)
             .and_then(|index| entries.get(index))
-            .ok_or("wrong_anchor_type: expected a physical entry owner")?;
+            .ok_or_else(|| {
+                ScopedEditError::WrongAnchorType("expected a physical entry owner".into())
+            })?;
         let mut native = Vec::with_capacity(edits.len());
         for edit in edits {
+            let wrong =
+                || ScopedEditError::WrongAnchorType("expected a direct entry run anchor".into());
             let mut coords = edit
                 .anchor
                 .strip_prefix("entry-run:")
-                .ok_or("wrong_anchor_type: expected a direct entry run anchor")?
+                .ok_or_else(wrong)?
                 .split(':');
             let (Some(entry), Some(block), Some(inline), None) =
                 (coords.next(), coords.next(), coords.next(), coords.next())
             else {
-                return Err("wrong_anchor_type: expected a direct entry run anchor".into());
+                return Err(wrong());
             };
             let entry = index_of(entry)
                 .and_then(|index| entries.get(index))
@@ -135,7 +141,7 @@ impl Snapshot {
         }
         self.document
             .edit_story_text(&owner.part_name, &native)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 }
 
@@ -177,6 +183,7 @@ fn entry_value(index: usize, entry: &ImportedEntry) -> Value {
                 json!({
                     "index": index, "type": "paragraph",
                     "text": text, "has_opaque_content": opaque,
+                    "inline_items": inline_items(items),
                 })
             }
             ImportedStoryBlock::Opaque(name) => {

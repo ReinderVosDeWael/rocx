@@ -1,38 +1,111 @@
 //! Translate the MCP editor subset into public rocx authoring and editor calls.
 use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rocx::editor::{
     BlockEdit, BodyBlock, CellAlignmentEdit, EditBatch, EditPreview, FieldEdit, HeaderAnchor,
     HeaderEditMode, HeaderImageEdit, ImportedDocument, ImportedInline, ImportedInlineNode,
-    ImportedRowChild, ImportedTableChild, InlineAnchor, InlineEdit, ParagraphAlignmentEdit,
-    ParagraphAnchor, ParagraphInsertion, ResourceEdit, RunTextEdit, SectionStoryKind, TableAnchor,
-    TableInsertion, TextInsertion, TextRangeEdit,
+    ImportedRowChild, ImportedTableChild, InlineAnchor, InlineEdit, PairedRangeEdit,
+    ParagraphAlignmentEdit, ParagraphAnchor, ParagraphInsertion, ResourceEdit, RunTextEdit,
+    SectionStoryKind, TableAnchor, TableInsertion, TextInsertion, TextRangeEdit,
 };
 use rocx::{
-    Alignment, BreakType, Component, Document, HeaderFooterType, ImageRun, Paragraph,
-    ResolvedTable, Section, Table, TableCell, TableRow, VerticalAlignment,
+    Alignment, BreakType, Component, Document, HeaderFooterType, Paragraph, ResolvedTable, Section,
+    Table, TableCell, TableRow, VerticalAlignment,
 };
 use serde_json::{Value, json};
 
-use crate::schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment};
+use crate::{
+    diagnostics::{ScopedEditError, ToolError},
+    schema::{CellAlignment, Edit, HeaderMode, ParagraphAlignment},
+};
 
+mod block_readback;
 mod blocks;
 mod body_inlines;
 mod body_tables;
+mod controls;
 mod entries;
 mod fields;
 mod layout;
 mod notes;
+mod numbering;
+mod paired_ranges;
 mod resources;
 mod revisions;
 mod run_format;
 mod stories;
+mod styles;
 mod tables;
+pub(crate) use body_inlines::InlineHandles;
+pub(crate) use tables::{PhysicalTableScope, PhysicalTableTarget};
+
+/// Inspection can fail in the native reader or in MCP readback projection.
+/// Only the former carries a native diagnostic.
+#[derive(Debug)]
+pub(crate) enum ReadError {
+    Native(rocx::Error),
+    Projection(String),
+}
+
+impl From<rocx::Error> for ReadError {
+    fn from(error: rocx::Error) -> Self {
+        Self::Native(error)
+    }
+}
+
+impl From<String> for ReadError {
+    fn from(message: String) -> Self {
+        Self::Projection(message)
+    }
+}
+
+impl From<&str> for ReadError {
+    fn from(message: &str) -> Self {
+        Self::Projection(message.into())
+    }
+}
+
+impl From<ReadError> for ToolError {
+    fn from(error: ReadError) -> Self {
+        match error {
+            ReadError::Native(error) => {
+                Self::native("inspection_failed", error, ToString::to_string)
+            }
+            ReadError::Projection(message) => format!("inspection_failed: {message}").into(),
+        }
+    }
+}
+
+/// For partial-success rows, preserve the existing message field separately.
+fn read_diagnostic(error: rocx::Error) -> Value {
+    let error = ToolError::from(ReadError::Native(error));
+    let mut response = error.response("");
+    if let Value::Object(fields) = &mut response {
+        fields.retain(|key, _| matches!(key.as_str(), "rule" | "path" | "detail"));
+    }
+    response
+}
+
+type CachedRead<T> = OnceLock<Result<T, Arc<rocx::Error>>>;
+
+fn cached_read<T>(
+    cache: &CachedRead<T>,
+    read: impl FnOnce() -> rocx::Result<T>,
+) -> rocx::Result<&T> {
+    cache
+        .get_or_init(|| read().map_err(Arc::new))
+        .as_ref()
+        .map_err(|error| rocx::Error::Shared(Arc::clone(error)))
+}
 
 pub struct Snapshot {
     document: ImportedDocument,
-    inspection: OnceLock<Result<Inspection, String>>,
+    body_inspection: OnceLock<Inspection>,
+    header_inspection: CachedRead<Inspection>,
+    story_controls: CachedRead<Vec<rocx::editor::ImportedControl>>,
+    styles: CachedRead<Option<rocx::editor::ImportedStyles>>,
+    numbering: CachedRead<rocx::editor::ImportedNumberingCatalog>,
 }
 
 enum Target {
@@ -58,40 +131,69 @@ impl Target {
 }
 
 struct Inspection {
-    body: Vec<Value>,
-    headers: Vec<Value>,
+    rows: Vec<Value>,
     anchors: BTreeMap<String, Target>,
 }
 
 impl Snapshot {
-    pub fn open(bytes: &[u8]) -> Result<Self, String> {
+    pub fn open(bytes: &[u8]) -> rocx::Result<Self> {
         Self::open_with_limits(bytes, rocx::opc::ReadLimits::default())
     }
 
-    pub fn open_with_limits(bytes: &[u8], limits: rocx::opc::ReadLimits) -> Result<Self, String> {
+    pub fn open_with_limits(bytes: &[u8], limits: rocx::opc::ReadLimits) -> rocx::Result<Self> {
         Ok(Self {
-            document: ImportedDocument::open_with_limits(bytes, limits)
-                .map_err(|e| e.to_string())?,
-            inspection: OnceLock::new(),
+            document: rocx::editor::mcp_bridge::open_with_word_depth_check(bytes, limits)?,
+            body_inspection: OnceLock::new(),
+            header_inspection: OnceLock::new(),
+            story_controls: OnceLock::new(),
+            styles: OnceLock::new(),
+            numbering: OnceLock::new(),
         })
     }
 
-    pub fn inspect(&self) -> Result<Value, String> {
-        let inspection = self
-            .inspection
-            .get_or_init(|| inspect(&self.document))
-            .as_ref()
-            .map_err(Clone::clone)?;
-        Ok(json!({"body": inspection.body, "headers": inspection.headers}))
+    pub fn inspect(&self) -> rocx::Result<Value> {
+        let headers = cached_read(&self.header_inspection, || inspect_headers(&self.document))?;
+        Ok(json!({"body": self.body_inspection().rows, "headers": headers.rows}))
+    }
+
+    pub fn inspect_body(&self) -> Value {
+        json!({"body": self.body_inspection().rows})
+    }
+
+    fn body_inspection(&self) -> &Inspection {
+        self.body_inspection
+            .get_or_init(|| inspect_body(&self.document))
     }
 
     fn issued_inspection(&self) -> Option<&Inspection> {
-        self.inspection.get()?.as_ref().ok()
+        self.body_inspection.get()
+    }
+
+    fn issued_target(&self, anchor: &str) -> Option<&Target> {
+        self.issued_inspection()
+            .and_then(|body| body.anchors.get(anchor))
+            .or_else(|| {
+                self.header_inspection
+                    .get()?
+                    .as_ref()
+                    .ok()?
+                    .anchors
+                    .get(anchor)
+            })
     }
 
     pub fn has_issued_anchor(&self, anchor: &str) -> bool {
-        self.issued_inspection()
-            .is_some_and(|inspection| inspection.anchors.contains_key(anchor))
+        self.issued_target(anchor).is_some()
+    }
+
+    pub fn compact_paragraph_anchor(&self, local: &str) -> Result<ParagraphAnchor, String> {
+        match self
+            .issued_inspection()
+            .and_then(|inspection| inspection.anchors.get(local))
+        {
+            Some(Target::Paragraph(anchor)) => Ok(anchor.clone()),
+            _ => Err("wrong_anchor_type: expected a compact body paragraph anchor".into()),
+        }
     }
 
     pub fn create(mut paragraphs: Vec<String>) -> Result<Vec<u8>, String> {
@@ -107,74 +209,18 @@ impl Snapshot {
             .map_err(|e| e.to_string())
     }
 
-    pub fn preview(&self, edits: Vec<Edit>) -> Result<(Vec<u8>, Value), String> {
-        if edits.is_empty() {
-            return Err("edits must not be empty".into());
-        }
-        let mut batch = Batch::default();
-        for (index, mut edit) in edits.into_iter().enumerate() {
-            let number = index + 1;
-            let locate = |e: String| {
-                if e.starts_with("wrong_anchor_type: ") {
-                    e
-                } else {
-                    format!("edit {number}: {e}")
-                }
-            };
-            if let Edit::Resource { edit } = edit {
-                batch.resources.push(edit.into());
-                continue;
-            }
-            if let Edit::Block { anchor, edit } = edit {
-                batch
-                    .blocks
-                    .push(self.block_edit(&anchor, edit).map_err(locate)?);
-                continue;
-            }
-            if let Edit::Field { anchor, edit } = edit {
-                batch
-                    .fields
-                    .push(self.field_edit(&anchor, edit).map_err(locate)?);
-                continue;
-            }
-            if let Edit::Inline { anchor, edit } = edit {
-                batch
-                    .inline_edits
-                    .push(self.body_inline_edit(&anchor, edit).map_err(locate)?);
-                continue;
-            }
-            if let Edit::TableStructure { anchor, edit } = edit {
-                batch
-                    .structural
-                    .push(self.body_table_edit(&anchor, edit).map_err(locate)?);
-                continue;
-            }
-            let header_image = matches!(edit, Edit::HeaderImage { .. });
-            let local = edit.anchor_slot().expect("anchored edit");
-            let story_target = header_image
-                .then(|| self.story_image_anchor(local).map(Target::Header))
-                .flatten();
-            let target = story_target
-                .as_ref()
-                .or_else(|| self.issued_inspection()?.anchors.get(local))
-                .ok_or_else(|| {
-                    if header_image && local.starts_with("story-") {
-                        format!("wrong_anchor_type: edit {number}: expected an existing story slot")
-                    } else {
-                        format!("edit {number}: unknown local anchor")
-                    }
-                })?;
-            if target.kind() != edit.target_kind() {
-                return Err(format!(
-                    "wrong_anchor_type: edit {number}: expected {}",
-                    edit.target_kind()
-                ));
-            }
-            batch
-                .push(edit, target)
-                .map_err(|e| format!("edit {number}: {e}"))?;
-        }
+    const BATCH_RETRY: &str = "revise the edits and retry";
 
+    fn batch_stage_error(error: String) -> ToolError {
+        if error.starts_with("wrong_anchor_type:") {
+            ToolError::from(error)
+        } else {
+            ToolError::from(format!("rejected_batch: {error}; {}", Self::BATCH_RETRY))
+        }
+    }
+
+    pub fn preview(&self, edits: Vec<Edit>) -> Result<(Vec<u8>, Value), ToolError> {
+        let batch = self.prepare_batch(edits)?;
         let preview = self
             .document
             .preview_edits(EditBatch {
@@ -191,27 +237,143 @@ impl Snapshot {
                 blocks: &batch.blocks,
                 fields: &batch.fields,
                 inline_edits: &batch.inline_edits,
+                paired_ranges: &batch.paired_ranges,
+                controls: &batch.controls,
+                styles: &batch.styles,
+                wrappers: &batch.wrappers,
                 structural: &batch.structural,
-                ..EditBatch::default()
             })
-            .map_err(|e| format!("preview: {e}"))?;
-        encode_preview(&preview)
+            .map_err(|error| {
+                ToolError::native("rejected_batch", error, |error| {
+                    format!("preview: {error}; {}", Self::BATCH_RETRY)
+                })
+            })?;
+        encode_preview(&preview).map_err(|error| {
+            ToolError::native("rejected_batch", error, |error| {
+                format!("{error}; {}", Self::BATCH_RETRY)
+            })
+        })
     }
 
-    pub fn preview_noop(&self) -> Result<(Vec<u8>, Value), String> {
-        let preview = self
-            .document
-            .preview_edits(EditBatch::default())
-            .map_err(|e| e.to_string())?;
+    fn prepare_batch(&self, edits: Vec<Edit>) -> Result<Batch, ToolError> {
+        if edits.is_empty() {
+            return Err(Self::batch_stage_error("edits must not be empty".into()));
+        }
+        let mut batch = Batch::default();
+        for (index, mut edit) in edits.into_iter().enumerate() {
+            let number = index + 1;
+            let locate = |e: String| {
+                Self::batch_stage_error(if e.starts_with("wrong_anchor_type: ") {
+                    e
+                } else {
+                    format!("edit {number}: {e}")
+                })
+            };
+            let locate_scoped = |error: ScopedEditError| match error {
+                ScopedEditError::WrongAnchorType(message) => {
+                    Self::batch_stage_error(format!("wrong_anchor_type: {message}"))
+                }
+                ScopedEditError::Rejected(message) => locate(message),
+                ScopedEditError::Native(error) => {
+                    ToolError::native("rejected_batch", error, |error| {
+                        format!("edit {number}: {error}; {}", Self::BATCH_RETRY)
+                    })
+                }
+            };
+            if let Edit::Resource { edit } = edit {
+                batch.resources.push(edit.into());
+                continue;
+            }
+            if let Edit::Numbering { edit } = edit {
+                batch.resources.push(
+                    edit.resolve(
+                        |local| self.compact_paragraph_anchor(local),
+                        |local| self.physical_numbering_anchor(local),
+                    )
+                    .map_err(locate)?,
+                );
+                continue;
+            }
+            if let Edit::Control { edit } = edit {
+                self.control_edit(edit, &mut batch).map_err(locate_scoped)?;
+                continue;
+            }
+            if let Edit::Style { edit } = edit {
+                batch.styles.push(self.style_edit(edit).map_err(locate)?);
+                continue;
+            }
+            if let Edit::Block { anchor, edit } = edit {
+                batch
+                    .blocks
+                    .push(self.block_edit(&anchor, edit).map_err(locate_scoped)?);
+                continue;
+            }
+            if let Edit::Field { anchor, edit } = edit {
+                batch
+                    .fields
+                    .push(self.field_edit(&anchor, edit).map_err(locate_scoped)?);
+                continue;
+            }
+            if let Edit::Inline { anchor, edit } = edit {
+                batch.inline_edits.push(
+                    self.body_inline_edit(&anchor, edit)
+                        .map_err(locate_scoped)?,
+                );
+                continue;
+            }
+            if let Edit::PairedRange {
+                id,
+                bookmark,
+                endpoints,
+            } = edit
+            {
+                batch.paired_ranges.push(
+                    self.paired_range_edit(id, bookmark, endpoints)
+                        .map_err(locate)?,
+                );
+                continue;
+            }
+            if let Edit::TableStructure { anchor, edit } = edit {
+                batch
+                    .structural
+                    .push(self.body_table_edit(&anchor, edit).map_err(locate_scoped)?);
+                continue;
+            }
+            let header_image = matches!(edit, Edit::HeaderImage { .. });
+            let local = edit.anchor_slot().expect("anchored edit");
+            let story_target = header_image
+                .then(|| self.story_image_anchor(local).map(Target::Header))
+                .flatten();
+            let target = story_target
+                .as_ref()
+                .or_else(|| self.issued_target(local))
+                .ok_or_else(|| {
+                    Self::batch_stage_error(if header_image && local.starts_with("story-") {
+                        format!("wrong_anchor_type: edit {number}: expected an existing story slot")
+                    } else {
+                        format!("edit {number}: unknown local anchor")
+                    })
+                })?;
+            if target.kind() != edit.target_kind() {
+                return Err(Self::batch_stage_error(format!(
+                    "wrong_anchor_type: edit {number}: expected {}",
+                    edit.target_kind()
+                )));
+            }
+            batch.push(edit, target).map_err(locate_scoped)?;
+        }
+
+        Ok(batch)
+    }
+
+    pub fn preview_noop(&self) -> rocx::Result<(Vec<u8>, Value)> {
+        let preview = self.document.preview_edits(EditBatch::default())?;
         encode_preview(&preview)
     }
 }
 
-fn encode_preview(preview: &EditPreview) -> Result<(Vec<u8>, Value), String> {
-    Ok((
-        preview.to_docx().map_err(|e| e.to_string())?,
-        report(preview),
-    ))
+fn encode_preview(preview: &EditPreview) -> rocx::Result<(Vec<u8>, Value)> {
+    Ok((preview.to_docx()?, report(preview)))
 }
 
 #[derive(Default)]
@@ -229,11 +391,15 @@ struct Batch {
     blocks: Vec<BlockEdit>,
     fields: Vec<FieldEdit>,
     inline_edits: Vec<InlineEdit>,
+    paired_ranges: Vec<PairedRangeEdit>,
+    controls: Vec<rocx::editor::ControlEdit>,
+    styles: Vec<rocx::editor::StyleEdit>,
+    wrappers: Vec<rocx::editor::WrapperEdit>,
     structural: Vec<rocx::editor::TableStructureEdit>,
 }
 
 impl Batch {
-    fn push(&mut self, edit: Edit, target: &Target) -> Result<(), String> {
+    fn push(&mut self, edit: Edit, target: &Target) -> Result<(), ScopedEditError> {
         match (edit, target) {
             (Edit::Alignment { alignment, .. }, Target::Paragraph(target)) => {
                 self.alignments.push(ParagraphAlignmentEdit {
@@ -305,14 +471,16 @@ impl Batch {
                     alignment: alignment.into(),
                 });
             }
-            (Edit::HeaderImage { mode, bytes, .. }, Target::Header(target)) => {
+            (
+                Edit::HeaderImage {
+                    mode, bytes, image, ..
+                },
+                Target::Header(target),
+            ) => {
                 self.header_images.push(HeaderImageEdit {
                     target: target.clone(),
                     mode: mode.into(),
-                    image: resolve(ImageRun::new(bytes))?
-                        .image()
-                        .ok_or("expected image")?
-                        .clone(),
+                    image: stories::resolve_story_image(bytes, image.map(|image| *image))?,
                 });
             }
             _ => unreachable!("target kind validated before adding edit"),
@@ -357,13 +525,11 @@ impl From<HeaderMode> for HeaderEditMode {
     }
 }
 
-fn resolve<C: Component>(value: C) -> Result<C::Resolved, String> {
-    futures_executor::block_on(value.resolve())
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "declaration produced no content".into())
+fn resolve<C: Component>(value: C) -> Result<C::Resolved, ScopedEditError> {
+    crate::schema::payloads::resolve_component(value)
 }
 
-fn resolve_table(rows: Vec<Vec<String>>) -> Result<ResolvedTable, String> {
+fn resolve_table(rows: Vec<Vec<String>>) -> Result<ResolvedTable, ScopedEditError> {
     let width = rows.first().map_or(0, Vec::len);
     if width == 0 || rows.iter().any(|row| row.len() != width) {
         return Err("rows must form a nonempty rectangular table".into());
@@ -453,7 +619,7 @@ fn scalar_length(inlines: &[ImportedInlineNode]) -> Option<usize> {
     })
 }
 
-fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
+fn inspect_body(document: &ImportedDocument) -> Inspection {
     let mut anchors = BTreeMap::new();
     let body = document
         .body()
@@ -486,12 +652,14 @@ fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
                         Some(value)
                     })
                     .collect();
-                json!({
+                let mut value = json!({
                     "type": "paragraph", "index": index, "anchor": anchor,
                     "text": paragraph.text, "alignment_xml": paragraph.alignment_xml,
                     "has_opaque_content": paragraph.has_opaque_content, "runs": runs,
                     "scalar_length": scalar_length(&paragraph.inline_structure),
-                })
+                });
+                block_readback::paragraph_fields(paragraph, &mut value);
+                value
             }
             BodyBlock::Table(table) => {
                 let mut cells = Vec::new();
@@ -532,7 +700,15 @@ fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
         })
         .collect();
 
-    let stories = document.stories().map_err(|e| e.to_string())?;
+    Inspection {
+        rows: body,
+        anchors,
+    }
+}
+
+fn inspect_headers(document: &ImportedDocument) -> rocx::Result<Inspection> {
+    let mut anchors = BTreeMap::new();
+    let stories = document.stories()?;
     let mut uses = BTreeMap::new();
     // Count even-header aliases too: shared edits can affect those slots even
     // though the current MCP subset does not issue anchors for them.
@@ -563,8 +739,7 @@ fn inspect(document: &ImportedDocument) -> Result<Inspection, String> {
         })
         .collect();
     Ok(Inspection {
-        body,
-        headers,
+        rows: headers,
         anchors,
     })
 }
@@ -639,7 +814,7 @@ mod tests {
                 ])
                 .into(),
                 table("existing").into(),
-                Paragraph::from_children(vec![ImageRun::new(IMAGE.to_vec()).into()]).into(),
+                Paragraph::from_children(vec![rocx::ImageRun::new(IMAGE.to_vec()).into()]).into(),
             ])
             .into(),
         ]);
@@ -664,6 +839,7 @@ mod tests {
             snapshot
                 .preview(vec![alignment(), alignment()])
                 .unwrap_err()
+                .message
                 .contains("multiple alignment edits")
         );
         for invalid in [
@@ -686,7 +862,8 @@ mod tests {
                     anchor: anchor(first),
                 }])
                 .unwrap_err()
-                .starts_with("wrong_anchor_type: ")
+                .category
+                == "wrong_anchor_type"
         );
 
         let (bytes, changes) = snapshot
@@ -912,7 +1089,7 @@ mod tests {
                 },
             ])
             .unwrap_err();
-        assert!(err.contains("outside fields and ranges"), "{err}");
+        assert!(err.message.contains("outside fields and ranges"), "{err:?}");
         assert_eq!(snapshot.inspect().unwrap(), inspection);
         let (retry, _) = snapshot.preview(vec![safe_edit()]).unwrap();
         let output = open(&retry).inspect().unwrap();
@@ -961,7 +1138,8 @@ mod tests {
                 .preview(vec![Edit::HeaderImage {
                     anchor: anchor(&inherited["anchor"]),
                     mode,
-                    bytes: IMAGE.to_vec(),
+                    bytes: Some(IMAGE.to_vec()),
+                    image: None,
                 }])
                 .unwrap();
             let change = &changes["header_images"][0];

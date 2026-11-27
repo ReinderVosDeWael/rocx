@@ -5,6 +5,15 @@ use serde::Deserialize;
 const MIN_I32: i32 = i32::MIN;
 const MAX_I32: i32 = i32::MAX;
 
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum LayoutScope {
+    #[default]
+    All,
+    Paragraphs,
+    Sections,
+}
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct LayoutChange {

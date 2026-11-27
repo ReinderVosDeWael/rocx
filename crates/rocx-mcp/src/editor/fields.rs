@@ -1,10 +1,16 @@
-use rocx::editor::{BodyBlock, FieldEdit, ImportedField, ImportedInline, ImportedInlineNode};
+use rocx::editor::{
+    BodyBlock, FieldEdit, ImportedField, ImportedInline, ImportedInlineNode, ParagraphAnchor,
+};
 use serde_json::{Value, json};
 
-use super::Snapshot;
-use crate::schema::fields::FieldChange;
+use super::{Snapshot, read_diagnostic};
+use crate::{diagnostics::ScopedEditError, schema::fields::FieldChange};
 
 impl Snapshot {
+    pub fn field_at(&self, anchor: &ParagraphAnchor, inline_index: usize) -> rocx::Result<Value> {
+        Ok(field_value(self.document.field_at(anchor, inline_index)?))
+    }
+
     pub fn field_page(
         &self,
         start: usize,
@@ -70,20 +76,20 @@ impl Snapshot {
     }
 
     // Session checks that the local anchor was issued by the fields view.
-    pub fn field_edit(&self, local: &str, edit: FieldChange) -> Result<FieldEdit, String> {
+    pub fn field_edit(&self, local: &str, edit: FieldChange) -> Result<FieldEdit, ScopedEditError> {
+        let wrong_anchor =
+            || ScopedEditError::WrongAnchorType("use an anchor from the fields view".into());
         let (body_index, inline_index) = local
             .strip_prefix("field:")
             .and_then(|address| address.split_once(':'))
             .and_then(|(body, inline)| Some((body.parse::<usize>().ok()?, inline.parse().ok()?)))
-            .ok_or("wrong_anchor_type: use an anchor from the fields view")?;
+            .ok_or_else(wrong_anchor)?;
         let Some(BodyBlock::Paragraph(paragraph)) = self.document.body().get(body_index) else {
-            return Err("wrong_anchor_type: use an anchor from the fields view".into());
+            return Err(wrong_anchor());
         };
         // Recheck recognizability, including read-only rows. The ordinary
         // native batch still checks overlap and action-specific restrictions.
-        self.document
-            .field_at(&paragraph.anchor, inline_index)
-            .map_err(|error| error.to_string())?;
+        self.document.field_at(&paragraph.anchor, inline_index)?;
         Ok(FieldEdit {
             target: paragraph.anchor.clone(),
             inline_index,
@@ -95,17 +101,14 @@ impl Snapshot {
 fn field_row(body_index: usize, inline_index: usize, field: rocx::Result<ImportedField>) -> Value {
     let anchor = format!("field:{body_index}:{inline_index}");
     match field {
-        Ok(field) => json!({
-            "anchor": anchor,
-            "body_index": body_index,
-            "inline_index": inline_index,
-            "editable": true,
-            "complex": field.complex,
-            "instruction": field.instruction,
-            "dirty_xml": field.dirty_xml,
-            "locked_xml": field.locked_xml,
-            "inline_count": field.inline_count,
-        }),
+        Ok(field) => {
+            let mut value = field_value(field);
+            value["anchor"] = json!(anchor);
+            value["body_index"] = json!(body_index);
+            value["inline_index"] = json!(inline_index);
+            value["editable"] = json!(true);
+            value
+        }
         Err(error) => json!({
             "anchor": anchor,
             "body_index": body_index,
@@ -113,6 +116,17 @@ fn field_row(body_index: usize, inline_index: usize, field: rocx::Result<Importe
             "editable": false,
             "complex": false,
             "reason": error.to_string(),
+            "diagnostic": read_diagnostic(error),
         }),
     }
+}
+
+fn field_value(field: ImportedField) -> Value {
+    json!({
+        "complex": field.complex,
+        "instruction": field.instruction,
+        "dirty_xml": field.dirty_xml,
+        "locked_xml": field.locked_xml,
+        "inline_count": field.inline_count,
+    })
 }

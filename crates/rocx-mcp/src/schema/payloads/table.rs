@@ -1,12 +1,21 @@
+use std::fmt;
+
 use rmcp::schemars::{self, JsonSchema};
 use rocx::{
     BorderLine, BorderSide, CellBorder, CellBorderSide, CellMargins, CellTextDirection,
-    ResolvedTable, RowHeight, Table, TableAlignment, TableBorder, TableCell, TableCellProperties,
-    TableLayout, TableLook, TableProperties, TableRow, TableRowProperties, Value, VerticalMerge,
+    ResolvedBlock, ResolvedTable, RowHeight, Table, TableAlignment, TableBorder, TableCell,
+    TableCellProperties, TableLayout, TableLook, TableProperties, TableRow, TableRowProperties,
+    Value, VerticalMerge,
 };
-use serde::Deserialize;
+use serde::{
+    Deserialize, Deserializer,
+    de::{
+        DeserializeSeed, Error, IntoDeserializer, MapAccess, Visitor, value::MapAccessDeserializer,
+    },
+};
 
-use super::{BlockInput, resolve_component};
+use super::{BlockInput, ParagraphInput, resolve_component};
+use crate::diagnostics::ScopedEditError;
 use crate::schema::CellAlignment;
 
 macro_rules! choices {
@@ -146,35 +155,144 @@ struct Margins {
     end: Option<f64>,
 }
 
+#[derive(JsonSchema)]
+#[schemars(untagged)]
+pub(crate) enum RichTableInput {
+    Nested(TableInput<BlockInput>),
+    Flat(FlatTableInput),
+}
+
+impl<'de> Deserialize<'de> for RichTableInput {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct TableVisitor;
+
+        impl<'de> Visitor<'de> for TableVisitor {
+            type Value = RichTableInput;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a rich table object with rows or nodes")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let first: String = map
+                    .next_key()?
+                    .ok_or_else(|| A::Error::missing_field("rows"))?;
+                let flat = match first.as_str() {
+                    "nodes" => true,
+                    "rows" | "properties" => false,
+                    _ => {
+                        return Err(A::Error::unknown_field(
+                            &first,
+                            &["rows", "properties", "nodes"],
+                        ));
+                    }
+                };
+                let input = MapAccessDeserializer::new(ReplayKey {
+                    first: Some(first),
+                    map,
+                });
+                if flat {
+                    FlatTableInput::deserialize(input).map(RichTableInput::Flat)
+                } else {
+                    TableInput::deserialize(input).map(RichTableInput::Nested)
+                }
+            }
+        }
+
+        deserializer.deserialize_map(TableVisitor)
+    }
+}
+
+// Replay the shape key into the selected struct, streaming all values through
+// its usual deserializer (including duplicate and unknown field checks).
+struct ReplayKey<A> {
+    first: Option<String>,
+    map: A,
+}
+
+impl<'de, A: MapAccess<'de>> MapAccess<'de> for ReplayKey<A> {
+    type Error = A::Error;
+
+    fn next_key_seed<K: DeserializeSeed<'de>>(
+        &mut self,
+        seed: K,
+    ) -> Result<Option<K::Value>, Self::Error> {
+        match self.first.take() {
+            Some(key) => seed.deserialize(key.into_deserializer()).map(Some),
+            None => self.map.next_key_seed(seed),
+        }
+    }
+
+    fn next_value_seed<V: DeserializeSeed<'de>>(
+        &mut self,
+        seed: V,
+    ) -> Result<V::Value, Self::Error> {
+        self.map.next_value_seed(seed)
+    }
+}
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RichTableInput {
+pub(crate) struct TableInput<B> {
     #[schemars(length(min = 1))]
-    rows: Vec<RowInput>,
+    rows: Vec<RowInput<B>>,
     properties: Option<TableInputProperties>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct RowInput {
-    #[schemars(length(min = 1))]
-    cells: Vec<CellInput>,
+struct RowInput<B> {
+    /// An empty row is padded to the grid established by the other rows.
+    cells: Vec<CellInput<B>>,
     properties: Option<RowProperties>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct CellInput {
-    blocks: Vec<BlockInput>,
+struct CellInput<B> {
+    blocks: Vec<B>,
     properties: Option<CellProperties>,
 }
 
+#[derive(Clone, Copy)]
+enum TableUse {
+    Fragment,
+    PropertyDonor,
+}
+
 impl RichTableInput {
-    pub(crate) fn resolve(self) -> Result<ResolvedTable, String> {
-        if self.rows.is_empty() || self.rows.iter().any(|row| row.cells.is_empty()) {
-            return Err(
-                "a rich table requires at least one row and at least one cell per row".into(),
-            );
+    pub(crate) fn resolve(self) -> Result<ResolvedTable, ScopedEditError> {
+        self.resolve_for(TableUse::Fragment)
+    }
+
+    pub(crate) fn resolve_donor(self) -> Result<ResolvedTable, ScopedEditError> {
+        self.resolve_for(TableUse::PropertyDonor)
+    }
+
+    fn resolve_for(self, usage: TableUse) -> Result<ResolvedTable, ScopedEditError> {
+        match self {
+            Self::Nested(table) => table.resolve(usage, BlockInput::resolve),
+            Self::Flat(tree) => tree.resolve(usage),
+        }
+    }
+}
+
+impl<B> TableInput<B> {
+    fn resolve(
+        self,
+        usage: TableUse,
+        mut resolve_block: impl FnMut(B) -> Result<ResolvedBlock, ScopedEditError>,
+    ) -> Result<ResolvedTable, ScopedEditError> {
+        match usage {
+            TableUse::Fragment if self.rows.iter().all(|row| row.cells.is_empty()) => {
+                return Err("a rich table requires at least one row with cells".into());
+            }
+            // A property copy consumes formatting rather than rendering the
+            // source, so it can use a donor row with no cells.
+            TableUse::PropertyDonor if self.rows.is_empty() => {
+                return Err("a rich table property donor requires at least one row".into());
+            }
+            _ => {}
         }
         let rows: Vec<Value<TableRow>> = self
             .rows
@@ -187,7 +305,7 @@ impl RichTableInput {
                         let blocks = cell
                             .blocks
                             .into_iter()
-                            .map(|block| block.resolve().map(Into::into))
+                            .map(|block| resolve_block(block).map(Into::into))
                             .collect::<Result<_, _>>()?;
                         let p = cell.properties.unwrap_or_default();
                         Ok(TableCell::new(blocks)
@@ -208,7 +326,7 @@ impl RichTableInput {
                             })
                             .into())
                     })
-                    .collect::<Result<_, String>>()?;
+                    .collect::<Result<_, ScopedEditError>>()?;
                 let p = row.properties.unwrap_or_default();
                 Ok(TableRow::new(cells)
                     .with_properties(TableRowProperties {
@@ -222,8 +340,230 @@ impl RichTableInput {
                     })
                     .into())
             })
-            .collect::<Result<_, String>>()?;
+            .collect::<Result<_, ScopedEditError>>()?;
         let props = TableProperties::from(self.properties.unwrap_or_default());
         resolve_component(Table::new(rows).with_properties(props))
+    }
+}
+
+const MAX_TABLE_NODES: usize = 1024;
+const MAX_TABLE_ENTRIES: usize = 16384;
+// Each grid column adds one XML element. Reserve at most ~6.6% of the
+// native 1,000,000-node per-part import budget for a declaration's grids.
+// This is not a guarantee that the edited part, including existing content,
+// will fit the native import budget.
+const MAX_GRID_COLUMNS: usize = 65536;
+const MAX_RENDERED_CELLS: usize = 16384;
+// A table level consumes three XML elements (tbl/tr/tc). A header can
+// reopen 84 levels with an empty terminal cell under the native XML depth
+// limit; body scope and rich descendants consume additional XML depth.
+const MAX_TABLE_DEPTH: usize = 84;
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FlatTableInput {
+    /// Node 0 is the whole table. Every later node is referenced exactly once
+    /// from an earlier node's cell, at its position in the blocks array.
+    /// Limited to 84 table levels, 16,384 row/cell/block entries, 65,536
+    /// emitted grid columns, and 16,384 emitted cells including padding, in
+    /// aggregate across the declaration. Native XML depth limits still apply.
+    #[schemars(length(min = 1, max = MAX_TABLE_NODES))]
+    nodes: Vec<TableInput<FlatBlock>>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum FlatBlock {
+    Paragraph {
+        paragraph: ParagraphInput,
+    },
+    Table {
+        /// Nonempty rectangular array of plain-text cells.
+        #[schemars(length(min = 1))]
+        rows: Vec<Vec<String>>,
+        /// Grid widths in twips, one per column.
+        column_widths: Option<Vec<u32>>,
+    },
+    TableRef {
+        /// Zero-based index in nodes, strictly after the referencing node.
+        node: usize,
+    },
+}
+
+impl FlatTableInput {
+    fn validate(&self) -> Result<(), String> {
+        if !(1..=MAX_TABLE_NODES).contains(&self.nodes.len()) {
+            return Err(format!(
+                "flat rich table requires 1 to {MAX_TABLE_NODES} nodes"
+            ));
+        }
+        let mut depths = vec![None; self.nodes.len()];
+        depths[0] = Some(1);
+        let mut entries = 0;
+        for (index, table) in self.nodes.iter().enumerate() {
+            let depth = depths[index]
+                .ok_or_else(|| format!("unreferenced flat rich table node {index}"))?;
+            count_entries(&mut entries, table.rows.len())?;
+            for row in &table.rows {
+                count_entries(&mut entries, row.cells.len())?;
+                for cell in &row.cells {
+                    count_entries(&mut entries, cell.blocks.len())?;
+                    for block in &cell.blocks {
+                        match block {
+                            FlatBlock::TableRef { node } => {
+                                if *node >= self.nodes.len() {
+                                    return Err(format!(
+                                        "flat rich table node {index} references out-of-bounds node {node}"
+                                    ));
+                                }
+                                if *node <= index {
+                                    return Err(format!(
+                                        "flat rich table node {index} must reference a later node, got {node}"
+                                    ));
+                                }
+                                if depths[*node].is_some() {
+                                    return Err(format!(
+                                        "flat rich table node {node} is referenced more than once"
+                                    ));
+                                }
+                                depths[*node] = Some(child_depth(depth)?);
+                            }
+                            FlatBlock::Table { rows, .. } => {
+                                child_depth(depth)?;
+                                count_entries(&mut entries, rows.len())?;
+                                for row in rows {
+                                    count_entries(&mut entries, row.len())?;
+                                }
+                            }
+                            FlatBlock::Paragraph { .. } => {}
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn resolve(self, root_use: TableUse) -> Result<ResolvedTable, ScopedEditError> {
+        self.validate()?;
+        let mut resolved: Vec<Option<ResolvedTable>> =
+            (0..self.nodes.len()).map(|_| None).collect();
+        let mut render_budget = RenderBudget::default();
+        for (index, node) in self.nodes.into_iter().enumerate().rev() {
+            let usage = if index == 0 {
+                root_use
+            } else {
+                TableUse::Fragment
+            };
+            let table = node.resolve(usage, |block| match block {
+                FlatBlock::Paragraph { paragraph } => BlockInput::Paragraph { paragraph }.resolve(),
+                FlatBlock::Table {
+                    rows,
+                    column_widths,
+                } => {
+                    let block = BlockInput::Table {
+                        rows,
+                        column_widths,
+                    }
+                    .resolve()?;
+                    if let ResolvedBlock::Table(table) = &block {
+                        render_budget.count(table)?;
+                    }
+                    Ok(block)
+                }
+                FlatBlock::TableRef { node } => Ok(ResolvedBlock::Table(
+                    resolved[node]
+                        .take()
+                        .expect("validated single forward reference"),
+                )),
+            })?;
+            render_budget.count(&table)?;
+            resolved[index] = Some(table);
+        }
+        Ok(resolved[0].take().expect("validated nonempty table tree"))
+    }
+}
+
+fn child_depth(depth: usize) -> Result<usize, String> {
+    if depth >= MAX_TABLE_DEPTH {
+        Err(format!("flat rich table exceeds depth {MAX_TABLE_DEPTH}"))
+    } else {
+        Ok(depth + 1)
+    }
+}
+
+fn count_entries(total: &mut usize, count: usize) -> Result<(), String> {
+    *total = total.saturating_add(count);
+    if *total > MAX_TABLE_ENTRIES {
+        return Err(format!(
+            "flat rich table exceeds {MAX_TABLE_ENTRIES} row, cell and block entries"
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct RenderBudget {
+    grid_columns: usize,
+    cells: usize,
+}
+
+impl RenderBudget {
+    fn count(&mut self, table: &ResolvedTable) -> Result<(), String> {
+        self.grid_columns += table.columns();
+        if self.grid_columns > MAX_GRID_COLUMNS {
+            return Err(format!(
+                "flat rich table exceeds {MAX_GRID_COLUMNS} emitted grid columns"
+            ));
+        }
+        for row in table.rows() {
+            // Mirror the writer: a spanning cell emits one w:tc, and only
+            // uncovered columns at the end of a row get padding cells.
+            // Native resolution guarantees the spans sum to at most columns.
+            let covered: usize = row
+                .cells()
+                .iter()
+                .map(|cell| cell.grid_span() as usize)
+                .sum();
+            self.cells += row.cells().len() + (table.columns() - covered);
+            if self.cells > MAX_RENDERED_CELLS {
+                return Err(format!(
+                    "flat rich table exceeds {MAX_RENDERED_CELLS} emitted cells"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn nested_table(block: Value) -> Value {
+        json!({"rows": [{"cells": [{"blocks": [block]}]}]})
+    }
+
+    #[test]
+    fn recursive_table_syntax_keeps_the_json_parser_boundary() {
+        // Seventeen enclosing table levels add seven JSON containers each.
+        // The leaf table adds six, plus two for the plain block and its rows.
+        for (rows, expected_ok) in [(json!([]), true), (json!([["cell"]]), false)] {
+            let mut table = nested_table(json!({"kind": "table", "rows": rows}));
+            for _ in 0..17 {
+                table = nested_table(json!({"kind": "rich-table", "table": table}));
+            }
+            match serde_json::from_str::<RichTableInput>(&table.to_string()) {
+                Ok(_) => assert!(expected_ok, "accepted 128 JSON containers"),
+                Err(error) => {
+                    assert!(!expected_ok, "rejected 127 JSON containers: {error}");
+                    assert!(
+                        error.to_string().contains("recursion limit exceeded"),
+                        "{error}"
+                    );
+                }
+            }
+        }
     }
 }

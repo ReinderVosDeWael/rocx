@@ -11,7 +11,7 @@ from lxml import etree
 import pytest
 
 from test_stdio import (  # noqa: F401 (import shared pytest fixtures)
-    anyio_backend, call, digest, executable, failure, launch, parts, validate,
+    anyio_backend, assert_tool_failure, call, digest, executable, failure, launch, parts, validate,
 )
 
 pytestmark = pytest.mark.anyio
@@ -35,8 +35,8 @@ PARAGRAPH = {"insert-paragraph-before", "delete-paragraph"}
 BASE = ["Source", *TAIL]
 
 
-def element(name, **attributes):
-    node = OxmlElement(f"w:{name}")
+def element(tag, **attributes):
+    node = OxmlElement(f"w:{tag}")
     for key, value in attributes.items():
         node.set(qn(f"w:{key}"), value)
     return node
@@ -54,16 +54,45 @@ def make_revision_source(path, rich=False):
         wrapper = element("ins", id="005", author="Café")
         child = element("r")
         wrapper.append(child)
+        properties = element("rPr")
+        properties.extend([element("i"), element("strike", val="0"), element("vanish")])
+        child.append(properties)
         leaf = element("t")
         leaf.text = "Pending"
         child.append(leaf)
+        child.append(element("tab"))
+        child.append(element("cr"))
+        child.append(element("br"))
+        child.append(element("br", type="page"))
+        child.append(element("br", type="column"))
+        child.append(element("footnoteReference", id="007"))
+        child.append(element("endnoteReference", id="+0007"))
         child.append(element("sym", font="Symbol", char="F041"))
+        inner_link = element("hyperlink", anchor="LocalMark", tooltip="Revision link", history="0")
+        inner_link.append(target.add_run("Linked child")._r)
+        wrapper.append(inner_link)
+        wrapper.append(element("bookmarkStart", id="42", name="LocalMark"))
+        math = OxmlElement("m:oMath")
+        fraction = OxmlElement("m:f")
+        math.append(fraction)
+        for tag, value in (("num", "3"), ("den", "7")):
+            operand, run, text = (OxmlElement(f"m:{name}") for name in (tag, "r", "t"))
+            text.text = value
+            run.append(text)
+            operand.append(run)
+            fraction.append(operand)
+        wrapper.append(math)
         target._p.append(wrapper)
         link = element("hyperlink", anchor="NotResolved")
         nested = element("del", id="006", author="Someone", date=DATE)
         link.append(nested)
         child = element("r")
         nested.append(child)
+        props = element("rPr")
+        changed = element("rPrChange", id="008", author="Style editor")
+        changed.append(element("rPr"))
+        props.append(changed)
+        child.append(props)
         leaf = element("delText")
         leaf.text = "Nested"
         child.append(leaf)
@@ -155,10 +184,9 @@ def assert_move_markup(root, rows):
     assert len(ids) == 4
 
 
-def assert_native_metadata(rows, source):
+def assert_native_revisions(rows, source):
     native = json.loads(oracle(source.with_suffix(".native.json"), "inspect", source))
-    fields = ("body_index", "inline_path", "kind", "id", "author", "date")
-    assert [{field: row[field] for field in fields} for row in rows] == native
+    assert [{key: value for key, value in row.items() if key != "anchor"} for row in rows] == native
 
 
 @pytest.mark.parametrize("kind", list(PROPOSALS))
@@ -181,7 +209,7 @@ async def test_revision_native_proposal_and_both_dispositions(launch, tmp_path, 
         assert source.read_bytes() == original
         proposed = await opened(client, proposal)
         rows = (await revision_page(client, proposed))["revisions"]
-        assert_native_metadata(rows, proposal)
+        assert_native_revisions(rows, proposal)
         assert rows and all(row["author"] == AUTHOR and row["date"] == edit.get("date")
                             for row in rows)
         assert len({row["id"] for row in rows}) == len(rows)
@@ -286,21 +314,52 @@ async def test_revision_view_paging_read_only_and_opaque(launch, tmp_path):
         cursor = first["next_cursor"]
         direct, = first["revisions"]
         assert direct["inline_path"] == [1] and direct["id"] == "005" and direct["date"] is None
-        child, = direct["children"]
-        assert child["has_opaque_content"] and child["text"] == "Pending"
-        assert child["items"] == [dict(type="text", text="Pending"), dict(type="opaque", name="w:sym")]
-        rest = await revision_page(client, document, limit=1, cursor=cursor)
-        nested, = rest["revisions"]
+        child, link, marker, fraction = direct["children"]
+        assert child["has_opaque_content"] and child["text"] == "Pending\t\n\n"
+        assert child["items"] == [
+            dict(type="text", text="Pending"), dict(type="tab"), dict(type="break", kind="Line"),
+            dict(type="break", kind="TextWrapping"), dict(type="break", kind="Page"),
+            dict(type="break", kind="Column"), dict(type="note-reference", kind="Footnote", id="007"),
+            dict(type="note-reference", kind="Endnote", id="+0007"),
+            dict(type="opaque", name="w:sym"),
+        ]
+        assert link["children"][0]["text"] == "Linked child"
+        assert marker == dict(type="opaque", name="w:bookmarkStart", inline_index=2)
+        assert fraction == dict(type="fraction", numerator="3", denominator="7", inline_index=3)
+        rest = await revision_page(client, document, limit=2, cursor=cursor)
+        nested, property_change = rest["revisions"]
         assert rest["next_cursor"] is None and "anchor" not in nested
         assert nested["inline_path"] == [2, 0] and nested["id"] == "006"
         assert nested["children"][0]["text"] == "Nested"
-        assert (await revision_page(client, document))["revisions"] == [direct, nested]
+        assert (property_change["inline_path"], property_change["id"], property_change["run"]["text"]) == (
+            [2, 0, 0], "008", "Nested",
+        )
+        assert "anchor" not in property_change
+        rows = (await revision_page(client, document))["revisions"]
+        assert rows == [direct, nested, property_change]
+        assert_native_revisions(rows, source)
+        # The revision list is a summary. Read the same child's direct
+        # properties through its typed body inline handle, not an edit anchor.
+        body = await call(client, "inspect_document", document=document, view=dict(kind="body-inlines"))
+        (wrapper,) = [row for row in body["body_inlines"] if row.get("id") == "005"]
+        run, link, _, _ = wrapper["children"]
+        for row, expected in [
+            (run, dict(italic=True, strike=False, hidden=True)),
+            (link, dict(bookmark="LocalMark", tooltip="Revision link", history_xml="0")),
+        ]:
+            lookup = await call(client, "inspect_document", document=document,
+                                view=dict(kind="inline-at", inline_handle=row["inline_handle"]))
+            assert {key: lookup["inline"][key] for key in expected} == expected
         await failure(client, "inspect_document", "wrong_owner", document=other,
                       view=dict(kind="revisions", cursor=cursor))
         await failure(client, "inspect_document", "invalid_cursor", document=document,
                       view=dict(kind="entries", cursor=cursor))
-        await failure(client, "preview_edits", "rejected_batch", document=document,
-                      operation=operation(direct["anchor"], dict(kind="review", action="accept")))
+        result = await client.call_tool("preview_edits", dict(
+            document=document, operation=operation(direct["anchor"], dict(kind="review", action="accept")),
+        ))
+        assert_tool_failure(result, "rejected_batch")
+        error = oracle(tmp_path / "native-error.txt", "opaque-review", source).decode()
+        assert result.structuredContent["message"] == f"{error}; revise the operation and retry"
         await failure(client, "preview_edits", "wrong_anchor_type", document=document,
                       edits=[dict(kind="run-remove", anchor=direct["anchor"])])
 

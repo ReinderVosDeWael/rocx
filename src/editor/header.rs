@@ -318,6 +318,52 @@ impl ImportedDocument {
             .collect())
     }
 
+    #[cfg(feature = "mcp-bridge")]
+    pub(super) fn story_section_count(&self) -> Result<usize> {
+        let root = self.package.word(&self.main)?;
+        Ok(section_slots(&root)?.len())
+    }
+
+    /// Linkable parts of one kind, optionally including effective references.
+    #[cfg(feature = "mcp-bridge")]
+    pub(super) fn linkable_story_parts(
+        &self,
+        kind: SectionStoryKind,
+        include_referenced: bool,
+    ) -> Result<Vec<String>> {
+        let mut seen = std::collections::BTreeSet::new();
+        if !include_referenced {
+            let root = self.package.word(&self.main)?;
+            let slots = section_slots(&root)?;
+            let sections = story_sections(&self.package, &self.main, &slots, kind)?;
+            seen.extend(sections.into_iter().flat_map(|section| {
+                section
+                    .effective
+                    .into_iter()
+                    .flatten()
+                    .map(|reference| reference.part)
+            }));
+        }
+        let mut parts = Vec::new();
+        for (id, _) in self.package.relationships(&self.main, kind.as_str())? {
+            // Native Link stops as soon as its target is found. A bad unused
+            // relationship prevents links to later targets, not earlier ones.
+            let Ok(related) = self.package.related(&self.main, &format!("#{id}")) else {
+                break;
+            };
+            if let Some((_, part)) = related
+                && seen.insert(part.clone())
+                && valid_story_part(&self.package, kind, &part).unwrap_or(false)
+            {
+                parts.push(part);
+            }
+        }
+        if !include_referenced {
+            parts.sort_unstable();
+        }
+        Ok(parts)
+    }
+
     fn inspect_stories(
         &self,
         selection: &[(SectionStoryKind, &[HeaderFooterType])],
@@ -450,6 +496,14 @@ impl ImportedDocument {
         }
         Ok(HeaderBatch { sections, targets })
     }
+}
+
+fn valid_story_part(package: &Package, kind: SectionStoryKind, part: &str) -> Result<bool> {
+    let (_, root, mime) = kind.part_type();
+    Ok(
+        package.content_type_for(part)?.as_deref() == Some(mime)
+            && package.word(part)?.name == root,
+    )
 }
 
 fn header_source(sections: &[SectionStoryRefs], index: usize, variant: usize) -> Result<&StoryRef> {

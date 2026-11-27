@@ -32,6 +32,13 @@ list of unverified reachable symbols are separate. When Rust changes:
 The acceptance scope, sequencing and closure gate are in the
 [parity plan](../../docs/MCP-EDITOR-PARITY.md). The inventory is development
 metadata; live clients should use MCP tool discovery for supported inputs.
+At closure, use `python3 tools/check_mcp_parity.py --require-complete`.
+Without the flag the validator accepts explicitly recorded gaps so that
+incremental changes can pass CI. An `excluded` row requires both a reason
+and a link to a scope decision on #72; it is not the same as `covered`.
+Use `groups` when several reachable symbols share the same reviewed
+mapping and evidence. List each Rust symbol explicitly; a new member is
+never covered just because it shares a type or prefix with the group.
 
 Use the validator's printed counts when reporting progress. Its reviewed rows
 include convenience aliases; its unverified-symbol count includes data types

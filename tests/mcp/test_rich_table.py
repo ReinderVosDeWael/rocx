@@ -3,8 +3,9 @@ import subprocess
 from xml.etree import ElementTree
 
 import docx
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
+from jsonschema.validators import validator_for
 
 from test_stdio import anyio_backend, call, executable, failure, launch, parts, pytestmark, validate
 
@@ -28,6 +29,9 @@ async def test_rich_table_declaration_matches_native(launch, tmp_path):
         "properties": {"column_widths": [1440, 1800], "layout": "fixed", "alignment": "right",
                        "borders": [{"side": "top", "size": 8, "color": [17, 34, 51], "line": "single"}]},
         "rows": [{
+            "properties": {"cant_split": True, "height": {"kind": "exact", "points": 14}},
+            "cells": [],
+        }, {
             "properties": {"repeat_header": True, "cant_split": False,
                            "height": {"kind": "at-least", "points": 12}},
             "cells": [{
@@ -46,10 +50,14 @@ async def test_rich_table_declaration_matches_native(launch, tmp_path):
         document = (await call(client, "open_document", path=source.name))["document"]
         seen = await call(client, "inspect_document", document=document)
         edit = {"kind": "insert-rich-table", "anchor": seen["body"][0]["anchor"], "table": table}
-        await failure(client, "preview_edits", "rejected_batch", document=document,
-                      edits=[{**edit, "table": {**table, "rows": [{"cells": []}]}}])
+        schema = next(tool.inputSchema for tool in (await client.list_tools()).tools
+                      if tool.name == "preview_edits")
+        validator_for(schema)(schema).validate({"document": document, "edits": [edit]})
+        for rows in ([], table["rows"][:1]):
+            await failure(client, "preview_edits", "rejected_batch", document=document,
+                          edits=[{**edit, "table": {**table, "rows": rows}}])
         preview = await call(client, "preview_edits", document=document, edits=[edit])
-        assert preview["changes"]["table_insertions"] == [{"target": 0, "rows": 1, "columns": 2}]
+        assert preview["changes"]["table_insertions"] == [{"target": 0, "rows": 2, "columns": 2}]
         await call(client, "save_copy", document=document, preview=preview["preview"], output=output.name)
     assert output.read_bytes() == native.read_bytes()
     before, after = parts(source), parts(output)
@@ -57,12 +65,17 @@ async def test_rich_table_declaration_matches_native(launch, tmp_path):
     assert {key for key in before if before[key] != after[key]} == {"word/document.xml"}
     readback = docx.Document(output).tables[0]
     assert readback.alignment == WD_TABLE_ALIGNMENT.RIGHT and not readback.autofit
-    assert readback.cell(0, 0).vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
-    assert readback.cell(0, 0).paragraphs[0].runs[0].bold is True
-    assert readback.cell(0, 0).tables[0].cell(0, 0).text == "Nested"
-    assert readback.cell(0, 0).paragraphs[-1].text == "Trailing"
-    assert readback.cell(0, 1).text == "Second"
+    padded, populated = readback.rows
+    assert [cell.text for cell in padded.cells] == ["", ""]
+    assert [cell.width.twips for cell in padded.cells] == [1440, 1800]
+    assert padded.height.pt == 14 and padded.height_rule == WD_ROW_HEIGHT_RULE.EXACTLY
+    first, second = populated.cells
+    assert first.vertical_alignment == WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    assert first.paragraphs[0].runs[0].bold is True
+    assert first.tables[0].cell(0, 0).text == "Nested"
+    assert first.paragraphs[-1].text == "Trailing"
+    assert second.text == "Second"
     root = ElementTree.fromstring(after["word/document.xml"])
     assert next(root.iter(qn("w:shd"))).get(qn("w:fill")) == "FA8060"
-    assert next(root.iter(qn("w:cantSplit"))).get(qn("w:val")) == "0"
+    assert [node.get(qn("w:val")) for node in root.iter(qn("w:cantSplit"))] == ["1", "0"]
     validate(output)

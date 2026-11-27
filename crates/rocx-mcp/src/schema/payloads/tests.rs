@@ -1,6 +1,6 @@
 use rocx::{
-    Alignment, BreakType, Color, FieldForm, LineHeight, ParagraphFormat, ResolvedInline, RunFormat,
-    RunLanguage, TabAlignment, TabLeader, TabStop, ThemeColor, Underline,
+    Alignment, BreakType, Color, FieldForm, LineHeight, ParagraphFormat, ResolvedInline, Rule,
+    RunFormat, RunLanguage, TabAlignment, TabLeader, TabStop, ThemeColor, Underline,
 };
 use serde_json::{Value, json};
 
@@ -191,7 +191,10 @@ fn resolves_only_nonempty_rectangular_text_tables() {
     for rows in [json!([]), json!([[]]), json!([["A"], ["B", "C"]])] {
         let block: BlockInput =
             serde_json::from_value(json!({"kind": "table", "rows": rows})).unwrap();
-        assert!(block.resolve().unwrap_err().contains("rectangular table"));
+        assert_rejected(
+            block.resolve().unwrap_err(),
+            "rows must form a nonempty rectangular table",
+        );
     }
 }
 
@@ -242,27 +245,117 @@ fn delegates_content_rules_to_native_validation() {
         "inlines": [], "format": {"line_spacing": 1.5, "line_height": {"kind":"exact","value":10}}
     }))
     .unwrap();
-    assert!(
-        paragraph
-            .resolve()
-            .unwrap_err()
-            .contains("mutually exclusive")
+    assert_native_diagnostic(
+        paragraph.resolve().unwrap_err(),
+        Rule::InvalidContent,
+        "paragraph.format.line_height",
+        "line_height and line_spacing are mutually exclusive",
     );
-    for (inline, message) in [
+    for (inline, rule, path, message) in [
         (
             json!({"kind": "hyperlink", "target": {"kind": "url", "url": "relative"}, "children": []}),
-            "absolute external URI",
+            Rule::InvalidRelationship,
+            "target",
+            "hyperlink target must be an absolute external URI/IRI with valid percent escapes",
         ),
         (
             json!({"kind": "field", "instruction": {"kind": "page"},
                    "children": [{"kind": "fraction", "numerator": "1", "denominator": "2"}]}),
-            "fractions in cached field results",
+            Rule::InvalidContent,
+            "children[0]",
+            "inline fractions in cached field results are unsupported",
+        ),
+        (
+            json!({
+                "kind": "field-tree",
+                "nodes": [{
+                    "instruction": {"kind": "page"},
+                    "children": [{"kind": "tab", "format": {"size": -1}}]
+                }]
+            }),
+            Rule::InvalidMeasurement,
+            "size",
+            "size cannot be negative",
         ),
     ] {
         let inline: InlineInput = serde_json::from_value(inline).unwrap();
-        let error = inline.resolve().unwrap_err();
-        assert!(error.contains(message), "{error}");
+        assert_native_diagnostic(inline.resolve().unwrap_err(), rule, path, message);
     }
+}
+
+#[test]
+fn invalid_xml_keeps_the_native_error_wrapper_and_display() {
+    let inline: InlineInput =
+        serde_json::from_value(json!({"kind": "text", "text": "é\0"})).unwrap();
+    let error = inline.resolve().unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "text_run.text: invalid XML 1.0 character U+0000 at byte offset 2",
+    );
+    let ScopedEditError::Native(error) = error else {
+        panic!("expected native XML error, got {error:?}");
+    };
+    assert_eq!(error.rule(), Some(Rule::InvalidXml));
+    assert_eq!(error.path(), Some("text_run.text"));
+}
+
+#[test]
+fn table_declarations_and_donors_keep_native_diagnostics() {
+    let block: BlockInput = serde_json::from_value(json!({
+        "kind": "table", "rows": [["cell"]], "column_widths": [0]
+    }))
+    .unwrap();
+    let node = json!({
+        "rows": [{"cells": [{"blocks": []}]}],
+        "properties": {"column_widths": [0]}
+    });
+
+    let mut errors = vec![block.resolve().unwrap_err()];
+    for table in [node.clone(), json!({"nodes": [node]})] {
+        let fragment: RichTableInput = serde_json::from_value(table.clone()).unwrap();
+        let donor: RichTableInput = serde_json::from_value(table).unwrap();
+        errors.push(fragment.resolve().unwrap_err());
+        errors.push(donor.resolve_donor().unwrap_err());
+    }
+    for error in errors {
+        assert_native_diagnostic(
+            error,
+            Rule::InvalidContent,
+            "table.column_widths",
+            "column_widths must be positive",
+        );
+    }
+}
+
+#[test]
+fn flat_declaration_limits_remain_transport_rejections() {
+    let field: InlineInput =
+        serde_json::from_value(json!({"kind": "field-tree", "nodes": []})).unwrap();
+    assert_rejected(
+        field.resolve().unwrap_err(),
+        "field-tree requires 1..=16384 nodes",
+    );
+
+    let table: RichTableInput = serde_json::from_value(json!({"nodes": []})).unwrap();
+    assert_rejected(
+        table.resolve_donor().unwrap_err(),
+        "flat rich table requires 1 to 1024 nodes",
+    );
+}
+
+fn assert_rejected(error: ScopedEditError, message: &str) {
+    assert!(matches!(&error, ScopedEditError::Rejected(_)), "{error:?}");
+    assert_eq!(error.to_string(), message);
+}
+
+fn assert_native_diagnostic(error: ScopedEditError, rule: Rule, path: &str, detail: &str) {
+    assert_eq!(error.to_string(), format!("{path}: {detail}"));
+    let ScopedEditError::Native(rocx::Error::Diagnostic(diagnostic)) = error else {
+        panic!("expected native diagnostic, got {error:?}");
+    };
+    assert_eq!(diagnostic.rule, rule);
+    assert_eq!(diagnostic.location.as_deref(), Some(path));
+    assert_eq!(diagnostic.message, detail);
 }
 
 #[test]

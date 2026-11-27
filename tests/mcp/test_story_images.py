@@ -1,11 +1,15 @@
 """Six logical header/footer slots, qualified with native shared and local previews."""
 
+import subprocess
+
 import docx
 from docx.oxml.ns import qn
+from jsonschema.validators import validator_for
 import pytest
 
 from test_stdio import (
-    PNG, anyio_backend, call, digest, failure, launch, oracle, parts, pytestmark, validate,
+    PNG, anyio_backend, assert_tool_failure, call, digest, executable, failure, launch,
+    oracle, parts, pytestmark, validate,
 )
 
 
@@ -32,14 +36,58 @@ def make_source(path):
     fixture.save(path)
 
 
+def image_declaration():
+    return {
+        "bytes": list(PNG.read_bytes()),
+        "source_name": "source-logo.png",
+        "transformation": {
+            "width": 84, "height": 42,
+            "crop": {"left": 10, "top": 5, "right": 15, "bottom": 20},
+            "rotation": 30.5, "flip_horizontal": True, "flip_vertical": False,
+        },
+        "alt_text": {
+            "name": "Story logo", "title": "Story logo title",
+            "description": "Story logo description",
+        },
+    }
+
+
+def assert_image_readback(story):
+    inline, = story._element.xpath(".//wp:inline")
+    extent = inline.find(qn("wp:extent"))
+    assert dict(extent.attrib) == {"cx": "1066800", "cy": "533400"}
+    doc_properties = inline.find(qn("wp:docPr"))
+    assert [doc_properties.get(key) for key in ("name", "title", "descr")] == [
+        "Story logo", "Story logo title", "Story logo description",
+    ]
+    picture_properties, = story._element.xpath(".//pic:cNvPr")
+    assert picture_properties.get("name") == "source-logo.png"
+    transform, = story._element.xpath(".//a:xfrm")
+    assert dict(transform.attrib) == {"rot": "1830000", "flipH": "1", "flipV": "0"}
+    crop, = story._element.xpath(".//a:srcRect")
+    assert dict(crop.attrib) == {"l": "10000", "t": "5000", "r": "15000", "b": "20000"}
+    blip, = story._element.xpath(".//a:blip")
+    image_part = story.part.related_parts[blip.get(qn("r:embed"))]
+    assert image_part.content_type == "image/png" and image_part.blob == PNG.read_bytes()
+
+
 @pytest.mark.parametrize(("kind", "variant"), SLOTS)
 @pytest.mark.parametrize("mode", ["shared", "section-local"])
-async def test_story_image_all_slots_from_paged_anchors(launch, tmp_path, kind, variant, mode):
+@pytest.mark.parametrize("rich", [False, True], ids=["shorthand", "declaration"])
+async def test_story_image_all_slots_from_paged_anchors(launch, tmp_path, kind, variant, mode, rich):
     source = tmp_path / "source.docx"
     output = tmp_path / "edited.docx"
     make_source(source)
-    expected = oracle(tmp_path / "native.docx", "story-image", source, PNG,
-                      f"{kind}:{variant}", mode)
+    native = tmp_path / "native.docx"
+    if rich:
+        binary = executable("ROCX_MCP_ORACLE").with_name("mcp_story_image_oracle")
+        subprocess.run([binary, native, source, PNG, f"{kind}:{variant}", mode],
+                       check=True, cwd=tmp_path, timeout=20)
+        expected = native.read_bytes()
+        payload = {"image": image_declaration()}
+    else:
+        expected = oracle(native, "story-image", source, PNG, f"{kind}:{variant}", mode)
+        payload = {"bytes": list(PNG.read_bytes())}
 
     async with launch() as client:
         document = (await call(client, "open_document", path=source.name))["document"]
@@ -50,7 +98,7 @@ async def test_story_image_all_slots_from_paged_anchors(launch, tmp_path, kind, 
         assert selected["inherited"]
         staged = await call(client, "preview_edits", document=document, edits=[{
             "kind": "header-image", "anchor": selected["anchor"],
-            "mode": mode, "bytes": list(PNG.read_bytes()),
+            "mode": mode, **payload,
         }])
         change, = staged["changes"]["header_images"]
         assert change["source_part"] == selected["owner"]["part_name"] and change["mode"] == mode
@@ -78,7 +126,44 @@ async def test_story_image_all_slots_from_paged_anchors(launch, tmp_path, kind, 
                 index == 1 or mode == "shared"
             )
             assert has_image == expected_image
+            if rich and expected_image:
+                assert_image_readback(story)
     validate(output)
+
+
+async def test_story_image_schema_and_inline_only_boundary(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    make_source(source)
+    async with launch() as client:
+        tools = (await client.list_tools()).tools
+        schema = next(tool.inputSchema for tool in tools if tool.name == "preview_edits")
+        validator = validator_for(schema)(schema)
+        document = (await call(client, "open_document", path=source.name))["document"]
+        seen = await call(client, "inspect_document", document=document, view={"kind": "stories"})
+        anchor = seen["stories"][0]["anchor"]
+        edit = {"kind": "header-image", "anchor": anchor, "mode": "shared"}
+        image = image_declaration()
+
+        def request(payload):
+            return {"document": document, "edits": [{**edit, **payload}]}
+
+        for payload in ({"bytes": image["bytes"]}, {"image": image}):
+            validator.validate(request(payload))
+        for payload in ({}, {"bytes": image["bytes"], "image": image}):
+            arguments = request(payload)
+            assert not validator.is_valid(arguments)
+            result = await client.call_tool("preview_edits", arguments)
+            assert result.isError
+        for payload in ({"bytes": None}, {"image": None}, {"image": {**image, "typo": True}}):
+            arguments = request(payload)
+            assert not validator.is_valid(arguments)
+            await failure(client, "preview_edits", "invalid_input", **arguments)
+
+        floating = {**image, "transformation": {"anchor": {}}}
+        result = await client.call_tool("preview_edits", request({"image": floating}))
+        assert_tool_failure(result, "rejected_batch")
+        assert "header image insertion requires an inline image" in result.structuredContent["message"]
+        await call(client, "preview_edits", **request({"image": image}))
 
 
 async def test_story_image_rejects_missing_slot_and_physical_owner(launch, tmp_path):

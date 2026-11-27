@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow::{self, Break, Continue};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rocx::editor::{
     BodyBlock, EntryKind, ImportedDocument, ImportedEntry, ImportedInline, ImportedInlineNode,
@@ -10,8 +10,8 @@ use rocx::editor::{
 use rocx::{Color, RunFormat, ThemeColor, Underline};
 use serde_json::{Value, json};
 
-use super::{Snapshot, projected_run_text};
-use crate::schema::run_format::RunFormatChange;
+use super::{Snapshot, projected_run_text, read_diagnostic};
+use crate::{diagnostics::ScopedEditError, schema::run_format::RunFormatChange};
 
 const OWNER: &str = "format-owner:";
 const RUN: &str = "format-run:";
@@ -119,7 +119,7 @@ fn ordinary_entry(entry: &ImportedEntry) -> bool {
     matches!(entry.note_type.as_deref(), None | Some("normal")) && !negative
 }
 
-fn format_candidate(run: &ImportedRun) -> bool {
+pub(super) fn format_candidate(run: &ImportedRun) -> bool {
     // Shape hint only: native checks raw XML, the selected properties, protection
     // settings, tracked ancestors, and field/range boundaries in the whole story.
     run.property_revision.is_none()
@@ -181,8 +181,15 @@ impl Page {
         Continue(())
     }
 
-    fn unavailable(&mut self, catalog: &str, error: impl ToString) -> ControlFlow<()> {
-        self.push(|| json!({"kind": "unavailable", "catalog": catalog, "error": error.to_string()}))
+    fn unavailable(&mut self, catalog: &str, error: rocx::Error) -> ControlFlow<()> {
+        self.push(|| {
+            json!({
+                "kind": "unavailable",
+                "catalog": catalog,
+                "error": error.to_string(),
+                "diagnostic": read_diagnostic(error),
+            })
+        })
     }
 
     fn collect(&mut self, doc: &ImportedDocument) -> ControlFlow<()> {
@@ -253,44 +260,45 @@ impl Page {
 
 struct Sources<'a> {
     doc: &'a ImportedDocument,
-    stories: OnceLock<Result<Vec<ImportedStory>, String>>,
+    stories: OnceLock<Result<Vec<ImportedStory>, Arc<rocx::Error>>>,
 }
 
 impl Sources<'_> {
-    fn stories(&self) -> Result<&[ImportedStory], String> {
+    fn stories(&self) -> rocx::Result<&[ImportedStory]> {
         self.stories
-            .get_or_init(|| self.doc.stories().map_err(|e| e.to_string()))
+            .get_or_init(|| self.doc.stories().map_err(Arc::new))
             .as_deref()
-            .map_err(Clone::clone)
+            .map_err(|error| rocx::Error::Shared(Arc::clone(error)))
     }
 
-    fn entries(&self) -> Result<&[ImportedEntry], String> {
-        self.doc.entry_stories().map_err(|e| e.to_string())
-    }
-
-    fn owner(&self, local: &str) -> Result<Option<&str>, String> {
-        let invalid = "wrong_anchor_type: expected a format-runs physical owner";
-        let value = local.strip_prefix(OWNER).ok_or(invalid)?;
+    fn owner(&self, local: &str) -> Result<Option<&str>, ScopedEditError> {
+        let invalid =
+            || ScopedEditError::WrongAnchorType("expected a format-runs physical owner".into());
+        let value = local.strip_prefix(OWNER).ok_or_else(invalid)?;
         if value == "body" {
             return Ok(None);
         }
-        let (kind, index) = value.split_once(':').ok_or(invalid)?;
-        let index = index.parse::<usize>().map_err(|_| invalid)?;
+        let (kind, index) = value.split_once(':').ok_or_else(invalid)?;
+        let index = index.parse::<usize>().map_err(|_| invalid())?;
         let part = match kind {
             "story" => self.stories()?.get(index).map(|s| s.part_name.as_str()),
-            "entry" => self.entries()?.get(index).map(|e| e.part_name.as_str()),
-            _ => return Err(invalid.into()),
+            "entry" => self
+                .doc
+                .entry_stories()?
+                .get(index)
+                .map(|e| e.part_name.as_str()),
+            _ => return Err(invalid()),
         };
         part.map(Some)
             .ok_or_else(|| "unknown run formatting owner".into())
     }
 
-    fn run(&self, local: &str) -> Result<&ImportedRun, String> {
-        let wrong = "wrong_anchor_type: expected a format-runs run anchor";
+    fn run(&self, local: &str) -> Result<&ImportedRun, ScopedEditError> {
+        let wrong = || ScopedEditError::WrongAnchorType("expected a format-runs run anchor".into());
         let (kind, coords) = local
             .strip_prefix(RUN)
             .and_then(|s| s.split_once(':'))
-            .ok_or(wrong)?;
+            .ok_or_else(wrong)?;
         let invalid = "unknown run formatting anchor";
         let mut coords = coords.split(':');
         let next = |coords: &mut std::str::Split<'_, char>| {
@@ -314,12 +322,13 @@ impl Sources<'_> {
             }
             "entry" => {
                 let b = next(&mut coords)?;
-                self.entries()?
+                self.doc
+                    .entry_stories()?
                     .get(source)
                     .filter(|entry| ordinary_entry(entry))
                     .and_then(|entry| entry.inline_structure(b))
             }
-            _ => return Err(wrong.into()),
+            _ => return Err(wrong()),
         }
         .ok_or(invalid)?;
         let node = nodes.get(next(&mut coords)?).ok_or(invalid)?;
@@ -379,7 +388,7 @@ impl Snapshot {
         &self,
         local_owner: &str,
         edits: Vec<RunFormatChange>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, ScopedEditError> {
         let sources = Sources {
             doc: &self.document,
             stories: OnceLock::new(),
@@ -393,10 +402,10 @@ impl Snapshot {
                     action: change.edit.into(),
                 })
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, ScopedEditError>>()?;
         self.document
             .edit_run_format(owner, &edits)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 }
 
@@ -433,7 +442,7 @@ fn underline_name(value: Underline) -> &'static str {
     }
 }
 
-fn format_value(format: &RunFormat) -> Value {
+pub(super) fn format_value(format: &RunFormat) -> Value {
     let color = match format.color {
         Some(Color::Auto) => json!("auto"),
         Some(Color::Rgb(rgb)) => json!(rgb),

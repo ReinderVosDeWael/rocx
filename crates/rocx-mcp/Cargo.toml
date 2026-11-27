@@ -11,9 +11,10 @@ publish = false
 [dependencies]
 futures-executor = "0.3"
 rmcp = { version = "=3.11.0", default-features = false, features = ["server", "transport-io"] }
-rocx = { path = "../.." }
+rocx = { path = "../..", features = ["mcp-bridge"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# Preserve f64 values when rmcp parses incoming JSON-RPC frames.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }

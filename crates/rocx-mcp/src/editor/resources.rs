@@ -4,11 +4,11 @@ use rocx::Alignment;
 use rocx::editor::{CustomValue, DefaultField, DefaultValue};
 use serde_json::{Map, Value, json};
 
-use super::Snapshot;
+use super::{Snapshot, read_diagnostic};
 use crate::schema::resources::{METADATA_FIELDS, ResourceQuery};
 
 impl Snapshot {
-    pub(crate) fn inspect_resource_value(&self, query: ResourceQuery) -> Result<Value, String> {
+    pub(crate) fn inspect_resource_value(&self, query: ResourceQuery) -> rocx::Result<Value> {
         let doc = &self.document;
         let value = match query {
             ResourceQuery::Metadata { field } => {
@@ -19,28 +19,36 @@ impl Snapshot {
                 .default_alignment()
                 .map(|value| json!(value.map(alignment_name))),
             ResourceQuery::CustomProperty { name } => doc.custom_property(&name).map(custom_value),
-        }
-        .map_err(|error| error.to_string())?;
+            ResourceQuery::AbstractStarts {} => doc.abstract_starts().map(|starts| {
+                json!(starts.into_iter().map(|start| json!({
+                    "abstract_id": start.abstract_id, "level": start.level, "start": start.start,
+                })).collect::<Vec<_>>())
+            }),
+            ResourceQuery::NumberingInstances {} => {
+                doc.numbering_instances().map(|instances| {
+                    json!(instances.into_iter().map(|instance| json!({
+                    "num_id": instance.num_id, "abstract_id": instance.abstract_id,
+                    "replacement_levels": instance.replacement_levels,
+                    "start_overrides": instance.start_overrides.into_iter().map(|start| {
+                        json!({"level": start.level, "start": start.start})
+                    }).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>())
+                })
+            }
+        }?;
         Ok(json!({"value": value}))
     }
 
-    pub(crate) fn inspect_resources(
-        &self,
-        custom_property: Option<String>,
-    ) -> Result<Value, String> {
+    pub(crate) fn inspect_resources(&self, custom_property: Option<String>) -> rocx::Result<Value> {
         let doc = &self.document;
-        let defaults = doc
-            .document_defaults()
-            .map(defaults_value)
-            .map_err(|error| error.to_string())?;
+        let defaults = defaults_value(doc.document_defaults()?);
         let metadata: Map<_, _> = METADATA_FIELDS
             .iter()
             .map(|&(key, field)| {
                 doc.metadata_field(field)
                     .map(|value| (key.into(), json!(value)))
             })
-            .collect::<Result<_, _>>()
-            .map_err(|error| error.to_string())?;
+            .collect::<Result<_, _>>()?;
 
         let mut result = json!({"document_defaults": defaults, "metadata": metadata});
         // The typed reader supports direct OOXML justification values and
@@ -50,13 +58,11 @@ impl Snapshot {
             Err(error) => {
                 result["default_alignment"] = Value::Null;
                 result["default_alignment_error"] = json!(error.to_string());
+                result["default_alignment_diagnostic"] = read_diagnostic(error);
             }
         }
         if let Some(name) = custom_property {
-            result["custom_property"] = doc
-                .custom_property(&name)
-                .map(custom_value)
-                .map_err(|error| error.to_string())?;
+            result["custom_property"] = custom_value(doc.custom_property(&name)?);
         }
         Ok(result)
     }

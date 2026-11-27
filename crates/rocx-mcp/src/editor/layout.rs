@@ -3,8 +3,11 @@ use std::collections::BTreeMap;
 use rocx::editor::{BodyBlock, LayoutEdit, LayoutField, LayoutValue};
 use serde_json::{Value, json};
 
-use super::{Snapshot, report};
-use crate::schema::layout::LayoutChange;
+use super::{ReadError, Snapshot, report};
+use crate::{
+    diagnostics::ScopedEditError,
+    schema::layout::{LayoutChange, LayoutScope},
+};
 
 const PARAGRAPH: &str = "layout-paragraph:";
 const SECTION: &str = "layout-section:";
@@ -12,9 +15,10 @@ const SECTION: &str = "layout-section:";
 impl Snapshot {
     pub fn layout_page(
         &self,
+        scope: LayoutScope,
         start: usize,
         limit: usize,
-    ) -> Result<(Vec<Value>, Option<usize>), String> {
+    ) -> Result<(Vec<Value>, Option<usize>), ReadError> {
         if limit == 0 {
             return Err("layout page limit must be positive".into());
         }
@@ -35,31 +39,39 @@ impl Snapshot {
             }));
             None
         };
-        for (index, block) in self.document.body().iter().enumerate() {
-            if let BodyBlock::Paragraph(paragraph) = block
-                && let Some(next) = visit("paragraph", PARAGRAPH, index, &paragraph.layout)
-            {
-                return Ok((rows, Some(next)));
+        if scope != LayoutScope::Sections {
+            for (index, block) in self.document.body().iter().enumerate() {
+                if let BodyBlock::Paragraph(paragraph) = block
+                    && let Some(next) = visit("paragraph", PARAGRAPH, index, &paragraph.layout)
+                {
+                    return Ok((rows, Some(next)));
+                }
             }
         }
-        let sections = self.document.sections().map_err(|e| e.to_string())?;
-        for (index, section) in sections.iter().enumerate() {
-            if let Some(next) = visit("section", SECTION, index, &section.layout) {
-                return Ok((rows, Some(next)));
+        if scope != LayoutScope::Paragraphs {
+            let sections = self.document.sections()?;
+            for (index, section) in sections.iter().enumerate() {
+                if let Some(next) = visit("section", SECTION, index, &section.layout) {
+                    return Ok((rows, Some(next)));
+                }
             }
         }
         Ok((rows, None))
     }
 
-    pub fn preview_layout(&self, edits: Vec<LayoutChange>) -> Result<(Vec<u8>, Value), String> {
+    pub fn preview_layout(
+        &self,
+        edits: Vec<LayoutChange>,
+    ) -> Result<(Vec<u8>, Value), ScopedEditError> {
         let mut sections = None;
         let mut native = Vec::with_capacity(edits.len());
         for (i, edit) in edits.into_iter().enumerate() {
             let wrong_target = || {
-                format!(
+                // The layout adapter historically includes this prefix in the batch message.
+                ScopedEditError::Rejected(format!(
                     "wrong_anchor_type: edit {}: expected a layout paragraph or section",
                     i + 1
-                )
+                ))
             };
             let index = |prefix| edit.anchor.strip_prefix(prefix)?.parse::<usize>().ok();
             let field = edit.field.into();
@@ -75,7 +87,7 @@ impl Snapshot {
                 ));
             } else if let Some(index) = index(SECTION) {
                 if sections.is_none() {
-                    sections = Some(self.document.sections().map_err(|e| e.to_string())?);
+                    sections = Some(self.document.sections()?);
                 }
                 let section = sections
                     .as_ref()
@@ -86,14 +98,8 @@ impl Snapshot {
                 return Err(wrong_target());
             }
         }
-        let preview = self
-            .document
-            .preview_layout(&native)
-            .map_err(|e| e.to_string())?;
-        Ok((
-            preview.to_docx().map_err(|e| e.to_string())?,
-            report(&preview),
-        ))
+        let preview = self.document.preview_layout(&native)?;
+        Ok((preview.to_docx()?, report(&preview)))
     }
 }
 

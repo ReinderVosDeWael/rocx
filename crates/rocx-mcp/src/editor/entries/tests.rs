@@ -13,13 +13,18 @@ fn pages_preserve_source_order_lexical_ids_and_distinct_owners() {
         json!({
             "kind": "footnote", "part_name": "word/notes/footnotes.xml", "id": "-1",
             "note_type": "separator", "author": null, "date": null, "initials": null,
-            "blocks": [{"index": 0, "type": "paragraph", "text": "", "has_opaque_content": true}],
+            "blocks": [{
+                "index": 0, "type": "paragraph", "text": "", "has_opaque_content": true,
+                "inline_items": [{"kind": "opaque", "name": "w:separator"}],
+            }],
         })
     );
     assert_eq!(
         footnotes[1]["blocks"],
         json!([
-            {"index": 0, "type": "paragraph", "text": "footnote 007", "has_opaque_content": true},
+            {"index": 0, "type": "paragraph", "text": "footnote 007", "has_opaque_content": true,
+                "inline_items": [{"kind": "opaque", "name": "w:footnoteRef"},
+                                 {"kind": "text", "text": "footnote 007"}]},
         ])
     );
     let (remaining, next) = snapshot.entry_page(next.unwrap(), usize::MAX).unwrap();
@@ -57,17 +62,21 @@ fn edits_match_native_bytes_and_errors_without_mutating_the_snapshot() {
     let target = &native.entry_stories().unwrap()[5];
     let native_edit = |edit| native.edit_entry(&target.part_name, &target.id, edit);
     let invalid = EntryEdit::RemoveParagraph(usize::MAX);
+    let ScopedEditError::Native(error) = snapshot.edit_entry(local, invalid.clone()).unwrap_err()
+    else {
+        panic!("expected native entry rejection");
+    };
     assert_eq!(
-        snapshot.edit_entry(local, invalid.clone()).unwrap_err(),
+        error.to_string(),
         native_edit(invalid).unwrap_err().to_string()
     );
     for forged in ["paragraph:5", "entry:0", "entry:+5", "entry:05", "entry:10"] {
-        assert_eq!(
+        assert!(matches!(
             snapshot
                 .edit_entry(forged, EntryEdit::CommentInitials(None))
                 .unwrap_err(),
-            "unknown local entry anchor"
-        );
+            ScopedEditError::Rejected(message) if message == "unknown local entry anchor"
+        ));
     }
     let edit = EntryEdit::CommentInitials(Some("NEW".into()));
     let edited = snapshot.edit_entry(local, edit.clone()).unwrap();

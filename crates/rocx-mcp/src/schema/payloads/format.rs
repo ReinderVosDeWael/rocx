@@ -39,7 +39,7 @@ choices!(TabLeaderInput => TabLeader {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct RunLanguageInput {
+pub(crate) struct RunLanguageInput {
     latin: Option<String>,
     east_asia: Option<String>,
     bidi: Option<String>,
@@ -150,7 +150,7 @@ impl From<RunFormatInput> for rocx::RunFormat {
     rename_all = "kebab-case",
     deny_unknown_fields
 )]
-enum LineHeightInput {
+pub(crate) enum LineHeightInput {
     /// Multiple of the consumer's single-line height.
     Multiple(f64),
     /// Exact height in points.
@@ -171,7 +171,7 @@ impl From<LineHeightInput> for rocx::LineHeight {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct TabStopInput {
+pub(crate) struct TabStopInput {
     /// Signed position in points.
     position: f64,
     alignment: TabAlignmentInput,
@@ -191,7 +191,7 @@ impl From<TabStopInput> for rocx::TabStop {
 /// Direct paragraph properties. Spacing and indent lengths are in points.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ParagraphFormatInput {
+pub(crate) struct ParagraphFormatInput {
     bidi: Option<bool>,
     heading: Option<u8>,
     style: Option<String>,
