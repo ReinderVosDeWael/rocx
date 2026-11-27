@@ -45,7 +45,7 @@ pub(crate) enum ToolKind {
 }
 
 impl ToolKind {
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::Create,
         Self::Open,
         Self::Inspect,
