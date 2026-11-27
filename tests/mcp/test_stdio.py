@@ -37,6 +37,7 @@ EXPECTED_TOOLS = {
     "create_document": set(),
     "open_document": {"path"},
     "inspect_document": {"document"},
+    "search_document": {"document", "query"},
     "preview_edits": {"document"},
     "save_copy": {"document", "preview", "output"},
     "close_document": {"document"},
@@ -311,7 +312,7 @@ async def test_discovery(launch):
     async with launch() as client:
         listing = await client.list_tools()
         tools = {tool.name: tool for tool in listing.tools}
-        assert len(listing.tools) == 6 and tools.keys() == EXPECTED_TOOLS.keys()
+        assert len(listing.tools) == len(EXPECTED_TOOLS) and tools.keys() == EXPECTED_TOOLS.keys()
         assert listing.nextCursor is None
         for name, tool in tools.items():
             assert tool.description and "example" in tool.description.lower()
