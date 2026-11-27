@@ -7,7 +7,7 @@ use rocx::editor::{
 use serde_json::{Value, json};
 
 use super::{Snapshot, block_readback::inline_items, projected_run_text};
-use crate::schema::stories::StoryTextChange;
+use crate::{diagnostics::ScopedEditError, schema::stories::StoryTextChange};
 
 mod inlines;
 
@@ -32,16 +32,16 @@ impl Snapshot {
     }
 
     // Session must resolve only anchors issued for the caller's document.
-    pub fn edit_entry(&self, local: &str, edit: EntryEdit) -> Result<Vec<u8>, String> {
+    pub fn edit_entry(&self, local: &str, edit: EntryEdit) -> Result<Vec<u8>, ScopedEditError> {
         let index = entry_index(local).ok_or("unknown local entry anchor")?;
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+        let entries = self.document.entry_stories()?;
         let entry = entries
             .get(index)
             .filter(|entry| is_candidate(entry.kind, entry.note_type.as_deref(), &entry.id))
             .ok_or("unknown local entry anchor")?;
         self.document
             .edit_entry(&entry.part_name, &entry.id, edit)
-            .map_err(|e| e.to_string())
+            .map_err(ScopedEditError::from)
     }
 
     pub fn entry_run_page(
@@ -100,24 +100,28 @@ impl Snapshot {
         &self,
         owner: &str,
         edits: Vec<StoryTextChange>,
-    ) -> Result<Vec<u8>, String> {
-        let entries = self.document.entry_stories().map_err(|e| e.to_string())?;
+    ) -> Result<Vec<u8>, ScopedEditError> {
+        let entries = self.document.entry_stories()?;
         let owner = owner
             .strip_prefix("entry-run-owner:")
             .and_then(index_of)
             .and_then(|index| entries.get(index))
-            .ok_or("wrong_anchor_type: expected a physical entry owner")?;
+            .ok_or_else(|| {
+                ScopedEditError::WrongAnchorType("expected a physical entry owner".into())
+            })?;
         let mut native = Vec::with_capacity(edits.len());
         for edit in edits {
+            let wrong =
+                || ScopedEditError::WrongAnchorType("expected a direct entry run anchor".into());
             let mut coords = edit
                 .anchor
                 .strip_prefix("entry-run:")
-                .ok_or("wrong_anchor_type: expected a direct entry run anchor")?
+                .ok_or_else(wrong)?
                 .split(':');
             let (Some(entry), Some(block), Some(inline), None) =
                 (coords.next(), coords.next(), coords.next(), coords.next())
             else {
-                return Err("wrong_anchor_type: expected a direct entry run anchor".into());
+                return Err(wrong());
             };
             let entry = index_of(entry)
                 .and_then(|index| entries.get(index))
@@ -137,7 +141,7 @@ impl Snapshot {
         }
         self.document
             .edit_story_text(&owner.part_name, &native)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 }
 

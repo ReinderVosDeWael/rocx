@@ -53,12 +53,11 @@ returned by the server for the placeholders.
 ## Edit an existing file
 
 Start with `open_document` and `{"path":"input.docx"}`, then inspect, preview,
-and save as above. The supported edits are paragraph alignment, paragraph or
-table insertion after a paragraph, direct run text replacement or removal,
-replacement/deletion of a text range or insertion at a text position,
-physical table-cell vertical alignment, direct resource edits, and image
-insertion in a header or footer. For a story image, specify `shared` to edit
-its shared part or `section-local` to limit the change to the selected section.
+and save as above. The ordinary `edits` batch can mix supported body, table,
+inline, control, resource, and story-image edits. Separately scoped
+transactions such as revision review and physical story text use
+`operation` instead. The sections below show the inspection views and edit
+forms for each scope.
 
 To override archive read budgets for one open, pass, for example,
 `{"path":"input.docx","limits":{"max_parts":"100","max_expanded_bytes":"16777216"}}`.
@@ -171,7 +170,10 @@ relocated and has no entries. A successful preview has `changes: null`.
 Call `inspect_document` with `view:{"kind":"layout"}`. Each `layout` row
 identifies a direct paragraph by its body index or a section by its section
 index. Its `layout` object contains only modeled direct values, not computed
-formatting.
+formatting. Set `scope` to `"paragraphs"` or `"sections"` to inspect just
+that kind of target. Paragraph-only discovery does not read the section
+catalog, so unrelated section errors do not hide paragraph edit anchors.
+A cursor stays with the scope that issued it.
 
 ```json
 {
@@ -281,6 +283,22 @@ or explicit `null`, `cache` with an inline `children` list, `replace` with a
 field `inline` declaration, or `remove`. Rust validates the original span,
 cached content, and overlap with the rest of the batch.
 
+For a deeply nested field, use an inline `field-tree` declaration so the
+request does not need a deeply nested JSON object:
+
+```json
+{"kind":"field-tree","nodes":[
+  {"instruction":{"kind":"page"},"children":[{"kind":"field","node":1}]},
+  {"instruction":{"kind":"num-pages"},"children":[{"kind":"text","text":"1"}]}
+]}
+```
+
+Node `0` is the root. References point to later nodes, each used exactly
+once. Flat cache children can be fields, text, tabs, or breaks. The request
+is bounded to 256 field levels, 256 nodes and 1,024 child entries before
+native validation. The original `field` declaration remains available for
+richer cache content.
+
 ### Inspect inlines in a header, footer, or table cell
 
 For an existing header or footer, take `owner.anchor` from `stories`, not
@@ -311,6 +329,9 @@ extent in EMUs, accessibility attributes and relationship ID, plus modeled
 shape or picture properties. Crop readback is in thousandths of a percent
 and rotation in 1/60000 degree units. An explicit `false` flip is distinct
 from an absent flip. A simple fraction appears as its own row.
+If an imported extent is outside the safe JSON integer range, use the
+decimal string in `width_emu_exact` or `height_emu_exact` instead of the
+corresponding numeric field.
 
 For one supported chart, inspect
 `view:{"kind":"chart-series","anchor":"<body-inlines anchor>"}` to read its
@@ -559,7 +580,12 @@ For effective default headers only, use `view:{"kind":"default-headers"}`.
 This independent native reader omits sections without a default header and
 can still return valid default headers when an unrelated footer or
 first-page header is malformed. Its paragraph blocks contain typed inlines
-and read handles usable with `inline-at`.
+and read handles usable with `inline-at`. To edit the header, use the
+row's `owner.anchor` with `edit-story-text` or `edit-run-format`. Use
+`run_targets[].anchor` for text and `run_targets[].format_target.anchor`
+for formatting. For `header-image` or `edit-story-blocks`, use
+`image_slot.anchor`, which identifies the selected section, not the shared
+physical owner. Edit eligibility still follows native guards.
 
 - Use the slot anchor of an existing part with the ordinary `header-image`
   edit, including for footers. `shared` changes all aliases that use the
@@ -572,8 +598,12 @@ and read handles usable with `inline-at`.
   runs are visible but not targets of this operation.
 - Use `operation:{"kind":"edit-story-reference","anchor":"<slot anchor>","edit":{"kind":"create","paragraphs":["New footer"]}}`
   to create an explicit reference from a missing or inherited slot.
+  The `sections` view also issues the six logical anchors in each section's
+  `story_slots` without reading story bodies. Use those anchors for
+  reference edits when an unrelated story cannot be inspected.
   Use `edit:{"kind":"link","anchor":"<owner anchor>"}` to link to an
-  inspected physical part of the same kind. To find related but unused
+  inspected physical part of the same kind, including a default-header
+  owner from `default-headers`. To find related but unused
   parts, call `view:{"kind":"linkable-stories","story_kind":"footer"}` (or
   `"header"`) and use a returned anchor. Use `edit:{"kind":"remove"}` to
   remove an explicit reference and resume inheritance without deleting the
@@ -730,6 +760,10 @@ edits retain the native shorthand fields. See
 Every preview starts from the opened or created document. Put edits that
 should apply together in one batch, using anchors from inspection of that
 document. A rejected batch leaves earlier previews and anchors usable.
+Tool failures include `category`, `message`, and a suggested `action`.
+Where a native diagnostic is available, a failure can also include its
+stable `rule`, `path`, and unformatted `detail`. Those fields are optional;
+for example, filesystem errors may have no native editor diagnostic.
 To continue editing a saved result, open that copy and inspect it for new
 anchors. Changes to the source file on disk do not alter a live snapshot.
 To stage the native empty-batch result, use `operation:{"kind":"no-op"}`.

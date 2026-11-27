@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer};
 
 use super::{
     entry_inlines::EntryInlineChange,
-    layout::LayoutChange,
+    layout::{LayoutChange, LayoutScope},
     notes::{NoteChange, NoteKind},
     numbering::PhysicalNumberingScope,
     resources::ResourceQuery,
@@ -91,6 +91,9 @@ pub(super) enum View {
     },
     /// Page through direct paragraph and section layout properties.
     Layout {
+        /// Select all layout, only direct body paragraphs, or only sections.
+        #[serde(default)]
+        scope: LayoutScope,
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
         limit: usize,
@@ -108,6 +111,9 @@ pub(super) enum View {
         cursor: Option<String>,
     },
     /// Page through effective default headers without reading other header or footer bodies.
+    /// Use `image_slot.anchor` to append images or splice blocks in that section's default header.
+    /// Each paragraph's `run_targets` lists eligible `anchor` values for text
+    /// edits and `format_target.anchor` values for direct run formatting.
     DefaultHeaders {
         #[serde(default = "default_limit", deserialize_with = "entry_limit")]
         #[schemars(range(min = MIN_LIMIT, max = MAX_LIMIT))]
@@ -378,7 +384,7 @@ pub(super) enum Operation {
     EditLayout { edits: Vec<LayoutChange> },
     /// Change run text in one physical header, footer, note or comment part.
     EditStoryText {
-        /// Physical owner anchor from the stories or entry-runs view.
+        /// Physical owner anchor from the stories, entry-runs, or default-headers view.
         anchor: String,
         edits: Vec<StoryTextChange>,
     },
@@ -398,13 +404,13 @@ pub(super) enum Operation {
     },
     /// Splice original blocks in an existing header/footer slot.
     EditStoryBlocks {
-        /// Logical slot anchor from the stories view.
+        /// Slot anchor from stories or `image_slot.anchor` from default-headers.
         anchor: String,
         edit: StoryBlockChange,
     },
     /// Edit native direct run formatting in one physical owner.
     EditRunFormat {
-        /// Owner anchor from the format-runs view.
+        /// Owner anchor from the format-runs or default-headers view.
         anchor: String,
         #[schemars(length(min = 1))]
         edits: Vec<RunFormatChange>,

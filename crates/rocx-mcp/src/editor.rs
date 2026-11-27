@@ -286,12 +286,9 @@ impl Snapshot {
         Ok(batch)
     }
 
-    pub fn preview_noop(&self) -> Result<(Vec<u8>, Value), String> {
-        let preview = self
-            .document
-            .preview_edits(EditBatch::default())
-            .map_err(|e| e.to_string())?;
-        encode_preview(&preview).map_err(|e| e.to_string())
+    pub fn preview_noop(&self) -> rocx::Result<(Vec<u8>, Value)> {
+        let preview = self.document.preview_edits(EditBatch::default())?;
+        encode_preview(&preview)
     }
 }
 

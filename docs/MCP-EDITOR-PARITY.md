@@ -18,13 +18,12 @@ The first ordinary-batch extension transports `TextRangeEdit` and
 The installed-client fixture covers non-BMP text, mixed formatting, runless
 paragraphs, rejection/retry and equality with the native saved package.
 The next inspection slice adds a paged `entries` view and an owner-scoped
-`edit-entry` operation for the native `EntryEdit` variants. An entry page
-projects block text and opaque markers; it does not expose the full typed
-inline tree. The scoped `edit-note-reference` operation is separate from
-entry definitions; the note body-site view advertises candidate insertion
-runs and original lexical reference IDs. Relocated note parts with zero
-entries cannot yet be identified through the public entry catalog, and
-`edit_entry_inlines` remains open.
+`edit-entry` operation for the native `EntryEdit` variants. Entry pages keep
+the ordered block items; `entry-inlines` exposes the typed inline tree and
+the separate `edit-entry-inlines` transaction targets eligible direct nodes.
+The scoped `edit-note-reference` operation uses body-site candidates and
+original lexical reference IDs. It resolves the selected note part
+independently of the entry catalog, including relocated empty parts.
 
 The same bounded paging model now supports direct paragraph/section
 `layout` and pending `revisions`. Scoped previews delegate respectively to
@@ -35,17 +34,17 @@ batch without changing the established nonempty `edits` request.
 Physical story inspection exposes all six header/footer slots, and separate
 owner anchors distinguish shared part edits from per-section references.
 Images accept all six slot anchors; story text also supports ordinary
-note/comment entry runs. Reference creation currently takes plain paragraph
-shorthand. Metadata and direct defaults are eligible for ordinary mixed
-batches, but numbering, style transactions, and rich declarations are still
-separate outstanding work.
+note/comment entry runs. Reference creation accepts plain paragraphs or
+guarded rich blocks, and eligible relationship-selected parts can be linked
+even when no section uses them. Metadata, direct defaults, numbering and
+style edits are eligible for ordinary mixed batches.
 
 Rich paragraph declarations now share one decoder across ordinary paragraph
 insertion, body replacement, and scoped story creation/splicing. Direct section
 inspection supplies original half-open ranges and anchors for split/merge.
-All native `BlockEdit` variants are transported; payload coverage is partial:
-rich table cells, native annotations, and additional inline/block kinds
-remain open.
+All native `BlockEdit` variants are transported. Rich table fragments accept
+recursive cell blocks, subject to native declarations and protection guards;
+remaining payload qualification is tracked separately.
 
 Field, body-inline and direct-body table edits now share the ordinary
 transaction. Physical run formatting and table operations have separate
@@ -59,6 +58,11 @@ comment markers, including stored ID spellings. The ordinary `paired-range`
 edit creates, moves or removes the pair using original `body-inlines`
 anchors and native conflict checks. Comment definition creation and deletion
 are not part of the native paired-range transaction.
+
+Typed inline pages cover body, entry, header/footer, and direct body cell
+paragraphs. `inline-at` resolves an issued read-only handle, including eligible
+children, without granting edit access. The independent body/default-header
+readers and owner-scoped table selectors preserve native inspection scopes.
 
 ## What counts as parity?
 
@@ -141,6 +145,11 @@ guide examples together. Read-only views can land before mutations.
 | 6. Rich objects and controls | Picture/shape/chart/fraction inspection and supported edits, including eligible entry pictures and copy-on-write chart data. Discover block/inline/row/cell control sites and implement supported wrap, unwrap, content/definition replacement, properties and choices. | `richControls`, `controlWrapped` and `.objects`: inspect operands and series, verify relationship ownership and untouched media; reject protected/nested/bound sites and incompatible field/control replacements. |
 | 7. Tracked revisions | Proposal and review of supported text insertion/replacement/deletion, moves, bold changes and paragraph revisions including marks. Expose revision metadata and both accept/reject dispositions. | Independently inspect proposed and reviewed packages; verify paired move IDs, protected successors, original-anchor rejection after reopen, and that ordinary edits cannot be smuggled into a revision request. |
 | 8. Close the matrix | Reconcile every Rust surface row, including error-only cases, declaration leaves, reports and convenience aliases. Replay combined fixtures and document domain limits and supported request forms. | Zero unexplained gaps; all required installed-client gates pass at the same commit on `main`. Link manifest, user guide, CI run and remaining **core** limitations on #72. |
+
+Run `python3 tools/check_mcp_parity.py --require-complete` for the closure
+check, in addition to the compiled surface and installed-client gates.
+Native restrictions or deliberately excluded authoring symbols require
+an explicit scope decision on #72, not a coverage claim.
 
 Slices 2–7 depend on the manifest and the relevant addressing work in slice 1.
 Build body declaration conversion once in slice 2; reuse it for table/story

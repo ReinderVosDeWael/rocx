@@ -8,6 +8,10 @@ use serde::Deserialize;
 
 use super::{drawing, format::RunFormatInput, resolve_component};
 
+const MAX_FIELD_TREE_NODES: usize = 256;
+const MAX_FIELD_TREE_CHILDREN: usize = 1024;
+const MAX_FIELD_TREE_DEPTH: usize = 256;
+
 #[derive(Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum InlineInput {
@@ -64,10 +68,22 @@ pub(crate) enum InlineInput {
         dirty: Option<bool>,
         locked: Option<bool>,
     },
+    /// Flat field cache, including inline nesting through depth 256. Native
+    /// XML limits still apply. Use `field` for caches with other inline kinds.
+    FieldTree {
+        /// Node 0 is the root. Each subsequent node must be referenced once
+        /// by an earlier node. Across all nodes, at most 1024 child entries.
+        #[schemars(length(min = 1, max = MAX_FIELD_TREE_NODES))]
+        nodes: Vec<FieldTreeNode>,
+    },
 }
 
 impl InlineInput {
     pub(crate) fn resolve(self) -> Result<ResolvedInline, String> {
+        self.resolve_at_depth(0)
+    }
+
+    fn resolve_at_depth(self, depth: usize) -> Result<ResolvedInline, String> {
         match self {
             Self::Text { text, format } => {
                 let mut run = TextRun::new(text);
@@ -133,7 +149,7 @@ impl InlineInput {
                 let target = target.resolve()?;
                 let children = children
                     .into_iter()
-                    .map(|inline| inline.resolve().map(Into::into))
+                    .map(|inline| inline.resolve_at_depth(depth + 1).map(Into::into))
                     .collect::<Result<Vec<_>, _>>()?;
                 resolve_component(
                     Hyperlink::new(target, children)
@@ -150,30 +166,151 @@ impl InlineInput {
                 complex,
                 dirty,
                 locked,
-            } => {
-                let instruction = instruction.resolve()?;
-                let children = children
+            } => resolve_field(
+                instruction.resolve()?,
+                children
                     .into_iter()
-                    .map(Self::resolve)
-                    .collect::<Result<_, _>>()?;
-                ResolvedField::new(
-                    instruction,
-                    children,
-                    FieldProperties {
-                        form: if complex {
-                            FieldForm::Complex
-                        } else {
-                            FieldForm::Simple
-                        },
-                        dirty,
-                        locked,
-                    },
-                )
-                .map(ResolvedInline::Field)
-                .map_err(|error| error.to_string())
+                    .map(|inline| inline.resolve_at_depth(depth + 1))
+                    .collect::<Result<_, _>>()?,
+                complex,
+                dirty,
+                locked,
+            ),
+            Self::FieldTree { nodes } => resolve_field_tree(nodes, depth),
+        }
+    }
+}
+
+fn resolve_field(
+    instruction: FieldInstruction,
+    children: Vec<ResolvedInline>,
+    complex: bool,
+    dirty: Option<bool>,
+    locked: Option<bool>,
+) -> Result<ResolvedInline, String> {
+    ResolvedField::new(
+        instruction,
+        children,
+        FieldProperties {
+            form: if complex {
+                FieldForm::Complex
+            } else {
+                FieldForm::Simple
+            },
+            dirty,
+            locked,
+        },
+    )
+    .map(ResolvedInline::Field)
+    .map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FieldTreeNode {
+    instruction: FieldInstructionInput,
+    /// Ordered cached inlines or references to nested field nodes.
+    #[serde(default)]
+    #[schemars(length(max = MAX_FIELD_TREE_CHILDREN))]
+    children: Vec<FieldTreeChild>,
+    #[serde(default)]
+    complex: bool,
+    dirty: Option<bool>,
+    locked: Option<bool>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum FieldTreeChild {
+    Field {
+        /// Zero-based index of a later node in this tree.
+        node: usize,
+    },
+    Text {
+        text: String,
+        format: Option<RunFormatInput>,
+    },
+    Tab {
+        format: Option<RunFormatInput>,
+    },
+    Break {
+        #[serde(rename = "type", default)]
+        break_type: BreakTypeInput,
+        format: Option<RunFormatInput>,
+    },
+}
+
+impl FieldTreeChild {
+    fn resolve(self, fields: &mut [Option<ResolvedInline>]) -> Result<ResolvedInline, String> {
+        let inline = match self {
+            Self::Field { node } => return Ok(fields[node].take().expect("validated field-tree")),
+            Self::Text { text, format } => InlineInput::Text { text, format },
+            Self::Tab { format } => InlineInput::Tab { format },
+            Self::Break { break_type, format } => InlineInput::Break { break_type, format },
+        };
+        inline.resolve()
+    }
+}
+
+fn resolve_field_tree(nodes: Vec<FieldTreeNode>, depth: usize) -> Result<ResolvedInline, String> {
+    if nodes.is_empty() || nodes.len() > MAX_FIELD_TREE_NODES {
+        return Err(format!(
+            "field-tree requires 1..={MAX_FIELD_TREE_NODES} nodes"
+        ));
+    }
+    if nodes.iter().map(|node| node.children.len()).sum::<usize>() > MAX_FIELD_TREE_CHILDREN {
+        return Err(format!(
+            "field-tree exceeds {MAX_FIELD_TREE_CHILDREN} total child entries"
+        ));
+    }
+
+    // Forward references exclude cycles. Requiring exactly one parent also
+    // excludes disconnected nodes and prevents shared subtrees from expanding.
+    let mut depths = vec![0; nodes.len()];
+    depths[0] = depth + 1;
+    for (index, node) in nodes.iter().enumerate() {
+        let depth = depths[index];
+        if depth == 0 {
+            return Err(format!("field-tree node {index} has no parent"));
+        }
+        if depth > MAX_FIELD_TREE_DEPTH {
+            return Err(format!("field-tree exceeds depth {MAX_FIELD_TREE_DEPTH}"));
+        }
+        for child in &node.children {
+            if let FieldTreeChild::Field { node: target } = *child {
+                if target <= index || target >= nodes.len() {
+                    return Err(format!(
+                        "field-tree node {index} must reference a later node, got {target}"
+                    ));
+                }
+                if depths[target] != 0 {
+                    return Err(format!(
+                        "field-tree node {target} is referenced more than once"
+                    ));
+                }
+                depths[target] = depth + 1;
             }
         }
     }
+
+    // Build children before parents, moving (not cloning) each resolved field.
+    let mut fields: Vec<Option<ResolvedInline>> = (0..nodes.len()).map(|_| None).collect();
+    for (index, node) in nodes.into_iter().enumerate().rev() {
+        let instruction = node.instruction.resolve()?;
+        let children = node
+            .children
+            .into_iter()
+            .map(|child| child.resolve(&mut fields))
+            .collect::<Result<_, _>>()?;
+        fields[index] = Some(resolve_field(
+            instruction,
+            children,
+            node.complex,
+            node.dirty,
+            node.locked,
+        )?);
+    }
+    Ok(fields[0].take().expect("validated field-tree root"))
 }
 
 fn leaf_format(format: Option<RunFormatInput>) -> Result<RunFormat, String> {
@@ -240,5 +377,73 @@ impl FieldInstructionInput {
             Self::TableOfContents {} => Ok(FieldInstruction::TableOfContents),
         }
         .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn flat_field_tree_resolves_ordered_native_children() {
+        let inline: InlineInput = serde_json::from_value(json!({
+            "kind": "field-tree",
+            "nodes": [
+                {
+                    "instruction": {"kind": "page"},
+                    "children": [
+                        {"kind": "field", "node": 2},
+                        {"kind": "tab"},
+                        {"kind": "field", "node": 1},
+                        {"kind": "break", "type": "line"}
+                    ]
+                },
+                {"instruction": {"kind": "num-pages"}, "complex": true, "locked": false},
+                {
+                    "instruction": {"kind": "raw", "text": " DATE "},
+                    "children": [{"kind": "text", "text": "cached"}]
+                }
+            ]
+        }))
+        .unwrap();
+        let ResolvedInline::Field(root) = inline.resolve().unwrap() else {
+            panic!("expected field");
+        };
+        let [
+            ResolvedInline::Field(first),
+            ResolvedInline::Tab { .. },
+            ResolvedInline::Field(second),
+            ResolvedInline::Break {
+                kind: BreakType::Line,
+                ..
+            },
+        ] = root.children()
+        else {
+            panic!("expected children in cache order");
+        };
+        assert_eq!(root.instruction(), &FieldInstruction::Page);
+        assert_eq!(first.instruction().text(), " DATE ");
+        assert_eq!(first.text(), "cached");
+        assert_eq!(second.instruction(), &FieldInstruction::NumPages);
+        assert_eq!(second.properties().form, FieldForm::Complex);
+        assert_eq!(second.properties().locked, Some(false));
+    }
+
+    #[test]
+    fn recursive_field_syntax_remains_subject_to_json_parser_depth() {
+        let mut inline = json!({"kind": "text", "text": "cached"});
+        for _ in 0..64 {
+            inline =
+                json!({"kind": "field", "instruction": {"kind": "page"}, "children": [inline]});
+        }
+        let wire = inline.to_string();
+        assert!(
+            serde_json::from_str::<InlineInput>(&wire)
+                .err()
+                .expect("legacy deep field must exceed the default JSON recursion limit")
+                .to_string()
+                .contains("recursion limit exceeded")
+        );
     }
 }

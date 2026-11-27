@@ -2,7 +2,10 @@ use rocx::editor::{BodyBlock, ImportedInline, ImportedInlineNode, ImportedRun, m
 use serde_json::{Value, json};
 
 use super::Snapshot;
-use crate::schema::notes::{NoteChange, NoteKind};
+use crate::{
+    diagnostics::ScopedEditError,
+    schema::notes::{NoteChange, NoteKind},
+};
 
 impl Snapshot {
     pub fn note_reference_page(
@@ -61,7 +64,7 @@ impl Snapshot {
         local: &str,
         kind: NoteKind,
         edit: NoteChange,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, ScopedEditError> {
         let (body_index, inline_index) = local
             .strip_prefix("note-reference:")
             .and_then(|address| address.split_once(':'))
@@ -81,7 +84,7 @@ impl Snapshot {
             NoteKind::Footnote => (rocx::NoteKind::Footnote, "word/footnotes.xml"),
             NoteKind::Endnote => (rocx::NoteKind::Endnote, "word/endnotes.xml"),
         };
-        let owner = mcp_bridge::note_owner(&self.document, kind).map_err(|e| e.to_string())?;
+        let owner = mcp_bridge::note_owner(&self.document, kind)?;
         // Only the native editor can authorize first-part creation.
         self.document
             .edit_note_reference(
@@ -89,7 +92,7 @@ impl Snapshot {
                 &run.anchor,
                 edit.into(),
             )
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 }
 

@@ -7,7 +7,7 @@ use rocx::{
 use serde_json::{Value, json};
 
 use super::Snapshot;
-use crate::schema::tables::PhysicalTableChange;
+use crate::{diagnostics::ScopedEditError, schema::tables::PhysicalTableChange};
 
 const OWNER_PREFIX: &str = "physical-table-owner:";
 const TABLE_PREFIX: &str = "physical-table:";
@@ -196,15 +196,19 @@ impl Snapshot {
         owner: Option<&PhysicalTableTarget>,
         lookup: impl Fn(&str) -> Option<&'a PhysicalTableTarget>,
         edits: Vec<PhysicalTableChange>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, ScopedEditError> {
         let Some(PhysicalTableTarget::Owner(owner)) = owner else {
-            return Err("wrong_anchor_type: expected a physical table owner".into());
+            return Err(ScopedEditError::WrongAnchorType(
+                "expected a physical table owner".into(),
+            ));
         };
         let edits = edits
             .into_iter()
             .map(|edit| {
                 let Some(PhysicalTableTarget::Table { part, anchor }) = lookup(&edit.anchor) else {
-                    return Err("wrong_anchor_type: expected a physical table anchor".into());
+                    return Err(ScopedEditError::WrongAnchorType(
+                        "expected a physical table anchor".into(),
+                    ));
                 };
                 if part != owner {
                     return Err("physical table owner mismatch".into());
@@ -214,9 +218,9 @@ impl Snapshot {
                     operation: edit.edit.resolve()?,
                 })
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, ScopedEditError>>()?;
         self.document
             .edit_part_tables(owner, &edits)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     }
 }

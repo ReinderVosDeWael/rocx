@@ -62,17 +62,21 @@ fn edits_match_native_bytes_and_errors_without_mutating_the_snapshot() {
     let target = &native.entry_stories().unwrap()[5];
     let native_edit = |edit| native.edit_entry(&target.part_name, &target.id, edit);
     let invalid = EntryEdit::RemoveParagraph(usize::MAX);
+    let ScopedEditError::Native(error) = snapshot.edit_entry(local, invalid.clone()).unwrap_err()
+    else {
+        panic!("expected native entry rejection");
+    };
     assert_eq!(
-        snapshot.edit_entry(local, invalid.clone()).unwrap_err(),
+        error.to_string(),
         native_edit(invalid).unwrap_err().to_string()
     );
     for forged in ["paragraph:5", "entry:0", "entry:+5", "entry:05", "entry:10"] {
-        assert_eq!(
+        assert!(matches!(
             snapshot
                 .edit_entry(forged, EntryEdit::CommentInitials(None))
                 .unwrap_err(),
-            "unknown local entry anchor"
-        );
+            ScopedEditError::Rejected(message) if message == "unknown local entry anchor"
+        ));
     }
     let edit = EntryEdit::CommentInitials(Some("NEW".into()));
     let edited = snapshot.edit_entry(local, edit.clone()).unwrap();

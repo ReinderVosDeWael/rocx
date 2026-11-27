@@ -206,9 +206,11 @@ impl Call {
                 Some(View::Entries { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::Entries, limit, cursor)
                 }
-                Some(View::Layout { limit, cursor }) => {
-                    session.inspect_page(input.document, PageView::Layout, limit, cursor)
-                }
+                Some(View::Layout {
+                    scope,
+                    limit,
+                    cursor,
+                }) => session.inspect_page(input.document, PageView::Layout(scope), limit, cursor),
                 Some(View::NoteReferences { limit, cursor }) => {
                     session.inspect_page(input.document, PageView::NoteReferences, limit, cursor)
                 }
@@ -347,38 +349,52 @@ impl Call {
             }
             Self::Preview(Preview::Scoped(input)) => match input.operation {
                 Operation::EditEntry { anchor, edit } => {
-                    session.preview_entry(input.document, anchor, edit.into())
+                    return session.preview_entry(input.document, anchor, edit.into());
                 }
                 Operation::EditNoteReference {
                     anchor,
                     note_kind,
                     edit,
-                } => session.preview_note_reference(input.document, anchor, note_kind, edit),
+                } => {
+                    return session.preview_note_reference(input.document, anchor, note_kind, edit);
+                }
                 Operation::EditRevision {
                     anchor,
                     paired_anchor,
                     edit,
                 } => return session.preview_revision(input.document, anchor, paired_anchor, edit),
-                Operation::EditLayout { edits } => session.preview_layout(input.document, edits),
+                Operation::EditLayout { edits } => {
+                    return session.preview_layout(input.document, edits);
+                }
+                Operation::EditStoryText { anchor, edits }
+                    if Session::is_default_header_owner(&anchor) =>
+                {
+                    return session.preview_default_header_text(input.document, &anchor, edits);
+                }
                 Operation::EditStoryText { anchor, edits } => {
-                    session.preview_story_text(input.document, &anchor, edits)
+                    return session.preview_story_text(input.document, &anchor, edits);
                 }
                 Operation::EditEntryInlines { anchor, edits } => {
-                    session.preview_entry_inlines(input.document, &anchor, edits)
+                    return session.preview_entry_inlines(input.document, &anchor, edits);
                 }
                 Operation::EditStoryReference { anchor, edit } => {
-                    session.preview_story_reference(input.document, &anchor, edit)
+                    return session.preview_story_reference(input.document, &anchor, edit);
                 }
                 Operation::EditStoryBlocks { anchor, edit } => {
-                    session.preview_story_blocks(input.document, &anchor, edit)
+                    return session.preview_story_blocks(input.document, &anchor, edit);
+                }
+                Operation::EditRunFormat { anchor, edits }
+                    if Session::is_default_header_owner(&anchor) =>
+                {
+                    return session.preview_default_header_format(input.document, &anchor, edits);
                 }
                 Operation::EditRunFormat { anchor, edits } => {
-                    session.preview_run_format(input.document, &anchor, edits)
+                    return session.preview_run_format(input.document, &anchor, edits);
                 }
                 Operation::EditPartTables { anchor, edits } => {
-                    session.preview_part_tables(input.document, &anchor, edits)
+                    return session.preview_part_tables(input.document, &anchor, edits);
                 }
-                Operation::NoOp {} => session.preview_noop(input.document),
+                Operation::NoOp {} => return session.preview_noop(input.document),
             },
             Self::Save(input) => session.save_copy(input.document, input.preview, input.output),
             Self::Close(input) => session.close_document(input.document),
@@ -559,7 +575,7 @@ pub(crate) enum Edit {
     /// Append an inline image to an existing header or footer slot.
     #[schemars(transform = stories::require_image_payload)]
     HeaderImage {
-        /// Slot anchor from compact inspection or the stories view.
+        /// Slot anchor from compact inspection or stories, or `image_slot.anchor` from default-headers.
         anchor: String,
         mode: HeaderMode,
         /// Shorthand for an encoded image with intrinsic dimensions and default metadata.

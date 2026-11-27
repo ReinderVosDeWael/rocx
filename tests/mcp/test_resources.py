@@ -397,6 +397,81 @@ async def test_all_modeled_metadata_and_defaults_match_native(launch, tmp_path):
                               native_defaults, defaults)
 
 
+async def test_modeled_resource_set_and_clear_native_bytes(launch, tmp_path):
+    fixture = build_source()
+    for properties in word_defaults(fixture):
+        properties.clear()  # Ensure each advertised default set is a real change.
+    source = tmp_path / "source.docx"
+    fixture.save(source)
+
+    # Author the target values independently; the oracle reads these as native
+    # types instead of decoding the MCP edit payloads.
+    fixture = build_source()
+    defaults = populate_defaults(fixture)
+    metadata = populate_metadata(fixture)
+    metadata["created"] = "2024-02-29T02:05:06Z"  # Only UTC timestamps are writable.
+    fixture.core_properties._element.find(qn("dcterms:created")).text = metadata["created"]
+    values = tmp_path / "values.docx"
+    fixture.save(values)
+    # Comments aliases description; do not target the same leaf twice.
+    fields = [field for field in metadata if field != "comments"]
+
+    async with launch() as client:
+        schema = next(tool.inputSchema for tool in (await client.list_tools()).tools
+                      if tool.name == "preview_edits")
+        validator = validator_for(schema)(schema)
+        document = (await call(client, "open_document", path=source.name))["document"]
+        initial = await read_resources(client, document)
+        assert not initial["document_defaults"].keys() & defaults.keys()
+        assert all(initial["metadata"][field] != metadata[field] for field in fields)
+
+        for phase in ("set", "clear"):
+            setting = phase == "set"
+            edits = [
+                resource(kind, field=field, value=payload[field] if setting else None)
+                for kind, payload, names in [
+                    ("default", defaults, defaults),
+                    ("metadata", metadata, fields),
+                ]
+                for field in names
+            ]
+            alias = resource("metadata", field="comments",
+                             value=metadata["comments"] if setting else None)
+            for edit in [*edits, alias]:
+                assert validator.is_valid(dict(document=document, edits=[edit])), (phase, edit)
+
+            output = tmp_path / f"{phase}.docx"
+            original, before = source.read_bytes(), parts(source)
+            preview = await call(client, "preview_edits", document=document, edits=edits)
+            saved = await call(client, "save_copy", document=document, preview=preview["preview"],
+                               output=output.name)
+            assert source.read_bytes() == original
+            native = tmp_path / f"native-{phase}.docx"
+            resource_oracle("write-modeled", native, source, values, phase, *fields, cwd=tmp_path)
+            assert output.read_bytes() == native.read_bytes()
+            assert saved["output_snapshot"] == preview["output_snapshot"] == digest(
+                output.read_bytes(),
+            )
+            after = parts(output)
+            assert before.keys() == after.keys()
+            assert {name for name in before if before[name] != after[name]} == {
+                STYLES, SETTINGS, CORE, EXTENDED,
+            }
+            assert etree.fromstring(after[SETTINGS]).find(qn("w:zoom")).get(
+                qn("w:percent"),
+            ) == "100"
+
+            document = (await call(client, "open_document", path=output.name))["document"]
+            readback = await read_resources(client, document)
+            assert readback["metadata"] == (metadata if setting else dict.fromkeys(metadata))
+            await assert_readback(client, document, resource_query("document-defaults"),
+                                  native_read(native, "document-defaults"),
+                                  defaults if setting else {})
+            source = output
+
+    validate(tmp_path / "source.docx", tmp_path / "set.docx", tmp_path / "clear.docx")
+
+
 async def test_direct_and_legacy_alignment_readback_match_native(launch, tmp_path):
     cases = [
         ("left", "left", None, None),

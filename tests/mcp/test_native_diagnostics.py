@@ -4,7 +4,7 @@ import docx
 from docx.oxml.ns import qn
 import pytest
 
-from test_stdio import anyio_backend, call, launch  # noqa: F401 (shared fixtures)
+from test_stdio import anyio_backend, call, launch, make_entry_source  # noqa: F401 (shared fixtures)
 
 pytestmark = pytest.mark.anyio
 
@@ -12,6 +12,17 @@ BATCH_ACTION = "Check the edit targets and values, then retry the batch."
 BATCH_HINT = "revise the operation and retry"
 IMPORT_ACTION = "Check that the input is a valid DOCX and fits the supplied import limits."
 IO_ACTION = "Check the server-host path and permissions before retrying."
+
+
+def native_rejection(result, detail, hint=BATCH_HINT):
+    assert result.isError
+    assert result.structuredContent == {
+        "category": "rejected_batch",
+        "message": f"{detail}; {hint}",
+        "action": BATCH_ACTION,
+        "rule": "unsupported_edit",
+        "detail": detail,
+    }
 
 
 def write_source(path):
@@ -169,3 +180,106 @@ async def test_open_native_diagnostics_do_not_change_filesystem_errors(launch, t
         }
 
         assert (await call(client, "open_document", path=path("source.docx")))["document"]
+
+
+async def test_scoped_entry_native_rejection(launch, tmp_path):
+    source = tmp_path / "entries.docx"
+    make_entry_source(source)
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        entries = await call(client, "inspect_document", document=document,
+                             view=dict(kind="entries"))
+        comment = next(row["anchor"] for row in entries["entries"] if row["kind"] == "comment")
+        result = await client.call_tool("preview_edits", dict(document=document, operation=dict(
+            kind="edit-entry", anchor=comment, edit=dict(kind="remove-paragraph", index=99),
+        )))
+        native_rejection(result, "invalid block index or protected first note paragraph")
+
+
+async def test_scoped_layout_and_run_format_native_rejections(launch, tmp_path):
+    write_source(tmp_path / "source.docx")
+    async with launch() as client:
+        document = (await call(client, "open_document", path="source.docx"))["document"]
+        layout = await call(client, "inspect_document", document=document, view=dict(kind="layout"))
+        paragraph = next(row["anchor"] for row in layout["layout"] if row["kind"] == "paragraph")
+        align = dict(anchor=paragraph, field="alignment", value="center")
+        layout_failure = await client.call_tool("preview_edits", dict(
+            document=document, operation=dict(kind="edit-layout", edits=[align, align]),
+        ))
+        native_rejection(layout_failure, "duplicate layout field", "revise the layout edits and retry")
+
+        formats = await call(client, "inspect_document", document=document,
+                             view=dict(kind="format-runs"))
+        run = formats["format_runs"][0]
+        bold = dict(anchor=run["anchor"], edit=dict(kind="set-bold", value=True))
+        operation = dict(kind="edit-run-format", anchor=run["owner"]["anchor"], edits=[bold, bold])
+        result = await client.call_tool("preview_edits", dict(document=document, operation=operation))
+        native_rejection(result, "duplicate or conflicting run format property")
+
+        retry = await call(client, "preview_edits", document=document,
+                           operation=dict(operation, edits=[bold]))
+        assert retry["preview"]
+
+
+async def test_story_reference_blocks_and_text_native_rejection_retry(launch, tmp_path):
+    source = tmp_path / "story.docx"
+    write_source(source)
+    fixture = docx.Document(source)
+    fixture.sections[0].header.paragraphs[0].text = "Header text"
+    fixture.save(source)
+
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+
+        async def reject_and_retry(operation, retry, detail):
+            result = await client.call_tool("preview_edits", dict(
+                document=document, operation=operation,
+            ))
+            native_rejection(result, detail)
+            assert (await call(client, "preview_edits", document=document,
+                               operation=retry))["preview"]
+
+        sections = await call(client, "inspect_document", document=document,
+                              view=dict(kind="sections"))
+        footer = next(slot for slot in sections["sections"][0]["story_slots"]
+                      if (slot["kind"], slot["variant"]) == ("footer", "default"))
+        reference = dict(kind="edit-story-reference", anchor=footer["anchor"])
+        await reject_and_retry(
+            dict(reference, edit=dict(kind="remove")),
+            dict(reference, edit=dict(kind="create", paragraphs=["New footer"])),
+            "section slot has no explicit reference",
+        )
+
+        stories = await call(client, "inspect_document", document=document,
+                             view=dict(kind="stories"))
+        header = next(row for row in stories["stories"]
+                      if (row["kind"], row["variant"]) == ("header", "default"))
+        block = dict(mode="shared", index=0, remove=1, blocks=[
+            dict(kind="paragraph", paragraph=dict(inlines=[dict(kind="text", text="New header")])),
+        ])
+        splice = dict(kind="edit-story-blocks", anchor=header["anchor"], edit=block)
+        await reject_and_retry(dict(splice, edit=dict(block, index=99)), splice,
+                               "story block index out of bounds")
+
+        run = header["blocks"][0]["inlines"][0]
+        text = dict(anchor=run["anchor"], text="Updated header")
+        edit_text = dict(kind="edit-story-text", anchor=header["owner"]["anchor"], edits=[text])
+        await reject_and_retry(dict(edit_text, edits=[text, text]), edit_text,
+                               "duplicate story text target")
+
+
+async def test_entry_run_story_text_native_rejection_retry(launch, tmp_path):
+    source = tmp_path / "entry-runs.docx"
+    make_entry_source(source)
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        page = await call(client, "inspect_document", document=document,
+                          view=dict(kind="entry-runs"))
+        row = next(row for row in page["entry_runs"] if row["kind"] == "comment")
+        run = next(run for run in row["runs"] if "anchor" in run)
+        text = dict(anchor=run["anchor"], text="Updated comment")
+        operation = dict(kind="edit-story-text", anchor=row["owner"]["anchor"], edits=[text, text])
+        result = await client.call_tool("preview_edits", dict(document=document, operation=operation))
+        native_rejection(result, "duplicate story text target")
+        assert (await call(client, "preview_edits", document=document,
+                           operation=dict(operation, edits=[text])))["preview"]

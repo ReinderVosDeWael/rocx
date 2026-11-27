@@ -17,6 +17,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "tests/mcp_parity"
 CURATED_OWNERS = {"ImportedDocument", "EditBatch", "EditPreview"}
+LEDGER_FIELDS = {"version", "rows", "fixtures", "unverified_symbols"}
 STATUS = {"planned", "partial", "covered", "excluded"}
 REQUIRED = {"scope", "target", "mcp", "status", "positive", "negative"}
 OPTIONAL = {"gap", "alias_of", "batch_slices", "decision"}
@@ -94,8 +95,29 @@ def fixture_errors(fixtures, root):
             yield f"fixture {fixture}: test not found: {reference}"
 
 
+def effective_rows(ledger):
+    """Expand each {symbols: [...], template: {...}} entry without overrides."""
+    rows = ledger["rows"].copy()
+    groups = ledger.get("groups", [])
+    if not isinstance(groups, list):
+        raise InvalidLedger("groups: expected a list of coverage groups")
+    for i, group in enumerate(groups):
+        label = f"groups[{i}]"
+        if not isinstance(group, dict) or group.keys() != {"symbols", "template"}:
+            raise InvalidLedger(f"{label}: expected symbols and template fields")
+        members = string_set(group["symbols"], f"{label} symbols")
+        if not members:
+            raise InvalidLedger(f"{label}: expected at least one explicit Rust symbol")
+        for key in sorted(members):
+            if key in rows:
+                previous = "row" if key in ledger["rows"] else "group"
+                raise InvalidLedger(f"{label}: duplicate disposition ({previous} and group): {key}")
+            rows[key] = group["template"]
+    return rows
+
+
 def validate(surface, ledger, root=ROOT):
-    """Raise InvalidLedger if generated and reviewed inventories disagree."""
+    """Return effective rows, or raise InvalidLedger if inventories disagree."""
     if (
         not isinstance(surface, dict)
         or type(surface.get("schema_version")) is not int
@@ -105,15 +127,16 @@ def validate(surface, ledger, root=ROOT):
         raise InvalidLedger("surface: expected a version 1 symbols object")
     if (
         not isinstance(ledger, dict)
-        or set(ledger) != {"version", "rows", "fixtures", "unverified_symbols"}
+        or not LEDGER_FIELDS <= ledger.keys() <= LEDGER_FIELDS | {"groups"}
         or type(ledger["version"]) is not int
         or ledger["version"] != 1
     ):
         raise InvalidLedger("coverage: expected version 1 ledger")
-    rows, fixtures = ledger["rows"], ledger["fixtures"]
-    if not isinstance(rows, dict) or not isinstance(fixtures, dict):
+    individual_rows, fixtures = ledger["rows"], ledger["fixtures"]
+    if not isinstance(individual_rows, dict) or not isinstance(fixtures, dict):
         raise InvalidLedger("coverage: expected rows and fixtures objects")
     unverified = string_set(ledger["unverified_symbols"], "unverified_symbols")
+    rows = effective_rows(ledger)
     symbols = set(surface["symbols"])
     curated = {
         key for key in symbols
@@ -122,14 +145,18 @@ def validate(surface, ledger, root=ROOT):
     errors = []
     for owner in sorted(CURATED_OWNERS - {key.partition("::")[0] for key in curated}):
         errors.append(f"surface: no {owner} member symbols")
-    for key in sorted(curated - rows.keys()):
-        errors.append(f"missing curated mapping: {key}")
+    for key in sorted(curated - individual_rows.keys()):
+        if key in rows:
+            errors.append(f"curated mapping must be an individual row: {key}")
+        else:
+            errors.append(f"missing curated mapping: {key}")
     for key in sorted(symbols - curated - rows.keys() - unverified):
         errors.append(f"missing explicit coverage obligation: {key}")
     for key in sorted((rows.keys() | unverified) - symbols):
         errors.append(f"unknown Rust symbol: {key}")
     for key in sorted(rows.keys() & unverified):
-        errors.append(f"duplicate disposition (row and unverified): {key}")
+        disposition = "row" if key in individual_rows else "group"
+        errors.append(f"duplicate disposition ({disposition} and unverified): {key}")
 
     errors.extend(fixture_errors(fixtures, root))
     checked_rows = {}
@@ -198,14 +225,16 @@ def validate(surface, ledger, root=ROOT):
 
     if errors:
         raise InvalidLedger("\n".join(errors))
+    return rows
 
 
 def require_complete(ledger):
     """Fail the closure gate for an internally consistent but unfinished ledger."""
+    rows = effective_rows(ledger)
     remaining = [
-        f"{sum(row['status'] == status for row in ledger['rows'].values())} {status} rows"
+        f"{count} {status} rows"
         for status in ("partial", "planned")
-        if any(row["status"] == status for row in ledger["rows"].values())
+        if (count := sum(row["status"] == status for row in rows.values()))
     ]
     if ledger["unverified_symbols"]:
         remaining.append(f"{len(ledger['unverified_symbols'])} unverified Rust symbols")
@@ -223,14 +252,14 @@ def main():
     try:
         surface = read_json(args.surface)
         ledger = read_json(args.coverage)
-        validate(surface, ledger)
+        rows = validate(surface, ledger)
         if args.require_complete:
             require_complete(ledger)
     except InvalidLedger as exc:
         print(exc, file=sys.stderr)
         return 1
     counts = " / ".join(
-        f"{sum(row['status'] == status for row in ledger['rows'].values())} {status}"
+        f"{sum(row['status'] == status for row in rows.values())} {status}"
         for status in ("covered", "partial", "planned", "excluded")
     )
     print(f"MCP parity ledger valid: {counts}; "

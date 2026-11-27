@@ -160,11 +160,32 @@ requires the integrated evidence on `main`.
 The paired-range increment merged in [PR #81](https://github.com/ReinderVosDeWael/rocx/pull/81).
 The controls, drawings, entry-inline, style and numbering increments merged in
 [PR #87](https://github.com/ReinderVosDeWael/rocx/pull/87) after hosted checks.
-The follow-up working tree adds physical inline views, richer declaration
+The [#88](https://github.com/ReinderVosDeWael/rocx/pull/88) checkpoint merged
+after hosted checks. It adds physical inline views, richer declaration
 inputs, relinking unused story parts and selecting relocated empty note
 owners. It also expands direct-Rust evidence for layout, styles, resources,
-entry edits and the nine mixed-preview report arrays. Keep focused test
-results separate from the integrated gate.
+entry edits and the nine mixed-preview report arrays. On `11a3d2f`, 39 MCP
+Rust tests and Clippy passed on Rust 1.88 and stable; 232 installed-client
+and ledger tests plus ten subtests passed with schemas enabled. The strict
+docs build checked 700 pages. A live OpenCode client retrieved a bold
+header run via `inline-at` and saved a centered body paragraph; independent
+`python-docx` readback verified both. Continue with logical slot isolation,
+scoped diagnostics, guarded edit evidence, and symbol-by-symbol reconciliation.
+
+The follow-up issues logical story slot anchors from `sections` without
+reading story bodies, adds paragraph-only layout discovery, and uses the
+independent default-header reader for run, image, splice and link targets.
+Native diagnostics are retained for the scoped preview operations. Flat
+field declarations carry deep native field trees without increasing JSON
+parser depth; installed debug previews at depths 64, 200 and 248 matched
+Rust and reopened using a bounded worker stack. Focused acceptance
+exercises every modeled default/metadata
+write and table property donor key, plus protected entry guards. The
+coverage validator can group explicit symbol lists with shared evidence;
+partial and unexplained symbols must still block #72 closure.
+A live OpenCode client set a paragraph's outline level through the
+paragraph-only view, and independent readback confirmed both original
+section-type elements were retained.
 
 ## 0.4.0 release
 

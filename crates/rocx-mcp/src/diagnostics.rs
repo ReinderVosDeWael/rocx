@@ -76,6 +76,7 @@ fn native_detail(error: &Error) -> Option<&str> {
 }
 
 /// A staged operation can reject a target or payload before calling the native editor.
+#[derive(Debug)]
 pub(crate) enum ScopedEditError {
     WrongAnchorType(String),
     Rejected(String),
@@ -94,16 +95,27 @@ impl From<&str> for ScopedEditError {
     }
 }
 
+impl From<String> for ScopedEditError {
+    fn from(message: String) -> Self {
+        Self::Rejected(message)
+    }
+}
+
 impl From<ScopedEditError> for ToolError {
     fn from(error: ScopedEditError) -> Self {
-        const HINT: &str = "revise the operation and retry";
+        Self::scoped(error, "revise the operation and retry")
+    }
+}
+
+impl ToolError {
+    pub fn scoped(error: ScopedEditError, hint: &str) -> Self {
         match error {
             ScopedEditError::WrongAnchorType(message) => Self::new("wrong_anchor_type", message),
             ScopedEditError::Rejected(message) => {
-                Self::new("rejected_batch", format!("{message}; {HINT}"))
+                Self::new("rejected_batch", format!("{message}; {hint}"))
             }
             ScopedEditError::Native(error) => {
-                Self::native("rejected_batch", error, |error| format!("{error}; {HINT}"))
+                Self::native("rejected_batch", error, |error| format!("{error}; {hint}"))
             }
         }
     }

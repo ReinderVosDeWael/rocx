@@ -53,6 +53,7 @@ impl Snapshot {
                     "flags": flags,
                     "layout": super::layout::layout_values(&section.layout),
                     "first_paragraph": first_paragraph,
+                    "story_slots": super::stories::section_story_slots(index),
                 })
             })
             .collect();
@@ -161,7 +162,15 @@ mod tests {
                 "section_type_xml": "continuous", "section_type": "continuous",
                 "flags": {"titlePage": true},
                 "layout": super::super::layout::layout_values(&sections[0].layout),
-                "first_paragraph": {"body_index": 0, "text": "first", "has_opaque_content": false}
+                "first_paragraph": {"body_index": 0, "text": "first", "has_opaque_content": false},
+                "story_slots": [
+                    {"anchor": "story-slot:0", "kind": "header", "variant": "default"},
+                    {"anchor": "story-slot:1", "kind": "header", "variant": "first"},
+                    {"anchor": "story-slot:2", "kind": "header", "variant": "even"},
+                    {"anchor": "story-slot:3", "kind": "footer", "variant": "default"},
+                    {"anchor": "story-slot:4", "kind": "footer", "variant": "first"},
+                    {"anchor": "story-slot:5", "kind": "footer", "variant": "even"},
+                ]
             })]
         );
         assert_eq!(first[0]["layout"]["titlePage"], true);
