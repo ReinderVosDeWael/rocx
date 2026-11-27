@@ -7,6 +7,10 @@ reuse the checkout's Cargo target for routine checks and clean up isolated
 packed JavaScript runs by default. Hosted artifact jobs explicitly retain
 output without changing the clean Wasm build and replay requirements.
 
+Repository closeout: remove finished worktrees and verified stale topic
+branches as part of completing each task. Follow the cleanup and preservation
+rules in [AGENTS.md](../AGENTS.md).
+
 ## Active interface milestone: local MCP server (#52)
 
 Build `crates/rocx-mcp` using the [implementation and acceptance plan](MCP-PLAN.md).

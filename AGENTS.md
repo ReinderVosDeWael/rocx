@@ -26,6 +26,22 @@ You may modify `AGENTS.md` whenever you deem it necessary to improve or change
 repository agent behavior in future sessions. Keep repository guidance
 consistent with higher-priority instructions and actual permissions.
 
+Worktree and branch cleanup is part of finishing a task. Keep temporary
+worktrees outside the main checkout and its `target/`. When finished, check
+that no session is using the worktree and inspect tracked, untracked, and
+ignored files before removing it with `git worktree remove`. Preserve local
+changes and needed evidence; if keeping a worktree, record why and when it can
+be removed. Use `git worktree prune` for registrations whose directories are
+already gone.
+
+After a topic lands, verify its latest tip is integrated into the default
+branch (check equivalent changes if it was squashed or rebased). Delete the
+finished topic branch locally and on GitHub when safe, then run
+`git fetch --prune`. Do not delete default, protected, or active PR branches,
+or branches with unresolved work. Age alone does not make a branch stale.
+Retire temporary release branches only after checking the release runbook
+and confirming publication.
+
 Reuse the checkout's Cargo `target/` for routine builds and tests. Do not
 create a persistent `CARGO_TARGET_DIR` per issue, PR, or test run. When a
 qualification check requires isolation, use one run-owned scratch directory
