@@ -112,11 +112,25 @@ fn empty_row_donor(doc: &ImportedDocument) -> Vec<u8> {
 }
 
 fn zero_column_control_probe(doc: &ImportedDocument) -> Vec<u8> {
-    let nested =
-        futures_executor::block_on(Table::new(vec![TableRow::new(vec![]).into()]).resolve())
+    let empty = || TableRow::new(vec![]);
+    let resolve = |table: Table| {
+        futures_executor::block_on(table.resolve())
             .unwrap()
-            .unwrap();
-    assert_eq!(nested.columns(), 0);
+            .unwrap()
+    };
+    let zero_columns = resolve(Table::new(vec![empty().into()]));
+    assert_eq!(zero_columns.columns(), 0);
+    let wrap = |nested| {
+        resolve(
+            Table::new(vec![
+                TableRow::new(vec![
+                    TableCell::new(vec![ResolvedBlock::Table(nested).into()]).into(),
+                ])
+                .into(),
+            ])
+            .with_properties(TableProperties::default().with_column_widths(vec![1440])),
+        )
+    };
     let [control] = doc.controls() else {
         panic!("expected one rich block control");
     };
@@ -129,24 +143,37 @@ fn zero_column_control_probe(doc: &ImportedDocument) -> Vec<u8> {
             ..EditBatch::default()
         })
     };
-    let Err(error) = replace(nested.clone()) else {
-        panic!("direct zero-column replacement unexpectedly succeeded");
+    let nested = wrap(wrap(zero_columns.clone()));
+    for (depth, table) in [(0, zero_columns), (2, nested.clone())] {
+        let Err(error) = replace(table) else {
+            panic!("zero-column replacement at depth {depth} unexpectedly succeeded");
+        };
+        assert!(error.to_string().contains("empty replacement table"));
+    }
+
+    let BodyBlock::Paragraph(paragraph) = &doc.body()[0] else {
+        panic!("expected an original body paragraph");
+    };
+    let Err(error) = doc.preview_edits(EditBatch {
+        tables: &[TableInsertion {
+            target: paragraph.anchor.clone(),
+            table: nested,
+        }],
+        ..EditBatch::default()
+    }) else {
+        panic!("inserting a table containing a zero-column table unexpectedly succeeded");
     };
     assert!(error.to_string().contains("empty replacement table"));
-    let outer = futures_executor::block_on(
-        Table::new(vec![
-            TableRow::new(vec![
-                TableCell::new(vec![ResolvedBlock::Table(nested).into()]).into(),
-            ])
-            .into(),
+
+    let padded = resolve(Table::new(vec![
+        TableRow::new(vec![
+            TableCell::new(vec![Paragraph::new("Nested cell").into()]).into(),
         ])
-        .with_properties(TableProperties::default().with_column_widths(vec![1440]))
-        .resolve(),
-    )
-    .unwrap()
-    .unwrap();
-    assert_eq!(outer.columns(), 1);
-    replace(outer).unwrap().to_docx().unwrap()
+        .into(),
+        empty().into(),
+    ]));
+    assert_eq!(padded.columns(), 1);
+    replace(wrap(padded)).unwrap().to_docx().unwrap()
 }
 
 fn main() {

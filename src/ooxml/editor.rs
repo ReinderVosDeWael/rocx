@@ -102,9 +102,6 @@ fn encode_owned_blocks(
         let node = match block {
             ResolvedBlock::Paragraph(p) => renderer.paragraph(p, &renderer.context(story, 8640))?,
             ResolvedBlock::Table(t) => {
-                if t.columns() == 0 {
-                    return Err(unsupported("empty replacement table").into());
-                }
                 let width = if let Some(widths) = t.column_widths()
                     && t.layout() != Some(crate::TableLayout::Autofit)
                 {
@@ -451,6 +448,12 @@ fn check_table(
     path: &DeclarationPath,
     styles: &mut StyleRefs,
 ) -> Result<()> {
+    // A nonempty grid pads short rows, but a zero-column table renders
+    // cellless rows (which Word treats as corrupt). Property-only donors
+    // do not go through fragment validation.
+    if table.columns() == 0 {
+        return Err(unsupported("empty replacement table").into());
+    }
     if let Some(style) = table.style() {
         styles.insert(("table", style.into()));
     }

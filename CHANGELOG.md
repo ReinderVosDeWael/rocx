@@ -5,6 +5,9 @@
 - Add [`rocx-mcp`](docs/MCP.md), a local stdio server for creating DOCX
   documents, inspecting edit targets, previewing batches and saving a selected
   preview to a new copy. Install it from the separate Cargo workspace crate.
+- Reject zero-column tables at any nesting depth in imported edit payloads
+  rather than writing rows Word treats as corrupt. Property-only donors and
+  empty rows padded by a nonempty table grid still work.
 
 ## 0.4.0
 
