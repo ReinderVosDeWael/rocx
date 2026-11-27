@@ -20,8 +20,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
-    fs::{self, OpenOptions},
-    io::{ErrorKind, Write},
+    fs::{self, File, Metadata, OpenOptions},
+    io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
@@ -39,6 +39,12 @@ struct Preview {
     digest: String,
 }
 
+struct Source {
+    aliases: [PathBuf; 3],
+    update_path: Option<PathBuf>,
+    digest: String,
+}
+
 struct Document {
     snapshot: Snapshot,
     view_anchors: HashMap<String, PageView>,
@@ -46,7 +52,7 @@ struct Document {
     story_parts: HashMap<usize, String>,
     physical_table_targets: BTreeMap<String, PhysicalTableTarget>,
     cursors: HashMap<String, (PageView, usize)>,
-    sources: Vec<PathBuf>,
+    source: Option<Source>,
     previews: HashMap<String, Preview>,
 }
 
@@ -157,6 +163,16 @@ pub struct Session {
 
 const UNKNOWN: &str = "invalid_document: open or create a document in this session";
 const CAPACITY: &str = "capacity: close a document to release retained snapshots and previews";
+const SOURCE_CHANGED: &str = "source_changed: the source no longer matches the opened snapshot";
+
+fn source_metadata(path: &Path) -> Result<Metadata, String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(metadata),
+        Ok(_) => Err(SOURCE_CHANGED.into()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Err(SOURCE_CHANGED.into()),
+        Err(e) => Err(format!("io: cannot inspect source: {e}")),
+    }
+}
 
 /// Resolve directory aliases but keep the leaf, even when it no longer exists.
 fn path_slot(path: &Path) -> Result<PathBuf, String> {
@@ -270,22 +286,27 @@ impl Session {
     fn register(
         &mut self,
         bytes: Vec<u8>,
-        sources: Vec<PathBuf>,
+        source_paths: Option<[PathBuf; 3]>,
         initial: bool,
     ) -> Result<Value, String> {
         let snapshot = Snapshot::open(&bytes).map_err(|e| format!("invalid_document_data: {e}"))?;
-        self.register_snapshot(snapshot, bytes, sources, initial)
+        self.register_snapshot(snapshot, bytes, source_paths, initial)
     }
 
     fn register_snapshot(
         &mut self,
         snapshot: Snapshot,
         bytes: Vec<u8>,
-        sources: Vec<PathBuf>,
+        source_paths: Option<[PathBuf; 3]>,
         initial: bool,
     ) -> Result<Value, String> {
         let id = Uuid::new_v4().to_string();
         let digest = hash(&bytes);
+        let source = source_paths.map(|aliases| Source {
+            update_path: (aliases[1] == aliases[2]).then(|| aliases[1].clone()),
+            aliases,
+            digest: digest.clone(),
+        });
         let mut response = json!({"document": id, "snapshot": digest});
         let mut previews = HashMap::new();
         if initial {
@@ -304,7 +325,7 @@ impl Session {
                 story_parts: HashMap::new(),
                 physical_table_targets: BTreeMap::new(),
                 cursors: HashMap::new(),
-                sources,
+                source,
                 previews,
             },
         );
@@ -326,14 +347,14 @@ impl Session {
             Snapshot::open_with_limits(&bytes, limits.unwrap_or_default()).map_err(|error| {
                 ToolError::native("invalid_document_data", error, ToString::to_string)
             })?;
-        self.register_snapshot(snapshot, bytes, vec![absolute, slot, resolved], false)
+        self.register_snapshot(snapshot, bytes, Some([absolute, slot, resolved]), false)
             .map_err(ToolError::from)
     }
 
     pub fn create_document(&mut self, paragraphs: Vec<String>) -> Result<Value, String> {
         self.check_document_limit()?;
         let bytes = Snapshot::create(paragraphs).map_err(|e| format!("invalid_paragraphs: {e}"))?;
-        self.register(bytes, Vec::new(), true)
+        self.register(bytes, None, true)
     }
 
     pub fn inspect_document(&mut self, document: String) -> Result<Value, ToolError> {
@@ -1153,29 +1174,36 @@ impl Session {
         Ok(result)
     }
 
-    pub fn save_copy(
-        &mut self,
-        document: String,
-        preview: String,
-        output: String,
-    ) -> Result<Value, String> {
-        let doc = self.document(&document)?;
+    fn selected_preview<'a>(
+        doc: &'a Document,
+        document: &str,
+        preview: &str,
+    ) -> Result<&'a Preview, String> {
         if let Some((owner, _)) = preview.split_once('/')
             && owner != document
         {
             return Err("wrong_owner: use a preview from the selected document".into());
         }
-        let selected = doc
-            .previews
-            .get(&preview)
-            .ok_or("invalid_preview: create a preview in this document")?;
+        doc.previews
+            .get(preview)
+            .ok_or_else(|| "invalid_preview: create a preview in this document".into())
+    }
+
+    pub fn save_copy(
+        &self,
+        document: String,
+        preview: String,
+        output: String,
+    ) -> Result<Value, String> {
+        let selected = Self::selected_preview(self.document(&document)?, &document, &preview)?;
         let slot = path_slot(Path::new(&output))?;
         let absolute =
             std::path::absolute(&output).map_err(|e| format!("io: invalid path: {e}"))?;
         if self
             .documents
             .values()
-            .any(|d| d.sources.contains(&slot) || d.sources.contains(&absolute))
+            .filter_map(|d| d.source.as_ref())
+            .any(|source| source.aliases.contains(&slot) || source.aliases.contains(&absolute))
         {
             return Err(
                 "source_path: choose a new destination distinct from the open source".into(),
@@ -1196,6 +1224,49 @@ impl Session {
             .and_then(|()| file.flush())
             .map_err(|e| format!("io: write failed; new copy may be incomplete: {e}"))?;
         Ok(json!({"output":output,"output_snapshot":selected.digest}))
+    }
+
+    pub fn save_in_place(&self, document: String, preview: String) -> Result<Value, String> {
+        let doc = self.document(&document)?;
+        let selected = Self::selected_preview(doc, &document, &preview)?;
+        let source = doc
+            .source
+            .as_ref()
+            .ok_or("no_source: an in-memory document has no source file to update")?;
+        let path = source.update_path.as_ref().ok_or(
+            "source_alias: open the regular source file directly instead of a symbolic link",
+        )?;
+        let metadata = source_metadata(path)?;
+        let parent = path.parent().expect("source slot has a canonical parent");
+        let mut staged = tempfile::NamedTempFile::new_in(parent)
+            .map_err(|e| format!("io: cannot stage source update: {e}"))?;
+        staged
+            .write_all(&selected.bytes)
+            .and_then(|()| staged.as_file().set_permissions(metadata.permissions()))
+            .and_then(|()| staged.as_file().sync_all())
+            .map_err(|e| format!("io: cannot finish staging source update: {e}"))?;
+
+        // Compare immediately before persisting; this is not a lock against external writers.
+        source_metadata(path)?;
+        let mut current = File::open(path).map_err(|e| {
+            if e.kind() == ErrorKind::NotFound {
+                SOURCE_CHANGED.into()
+            } else {
+                format!("io: cannot open source for comparison: {e}")
+            }
+        })?;
+        let mut digest = Sha256::new();
+        io::copy(&mut current, &mut digest)
+            .map_err(|e| format!("io: cannot compare source with opened snapshot: {e}"))?;
+        drop(current);
+        if format!("{:x}", digest.finalize()) != source.digest {
+            return Err(SOURCE_CHANGED.into());
+        }
+        source_metadata(path)?;
+        staged
+            .persist(path)
+            .map_err(|e| format!("io: cannot replace source: {}", e.error))?;
+        Ok(json!({"output": path, "output_snapshot": selected.digest}))
     }
 
     pub fn close_document(&mut self, document: String) -> Result<Value, String> {
@@ -1267,8 +1338,8 @@ mod tests {
         .to_docx()
         .unwrap();
         let mut session = Session::default();
-        let other = session.register(bytes.clone(), Vec::new(), false).unwrap();
-        let snapshot = session.register(bytes, Vec::new(), false).unwrap();
+        let other = session.register(bytes.clone(), None, false).unwrap();
+        let snapshot = session.register(bytes, None, false).unwrap();
         let document = &snapshot["document"];
         let inspect = |session: &mut Session, document: &Value, view: Value| {
             ToolKind::Inspect

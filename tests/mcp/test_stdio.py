@@ -39,6 +39,7 @@ EXPECTED_TOOLS = {
     "inspect_document": {"document"},
     "preview_edits": {"document"},
     "save_copy": {"document", "preview", "output"},
+    "save_in_place": {"document", "preview"},
     "close_document": {"document"},
 }
 
@@ -311,7 +312,7 @@ async def test_discovery(launch):
     async with launch() as client:
         listing = await client.list_tools()
         tools = {tool.name: tool for tool in listing.tools}
-        assert len(listing.tools) == 6 and tools.keys() == EXPECTED_TOOLS.keys()
+        assert len(listing.tools) == len(EXPECTED_TOOLS) and tools.keys() == EXPECTED_TOOLS.keys()
         assert listing.nextCursor is None
         for name, tool in tools.items():
             assert tool.description and "example" in tool.description.lower()
@@ -1183,6 +1184,89 @@ async def test_retained_selection_lifetime_and_exclusive_save(launch, tmp_path):
         await failure(restarted, "preview_edits", "wrong_owner", document=new["document"],
                       edits=[edit])
     assert not (tmp_path / "closed.docx").exists() and not (tmp_path / "expired.docx").exists()
+
+
+async def test_save_in_place_commits_selected_preview_and_requires_reopen(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    original = make_source(source)
+    copy = tmp_path / "expected.docx"
+    if os.name == "posix":
+        source.chmod(0o640)
+
+    async with launch() as client:
+        document = (await call(client, "open_document", path=source.name))["document"]
+        other = (await call(client, "open_document", path=source.name))["document"]
+        seen = await call(client, "inspect_document", document=document)
+        anchor = seen["body"][0]["anchor"]
+        edit = dict(kind="alignment", anchor=anchor, alignment="center")
+        chosen = await call(client, "preview_edits", document=document, edits=[edit])
+        later = await call(client, "preview_edits", document=document,
+                           edits=[dict(edit, alignment="right")])
+        selected = dict(document=document, preview=chosen["preview"])
+        await failure(client, "save_in_place", "wrong_owner", document=other,
+                      preview=chosen["preview"])
+        await failure(client, "save_in_place", "invalid_preview", document=document,
+                      preview="never issued")
+        await failure(client, "save_in_place", "invalid_input", **selected, output=copy.name)
+        assert source.read_bytes() == original
+
+        await call(client, "save_copy", **selected, output=copy.name)
+        saved = await call(client, "save_in_place", **selected)
+        assert saved == dict(output=str(source.resolve()), output_snapshot=chosen["output_snapshot"])
+        assert source.read_bytes() == copy.read_bytes()
+        assert digest(source.read_bytes()) == saved["output_snapshot"]
+        assert docx.Document(source).paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+        if os.name == "posix":
+            assert source.stat().st_mode & 0o777 == 0o640
+        assert await call(client, "inspect_document", document=document) == seen
+        await failure(client, "save_in_place", "source_changed", document=document,
+                      preview=later["preview"])
+
+        reopened = await call(client, "open_document", path=source.name)
+        assert reopened["snapshot"] == saved["output_snapshot"]
+        current = await call(client, "inspect_document", document=reopened["document"])
+        draft = await call(client, "preview_edits", document=reopened["document"],
+                           edits=[dict(edit, anchor=current["body"][0]["anchor"], alignment="right")])
+        await call(client, "save_in_place", document=reopened["document"], preview=draft["preview"])
+        assert source.read_bytes() != copy.read_bytes()
+        assert docx.Document(source).paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+        assert set(tmp_path.iterdir()) == {source, copy}
+
+
+async def test_save_in_place_refuses_external_changes_and_missing_or_alias_sources(launch, tmp_path):
+    source = tmp_path / "source.docx"
+    original = make_source(source)
+    alias = tmp_path / "alias.docx"
+    async with launch() as client:
+        async def stage(path):
+            document = (await call(client, "open_document", path=path.name))["document"]
+            draft = await call(client, "preview_edits", document=document, operation={"kind": "no-op"})
+            return dict(document=document, preview=draft["preview"])
+
+        selected = await stage(source)
+        created = await call(client, "create_document")
+        await failure(client, "save_in_place", "no_source", document=created["document"],
+                      preview=created["preview"])
+        changed = make_source(source, title="An external edit")
+        assert changed != original
+        await failure(client, "save_in_place", "source_changed", **selected)
+        assert source.read_bytes() == changed
+        assert list(tmp_path.iterdir()) == [source]
+
+        source.unlink()
+        await failure(client, "save_in_place", "source_changed", **selected)
+        assert list(tmp_path.iterdir()) == []
+
+        if os.name == "posix":
+            target = tmp_path / "target.docx"
+            target.write_bytes(original)
+            source.symlink_to(target.name)
+            await failure(client, "save_in_place", "source_changed", **selected)
+            alias.symlink_to(target.name)
+            await failure(client, "save_in_place", "source_alias", **await stage(alias))
+            assert source.is_symlink() and alias.is_symlink()
+            assert target.read_bytes() == original
+            assert set(tmp_path.iterdir()) == {source, alias, target}
 
 
 async def test_capacity_rejects_without_eviction_and_close_releases(launch, tmp_path):
