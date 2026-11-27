@@ -142,7 +142,7 @@ fn shape_hard_line(text: &str, start: u32, face: &Face<'_>) -> Result<(HardLine,
         graphemes.push(Grapheme {
             start: end,
             space: grapheme == " ",
-            no_break: grapheme.starts_with('\u{00a0}'),
+            no_break: grapheme.starts_with(['\u{00a0}', '\u{2011}']),
         });
         let cluster = end;
         for ch in grapheme.chars() {
@@ -484,6 +484,7 @@ mod tests {
         assert!(kerned[0].width < layout("A", i32::MAX)[0].width + layout("V", i32::MAX)[0].width);
         assert_eq!(layout("AV", 1), kerned);
         assert_eq!(layout("W\u{00a0}W", 1).len(), 1);
+        assert_eq!(layout("W\u{2011}W", 1), layout("W\u{2011}W", i32::MAX));
     }
 
     #[test]
